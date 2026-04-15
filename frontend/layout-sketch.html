@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Steuermann Chat</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "evergreen": "#042a2b",
+                        "light-cyan": "#cdedf6",
+                        "pacific-blue": "#5eb1bf",
+                        "atomic-tangerine": "#ef7b45",
+                        "burnt-tangerine": "#d84727",
+                        "primary": "#ef7b45",
+                        "background-light": "#cdedf6",
+                        "background-dark": "#042a2b",
+                    },
+                    fontFamily: {
+                        "display": ["Open Sans", "sans-serif"],
+                        "sans": ["Open Sans", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "0.75rem",
+                        "xl": "1rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        body { font-family: "Open Sans", sans-serif; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #ffffff; }
+        ::-webkit-scrollbar-thumb { background: #cdedf6; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5eb1bf; }
+
+        #sidebar { transition: transform 0.3s ease; }
+        #sidebar-overlay { transition: opacity 0.3s ease; }
+        #message-input { overflow-y: hidden; }
+
+        /* ── Metrics panel expand/collapse via CSS grid trick ── */
+        .metrics-body {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.25s ease;
+        }
+        .metrics-body.open { grid-template-rows: 1fr; }
+        .metrics-body > div { overflow: hidden; }
+
+        .metrics-chevron { transition: transform 0.25s ease; }
+        .metrics-chevron.open { transform: rotate(180deg); }
+
+        /* ── Typing indicator dots ── */
+        @keyframes blink {
+            0%, 80%, 100% { opacity: 0.15; transform: scale(0.85); }
+            40%            { opacity: 1;    transform: scale(1);    }
+        }
+        .typing-dot { display: inline-block; }
+        .typing-dot:nth-child(1) { animation: blink 1.2s ease-in-out infinite 0.0s; }
+        .typing-dot:nth-child(2) { animation: blink 1.2s ease-in-out infinite 0.2s; }
+        .typing-dot:nth-child(3) { animation: blink 1.2s ease-in-out infinite 0.4s; }
+
+        /* ── Timestamp & action buttons: hidden until row hover ── */
+        .msg-timestamp { opacity: 0; transition: opacity 0.15s ease; pointer-events: none; }
+        .msg-row:hover .msg-timestamp { opacity: 1; }
+
+        .msg-actions { opacity: 1; }
+
+        /* ── Copy success flash ── */
+        @keyframes copyFlash {
+            0%   { color: #5eb1bf; }
+            80%  { color: #5eb1bf; }
+            100% { color: inherit; }
+        }
+        .copy-success { animation: copyFlash 1.5s ease forwards; }
+    </style>
+</head>
+
+<!--
+    IMPLEMENTATION NOTES FOR CODING AGENT
+    ======================================
+    LAYOUT
+    - Sidebar: fixed off-canvas drawer on mobile (-translate-x-full), static column on md+.
+    - #sidebar-overlay closes drawer on backdrop click.
+    - .header-title-slot: inject active chat/agent name dynamically.
+
+    CHAT MESSAGES  (placeholders — wire up to your message array/state)
+    - #chat-container: role="log" + aria-live="polite" for screen readers.
+    - .msg-row: hover target that reveals .msg-actions + .msg-timestamp.
+    - Timestamps come from your message data; localise as needed.
+
+    METRICS PANEL  (one per AI message)
+    - Toggle: toggleMetrics(btn). Each panel needs a unique id on .metrics-body
+      and a matching data-metrics on its toggle button.
+    - Populate from API response: usage.input_tokens, usage.output_tokens,
+      stop_reason, model, temperature, response_ms, tool_use blocks.
+    - Tool chips: one <span class="tool-chip"> per tool_use block.
+      Use the pacific-blue variant for success, burnt-tangerine for errors.
+    - Finish reason colour convention used here:
+        "stop"     → text-pacific-blue
+        "tool_use" → text-atomic-tangerine
+        "max_tokens" → text-burnt-tangerine
+
+    TYPING INDICATOR
+    - #typing-indicator: show while awaiting response, hide on completion/stream-start.
+
+    INPUT
+    - rounded-lg on the input container is intentional (was rounded-none in original).
+    - Textarea auto-resize: JS oninput fallback + field-sizing:content for modern browsers.
+    - Language <select>: connect to i18n or remove if unused.
+
+    ACTION BUTTONS (Copy + Regenerate)
+    - Always visible, icon-only, stacked vertically to the right of each AI message bubble.
+    - copyMessage(btn, text): copies text, flashes a check icon on success.
+    - CODING AGENT: pass the full message content string to copyMessage, not a DOM reference.
+    - Regenerate button: wire to your retry handler.
+
+    USER PROFILE
+    - Static example included at bottom of sidebar; link to actual user data and settings.
+-->
+
+<body class="bg-white text-evergreen h-screen overflow-hidden flex flex-col md:flex-row">
+
+    <!-- Mobile overlay -->
+    <div id="sidebar-overlay"
+         class="fixed inset-0 bg-black/50 z-30 hidden md:hidden"
+         onclick="closeSidebar()"
+         aria-hidden="true"></div>
+
+    <!-- ═══════════════════════════ SIDEBAR ═══════════════════════════ -->
+    <aside id="sidebar"
+           class="fixed md:static inset-y-0 left-0 -translate-x-full md:translate-x-0
+                  w-[280px] lg:w-[320px] bg-evergreen flex flex-col h-full
+                  border-r border-white/10 shrink-0 z-40">
+
+        <div class="p-6 pb-2">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex flex-col">
+                    <h1 class="text-light-cyan text-xl font-bold tracking-tight leading-tight">Steuermann</h1>
+                    <span class="text-pacific-blue text-xs font-mono mt-1">AI Agent Orchestration Platform</span>
+                </div>
+                <button class="md:hidden text-light-cyan/70 hover:text-light-cyan transition-colors -mr-1"
+                        onclick="closeSidebar()" aria-label="Close navigation">
+                    <span class="material-symbols-outlined text-[24px]" aria-hidden="true">close</span>
+                </button>
+            </div>
+            <button class="w-full flex items-center justify-center gap-2 bg-atomic-tangerine hover:bg-burnt-tangerine
+                           text-white transition-colors py-3 px-4 rounded-lg font-bold
+                           shadow-lg shadow-atomic-tangerine/20 mb-6 group"
+                    aria-label="Start a new chat">
+                <span class="material-symbols-outlined text-[20px] transition-transform group-hover:rotate-90" aria-hidden="true">add</span>
+                <span>New Chat</span>
+            </button>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto px-4 pb-4 space-y-6" aria-label="Chat history">
+            <div>
+                <h3 class="text-light-cyan text-xs font-bold uppercase tracking-wider mb-3 pl-3">Recent Chats</h3>
+                <div class="space-y-1">
+                    <button class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/10 text-white
+                                   transition-colors hover:bg-white/20 text-left group"
+                            aria-current="page">
+                        <span class="material-symbols-outlined text-light-cyan text-[20px]" aria-hidden="true">smart_toy</span>
+                        <span class="text-sm font-medium truncate flex-1 text-light-cyan">Dataset Anomaly Agent</span>
+                        <span class="material-symbols-outlined text-white/0 group-hover:text-light-cyan/70 text-[16px] transition-colors" aria-hidden="true">more_horiz</span>
+                    </button>
+                    <button class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-light-cyan/80
+                                   hover:text-white hover:bg-white/10 transition-colors text-left group">
+                        <span class="material-symbols-outlined text-light-cyan/60 group-hover:text-light-cyan text-[20px]" aria-hidden="true">terminal</span>
+                        <span class="text-sm font-medium truncate flex-1">Python Debugger</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="p-4 border-t border-white/10 bg-evergreen">
+            <button class="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 text-light-cyan transition-colors"
+                    aria-label="User settings for John Smith">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-pacific-blue to-light-cyan
+                            flex items-center justify-center text-evergreen font-bold shrink-0" aria-hidden="true">JS</div>
+                <div class="flex flex-col items-start overflow-hidden">
+                    <span class="text-sm font-bold truncate w-full text-light-cyan">John Smith</span>
+                    <span class="text-xs text-pacific-blue truncate w-full">Administrator</span>
+                </div>
+                <span class="material-symbols-outlined ml-auto text-light-cyan/70" aria-hidden="true">settings</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════ MAIN ═══════════════════════════ -->
+    <main class="flex-1 flex flex-col h-full bg-white relative isolate min-w-0">
+
+        <!-- Header -->
+        <header class="h-16 md:h-20 bg-light-cyan/20 border-b border-light-cyan flex items-center
+                       justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20">
+            <div class="flex items-center gap-3">
+                <button class="md:hidden text-evergreen hover:text-pacific-blue transition-colors"
+                        onclick="openSidebar()"
+                        aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+                    <span class="material-symbols-outlined text-[24px]" aria-hidden="true">menu</span>
+                </button>
+                <!-- CODING AGENT: inject active chat/agent name here dynamically -->
+                <div class="header-title-slot flex flex-col">
+                    <h2 class="text-evergreen font-bold text-base leading-tight truncate max-w-[200px] md:max-w-none">Dataset Anomaly Agent</h2>
+                    <span class="text-pacific-blue text-xs font-mono hidden md:block">Active session</span>
+                </div>
+            </div>
+            <nav class="flex items-center gap-4 md:gap-6" aria-label="Main navigation">
+                <a class="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue transition-colors text-sm font-medium group" href="#">
+                    <span class="material-symbols-outlined text-[18px] group-hover:scale-110 transition-transform" aria-hidden="true">bar_chart</span>
+                    <span class="hidden sm:inline">Metrics</span>
+                </a>
+                <a class="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue transition-colors text-sm font-medium group" href="#">
+                    <span class="material-symbols-outlined text-[18px] group-hover:scale-110 transition-transform" aria-hidden="true">trending_up</span>
+                    <span class="hidden sm:inline">Analytics</span>
+                </a>
+                <a class="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue transition-colors text-sm font-medium group" href="#">
+                    <span class="material-symbols-outlined text-[18px] group-hover:scale-110 transition-transform" aria-hidden="true">admin_panel_settings</span>
+                    <span class="hidden sm:inline">Admin</span>
+                </a>
+                <a class="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue transition-colors text-sm font-medium group" href="#">
+                    <span class="material-symbols-outlined text-[18px] group-hover:scale-110 transition-transform" aria-hidden="true">settings</span>
+                    <span class="hidden sm:inline">Settings</span>
+                </a>
+            </nav>
+        </header>
+
+        <!-- ─── Chat messages ─── -->
+        <div class="flex-1 overflow-y-auto p-4 md:p-6 lg:px-12 space-y-8 scroll-smooth bg-white"
+             id="chat-container"
+             role="log"
+             aria-live="polite"
+             aria-label="Chat messages">
+
+            <!-- Date separator -->
+            <div class="flex justify-center">
+                <span class="px-3 py-1 bg-light-cyan/30 text-evergreen/60 text-xs font-medium rounded-full">Today, 10:23 AM</span>
+            </div>
+
+            <!-- ════════ AI MESSAGE 1 ════════ -->
+            <!--
+                CODING AGENT:
+                - .msg-row is the hover target for .msg-timestamp and .msg-actions.
+                - data-metrics on the toggle button must match the id on .metrics-body.
+                - Give each message a unique metrics panel id (metrics-1, metrics-2, …).
+            -->
+            <div class="msg-row flex gap-4 max-w-5xl mx-auto">
+                <div class="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1" aria-hidden="true">
+                    <span class="material-symbols-outlined text-white text-[18px]">smart_toy</span>
+                </div>
+                <div class="flex flex-col gap-1 items-start w-full max-w-[85%]">
+                    <!-- Name + timestamp (timestamp fades in on row hover) -->
+                    <div class="flex items-center gap-2 ml-1">
+                        <span class="text-sm font-bold text-evergreen">AI Agent</span>
+                        <span class="msg-timestamp text-xs text-evergreen/40 font-mono">10:23 AM</span>
+                    </div>
+
+                    <div class="text-evergreen text-base leading-relaxed px-1">
+                        <p>Hello! I am ready to assist with your inference tasks. Please provide your input data, or describe the analysis you would like me to perform today.</p>
+                    </div>
+
+                    <!-- ── METRICS PANEL ── -->
+                    <!--
+                        CODING AGENT:
+                        Summary chips (always visible): populate response_ms, total tokens, tool count.
+                        Expanded rows: input_tokens, output_tokens, stop_reason, model, temperature.
+                        Tool chips: render one per tool_use block in the API response.
+                          Success  → pacific-blue variant
+                          Error    → burnt-tangerine variant (see message 2 below for example)
+                        Finish reason colour convention:
+                          "stop"       → text-pacific-blue
+                          "tool_use"   → text-atomic-tangerine
+                          "max_tokens" → text-burnt-tangerine
+                    -->
+                    <div class="mt-2 ml-1 w-full">
+                        <!-- Metrics toggle + action icons in the same row -->
+                        <div class="flex items-center justify-between">
+                            <button data-metrics="metrics-1"
+                                    onclick="toggleMetrics(this)"
+                                    class="flex items-center gap-2 text-xs text-evergreen/40 hover:text-evergreen/70 transition-colors"
+                                    aria-expanded="false"
+                                    aria-controls="metrics-1">
+                            <span class="material-symbols-outlined metrics-chevron text-[14px]" aria-hidden="true">expand_more</span>
+                            <span class="flex items-center gap-1.5 font-mono">
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">timer</span>
+                                    3.2s
+                                </span>
+                                <span class="text-evergreen/20" aria-hidden="true">·</span>
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">toll</span>
+                                    847 tokens
+                                </span>
+                                <span class="text-evergreen/20" aria-hidden="true">·</span>
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">build</span>
+                                    2 tools
+                                </span>
+                            </span>
+                        </button>
+                        <!-- Action icons — same row, pushed right -->
+                        <div class="flex items-center gap-0.5">
+                            <button onclick="copyMessage(this, 'Hello! I am ready to assist with your inference tasks. Please provide your input data, or describe the analysis you would like me to perform today.')"
+                                    class="p-1.5 rounded text-evergreen/30 hover:text-pacific-blue hover:bg-pacific-blue/10 transition-colors"
+                                    aria-label="Copy message">
+                                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">content_copy</span>
+                            </button>
+                            <button class="p-1.5 rounded text-evergreen/30 hover:text-atomic-tangerine hover:bg-atomic-tangerine/10 transition-colors"
+                                    aria-label="Regenerate this response">
+                                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">refresh</span>
+                            </button>
+                        </div>
+                        </div><!-- end flex row -->
+
+                        <!-- Expanded metrics body -->
+                        <div id="metrics-1" class="metrics-body" role="region" aria-label="Response metrics">
+                            <div>
+                                <div class="mt-2 rounded-lg border border-light-cyan/60 bg-light-cyan/10 p-3 text-xs font-mono space-y-3">
+                                    <!-- Timing + tokens + finish reason -->
+                                    <div class="flex flex-wrap gap-x-6 gap-y-2">
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Response time</span>
+                                            <span class="text-evergreen font-semibold">3.2s</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Input tokens</span>
+                                            <span class="text-evergreen font-semibold">312</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Output tokens</span>
+                                            <span class="text-evergreen font-semibold">535</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Finish reason</span>
+                                            <span class="text-pacific-blue font-semibold">stop</span>
+                                        </div>
+                                    </div>
+                                    <!-- Model + temperature -->
+                                    <div class="flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t border-light-cyan/40">
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Model</span>
+                                            <span class="text-evergreen font-semibold">claude-sonnet-4-6</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Temperature</span>
+                                            <span class="text-evergreen font-semibold">0.7</span>
+                                        </div>
+                                    </div>
+                                    <!-- Tools -->
+                                    <div class="pt-2 border-t border-light-cyan/40">
+                                        <span class="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">Tools invoked</span>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            <!-- CODING AGENT: one chip per tool_use block -->
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20">
+                                                <span class="material-symbols-outlined text-[11px]" aria-hidden="true">check_circle</span>
+                                                read_file
+                                            </span>
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20">
+                                                <span class="material-symbols-outlined text-[11px]" aria-hidden="true">check_circle</span>
+                                                run_python
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ── END METRICS PANEL ── -->
+
+                </div>
+            </div>
+            <!-- ════════ END AI MESSAGE 1 ════════ -->
+
+
+            <!-- ════════ USER MESSAGE ════════ -->
+            <div class="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-pacific-blue to-light-cyan
+                            flex items-center justify-center text-evergreen font-bold shrink-0" aria-hidden="true">JS</div>
+                <div class="flex flex-col gap-1 items-end max-w-[85%]">
+                    <div class="flex items-center gap-2 mr-1">
+                        <span class="msg-timestamp text-xs text-evergreen/40 font-mono">10:24 AM</span>
+                        <span class="text-sm font-bold text-pacific-blue">You</span>
+                    </div>
+                    <div class="bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen text-base leading-relaxed border border-pacific-blue/20">
+                        <p>Analyze this dataset for anomalies. I'm specifically looking for outliers in the transaction timestamps relative to the volume.</p>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- ════════ AI MESSAGE 2 (tool_use finish, one failed tool) ════════ -->
+            <div class="msg-row flex gap-4 max-w-5xl mx-auto">
+                <div class="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1" aria-hidden="true">
+                    <span class="material-symbols-outlined text-white text-[18px]">smart_toy</span>
+                </div>
+                <div class="flex flex-col gap-1 items-start w-full max-w-[85%]">
+                    <div class="flex items-center gap-2 ml-1">
+                        <span class="text-sm font-bold text-evergreen">AI Agent</span>
+                        <span class="msg-timestamp text-xs text-evergreen/40 font-mono">10:24 AM</span>
+                    </div>
+
+                    <div class="text-evergreen text-base leading-relaxed px-1">
+                        <p>I've analyzed the dataset. I found <strong>3 significant anomalies</strong> in the transaction timestamps: a spike at 03:47 UTC shows 12× normal volume, a 4-minute gap at 09:12 UTC with zero transactions, and a cluster of backdated entries from 2024-01-15.</p>
+                    </div>
+
+                    <div class="mt-2 ml-1 w-full">
+                        <!-- Metrics toggle + action icons in the same row -->
+                        <div class="flex items-center justify-between">
+                            <button data-metrics="metrics-2"
+                                    onclick="toggleMetrics(this)"
+                                    class="flex items-center gap-2 text-xs text-evergreen/40 hover:text-evergreen/70 transition-colors"
+                                    aria-expanded="false"
+                                    aria-controls="metrics-2">
+                            <span class="material-symbols-outlined metrics-chevron text-[14px]" aria-hidden="true">expand_more</span>
+                            <span class="flex items-center gap-1.5 font-mono">
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">timer</span>
+                                    8.1s
+                                </span>
+                                <span class="text-evergreen/20" aria-hidden="true">·</span>
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">toll</span>
+                                    2,341 tokens
+                                </span>
+                                <span class="text-evergreen/20" aria-hidden="true">·</span>
+                                <span class="flex items-center gap-0.5">
+                                    <span class="material-symbols-outlined text-[13px] text-pacific-blue/70" aria-hidden="true">build</span>
+                                    3 tools
+                                </span>
+                            </span>
+                        </button>
+                        <!-- Action icons — same row, pushed right -->
+                        <div class="flex items-center gap-0.5">
+                            <button onclick="copyMessage(this, &quot;I've analyzed the dataset. I found 3 significant anomalies in the transaction timestamps.&quot;)"
+                                    class="p-1.5 rounded text-evergreen/30 hover:text-pacific-blue hover:bg-pacific-blue/10 transition-colors"
+                                    aria-label="Copy message">
+                                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">content_copy</span>
+                            </button>
+                            <button class="p-1.5 rounded text-evergreen/30 hover:text-atomic-tangerine hover:bg-atomic-tangerine/10 transition-colors"
+                                    aria-label="Regenerate this response">
+                                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">refresh</span>
+                            </button>
+                        </div>
+                        </div><!-- end flex row -->
+
+                        <div id="metrics-2" class="metrics-body" role="region" aria-label="Response metrics">
+                            <div>
+                                <div class="mt-2 rounded-lg border border-light-cyan/60 bg-light-cyan/10 p-3 text-xs font-mono space-y-3">
+                                    <div class="flex flex-wrap gap-x-6 gap-y-2">
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Response time</span>
+                                            <span class="text-evergreen font-semibold">8.1s</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Input tokens</span>
+                                            <span class="text-evergreen font-semibold">1,204</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Output tokens</span>
+                                            <span class="text-evergreen font-semibold">1,137</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Finish reason</span>
+                                            <!-- tool_use → atomic-tangerine -->
+                                            <span class="text-atomic-tangerine font-semibold">tool_use</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t border-light-cyan/40">
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Model</span>
+                                            <span class="text-evergreen font-semibold">claude-sonnet-4-6</span>
+                                        </div>
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-evergreen/40 uppercase tracking-wider text-[10px]">Temperature</span>
+                                            <span class="text-evergreen font-semibold">0.7</span>
+                                        </div>
+                                    </div>
+                                    <div class="pt-2 border-t border-light-cyan/40">
+                                        <span class="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">Tools invoked</span>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20">
+                                                <span class="material-symbols-outlined text-[11px]" aria-hidden="true">check_circle</span>
+                                                read_file
+                                            </span>
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20">
+                                                <span class="material-symbols-outlined text-[11px]" aria-hidden="true">check_circle</span>
+                                                run_python
+                                            </span>
+                                            <!-- Failed tool — burnt-tangerine variant -->
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-burnt-tangerine/10 text-burnt-tangerine border border-burnt-tangerine/20">
+                                                <span class="material-symbols-outlined text-[11px]" aria-hidden="true">error</span>
+                                                web_search
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <!-- ════════ END AI MESSAGE 2 ════════ -->
+
+
+            <!-- ════════ TYPING INDICATOR ════════ -->
+            <!--
+                CODING AGENT: show while waiting for a response, hide once streaming starts or completes.
+                id="typing-indicator" — toggle with display or conditional render in your framework.
+            -->
+            <div id="typing-indicator" class="flex gap-4 max-w-5xl mx-auto">
+                <div class="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1" aria-hidden="true">
+                    <span class="material-symbols-outlined text-white text-[18px]">smart_toy</span>
+                </div>
+                <div class="flex flex-col gap-1 items-start">
+                    <div class="flex items-center gap-2 ml-1">
+                        <span class="text-sm font-bold text-evergreen">AI Agent</span>
+                    </div>
+                    <div class="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
+                         role="status" aria-label="AI is thinking">
+                        <span class="typing-dot w-2 h-2 rounded-full bg-pacific-blue"></span>
+                        <span class="typing-dot w-2 h-2 rounded-full bg-pacific-blue"></span>
+                        <span class="typing-dot w-2 h-2 rounded-full bg-pacific-blue"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="h-12"></div>
+        </div>
+
+        <!-- ═══════════════════════════ INPUT BAR ═══════════════════════════ -->
+        <div class="p-4 md:px-6 lg:px-12 md:pb-8 bg-white shrink-0 border-t border-gray-100">
+            <div class="max-w-5xl mx-auto">
+                <div class="relative flex items-center gap-2 rounded-lg border border-gray-300 p-1 px-2
+                            bg-white hover:border-pacific-blue transition-colors duration-300 shadow-sm">
+                    <label for="message-input" class="sr-only">Message</label>
+                    <textarea id="message-input"
+                              class="w-full bg-transparent border-0 focus:ring-0 text-evergreen
+                                     placeholder-gray-400 py-3 max-h-[200px] min-h-[48px] resize-none text-base"
+                              placeholder="Type your message..."
+                              rows="1"
+                              style="field-sizing: content;"
+                              aria-label="Type your message"
+                              oninput="autoResize(this)"></textarea>
+                    <div class="flex items-center gap-2 pr-1 border-l border-gray-200 pl-2 h-8 my-auto shrink-0">
+                        <button class="text-evergreen/40 hover:text-burnt-tangerine transition-colors rounded
+                                       hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1"
+                                aria-label="Send message">
+                            <span class="material-symbols-outlined text-[20px] text-burnt-tangerine" aria-hidden="true">send</span>
+                            <span class="text-xs font-medium text-evergreen/60 hidden sm:inline">Send</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex justify-between items-center mt-2 px-1">
+                    <div class="flex items-center gap-2">
+                        <!-- CODING AGENT: connect to i18n or remove if unused -->
+                        <label for="language-select" class="sr-only">Response language</label>
+                        <select id="language-select"
+                                class="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-evergreen/70 focus:border-pacific-blue focus:ring-0"
+                                aria-label="Response language">
+                            <option value="en">English</option>
+                            <option value="de">Deutsch</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ── Sidebar ──────────────────────────────────────────────────────────
+        function openSidebar() {
+            document.getElementById('sidebar').classList.remove('-translate-x-full');
+            document.getElementById('sidebar-overlay').classList.remove('hidden');
+            const toggle = document.querySelector('[aria-controls="sidebar"]');
+            if (toggle) toggle.setAttribute('aria-expanded', 'true');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.add('-translate-x-full');
+            document.getElementById('sidebar-overlay').classList.add('hidden');
+            const toggle = document.querySelector('[aria-controls="sidebar"]');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+
+        // ── Textarea auto-resize ──────────────────────────────────────────────
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+            el.style.overflowY = el.scrollHeight > 200 ? 'auto' : 'hidden';
+        }
+
+        // ── Metrics panel toggle ──────────────────────────────────────────────
+        function toggleMetrics(btn) {
+            const panel = document.getElementById(btn.dataset.metrics);
+            const chevron = btn.querySelector('.metrics-chevron');
+            const isOpen = panel.classList.contains('open');
+            panel.classList.toggle('open', !isOpen);
+            chevron.classList.toggle('open', !isOpen);
+            btn.setAttribute('aria-expanded', String(!isOpen));
+        }
+
+        // ── Copy message ──────────────────────────────────────────────────────
+        function copyMessage(btn, text) {
+            const icon = btn.querySelector('.material-symbols-outlined');
+            const doFlash = () => {
+                icon.textContent = 'check';
+                icon.classList.add('copy-success');
+                setTimeout(() => {
+                    icon.textContent = 'content_copy';
+                    icon.classList.remove('copy-success');
+                }, 1500);
+            };
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(doFlash).catch(() => fallbackCopy(text, doFlash));
+            } else {
+                fallbackCopy(text, doFlash);
+            }
+        }
+        function fallbackCopy(text, cb) {
+            const ta = Object.assign(document.createElement('textarea'), {
+                value: text, style: 'position:fixed;opacity:0'
+            });
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); cb(); } catch(e) {}
+            document.body.removeChild(ta);
+        }
+    </script>
+</body>
+</html>

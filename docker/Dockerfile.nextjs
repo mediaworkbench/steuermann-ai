@@ -1,0 +1,63 @@
+# Production-ready Next.js frontend dockerfile
+# Multi-stage build: dependencies -> build -> runtime
+
+# Stage 1: Dependencies
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 300000 && \
+    npm ci --only=production
+
+# Stage 2: Build
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-timeout 300000 && \
+    npm ci
+COPY frontend ./
+ARG NEXT_PUBLIC_API_BASE=/api/proxy
+ARG NEXT_PUBLIC_AUTH_ENABLED=false
+ARG NEXT_PUBLIC_SINGLE_USER_ID=anonymous
+ARG NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME=Single User
+ARG NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL=Local Profile
+ARG NEXT_PUBLIC_SINGLE_USER_EMAIL=
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+ENV NEXT_PUBLIC_AUTH_ENABLED=${NEXT_PUBLIC_AUTH_ENABLED}
+ENV NEXT_PUBLIC_SINGLE_USER_ID=${NEXT_PUBLIC_SINGLE_USER_ID}
+ENV NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME=${NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME}
+ENV NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL=${NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL}
+ENV NEXT_PUBLIC_SINGLE_USER_EMAIL=${NEXT_PUBLIC_SINGLE_USER_EMAIL}
+RUN npm run build
+
+# Stage 3: Runtime
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+# Copy runtime files
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Switch to non-root user
+USER nextjs
+
+# Port and health check
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Start Next.js
+CMD ["npm", "start"]

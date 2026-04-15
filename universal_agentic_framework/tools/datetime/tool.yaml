@@ -1,0 +1,30 @@
+name: "datetime_tool"
+version: "1.0.0"
+category: "utilities"
+description: "Get current date/time and perform datetime operations"
+
+# Language-specific descriptions (used by semantic tool routing)
+descriptions:
+  en: "Get current date and time. Use for questions about 'today', 'now', 'current time', or any date/time queries."
+  de: "Aktuelle Uhrzeit und Datum abrufen. Verwenden für Fragen wie 'Welcher Tag ist heute?', 'jetzt', 'aktuelle Zeit' oder Datum/Zeit-Anfragen."
+  fr: "Obtenir la date et l'heure actuelles. À utiliser pour les questions sur 'aujourd'hui', 'maintenant', 'heure actuelle' ou toute question sur la date/heure."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.datetime.tool:DateTimeTool"
+
+# No external dependencies required (uses Python stdlib)
+dependencies: []
+
+# Configuration schema
+config_schema:
+  default_timezone:
+    type: "string"
+    default: "UTC"
+    description: "Default timezone (e.g., 'Europe/Berlin', 'America/New_York')"
+
+# Permissions required
+permissions:
+  - "system:time"
+
+# Cost estimate (local operation, free)
+cost_per_call: 0.0

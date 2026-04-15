@@ -1,0 +1,63 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN groupadd -r ingestion && useradd -r -g ingestion ingestion
+
+# Install system deps (build toolchain for wheels + curl for health checks)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml poetry.lock* README.md ./
+COPY universal_agentic_framework ./universal_agentic_framework
+COPY config ./config
+
+# Install Poetry dependencies (service-scoped)
+RUN pip install --no-cache-dir "poetry>=1.7.0" && \
+    poetry config virtualenvs.create false && \
+    export POETRY_REQUESTS_TIMEOUT=180 && \
+    attempts=0 && \
+    until [ "$attempts" -ge 3 ]; do \
+      poetry install --only main,ingestion --no-interaction --no-ansi --no-root && break; \
+      attempts=$((attempts + 1)); \
+      echo "Poetry install failed (attempt ${attempts}/3), retrying..."; \
+      sleep 10; \
+    done && \
+    [ "$attempts" -lt 3 ]
+
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime-only system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r ingestion && useradd -r -g ingestion ingestion
+
+# Copy installed Python packages and app code from builder
+COPY --from=builder /usr/local /usr/local
+COPY --from=builder /app/universal_agentic_framework ./universal_agentic_framework
+COPY --from=builder /app/config ./config
+
+# Switch to non-root user
+RUN chown -R ingestion:ingestion /app
+USER ingestion
+
+# Default environment (can be overridden by compose)
+ENV INGEST_COLLECTION=framework \
+    INGEST_LANGUAGE=en \
+    HF_HOME=/app/.cache/huggingface
+
+# Healthcheck: verify Qdrant connectivity
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://${QDRANT_HOST:-qdrant}:${QDRANT_PORT:-6333}/collections || exit 1
+
+# Use CLI module as entrypoint; compose will pass subcommands/args
+ENTRYPOINT ["python", "-m", "universal_agentic_framework.cli.ingest"]

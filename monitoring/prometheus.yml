@@ -1,0 +1,63 @@
+# Prometheus configuration for Steuermann
+# Scrapes metrics from LangGraph orchestration server and system services
+
+global:
+  scrape_interval: 15s      # Scrape targets every 15 seconds
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  external_labels:
+    monitor: 'steuermann-ai'
+    environment: 'development'
+
+# Alert rules evaluated locally (no alertmanager)
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# Scrape configurations
+scrape_configs:
+  # LangGraph Orchestration Server (primary metrics source)
+  # Exports: langgraph_requests_total, langgraph_tokens_used_total, langgraph_active_sessions, etc.
+  - job_name: 'langgraph'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['langgraph:8000']
+        labels:
+          service: 'langgraph'
+          component: 'orchestration'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+  
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          component: 'monitoring'
+
+  # FastAPI Adapter (workspace/action metrics are emitted here)
+  - job_name: 'fastapi'
+    static_configs:
+      - targets: ['fastapi:8001']
+        labels:
+          service: 'fastapi'
+          component: 'adapter'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # PostgreSQL metrics (optional, requires postgres_exporter sidecar)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         service: 'postgres'
+  #         component: 'database'
+
+  # Qdrant metrics (if available in future)
+  # - job_name: 'qdrant'
+  #   static_configs:
+  #     - targets: ['qdrant:6333']
+  #       labels:
+  #         service: 'qdrant'
+  #         component: 'vector-store'
+  #   metrics_path: '/metrics'

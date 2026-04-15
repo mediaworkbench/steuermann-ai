@@ -1,0 +1,47 @@
+# Starter profile overlay template.
+# This mirrors current tool defaults and can be customized per profile.
+
+loading_mode: explicit
+
+tools:
+  - name: datetime_tool
+    path: universal_agentic_framework/tools/datetime
+    enabled: true
+
+  - name: calculator_tool
+    path: universal_agentic_framework/tools/calculator
+    enabled: true
+
+  - name: file_ops_tool
+    path: universal_agentic_framework/tools/file_ops
+    enabled: true
+    config:
+      sandbox_dir: ""
+      max_read_size_bytes: 1048576
+      max_write_size_bytes: 1048576
+
+  - name: web_search_mcp
+    path: universal_agentic_framework/tools/web_search
+    enabled: true
+    config:
+      server_url: $WEB_SEARCH_MCP_URL
+      timeout: 30
+      default_tool: search
+      save_to_rag: false
+      rag_data_path: ""
+
+  - name: extract_webpage_mcp
+    path: universal_agentic_framework/tools/web_search
+    enabled: true
+    config:
+      server_url: $WEB_SEARCH_MCP_URL
+      timeout: 30
+      default_tool: fetch_content
+      save_to_rag: false
+      rag_data_path: ""
+
+  - name: mcp_stub
+    path: universal_agentic_framework/tools/mcp_stub
+    enabled: false
+    config:
+      server_url: http://localhost:9999

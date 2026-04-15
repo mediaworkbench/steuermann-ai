@@ -1,0 +1,95 @@
+.main {
+  flex: 1 1 0%;
+  overflow-y: auto;
+  padding: 1rem;
+  scroll-behavior: smooth;
+  background-color: #fff;
+}
+
+@media (min-width: 768px) {
+  .main {
+    padding: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .main {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+}
+
+.main > * + * {
+  margin-top: 2rem;
+}
+
+.header {
+  margin-bottom: var(--spacing-lg);
+}
+
+.title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.accountCard {
+  display: block;
+}
+
+.accountInfo {
+  min-width: 0;
+}
+
+.accountName {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.errorTitle {
+  font-weight: 600;
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.error p {
+  margin: 0;
+}
+
+.debug {
+  margin-top: var(--spacing-xl);
+  background: var(--bg-secondary);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.debug summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.debug pre {
+  margin-top: var(--spacing-sm);
+  overflow: auto;
+  max-height: 400px;
+  font-size: 0.75rem;
+}

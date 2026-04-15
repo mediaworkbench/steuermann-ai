@@ -1,0 +1,66 @@
+# Starter profile overlay template.
+# Only profile-safe core keys are allowed here.
+
+fork:
+  language: "de"
+  locale: "de_DE"
+  timezone: "Europe/Berlin"
+  supported_languages:
+    - "de"
+    - "en"
+
+llm:
+  providers:
+    primary:
+      type: "openai"
+      endpoint: $LLM_ENDPOINT
+      models:
+        en: "liquid/lfm2-24b-a2b"
+        de: "liquid/lfm2-24b-a2b"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 300
+      tool_calling: "native"
+    fallback:
+      type: "openai"
+      endpoint: $LLM_ENDPOINT
+      models:
+        en: "liquid/lfm2-24b-a2b"
+        de: "liquid/lfm2-24b-a2b"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 300
+      tool_calling: "native"
+
+memory:
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
+
+rag:
+  enabled: true
+  collection_name: $INGEST_COLLECTION
+  top_k: 5
+  score_threshold: 0.6
+  with_payload:
+    - text
+    - file_path
+    - detected_language
+    - language_confidence
+  with_vectors: false
+  timeout_seconds: 30
+
+tokens:
+  default_budget: 10000
+  per_node_budgets: {}
+
+# Prompt templates loaded from config/profiles/starter/prompts/{lang}.yaml.
+
+tool_routing:
+  similarity_threshold: 0.55
+  embedding_model: "text-embedding-granite-embedding-278m-multilingual"
+  top_k: 5
+  intent_boost: 0.2
+  max_retries: 2
+  min_top_score: 0.7
+  min_spread: 0.10

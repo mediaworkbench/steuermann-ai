@@ -1,0 +1,59 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pyproject.toml and optional poetry.lock
+COPY pyproject.toml poetry.lock* ./
+
+# Install Poetry and dependencies
+RUN pip install --no-cache-dir "poetry>=1.7.0" && \
+        poetry config virtualenvs.create false && \
+        export POETRY_REQUESTS_TIMEOUT=180 && \
+        attempts=0 && \
+        until [ "$attempts" -ge 3 ]; do \
+            poetry install --only main,fastapi,ingestion --no-interaction --no-ansi --no-root && break; \
+            attempts=$((attempts + 1)); \
+            echo "Poetry install failed (attempt ${attempts}/3), retrying..."; \
+            sleep 10; \
+        done && \
+        [ "$attempts" -lt 3 ]
+
+# Copy source code
+COPY backend/ ./backend/
+COPY config/ ./config/
+COPY universal_agentic_framework/ ./universal_agentic_framework/
+
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime-only system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages and app code from builder
+COPY --from=builder /usr/local /usr/local
+COPY --from=builder /app/backend ./backend/
+COPY --from=builder /app/config ./config/
+COPY --from=builder /app/universal_agentic_framework ./universal_agentic_framework/
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+CMD ["python", "-m", "uvicorn", \
+     "backend.fastapi_app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8001"]

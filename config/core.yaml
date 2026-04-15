@@ -1,0 +1,91 @@
+fork:
+  name: $PROFILE_ID
+  language: "de"
+  locale: "de_DE"
+  timezone: "Europe/Berlin"
+
+llm:
+  providers:
+    primary:
+      type: "openai"
+      endpoint: $LLM_ENDPOINT
+      models:
+        en: "liquid/lfm2-24b-a2b"
+        de: "liquid/lfm2-24b-a2b"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 300
+      tool_calling: "native"
+    fallback:
+      type: "openai"
+      endpoint: $LLM_ENDPOINT
+      models:
+        en: "liquid/lfm2-24b-a2b"
+        de: "liquid/lfm2-24b-a2b"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 300
+      tool_calling: "native"
+
+database:
+  url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+  pool_size: 10
+  echo: false
+
+memory:
+  vector_store:
+    type: "qdrant"
+    host: $QDRANT_HOST
+    port: 6333
+    collection_prefix: $PROFILE_ID
+  embeddings:
+    model: "text-embedding-granite-embedding-278m-multilingual"
+    dimension: 768
+    provider: "remote"
+    remote_endpoint: $EMBEDDING_SERVER
+    batch_size: 32
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
+
+rag:
+  enabled: true
+  collection_name: $INGEST_COLLECTION
+  top_k: 5
+  score_threshold: 0.6
+  with_payload:
+    - text
+    - file_path
+    - detected_language
+    - language_confidence
+  with_vectors: false
+  timeout_seconds: 30
+
+tokens:
+  default_budget: 10000
+  conversation_budget: null
+  per_turn_budget: null
+  per_turn_budget_ratio: 0.4
+  response_reserve_ratio: 0.15
+  enforce_per_node_hard_limit: true
+  per_node_budgets: {}
+
+checkpointing:
+  enabled: false
+  backend: "sqlite"
+  sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
+  postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
+
+# Prompt templates are loaded from config/prompts/{lang}.yaml files.
+# Profile overlays can add config/profiles/<profile>/prompts/{lang}.yaml.
+# Environment variable overrides (PROMPT_SYSTEM_*, PROMPT_SYNTHESIS_*, PROMPT_LANG_*)
+# take highest precedence at runtime.
+
+tool_routing:
+  similarity_threshold: 0.55
+  embedding_model: "text-embedding-granite-embedding-278m-multilingual"
+  top_k: 5
+  intent_boost: 0.2
+  max_retries: 2
+  min_top_score: 0.7
+  min_spread: 0.10

@@ -1,0 +1,20 @@
+name: "mcp_stub"
+version: "0.0.1"
+type: "mcp_server"
+description: "Skeleton MCP server placeholder for registry wiring and tests."
+enabled: false
+
+# No entry_point required for MCP servers; registry wraps via MCPServerTool.
+# Configuration is provided via config/tools.yaml using the `config.server_url` field.
+
+config:
+  server_url: http://localhost:9999
+
+config_schema:
+  server_url:
+    type: "string"
+    description: "Base URL of the MCP server (e.g., http://localhost:9999)."
+    required: true
+
+permissions:
+  - "mcp:invoke"

@@ -1,0 +1,34 @@
+name: "calculator_tool"
+version: "1.0.0"
+category: "utilities"
+description: "Perform mathematical calculations, unit conversions, and statistical operations"
+
+# Language-specific descriptions (used by semantic tool routing)
+descriptions:
+  en: "Perform mathematical calculations, arithmetic, algebra, unit conversions, and statistics. Use for questions involving numbers, formulas, percentages, averages, or 'calculate', 'compute', 'how much'."
+  de: "Mathematische Berechnungen, Arithmetik, Algebra, Einheitenumrechnungen und Statistik durchführen. Verwenden für Fragen mit Zahlen, Formeln, Prozenten, Durchschnitten oder 'berechne', 'rechne', 'wie viel'."
+  fr: "Effectuer des calculs mathématiques, de l'arithmétique, de l'algèbre, des conversions d'unités et des statistiques. À utiliser pour les questions impliquant des nombres, formules, pourcentages, moyennes ou 'calculer', 'combien'."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.calculator.tool:CalculatorTool"
+
+# No external dependencies required (uses Python stdlib + math)
+dependencies: []
+
+# Configuration schema
+config_schema:
+  max_expression_length:
+    type: "integer"
+    default: 500
+    description: "Maximum length of expression string to evaluate (security limit)"
+  precision:
+    type: "integer"
+    default: 10
+    description: "Decimal precision for results"
+
+# Permissions required
+permissions:
+  - "system:compute"
+
+# Cost estimate (local operation, free)
+cost_per_call: 0.0

@@ -1,0 +1,53 @@
+groups:
+  - name: framework_alerts
+    interval: 30s
+    rules:
+      - alert: LangGraphTargetDown
+        expr: up{job="langgraph"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: langgraph
+        annotations:
+          summary: LangGraph target is down
+          description: Prometheus cannot scrape langgraph:8000 for at least 2 minutes.
+
+      - alert: HighErrorRate
+        expr: sum(rate(langgraph_requests_total{status="error"}[5m])) / clamp_min(sum(rate(langgraph_requests_total[5m])), 1) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: High request error rate
+          description: Error rate is above 10% for the last 5 minutes.
+
+      - alert: P95LatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(langgraph_request_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: High p95 request latency
+          description: P95 request latency exceeded 5 seconds for 5 minutes.
+
+      - alert: NoSuccessfulRequests
+        expr: sum(rate(langgraph_requests_total{status="success"}[10m])) == 0 and sum(rate(langgraph_requests_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          service: langgraph
+        annotations:
+          summary: No successful requests
+          description: Requests are arriving but none succeeded for 10 minutes.
+
+      - alert: DailyTokenUsageHigh
+        expr: sum(increase(langgraph_tokens_used_total[24h])) > 1000000
+        for: 10m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: Daily token usage high
+          description: Token usage in the last 24h exceeded 1,000,000 tokens.

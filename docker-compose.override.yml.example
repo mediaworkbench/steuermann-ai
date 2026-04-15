@@ -1,0 +1,96 @@
+# Docker Compose Override Example
+#
+# Use this to override default ports on your local machine WITHOUT modifying docker-compose.yml
+#
+# Instructions:
+# 1. Copy this file to docker-compose.override.yml
+#    $ cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# 2. Edit docker-compose.override.yml and change ports as needed
+#
+# 3. Run docker compose normally — it will automatically merge your override file:
+#    $ docker compose up -d
+#
+# Security Model:
+# By default (docker-compose.yml):
+# - Frontend (NextJS, port 3000) is exposed for app access
+# - Backend (FastAPI, port 8001) is exposed for API access
+# - Internal services (Qdrant, Prometheus, PostgreSQL, Redis) are isolated to the Docker network
+#
+# For local development, copy this file to docker-compose.override.yml to expose
+# internal services. Docker Compose auto-merges it on every `docker compose up`.
+#
+# This approach keeps your local port configuration out of version control while keeping
+# docker-compose.yml unchanged for the team.
+
+services:
+  # Frontend (default: 3000)
+  nextjs:
+    ports:
+      - "3000:3000"
+
+  # FastAPI backend (default: 8001)
+  fastapi:
+    ports:
+      - "8001:8001"
+
+  # PostgreSQL (default: 5432)
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Redis (default: 6379)
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Qdrant vector DB (default: 6333)
+  qdrant:
+    ports:
+      - "6333:6333"
+
+  # Prometheus metrics (default: 9090)
+  prometheus:
+    ports:
+      - "9090:9090"
+
+#
+# Example: Using different ports
+# ─────────────────────────────────────────────────────────────
+# If port 3000 is already in use, change nextjs to:
+#
+#   nextjs:
+#     ports:
+#       - "9000:3000"  # Access at http://localhost:9000
+#
+# If port 8001 is already in use, change fastapi to:
+#
+#   fastapi:
+#     ports:
+#       - "9001:8001"  # Update NEXT_PUBLIC_API_BASE in .env if needed
+#
+# If port 5432 is already in use, change postgres to:
+#
+#   postgres:
+#     ports:
+#       - "9432:5432"  # Update POSTGRES_PORT in .env if needed
+#
+# If port 6333 is already in use, change qdrant to:
+#
+#   qdrant:
+#     ports:
+#       - "9333:6333"  # Update QDRANT_PORT in .env if needed
+#
+# If port 9090 is already in use, change prometheus to:
+#
+#   prometheus:
+#     ports:
+#       - "9991:9090"  # Update PROMETHEUS_URL in docker-compose.yml if needed
+#
+# Raspberry Pi 5 / ARM64: Qdrant startup fails with jemalloc page size error
+# ───────────────────────────────────────────────────────────────────────────
+# If you see "Unsupported system page size" in Qdrant logs, override image:
+#
+#   qdrant:
+#     image: haktansuren/qdrant-pi5-fixed-jemalloc
+

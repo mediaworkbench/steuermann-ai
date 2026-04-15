@@ -1,0 +1,20 @@
+# Starter profile overlay template.
+# Deployment-global flags are intentionally excluded.
+
+multi_agent_crews: false
+long_term_memory: true
+rag_retrieval: true
+
+memory_importance_scoring: true
+memory_include_related: true
+memory_top_k: 5
+
+ui_tool_visualization: true
+ui_token_counter: true
+ui_export_chat: true
+crew_result_caching: true
+crew_cache_ttl_seconds: 3600
+
+crew_chaining: false
+crew_parallel_execution: false
+crew_result_validation: true

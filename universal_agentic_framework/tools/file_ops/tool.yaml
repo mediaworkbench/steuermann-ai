@@ -1,0 +1,43 @@
+name: "file_ops_tool"
+version: "1.0.0"
+category: "utilities"
+description: "Read, write, and list files and directories within a sandboxed workspace"
+
+# Language-specific descriptions (used by semantic tool routing)
+descriptions:
+  en: "Read, write, and list files and directories. Use for questions about file contents, saving text, listing directory contents, checking if a file exists, or file size."
+  de: "Dateien und Verzeichnisse lesen, schreiben und auflisten. Verwenden für Fragen über Dateiinhalte, Text speichern, Verzeichnisinhalte auflisten, ob eine Datei existiert, oder Dateigröße."
+  fr: "Lire, écrire et lister des fichiers et répertoires. À utiliser pour les questions sur le contenu des fichiers, la sauvegarde de texte, le listage de répertoires, l'existence d'un fichier ou la taille des fichiers."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.file_ops.tool:FileOpsTool"
+
+# No external dependencies required
+dependencies: []
+
+# Configuration schema
+config_schema:
+  sandbox_dir:
+    type: "string"
+    default: ""
+    description: "Root directory for sandboxed file operations. Empty string means current working directory."
+  max_read_size_bytes:
+    type: "integer"
+    default: 1048576
+    description: "Maximum file size to read (default 1MB)"
+  max_write_size_bytes:
+    type: "integer"
+    default: 1048576
+    description: "Maximum file size to write (default 1MB)"
+  allowed_extensions:
+    type: "array"
+    default: [".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".xml", ".html", ".log", ".py", ".js", ".ts"]
+    description: "Allowed file extensions for read/write operations"
+
+# Permissions required
+permissions:
+  - "filesystem:read"
+  - "filesystem:write"
+
+# Cost estimate (local operation, free)
+cost_per_call: 0.0

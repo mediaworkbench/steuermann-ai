@@ -1,0 +1,232 @@
+name: steuermann
+
+services:
+
+  langgraph:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.langgraph
+    environment:
+      - PROFILE_ID=${PROFILE_ID:-base}
+      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
+      - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
+      - INGEST_LANGUAGE=${INGEST_LANGUAGE:-de}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-framework}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or the shell environment}
+      - POSTGRES_DB=${POSTGRES_DB:-framework}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CHECKPOINTER_ENABLED=${CHECKPOINTER_ENABLED:-false}
+      - CHECKPOINTER_BACKEND=${CHECKPOINTER_BACKEND:-sqlite}
+      - CHECKPOINTER_DB_PATH=${CHECKPOINTER_DB_PATH:-/data/checkpoints/langgraph_checkpoints.sqlite}
+      - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-}
+      - WEB_SEARCH_MCP_URL=http://duckduckgo-mcp:8000/mcp
+      - PROMPT_SYSTEM_EN=${PROMPT_SYSTEM_EN:-}
+      - PROMPT_SYSTEM_DE=${PROMPT_SYSTEM_DE:-}
+      - PROMPT_TOOLING_MODE=${PROMPT_TOOLING_MODE:-}
+      - PROMPT_SYNTHESIS_EN=${PROMPT_SYNTHESIS_EN:-}
+      - PROMPT_SYNTHESIS_DE=${PROMPT_SYNTHESIS_DE:-}
+      - PROMPT_SOURCES=${PROMPT_SOURCES:-}
+      - PROMPT_LANG_EN=${PROMPT_LANG_EN:-}
+      - PROMPT_LANG_DE=${PROMPT_LANG_DE:-}
+    expose:
+      - "8000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data/checkpoints:/data/checkpoints
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      duckduckgo-mcp:
+        condition: service_started
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.fastapi
+    ports:
+      - "8001:8001"
+    environment:
+      - PROFILE_ID=${PROFILE_ID:-base}
+      - AUTH_USERNAME=${AUTH_USERNAME:-anonymous}
+      - CHAT_ACCESS_TOKEN=${CHAT_ACCESS_TOKEN:-}
+      - CHAT_ATTACHMENTS_ROOT=${CHAT_ATTACHMENTS_ROOT:-/tmp/steuermann-ai/chat-workspaces}
+      - CHAT_ATTACHMENTS_MAX_FILE_BYTES=${CHAT_ATTACHMENTS_MAX_FILE_BYTES:-524288}
+      - CHAT_ATTACHMENTS_RETENTION_HOURS=${CHAT_ATTACHMENTS_RETENTION_HOURS:-168}
+      - CHAT_WORKSPACE_ENABLED=${CHAT_WORKSPACE_ENABLED:-false}
+      - CHAT_WORKSPACE_ROOT=${CHAT_WORKSPACE_ROOT:-}
+      - CHAT_WORKSPACE_RETENTION_HOURS=${CHAT_WORKSPACE_RETENTION_HOURS:-24}
+      - LANGGRAPH_URL=http://langgraph:8000
+      - PROMETHEUS_URL=http://prometheus:9090
+      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-framework}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or the shell environment}
+      - POSTGRES_DB=${POSTGRES_DB:-framework}
+      - RAG_DATA_PATH=/data/rag-data
+    depends_on:
+      langgraph:
+        condition: service_healthy
+    volumes:
+      - ${WORKSPACES_PATH:-./data/workspaces}:/tmp/steuermann-ai/chat-workspaces
+      - ${RAG_DATA_PATH:-./data/rag-data}:/data/rag-data:ro
+    restart: unless-stopped
+
+  nextjs:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nextjs
+      args:
+        - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE:-/api/proxy}
+        - NEXT_PUBLIC_AUTH_ENABLED=${AUTH_ENABLED:-false}
+        - NEXT_PUBLIC_CHAT_WORKSPACE_ENABLED=${CHAT_WORKSPACE_ENABLED:-false}
+        - NEXT_PUBLIC_SINGLE_USER_ID=${AUTH_USERNAME:-anonymous}
+        - NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME=${NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME:-Single User}
+        - NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL=${NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL:-Local Profile}
+        - NEXT_PUBLIC_SINGLE_USER_EMAIL=${NEXT_PUBLIC_SINGLE_USER_EMAIL:-}
+    ports:
+      - "3000:3000"
+    environment:
+      - FASTAPI_URL=http://fastapi:8001
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH:-}
+      - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:-}
+      - CHAT_ACCESS_TOKEN=${CHAT_ACCESS_TOKEN:-}
+      - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE:-/api/proxy}
+      - NEXT_PUBLIC_AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - NEXT_PUBLIC_CHAT_WORKSPACE_ENABLED=${CHAT_WORKSPACE_ENABLED:-false}
+      - NEXT_PUBLIC_SINGLE_USER_ID=${AUTH_USERNAME:-anonymous}
+      - NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME=${NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME:-Single User}
+      - NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL=${NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL:-Local Profile}
+      - NEXT_PUBLIC_SINGLE_USER_EMAIL=${NEXT_PUBLIC_SINGLE_USER_EMAIL:-}
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ingestion
+    environment:
+      - PROFILE_ID=${PROFILE_ID:-base}
+      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
+      - INGEST_LANGUAGE=${INGEST_LANGUAGE:-de}
+      - INGEST_LANGUAGE_THRESHOLD=${INGEST_LANGUAGE_THRESHOLD:-0.8}
+      - INGEST_EMBEDDING_BATCH_SIZE=${INGEST_EMBEDDING_BATCH_SIZE:-32}
+      - INGEST_UPSERT_BATCH_SIZE=${INGEST_UPSERT_BATCH_SIZE:-128}
+      - INGEST_FILE_CONCURRENCY=${INGEST_FILE_CONCURRENCY:-2}
+      - INGEST_INCREMENTAL=${INGEST_INCREMENTAL:-true}
+      - INGEST_PHASE_TIMING=${INGEST_PHASE_TIMING:-true}
+      - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
+    command: ["watch", "--source", "/data/ingest", "--collection", "${INGEST_COLLECTION}", "--language", "${INGEST_LANGUAGE}"]
+    volumes:
+      - ./config:/app/config:ro
+      - ${RAG_DATA_PATH:-./data/rag-data}:/data/ingest:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15.5-alpine
+    environment:
+      POSTGRES_USER: framework
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or the shell environment}
+      POSTGRES_DB: framework
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "framework"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    expose:
+      - "6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    expose:
+      - "9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  duckduckgo-mcp:
+    image: mcp/duckduckgo
+    command: ["python", "-c", "from duckduckgo_mcp_server.server import mcp; from mcp.server.fastmcp.server import TransportSecuritySettings; mcp.settings.host='0.0.0.0'; mcp.settings.transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False); mcp.run(transport='streamable-http')"]
+    environment:
+      - DDG_SAFE_SEARCH=MODERATE
+      - DDG_REGION=${SEARCH_REGION:-de-de}
+    volumes:
+      - ${RAG_DATA_PATH:-./data/rag-data}/web:/data/rag-web
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  redis-data:
+  prometheus-data:
+
+networks:
+  default:
+    name: steuermann-network

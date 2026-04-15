@@ -1,0 +1,116 @@
+# MCP Server Manifest: Web Search
+# Part of Steuermann
+# See docs/mcp-servers.md for implementation details
+
+name: "web_search_mcp"
+version: "1.0.0"
+type: "mcp_server"
+description: |
+  Web search and content extraction MCP server.
+  Provides DuckDuckGo-powered search and webpage content extraction
+  with circuit breaker resilience patterns.
+
+# Language-specific descriptions (used by semantic tool routing)
+descriptions:
+  en: "Search the web to find current information, news, articles, or answers to questions. Use when information is not in knowledge base or when user asks about recent events, current prices, market data, web content, or general internet search."
+  de: "Das Web durchsuchen um aktuelle Informationen, News, Artikel oder Antworten zu finden. Verwenden wenn Informationen nicht in der Wissensdatenbank sind oder wenn Nutzer nach aktuellen Ereignissen, Preisen, Marktdaten, Web-Inhalten oder allgemeiner Internet-Suche fragt."
+  fr: "Rechercher sur le web pour trouver des informations actuelles, des nouvelles, des articles ou des réponses. À utiliser quand l'information n'est pas dans la base de connaissances ou quand l'utilisateur demande des événements récents, prix actuels, données de marché, contenu web ou recherche internet générale."
+
+# Tool-specific descriptions for individual tools exposed by this server
+tool_descriptions:
+  search:
+    en: "Search the web to find current information, news, articles, or answers to questions. Use when information is not in knowledge base or when user asks about recent events, current prices, market data, web content, or general internet search."
+    de: "Das Web durchsuchen um aktuelle Informationen, News, Artikel oder Antworten zu finden. Verwenden wenn Informationen nicht in der Wissensdatenbank sind oder wenn Nutzer nach aktuellen Ereignissen, Preisen, Marktdaten, Web-Inhalten oder allgemeiner Internet-Suche fragt."
+    fr: "Rechercher sur le web pour trouver des informations actuelles, des nouvelles, des articles ou des réponses. À utiliser quand l'information n'est pas dans la base de connaissances ou quand l'utilisateur demande des événements récents, prix actuels, données de marché, contenu web ou recherche internet générale."
+  
+  fetch_content:
+    en: "Extract and read content from a specific URL/webpage. Use when user provides a URL and wants to know what's on that page."
+    de: "Inhalte von einer spezifischen URL/Webseite extrahieren und lesen. Verwenden wenn der Nutzer eine URL bereitstellt und wissen möchte was auf dieser Seite ist."
+    fr: "Extraire et lire le contenu d'une URL/page web spécifique. À utiliser quand l'utilisateur fournit une URL et veut savoir ce qui est sur cette page."
+
+enabled: true
+
+# Server configuration (DuckDuckGo MCP community image)
+server:
+  host: "0.0.0.0"
+  port: 8000
+  transport: "streamable-http"
+  endpoint: "/mcp"
+
+# Available tools exposed by this MCP server
+tools:
+  - name: "search"
+    description: |
+      Search the web using DuckDuckGo. Returns relevant results
+      with titles, URLs, and snippets. Use for finding current
+      information, articles, documentation, or any web content.
+    parameters:
+      query:
+        type: "string"
+        description: "Search query"
+        required: true
+      max_results:
+        type: "integer"
+        description: "Maximum number of results (1-25)"
+        default: 10
+      region:
+        type: "string"
+        description: "Region code (e.g., 'de-de', 'us-en')"
+        default: "de-de"
+
+  - name: "fetch_content"
+    description: |
+      Fetch and extract content from a specific URL. Returns
+      clean text content from the webpage. Supports pagination
+      via start_index for long pages.
+    parameters:
+      url:
+        type: "string"
+        description: "URL of the webpage to fetch"
+        required: true
+      max_length:
+        type: "integer"
+        description: "Maximum content length in characters"
+        default: 5000
+      start_index:
+        type: "integer"
+        description: "Starting character index for pagination"
+        default: 0
+
+# Configuration schema for runtime settings
+config_schema:
+  server_url:
+    type: "string"
+    description: "MCP server URL (streamable-http endpoint)"
+    default: "http://duckduckgo-mcp:8000/mcp"
+  timeout:
+    type: "integer"
+    description: "Request timeout in seconds"
+    default: 30
+
+# Dependencies (community Docker image: mcp/duckduckgo)
+dependencies:
+  docker_image: "mcp/duckduckgo"
+  python_client:
+    - "mcp[cli]>=1.26.0"
+
+# Permissions (informational)
+permissions:
+  - "network:outbound"  # HTTP requests to web via DuckDuckGo
+  - "rate_limited"      # Built-in rate limiting (30 search / 20 fetch per minute)
+
+# Entry point
+entry_point: "src.main:app"
+
+# Docker configuration
+docker:
+  image: "web-search-mcp:latest"
+  build_context: "."
+  dockerfile: "Dockerfile"
+  ports:
+    - "9100:9100"
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
+    interval: "30s"
+    timeout: "10s"
+    retries: 3

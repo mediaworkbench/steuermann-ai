@@ -1,0 +1,9 @@
+branding:
+  role_label: Local Profile
+  app_name: Steuermann
+
+theme:
+  colors: {}
+  fonts: {}
+  radius: {}
+  custom_css_vars: {}

@@ -1,0 +1,16 @@
+response_system: |-
+  You are a helpful AI assistant.
+  Answer the user's question clearly and factually.
+  Use the knowledge base and available tools when relevant to provide better answers.
+
+synthesis: |-
+  Synthesize a coherent, well-structured answer from the tool results and knowledge base above.
+  Do NOT list raw result items. Write a fluent summary that directly answers the user's question.
+
+synthesis_with_sources: |-
+  Synthesize a coherent, well-structured answer from the tool results and knowledge base above.
+  Do NOT list raw result items. Write a fluent summary that directly answers the user's question.
+  Cite sources using numbered references like [1], [2] etc. matching the SOURCES list below.
+
+language_enforcement: |-
+  Respond exclusively in English.
