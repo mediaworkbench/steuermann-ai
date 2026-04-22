@@ -30,6 +30,9 @@ COPY config/ ./config/
 
 FROM python:3.11-slim AS runtime
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 WORKDIR /app
 
 # Runtime-only system dependencies
@@ -42,8 +45,10 @@ COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app/universal_agentic_framework ./universal_agentic_framework/
 COPY --from=builder /app/config ./config/
 
-# Create non-root user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Create non-root user (UID/GID configurable for Linux bind-mount compatibility)
+RUN groupadd -g ${APP_GID} appuser && \
+    useradd -m -u ${APP_UID} -g ${APP_GID} appuser && \
+    chown -R appuser:appuser /app
 USER appuser
 
 # Expose ports

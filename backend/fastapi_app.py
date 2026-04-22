@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi import status
@@ -31,6 +32,35 @@ from backend.secrets import validate_secrets
 from universal_agentic_framework.monitoring.metrics import track_workspace_cleanup_deleted
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_writable_directory(path: str, *, setting_name: str) -> None:
+    """Create and verify write access for a runtime directory."""
+    directory = Path(path)
+    probe_file = directory / ".steuermann-write-check"
+
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        probe_file.write_text("ok", encoding="utf-8")
+        probe_file.unlink(missing_ok=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "Workspace storage path is not writable: "
+            f"{directory} (from {setting_name}). "
+            "On Linux with bind mounts, set APP_UID/APP_GID in .env to your host user "
+            "(APP_UID=$(id -u), APP_GID=$(id -g)), ensure the mapped host directories exist, "
+            "and run chown -R <uid>:<gid> on them before rebuilding containers."
+        ) from exc
+
+
+def _validate_workspace_storage_permissions(chat_workspace_config: dict[str, object]) -> None:
+    attachments_root = str(chat_workspace_config["attachments_root"])
+    _ensure_writable_directory(attachments_root, setting_name="CHAT_ATTACHMENTS_ROOT")
+
+    if bool(chat_workspace_config["workspace_enabled"]):
+        workspace_root = chat_workspace_config.get("workspace_root")
+        if isinstance(workspace_root, str) and workspace_root.strip():
+            _ensure_writable_directory(workspace_root, setting_name="CHAT_WORKSPACE_ROOT")
 
 
 def _run_workspace_startup_cleanup(app: FastAPI) -> None:
@@ -123,6 +153,7 @@ def _build_chat_workspace_config() -> dict[str, object]:
 async def lifespan(app: FastAPI):
     validate_secrets()
     chat_workspace_config = _build_chat_workspace_config()
+    _validate_workspace_storage_permissions(chat_workspace_config)
     app.state.chat_workspace_config = chat_workspace_config
 
     logger.info(

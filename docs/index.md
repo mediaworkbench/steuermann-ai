@@ -53,7 +53,9 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 | PostgreSQL       | 5432 internal | Conversations, checkpoints, users         |
 | Qdrant           | 6333 internal | Vector storage for RAG and memory         |
 
-## Development Baseline
+## Local Development (Host)
+
+The commands below are for host-side development and test execution. They are not required for Docker-only production usage.
 
 ```bash
 poetry install
