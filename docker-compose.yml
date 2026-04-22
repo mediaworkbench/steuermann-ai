@@ -6,6 +6,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.langgraph
+      args:
+        - APP_UID=${APP_UID:-1000}
+        - APP_GID=${APP_GID:-1000}
     environment:
       - PROFILE_ID=${PROFILE_ID:-base}
       - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
@@ -53,6 +56,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.fastapi
+      args:
+        - APP_UID=${APP_UID:-1000}
+        - APP_GID=${APP_GID:-1000}
     ports:
       - "8001:8001"
     environment:

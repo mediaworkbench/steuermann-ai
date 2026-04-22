@@ -204,8 +204,6 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 
 ### Prerequisites
 
-- Python 3.11–3.13
-- [Poetry](https://python-poetry.org/) 1.7+
 - [Docker](https://www.docker.com/) & Docker Compose
 - [Ollama](https://ollama.ai/) or [LM Studio](https://lmstudio.ai/) running on the host machine
 
@@ -218,13 +216,16 @@ cp .env.example .env
 # Edit .env — at minimum set POSTGRES_PASSWORD
 ```
 
-### 2. Install dependencies
+Linux hosts (bind-mount permissions): set UID/GID in `.env` before first build so container users match your host account.
 
 ```bash
-poetry install
+echo "APP_UID=$(id -u)" >> .env
+echo "APP_GID=$(id -g)" >> .env
+mkdir -p ./data/workspaces ./data/checkpoints ./data/rag-data
+chown -R $(id -u):$(id -g) ./data/workspaces ./data/checkpoints ./data/rag-data
 ```
 
-### 3. (Optional) Expose internal services for local development
+### 2. (Optional) Expose internal services for local development
 
 By default, Qdrant (6333), Prometheus (9090), PostgreSQL (5432), and Redis (6379) are only reachable within the Docker network. To access them from your host — for example to use the Qdrant dashboard or query Prometheus directly — copy the override template:
 
@@ -262,7 +263,7 @@ services:
     image: haktansuren/qdrant-pi5-fixed-jemalloc
 ```
 
-### 4. Start the stack
+### 3. Start the stack
 
 ```bash
 docker compose up -d
@@ -277,13 +278,7 @@ docker compose up -d
 
 Under the hood, `docker compose up -d` also starts **PostgreSQL** (5432), **Redis** (6379), **DuckDuckGo MCP** (internal), and the **Ingestion** worker (watches `RAG_DATA_PATH` for documents). LangGraph (8000), Qdrant (6333), Prometheus (9090), PostgreSQL (5432), and Redis (6379) are internal-only by default and not exposed to the host unless you use the override file (see step 3).
 
-### 5. Run tests
-
-```bash
-poetry run pytest -q
-```
-
-### 6. (Optional) Enable authentication
+### 4. (Optional) Enable authentication
 
 Set these in `.env`:
 
@@ -301,7 +296,7 @@ Rebuild and visit http://localhost:3000/login:
 docker compose up -d --build
 ```
 
-### 7. (Optional) Ingest domain knowledge
+### 5. (Optional) Ingest domain knowledge
 
 ```bash
 # Prepare a document directory (adjust RAG_DATA_PATH in .env)
@@ -315,6 +310,8 @@ docker compose up -d ingestion
 ```
 
 Watch mode detects new files in real time, performs periodic sweeps every 30 seconds, and removes chunks when source files are deleted. Configure language and thresholds via `INGEST_LANGUAGE` and `INGEST_LANGUAGE_THRESHOLD` in `.env`.
+
+For host-side development and local test execution with Poetry, see `docs/index.md`.
 
 ---
 
