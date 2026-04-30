@@ -49,6 +49,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       duckduckgo-mcp:
         condition: service_started
     restart: unless-stopped
@@ -192,10 +194,11 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333' || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo -e \"GET /collections HTTP/1.0\\r\\nHost: localhost\\r\\n\" > /dev/tcp/127.0.0.1/6333' 2>/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   prometheus:

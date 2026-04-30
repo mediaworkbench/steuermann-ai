@@ -38,11 +38,14 @@ def initialize_performance_nodes(llm_factory=None):
             backend = RedisCacheBackend(redis_url)
             # Validate connectivity eagerly so tests/dev environments can fall back reliably.
             import asyncio
+            _coro = backend._ensure_connected()
             try:
-                asyncio.run(backend._ensure_connected())
+                asyncio.run(_coro)
             except RuntimeError:
-                # If already in a running loop, defer connectivity check to first operation.
-                pass
+                # Already inside a running event loop (e.g. uvicorn) — close the
+                # coroutine explicitly to avoid "never awaited" RuntimeWarning.
+                # Connectivity will be checked lazily on first cache operation.
+                _coro.close()
             _cache_manager = CacheManager(backend)
             logger.info("Initialized Redis cache for graph")
         except Exception as e:

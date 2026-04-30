@@ -928,7 +928,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         headers: Dict[str, str] = {}
 
         async def _invoke_langgraph() -> dict[str, Any]:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=360.0) as client:
                 response = await client.post(f"{LANGGRAPH_URL}/invoke", json=state, headers=headers)
                 response.raise_for_status()
                 return response.json()

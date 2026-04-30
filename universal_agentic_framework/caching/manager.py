@@ -332,7 +332,7 @@ class CacheManager:
         backend: Optional[CacheBackend] = None,
         fork_name: str = "default",
         use_vector_db: bool = True,
-        qdrant_host: str = "localhost",
+        qdrant_host: Optional[str] = None,
         qdrant_port: int = 6333,
         similarity_threshold: float = 0.85,
         enable_compression: bool = False,
@@ -348,7 +348,7 @@ class CacheManager:
             backend: Cache backend (defaults to MemoryCacheBackend)
             fork_name: Name of the fork for metrics tracking
             use_vector_db: Whether to use Qdrant for semantic search
-            qdrant_host: Qdrant server host
+            qdrant_host: Qdrant server host (default: QDRANT_HOST env var or "localhost")
             qdrant_port: Qdrant server port
             similarity_threshold: Minimum cosine similarity for semantic matches
             enable_compression: Whether to enable cache compression (default: False)
@@ -358,10 +358,14 @@ class CacheManager:
             embedding_provider_type: Embedding provider type (remote-only)
             embedding_remote_endpoint: Required remote endpoint for embedding requests
         """
+        import os
         self.backend = backend or MemoryCacheBackend()
         self.fork_name = fork_name
         self.stats = {"hits": 0, "misses": 0, "errors": 0}
         self.similarity_threshold = similarity_threshold
+        # Resolve Qdrant host: explicit arg > QDRANT_HOST env var > localhost
+        qdrant_host = qdrant_host or os.getenv("QDRANT_HOST", "localhost")
+        qdrant_port = int(os.getenv("QDRANT_PORT", str(qdrant_port)))
         
         # Store embedding config for provider initialization
         self.embedding_model = embedding_model
