@@ -39,7 +39,12 @@ class _FakeEmbedder:
 
 
 def _minimal_llm_settings() -> LLMSettings:
-    primary = ProviderSettings(type="ollama", endpoint=None, models={"en": "llama-3.1-8b"}, temperature=0.3)
+    primary = ProviderSettings(
+        api_base=None,
+        api_key=None,
+        models={"en": "ollama/llama-3.1-8b"},
+        temperature=0.3,
+    )
     return LLMSettings(providers=LLMProviders(primary=primary))
 
 

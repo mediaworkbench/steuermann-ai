@@ -42,17 +42,17 @@ def _core_config() -> CoreConfig:
         llm=LLMSettings(
             providers=LLMProviders(
                 primary=ProviderSettings(
-                    type="mock",
-                    endpoint=None,
-                    models=ProviderModelMap(en="primary-model"),
+                    api_base=None,
+                    api_key=None,
+                    models=ProviderModelMap(en="openai/primary-model"),
                     temperature=0.1,
                     max_tokens=256,
                     timeout=30,
                 ),
                 fallback=ProviderSettings(
-                    type="mock",
-                    endpoint=None,
-                    models=ProviderModelMap(en="fallback-model"),
+                    api_base=None,
+                    api_key=None,
+                    models=ProviderModelMap(en="openai/fallback-model"),
                     temperature=0.1,
                     max_tokens=256,
                     timeout=30,
@@ -79,7 +79,7 @@ def test_invoke_with_model_fallback_uses_next_candidate(monkeypatch):
                 model=_WorkingModel("fallback response"),
                 provider_type="mock",
                 model_name="fallback-model",
-                endpoint=None,
+                api_base=None,
                 source="fallback_default",
             )
         ]
@@ -111,7 +111,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
                 model=_FailingModel(),
                 provider_type="mock",
                 model_name="fallback-model",
-                endpoint=None,
+                api_base=None,
                 source="fallback_default",
             )
         ]

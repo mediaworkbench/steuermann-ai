@@ -23,9 +23,9 @@ fork:
 llm:
   providers:
     primary:
-      type: openai
+      api_key: test-key
       models:
-        en: base-model
+        en: openai/base-model
 database:
   url: sqlite:///base.db
 memory:

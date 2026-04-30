@@ -80,9 +80,16 @@ class RedisCacheBackend(CacheBackend):
         self.redis = None
         self.redis_url = redis_url
         self._initialized = False
+        self._loop = None  # Track the event loop the connection belongs to
     
     async def _ensure_connected(self):
-        """Ensure Redis connection is established."""
+        """Ensure Redis connection is established in the current event loop."""
+        import asyncio
+        current_loop = asyncio.get_running_loop()
+        # If initialized but in a different event loop, reset the connection
+        if self._initialized and self._loop is not current_loop:
+            self._initialized = False
+            self.redis = None
         if not self._initialized:
             try:
                 try:
@@ -92,6 +99,7 @@ class RedisCacheBackend(CacheBackend):
                 self.redis = await redis.from_url(self.redis_url, decode_responses=True)
                 await self.redis.ping()
                 self._initialized = True
+                self._loop = current_loop
                 logger.info(f"Connected to Redis at {self.redis_url}")
             except Exception as e:
                 logger.error(f"Failed to connect to Redis: {e}")

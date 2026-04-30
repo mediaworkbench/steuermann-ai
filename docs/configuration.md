@@ -80,31 +80,33 @@ language_enforcement: "Respond in English unless the user explicitly asks otherw
 llm:
   providers:
     primary: # Primary LLM provider
-      type: "ollama" # Options: ollama, openai, anthropic
-      endpoint: "http://host.docker.internal:11434"
+      api_base: "http://host.docker.internal:11434" # Provider endpoint
       models:
-        en: "llama-3.1-8b" # Model per language
-        de: "llama-3.1-8b-german"
+        en: "ollama/llama-3.1-8b" # LiteLLM model string: provider/model-name
+        de: "ollama/llama-3.1-8b-german"
       temperature: 0.7 # 0.0-2.0, higher = more creative
       max_tokens: 4096 # Max tokens per request
       timeout: 300 # Timeout in seconds
       tool_calling: "native" # Options: native, structured, react
 
     fallback: # Fallback provider (optional)
-      type: "openai"
+      api_base: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
       models:
-        en: "gpt-4"
-        de: "gpt-4"
+        en: "openai/gpt-4o"
+        de: "openai/gpt-4o"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
 ```
 
-**Provider types:**
+**Model strings use LiteLLM's `provider/model-name` format:**
 
-- `ollama` - Local models via Ollama (requires `endpoint`)
-- `openai` - OpenAI API (requires `OPENAI_API_KEY` env var)
-- `anthropic` - Anthropic API (requires `ANTHROPIC_API_KEY` env var)
+- `ollama/llama-3.1-8b` — Local Ollama (set `api_base` to Ollama endpoint)
+- `openai/gpt-4o` — OpenAI API (set `api_key` or `OPENAI_API_KEY` env var)
+- `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
+- `lm_studio/lfm2-24b` — LM Studio OpenAI-compatible server (set `api_base`)
+- Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
 
 **Tool calling modes:**
 
@@ -699,7 +701,8 @@ fork:
 llm:
   providers:
     primary:
-      type: "huggingface" # ❌ Invalid, must be: ollama, openai, anthropic
+      models:
+        en: "huggingface/gpt2" # ❌ Model string missing provider/ prefix or unsupported prefix
 ```
 
 **Embedding dimension mismatch:**
@@ -726,10 +729,9 @@ fork:
 llm:
   providers:
     primary:
-      type: "ollama"
-      endpoint: "http://host.docker.internal:11434"
+      api_base: "http://host.docker.internal:11434"
       models:
-        en: "llama-3.1-8b"
+        en: "ollama/llama-3.1-8b"
 
 memory:
   vector_store:
@@ -757,18 +759,18 @@ fork:
 llm:
   providers:
     primary:
-      type: "ollama"
-      endpoint: "http://host.docker.internal:11434"
+      api_base: "http://host.docker.internal:11434"
       models:
-        de: "llama-3.1-8b-german"
+        de: "ollama/llama-3.1-8b-german"
       temperature: 0.3 # Lower for medical accuracy
       max_tokens: 8192
       timeout: 600
 
     fallback:
-      type: "openai"
+      api_base: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
       models:
-        de: "gpt-4"
+        de: "openai/gpt-4o"
       temperature: 0.2
 
 memory:

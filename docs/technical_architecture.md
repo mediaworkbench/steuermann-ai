@@ -95,7 +95,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 | --------------- | --------------------------- | ---------------- | -------------------------------------------------------------- |
 | Orchestration   | LangGraph                   | ≥1.1.0           | Workflow engine (containerized)                                |
 | Multi-Agent     | CrewAI                      | ≥1.14.0          | Collaborative reasoning                                        |
-| LLM Integration | LangChain                   | ≥1.2.0           | Unified LLM interface                                          |
+| LLM Integration | LangChain + langchain-litellm | ≥1.2.0 / 0.6.4 | Unified LLM interface via LiteLLM router                     |
 | Adapter         | FastAPI                     | ≥0.135.0         | Settings/auth/metrics API                                      |
 | Frontend        | Next.js + React             | ≥16.0 + React 19 | Modern chat & settings UI                                      |
 | Vector Store    | Qdrant                      | ≥1.7.0           | Semantic memory, embeddings                                    |
@@ -374,46 +374,35 @@ Advanced memory behavior is integrated into this architecture: semantic similari
 
 ### **7.1 LLM Provider Abstraction**
 
+All LLM access goes through `LLMFactory` using `langchain-litellm`. A single `ChatLiteLLM` instance handles any provider (Ollama, LM Studio, OpenAI-compatible) via LiteLLM's unified model string format (`ollama/model`, `openai/model`, `lm_studio/model`). Multi-model routing with automatic retries uses `ChatLiteLLMRouter` wrapping `litellm.Router`.
+
 ```python
-from typing import Protocol
-from langchain_core.language_models import BaseChatModel
+from langchain_litellm import ChatLiteLLM, ChatLiteLLMRouter
+from litellm import Router
 
-class LLMProvider(Protocol):
-    """Interface for LLM providers."""
+# Single model — used by get_model()
+def build_litellm_chat(provider_config, model_name: str) -> ChatLiteLLM:
+    return ChatLiteLLM(
+        model=model_name,          # e.g. "ollama/llama-3.1-8b"
+        api_base=provider_config.endpoint,
+        temperature=provider_config.temperature,
+        max_tokens=provider_config.max_tokens,
+    )
 
-    def get_model(
-        self,
-        model_name: str,
-        temperature: float,
-        max_tokens: int
-    ) -> BaseChatModel:
-        """Return configured LLM instance."""
-        ...
-
-class OllamaProvider:
-    """Local Ollama provider."""
-
-    def __init__(self, endpoint: str):
-        self.endpoint = endpoint
-
-    def get_model(self, model_name: str, **kwargs) -> BaseChatModel:
-        from langchain_community.chat_models import ChatOllama
-        return ChatOllama(
-            base_url=self.endpoint,
-            model=model_name,
-            **kwargs
+# Router — used by get_router_model() in graph_builder.py
+def build_router(primary_model: str, fallback_model: str | None) -> ChatLiteLLMRouter:
+    model_list = [
+        {"model_name": "primary", "litellm_params": {"model": primary_model}},
+    ]
+    if fallback_model:
+        model_list.append(
+            {"model_name": "fallback", "litellm_params": {"model": fallback_model}}
         )
-
-class OpenAIProvider:
-    """Remote OpenAI provider (fallback)."""
-
-    def get_model(self, model_name: str, **kwargs) -> BaseChatModel:
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=model_name,
-            **kwargs
-        )
+    router = Router(model_list=model_list, num_retries=3, retry_after=1)
+    return ChatLiteLLMRouter(router=router)
 ```
+
+**Legacy providers removed**: `langchain-openai` and `langchain-ollama` are no longer dependencies. All provider configuration is done via LiteLLM model strings in `config/core.yaml`.
 
 ### **7.2 Language-Specific Model Selection**
 
@@ -422,41 +411,39 @@ class OpenAIProvider:
 llm:
   providers:
     primary:
-      type: "ollama"
-      endpoint: "http://host.docker.internal:11434"
+      api_base: "http://host.docker.internal:11434"
       models:
-        de: "llama-3.1-8b-german"
-        en: "llama-3.1-8b"
+        de: "ollama/llama-3.1-8b-german"   # LiteLLM model string: provider/model
+        en: "ollama/llama-3.1-8b"
       temperature: 0.7
       max_tokens: 4096
 
     fallback:
-      type: "openai"
+      api_base: "https://api.openai.com/v1"
+      api_key: "${OPENAI_API_KEY}"
       models:
-        de: "gpt-4"
-        en: "gpt-4"
+        de: "openai/gpt-4o"
+        en: "openai/gpt-4o"
       temperature: 0.3
 ```
 
-**Runtime Selection:**
+**Runtime Selection** — `LLMFactory.get_router_model(language)` builds a `ChatLiteLLMRouter` where the primary model is tried first and the fallback is used on failure:
 
 ```python
-def get_llm(language: str, prefer_local: bool = True) -> BaseChatModel:
-    """Get LLM for specific language."""
-    config = load_config()
+from langchain_litellm import ChatLiteLLMRouter
+from litellm import Router
 
-    if prefer_local:
-        try:
-            provider = get_provider(config["llm"]["providers"]["primary"])
-            model_name = config["llm"]["providers"]["primary"]["models"][language]
-            return provider.get_model(model_name)
-        except Exception:
-            # Fallback to remote
-            pass
-
-    provider = get_provider(config["llm"]["providers"]["fallback"])
-    model_name = config["llm"]["providers"]["fallback"]["models"][language]
-    return provider.get_model(model_name)
+def get_router_model(self, language: str) -> ChatLiteLLMRouter:
+    primary_model = self.config.llm.providers.primary.models.get(language)
+    fallback_model = (
+        self.config.llm.providers.fallback.models.get(language)
+        if self.config.llm.providers.fallback else None
+    )
+    model_list = [{"model_name": "primary", "litellm_params": {"model": primary_model}}]
+    if fallback_model:
+        model_list.append({"model_name": "fallback", "litellm_params": {"model": fallback_model}})
+    router = Router(model_list=model_list, num_retries=3, retry_after=1)
+    return ChatLiteLLMRouter(router=router)
 ```
 
 ### **7.3 Token Budgeting**
@@ -545,11 +532,12 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - "Default" parser: All other models (including LFM2) — LM Studio injects a system prompt and parses generically
 - If a model's default parsing is unreliable, switch to `tool_calling: "structured"` in config
 
-### **8.4 Future: LiteLLM Integration**
+### **8.4 LiteLLM Integration** *(completed 2026-04-30)*
 
-LiteLLM could replace the current `LLMFactory` as the provider abstraction layer, normalizing tool-calling across OpenAI, Anthropic, Ollama, and LM Studio without custom builder functions. This is a **separate phase** — the three-tier architecture works with or without LiteLLM. When ready:
+`LLMFactory` uses `langchain-litellm` as the sole provider abstraction. `langchain-openai` and `langchain-ollama` have been removed from the dependency tree.
 
-- Replace `build_openai_chat`, `build_ollama_chat`, `build_anthropic_chat` with a single `litellm.completion()` call
+- `ChatLiteLLM` — single model calls; provider detected from model string prefix (`ollama/`, `openai/`, `lm_studio/`)
+- `ChatLiteLLMRouter` wrapping `litellm.Router` — primary→fallback routing with `num_retries=3`; `get_router_model()` in `graph_builder.py` uses this path
 - LiteLLM handles provider detection, streaming normalization, retries, and tool format translation
 - The framework retains all orchestration logic (graph, routing, memory, RAG, crews)
 

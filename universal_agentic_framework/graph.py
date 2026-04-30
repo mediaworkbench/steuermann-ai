@@ -63,7 +63,7 @@ def run_llm_graph(
         model = model_override
     else:
         factory = LLMFactory(config)
-        model = factory.get_model(lang, prefer_local=prefer_local)
+        model = factory.get_router_model(language=lang)
 
     # Invoke model
     result = getattr(model, "invoke", None)
@@ -124,7 +124,7 @@ def run_graph_with_memory(
 
     # Generate response with LLM budgeting
     factory = LLMFactory(config)
-    model = model_override if model_override is not None else factory.get_model(lang, prefer_local=prefer_local)
+    model = model_override if model_override is not None else factory.get_router_model(language=lang)
 
     input_tokens = estimate_tokens(message)
     resp_budget = config.tokens.per_node_budgets.get("response_node", config.tokens.default_budget)

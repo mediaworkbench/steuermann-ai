@@ -994,7 +994,7 @@ def _safe_get_model(config, language: str, preferred_model: Optional[str] = None
                 source=selection.source,
             )
             return selection.model
-        return factory.get_model(language, prefer_local=True)
+        return factory.get_router_model(language=language)
     except Exception as e:
         logger.warning(f"LLM initialization failed: {e}, using echo model")
         class _EchoModel:
@@ -1018,10 +1018,10 @@ def _resolve_initial_model_metadata(config: Any, language: str, preferred_model:
     model_name = preferred_model or "unknown"
     try:
         primary = config.llm.providers.primary
-        provider = primary.type
         if not preferred_model:
             factory = LLMFactory(config)
             model_name = factory._select_model(primary, language)
+        provider = model_name.split("/", 1)[0] if "/" in model_name else "unknown"
     except Exception:
         pass
     return provider, model_name

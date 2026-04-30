@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, HttpUrl, PositiveInt, conint, confloat, ConfigDict
+from pydantic import BaseModel, Field, HttpUrl, PositiveInt, conint, confloat, ConfigDict, field_validator, model_validator
 
 
 PROFILE_ID_PATTERN = r"^[a-z0-9_-]+$"
@@ -27,13 +27,44 @@ class ProviderModelMap(BaseModel):
 
 
 class ProviderSettings(BaseModel):
-    type: str
-    endpoint: Optional[HttpUrl] = None
+    api_base: Optional[HttpUrl] = None
+    api_key: Optional[str] = None
     models: ProviderModelMap
     temperature: Optional[confloat(ge=0.0, le=2.0)] = 0.7
     max_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
     tool_calling: Literal["native", "structured", "react"] = "structured"
+    # LiteLLM router-friendly metadata.
+    order: Optional[conint(ge=1)] = None
+    weight: Optional[conint(ge=1)] = None
+    rpm: Optional[PositiveInt] = None
+    tpm: Optional[PositiveInt] = None
+    max_parallel_requests: Optional[PositiveInt] = None
+    region_name: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("api_key")
+    @classmethod
+    def _validate_api_key(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("api_key must not be empty when provided")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_models_are_litellm_strings(self) -> "ProviderSettings":
+        for language, model in self.models.model_dump().items():
+            if not model:
+                continue
+            model_value = str(model).strip()
+            # Enforce canonical LiteLLM provider/model naming.
+            if "/" not in model_value:
+                raise ValueError(
+                    f"models.{language} must be a full LiteLLM model string like 'openai/gpt-4o'"
+                )
+            provider_prefix = model_value.split("/", 1)[0]
+            if not provider_prefix:
+                raise ValueError(f"models.{language} has an invalid provider prefix")
+        return self
 
 
 class LLMProviders(BaseModel):

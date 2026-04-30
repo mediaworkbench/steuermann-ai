@@ -364,7 +364,7 @@ Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md
 | --------------- | ----------------------------------------------------------- | ------------------------------------------------ |
 | Orchestration   | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
 | Multi-Agent     | [CrewAI](https://github.com/joaomdmoura/crewAI) ≥1.14       | Role-based collaborative agent reasoning         |
-| LLM Integration | [LangChain](https://github.com/langchain-ai/langchain) ≥1.2 | Unified LLM interface, tool binding              |
+| LLM Integration | [LangChain](https://github.com/langchain-ai/langchain) ≥1.2 + [langchain-litellm](https://github.com/langchain-ai/langchain/tree/master/libs/providers/litellm) 0.6 | Unified LLM interface via LiteLLM router |
 | Backend         | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135             | REST API, auth, metrics proxy                    |
 | Frontend        | [Next.js](https://nextjs.org/) ≥16 + React 19               | Production UI with App Router                    |
 | Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | Semantic memory, RAG embeddings                  |

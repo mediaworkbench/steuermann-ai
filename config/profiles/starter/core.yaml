@@ -12,21 +12,19 @@ fork:
 llm:
   providers:
     primary:
-      type: "openai"
-      endpoint: $LLM_ENDPOINT
+      api_base: $LLM_ENDPOINT
       models:
-        en: "liquid/lfm2-24b-a2b"
-        de: "liquid/lfm2-24b-a2b"
+        en: "openai/lfm2-24b-a2b"
+        de: "openai/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
       tool_calling: "native"
     fallback:
-      type: "openai"
-      endpoint: $LLM_ENDPOINT
+      api_base: $LLM_ENDPOINT
       models:
-        en: "liquid/lfm2-24b-a2b"
-        de: "liquid/lfm2-24b-a2b"
+        en: "openai/lfm2-24b-a2b"
+        de: "openai/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
