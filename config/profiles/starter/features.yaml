@@ -1,7 +1,7 @@
 # Starter profile overlay template.
 # Deployment-global flags are intentionally excluded.
 
-multi_agent_crews: false
+multi_agent_crews: true
 long_term_memory: true
 rag_retrieval: true
 

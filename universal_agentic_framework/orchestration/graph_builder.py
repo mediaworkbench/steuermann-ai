@@ -2260,7 +2260,12 @@ def node_generate_response(state: GraphState) -> GraphState:
     if enforce_node_hard_limit:
         available_response_budget = min(available_response_budget, node_budget)
 
-    user_msg = state["messages"][-1]["content"] if state.get("messages") else ""
+    # Find the last user-role message so crew-appended assistant messages don't pollute user_msg.
+    user_msg = ""
+    for msg in reversed(state.get("messages", [])):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            user_msg = msg.get("content", "")
+            break
     input_tokens = estimate_tokens(user_msg)
     require_tokens(input_tokens, available_response_budget, "Response input")
     
@@ -3118,7 +3123,38 @@ def build_graph() -> StateGraph:
     graph.add_node("cache_stats", cache_stats_node_sync)
 
     # --- Execution flow ---
-    graph.add_edge(START, "load_tools")
+    # Crew routing happens first — before tools load — so crew-destined queries skip
+    # the tool pipeline entirely and go directly to the crew node.
+    from universal_agentic_framework.orchestration.crew_nodes import (
+        route_to_research_crew,
+        route_to_analytics_crew,
+        route_to_code_generation_crew,
+        route_to_planning_crew,
+    )
+
+    def _route_start(state):
+        """Route at START: crew queries bypass tool execution."""
+        if route_to_research_crew(state):
+            return "research_crew"
+        elif route_to_analytics_crew(state):
+            return "analytics_crew"
+        elif route_to_code_generation_crew(state):
+            return "code_generation_crew"
+        elif route_to_planning_crew(state):
+            return "planning_crew"
+        return "load_tools"
+
+    graph.add_conditional_edges(
+        START,
+        _route_start,
+        {
+            "research_crew": "research_crew",
+            "analytics_crew": "analytics_crew",
+            "code_generation_crew": "code_generation_crew",
+            "planning_crew": "planning_crew",
+            "load_tools": "load_tools",
+        },
+    )
     graph.add_edge("load_tools", "prefilter_tools")
 
     # Layer 2: Route to appropriate tool-calling strategy based on prefilter results
@@ -3147,14 +3183,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("call_tools_structured", "after_tool_call")
     graph.add_edge("call_tools_react", "after_tool_call")
 
-    # Crew conditional routing from convergence point
-    from universal_agentic_framework.orchestration.crew_nodes import (
-        route_to_research_crew,
-        route_to_analytics_crew,
-        route_to_code_generation_crew,
-        route_to_planning_crew,
-    )
-    
+    # Crew conditional routing from convergence point (secondary path — most crew queries
+    # are routed at START, but this handles any edge case where a crew is signalled after tools).
     def route_to_crew(state):
         """Route to appropriate crew or standard flow."""
         if route_to_research_crew(state):
