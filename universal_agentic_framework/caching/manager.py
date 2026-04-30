@@ -366,6 +366,8 @@ class CacheManager:
         # Resolve Qdrant host: explicit arg > QDRANT_HOST env var > localhost
         qdrant_host = qdrant_host or os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", str(qdrant_port)))
+        # Resolve embedding endpoint: explicit arg > EMBEDDING_SERVER env var
+        embedding_remote_endpoint = embedding_remote_endpoint or os.getenv("EMBEDDING_SERVER")
         
         # Store embedding config for provider initialization
         self.embedding_model = embedding_model

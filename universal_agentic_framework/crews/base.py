@@ -80,6 +80,27 @@ def _is_transient_error(exc: Exception) -> bool:
     return any(kw in msg for kw in transient_keywords)
 
 
+def _make_crewai_mcp_adapter(mcp_tool: Any) -> Any:
+    """Return a crewai.tools.BaseTool that delegates execution to *mcp_tool*.
+
+    Creates a minimal anonymous subclass so CrewAI v1.x validation accepts it
+    without touching the MCP transport layer.
+    """
+    try:
+        from crewai.tools import BaseTool as CrewAIBaseTool
+    except ImportError:
+        return None
+
+    class _MCPCrewAIAdapter(CrewAIBaseTool):
+        name: str = mcp_tool.name
+        description: str = mcp_tool.description or f"MCP tool: {mcp_tool.name}"
+
+        def _run(self, *args: Any, **kwargs: Any) -> str:  # type: ignore[override]
+            return mcp_tool._run(*args, **kwargs)
+
+    return _MCPCrewAIAdapter()
+
+
 # ---------------------------------------------------------------------------
 # Base crew class
 # ---------------------------------------------------------------------------
@@ -173,8 +194,8 @@ class BaseCrew(ABC):
     def _get_tools_for_agent(self, agent_name: str) -> List[Any]:
         """Resolve tool instances for *agent_name* from config.
 
-        Only returns tools that are crewai.tools.BaseTool instances to avoid
-        CrewAI v1.x validation errors caused by LangChain or custom tool types.
+        Returns crewai.tools.BaseTool instances.  MCPServerTool instances are
+        wrapped in a thin CrewAI adapter so they pass CrewAI v1.x validation.
         """
         crew_cfg = self.agents_config.crews.get(self.crew_name, {})
         if not crew_cfg:
@@ -189,6 +210,11 @@ class BaseCrew(ABC):
         except ImportError:
             _crewai_base_tool = None
 
+        try:
+            from universal_agentic_framework.tools.registry import MCPServerTool as _MCPServerTool
+        except ImportError:
+            _MCPServerTool = None
+
         for name in tool_names:
             if name not in self.tool_registry.tools:
                 logger.warning("Tool not found for agent", tool=name, agent=agent_name, crew=self.crew_name)
@@ -196,6 +222,17 @@ class BaseCrew(ABC):
             tool = self.tool_registry.tools[name]
             if _crewai_base_tool and isinstance(tool, _crewai_base_tool):
                 tools.append(tool)
+            elif _MCPServerTool and isinstance(tool, _MCPServerTool):
+                # Wrap MCPServerTool (LangChain BaseTool) in a CrewAI-compatible adapter
+                wrapped = _make_crewai_mcp_adapter(tool)
+                if wrapped is not None:
+                    tools.append(wrapped)
+                    logger.debug("Wrapped MCPServerTool for CrewAI", tool=name, agent=agent_name)
+                else:
+                    logger.warning(
+                        "Could not wrap MCPServerTool for CrewAI — crewai not available",
+                        tool=name, agent=agent_name, crew=self.crew_name,
+                    )
             else:
                 logger.warning(
                     "Tool skipped — not a crewai.tools.BaseTool instance",
