@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 import re
 from functools import lru_cache
@@ -2294,6 +2295,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             or f"Respond exclusively in language code '{lang}'."
         )
     system_prompt += f"\n\n=== RESPONSE LANGUAGE ===\n{language_instruction}\n=== END RESPONSE LANGUAGE ===\n"
+
+    system_prompt += f"\n[Today: {datetime.date.today().isoformat()}. Treat this as 'now' for any recent/current queries.]"
 
     # Add only enabled tools to system prompt (skip in three-tier mode — Layer 2 already handled tools)
     loaded_tools = state.get("loaded_tools", [])

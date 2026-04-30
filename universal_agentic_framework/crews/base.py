@@ -211,9 +211,10 @@ class BaseCrew(ABC):
             _crewai_base_tool = None
 
         try:
-            from universal_agentic_framework.tools.registry import MCPServerTool as _MCPServerTool
+            from langchain_core.tools import BaseTool as LangChainBaseTool
+            _langchain_base_tool = LangChainBaseTool
         except ImportError:
-            _MCPServerTool = None
+            _langchain_base_tool = None
 
         for name in tool_names:
             if name not in self.tool_registry.tools:
@@ -221,21 +222,22 @@ class BaseCrew(ABC):
                 continue
             tool = self.tool_registry.tools[name]
             if _crewai_base_tool and isinstance(tool, _crewai_base_tool):
+                # Already a native CrewAI tool — use directly
                 tools.append(tool)
-            elif _MCPServerTool and isinstance(tool, _MCPServerTool):
-                # Wrap MCPServerTool (LangChain BaseTool) in a CrewAI-compatible adapter
+            elif _langchain_base_tool and isinstance(tool, _langchain_base_tool):
+                # LangChain-based tool (DateTimeTool, MCPServerTool, etc.) — wrap for CrewAI
                 wrapped = _make_crewai_mcp_adapter(tool)
                 if wrapped is not None:
                     tools.append(wrapped)
-                    logger.debug("Wrapped MCPServerTool for CrewAI", tool=name, agent=agent_name)
+                    logger.debug("Wrapped LangChain tool for CrewAI", tool=name, tool_type=type(tool).__name__, agent=agent_name)
                 else:
                     logger.warning(
-                        "Could not wrap MCPServerTool for CrewAI — crewai not available",
+                        "Could not wrap LangChain tool for CrewAI — crewai not available",
                         tool=name, agent=agent_name, crew=self.crew_name,
                     )
             else:
                 logger.warning(
-                    "Tool skipped — not a crewai.tools.BaseTool instance",
+                    "Tool skipped — not a recognised BaseTool instance",
                     tool=name,
                     tool_type=type(tool).__name__,
                     agent=agent_name,
