@@ -27,6 +27,7 @@ services:
       - CHECKPOINTER_BACKEND=${CHECKPOINTER_BACKEND:-sqlite}
       - CHECKPOINTER_DB_PATH=${CHECKPOINTER_DB_PATH:-/data/checkpoints/langgraph_checkpoints.sqlite}
       - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
       - WEB_SEARCH_MCP_URL=http://duckduckgo-mcp:8000/mcp
       - PROMPT_SYSTEM_EN=${PROMPT_SYSTEM_EN:-}
       - PROMPT_SYSTEM_DE=${PROMPT_SYSTEM_DE:-}

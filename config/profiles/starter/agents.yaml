@@ -19,7 +19,6 @@ crews:
           background information that other analysts can build upon.
         tools:
           - web_search_mcp
-          - rag_retrieval
         llm_override: null
 
       analyst:
@@ -30,8 +29,7 @@ crews:
           You take raw research data and transform it into actionable insights. You're known for
           your ability to identify connections, spot trends, and organize complex information
           into clear, logical structures.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       writer:
@@ -62,9 +60,7 @@ crews:
           and translating raw numbers into actionable insights. You're proficient in statistical analysis,
           data visualization concepts, and hypothesis testing. Your analyses are thorough, objective,
           and always backed by solid methodology.
-        tools:
-          - python_repl
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       statistician:
@@ -76,8 +72,7 @@ crews:
           conclusions are statistically valid and not due to random chance. You're skilled at selecting
           appropriate statistical tests, interpreting p-values and confidence intervals, and explaining
           statistical concepts to non-technical audiences.
-        tools:
-          - python_repl
+        tools: []
         llm_override: null
 
       report_writer:
@@ -89,8 +84,7 @@ crews:
           design effective data visualizations conceptually, and structure reports that drive
           decision-making. Your reports are known for their clarity, actionable recommendations,
           and ability to tell a story with data.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null
 
   code_generation:
@@ -109,8 +103,7 @@ crews:
           design patterns, and creating scalable, maintainable architectures. You're proficient in multiple
           programming paradigms, architectural patterns (MVC, microservices, event-driven), and best practices.
           Your technical specs are always clear, comprehensive, and implementable.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       developer:
@@ -122,9 +115,7 @@ crews:
           You're skilled at translating technical specifications into working code, handling edge cases, implementing
           error handling, and writing self-documenting code with clear comments. Your implementations are efficient,
           secure, and thoroughly tested. You always consider performance, scalability, and maintainability.
-        tools:
-          - python_repl
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       qa_engineer:
@@ -136,9 +127,7 @@ crews:
           security vulnerabilities, and performance issues. You write comprehensive test suites (unit, integration,
           edge case tests) and perform thorough code reviews. You're proficient in testing frameworks, static analysis,
           and quality metrics. Your reviews are constructive, detailed, and help ensure production-ready code.
-        tools:
-          - python_repl
-          - rag_retrieval
+        tools: []
         llm_override: null
 
   planning:
@@ -158,8 +147,7 @@ crews:
           and extracting actionable objectives. You're skilled at asking the right questions, identifying risks early,
           understanding dependencies, and translating business language into clear requirements. Your analysis is thorough,
           well-structured, and always considers both business value and technical feasibility.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       planner:
@@ -171,8 +159,7 @@ crews:
           You're skilled at identifying task dependencies, estimating effort realistically, defining acceptance criteria,
           and creating logical execution sequences. You understand critical path analysis, resource allocation, and risk management.
           Your plans are comprehensive, realistic, and optimized for successful execution.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null
 
       reviewer:
@@ -184,6 +171,5 @@ crews:
           hidden dependencies, and assessing project risks. You're known for your attention to detail, ability to
           anticipate problems before they occur, and constructive feedback that strengthens plans without being
           overly pessimistic. Your reviews ensure plans are robust, realistic, and set up for success.
-        tools:
-          - rag_retrieval
+        tools: []
         llm_override: null

@@ -135,10 +135,16 @@ def test_graph_injects_tool_and_knowledge_context(
 
     result = graph.invoke(state)
 
-    # invocations[0] = structured tool-calling node prompt
-    # invocations[1] = response node prompt (where tool results are injected)
-    assert len(dummy_model.invocations) >= 2
-    system_prompt = dummy_model.invocations[1][0].content
+    # Find the response node invocation (it has "=== TOOL RESULTS ===" in the system prompt)
+    response_inv = None
+    for inv in dummy_model.invocations:
+        if isinstance(inv, list) and len(inv) > 0 and hasattr(inv[0], 'content'):
+            if "=== TOOL RESULTS ===" in inv[0].content:
+                response_inv = inv
+                break
+    
+    assert response_inv is not None, "Could not find response node invocation with tool results"
+    system_prompt = response_inv[0].content
 
     assert "=== TOOL RESULTS ===" in system_prompt
     assert "datetime_tool" in system_prompt

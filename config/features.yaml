@@ -1,5 +1,5 @@
 # Feature flags
-multi_agent_crews: false
+multi_agent_crews: true
 long_term_memory: true
 ingestion_service: true
 rag_retrieval: true
@@ -14,13 +14,13 @@ authentication: false
 monitoring: false  # enable in production
 
 # UI features
-ui_tool_visualization: false
-ui_token_counter: false
-ui_export_chat: false
+ui_tool_visualization: true
+ui_token_counter: true
+ui_export_chat: true
 crew_result_caching: true
 crew_cache_ttl_seconds: 3600
 
-# Crew deep integration (Week 31)
+# Crew deep integration
 crew_chaining: false          # Enable multi-crew pipelines
 crew_parallel_execution: false # Enable concurrent crew execution
 crew_result_validation: true   # Validate crew outputs via Pydantic

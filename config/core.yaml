@@ -23,7 +23,7 @@ llm:
         en: "liquid/lfm2-24b-a2b"
         de: "liquid/lfm2-24b-a2b"
       temperature: 0.3
-      max_tokens: 4096
+      max_tokens: 32000
       timeout: 300
       tool_calling: "native"
 
@@ -71,7 +71,7 @@ tokens:
   per_node_budgets: {}
 
 checkpointing:
-  enabled: false
+  enabled: true
   backend: "sqlite"
   sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"

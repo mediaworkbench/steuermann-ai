@@ -12,6 +12,7 @@ pydantic = "^2.0"
 PyYAML = "^6.0"
 structlog = "^24.0"
 httpx = "^0.28.0"
+litellm = "<1.83.14"
 
 [tool.poetry.group.langgraph.dependencies]
 langgraph = "^1.1.6"

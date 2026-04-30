@@ -144,24 +144,99 @@ class BaseCrew(ABC):
     # ----- LLM helpers (shared) -----
 
     def _get_llm(self):
-        """Get LLM; prefer override, else factory."""
+        """Get a crewai.LLM instance. CrewAI v1.x requires crewai.LLM, not LangChain objects."""
         if self.model_override:
             return self.model_override
-        return self.llm_factory.get_model(self.language, prefer_local=True)
+
+        try:
+            from crewai import LLM as CrewAILLM
+        except ImportError as exc:
+            raise RuntimeError("crewai package not available") from exc
+
+        providers = self.core_config.llm.providers
+        primary = providers.primary
+        # Resolve model name for the current language
+        llm_factory = self.llm_factory
+        model_name: str = llm_factory._select_model(primary, self.language)
+        
+        # Extract actual model name if it contains a custom provider prefix (e.g., "liquid/lfm2-24b-a2b" -> "lfm2-24b-a2b")
+        if "/" in model_name and model_name.count("/") == 1:
+            parts = model_name.split("/")
+            # Only treat as custom provider if first part is not a known provider
+            if parts[0].lower() not in ("openai", "anthropic", "claude", "google", "gemini", "azure", "aws", "bedrock"):
+                model_name = parts[1]
+
+        # Build the provider-prefixed model string that crewai.LLM expects
+        provider_type = primary.type.lower()
+        endpoint = str(primary.endpoint) if primary.endpoint else None
+
+        if provider_type == "ollama":
+            # Use OpenAI-compatible mode for Ollama
+            base_url = endpoint or "http://localhost:11434"
+            if not base_url.endswith("/v1"):
+                base_url = base_url.rstrip("/") + "/v1"
+            return CrewAILLM(
+                model=f"openai/{model_name}",
+                base_url=base_url,
+                api_key="ollama",
+                temperature=primary.temperature,
+            )
+        elif provider_type == "openai":
+            # For OpenAI-compatible endpoints (custom base_url), use model name directly
+            # CrewAI will route to the custom endpoint specified in base_url
+            kwargs = dict(
+                model=model_name,
+                temperature=primary.temperature,
+            )
+            if endpoint:
+                kwargs["base_url"] = endpoint
+            return CrewAILLM(**kwargs)
+        elif provider_type == "anthropic":
+            return CrewAILLM(
+                model=f"anthropic/{model_name}",
+                temperature=primary.temperature,
+            )
+        else:
+            # Generic fallback — pass model string as-is
+            return CrewAILLM(
+                model=model_name,
+                temperature=primary.temperature,
+            )
 
     def _get_tools_for_agent(self, agent_name: str) -> List[Any]:
-        """Resolve tool instances for *agent_name* from config."""
+        """Resolve tool instances for *agent_name* from config.
+
+        Only returns tools that are crewai.tools.BaseTool instances to avoid
+        CrewAI v1.x validation errors caused by LangChain or custom tool types.
+        """
         crew_cfg = self.agents_config.crews.get(self.crew_name, {})
         if not crew_cfg:
             return []
         agent_def = crew_cfg.agents.get(agent_name, {})
         tool_names = agent_def.tools or [] if agent_def else []
         tools = []
+
+        try:
+            from crewai.tools import BaseTool as CrewAIBaseTool
+            _crewai_base_tool = CrewAIBaseTool
+        except ImportError:
+            _crewai_base_tool = None
+
         for name in tool_names:
-            if name in self.tool_registry.tools:
-                tools.append(self.tool_registry.tools[name])
-            else:
+            if name not in self.tool_registry.tools:
                 logger.warning("Tool not found for agent", tool=name, agent=agent_name, crew=self.crew_name)
+                continue
+            tool = self.tool_registry.tools[name]
+            if _crewai_base_tool and isinstance(tool, _crewai_base_tool):
+                tools.append(tool)
+            else:
+                logger.warning(
+                    "Tool skipped — not a crewai.tools.BaseTool instance",
+                    tool=name,
+                    tool_type=type(tool).__name__,
+                    agent=agent_name,
+                    crew=self.crew_name,
+                )
         return tools
 
     def _get_manager_llm(self):
@@ -170,7 +245,7 @@ class BaseCrew(ABC):
             return self.manager_llm_override
         crew_cfg = self.agents_config.crews.get(self.crew_name, {})
         if crew_cfg and getattr(crew_cfg, "manager_llm", None):
-            return self.llm_factory.get_model(self.language, prefer_local=True)
+            return self._get_llm()
         return None
 
     def _extract_task_results(self) -> Dict[str, str]:
