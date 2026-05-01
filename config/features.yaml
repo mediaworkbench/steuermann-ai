@@ -1,5 +1,5 @@
 # Feature flags
-multi_agent_crews: true
+multi_agent_crews: false
 long_term_memory: true
 ingestion_service: true
 rag_retrieval: true
