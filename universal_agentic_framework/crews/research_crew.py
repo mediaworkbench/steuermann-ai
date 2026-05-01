@@ -10,6 +10,7 @@ Inherits from BaseCrew for retry, timeout, and validation.
 
 from __future__ import annotations
 
+import datetime
 from typing import Any, Dict, Optional
 
 from crewai import Agent, Crew, Task
@@ -70,7 +71,9 @@ class ResearchCrew(BaseCrew):
     def _build_tasks(self) -> None:
         self._tasks["research"] = Task(
             description=(
-                "Search the web comprehensively for current information about {topic}. "
+                "Today's date is {current_date}. "
+                "Search the web comprehensively for the most recent information about {topic}. "
+                "Prioritise results from {current_year} and avoid presenting outdated content as current. "
                 "Use semantic search and RAG retrieval to find relevant, authoritative sources. "
                 "Return a detailed research summary with key findings from multiple sources."
             ),
@@ -158,8 +161,11 @@ class ResearchCrew(BaseCrew):
         if not self._crew:
             return {"success": False, "error": "Crew not properly initialized"}
 
-        logger.info("Research crew starting", topic=topic)
-        result = self._crew.kickoff(inputs={"topic": topic})
+        today = datetime.date.today()
+        current_date = today.strftime("%B %d, %Y")
+        current_year = str(today.year)
+        logger.info("Research crew starting", topic=topic, current_date=current_date)
+        result = self._crew.kickoff(inputs={"topic": topic, "current_date": current_date, "current_year": current_year})
         logger.info("Research crew completed", topic=topic)
 
         return {

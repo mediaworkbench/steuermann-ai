@@ -20,11 +20,15 @@ class _FakeChatModel:
 def patch_factories(monkeypatch):
     monkeypatch.setenv("LLM_ENDPOINT", "http://localhost:11434")
 
-    # Patch LLMFactory to return fake model
+    # Patch LLMFactory to return fake model (both get_model and get_router_model)
     def _fake_get_model(self, language: str, prefer_local: bool = True):
         return _FakeChatModel()
 
+    def _fake_get_router_model(self, language: str, preferred_model=None):
+        return _FakeChatModel()
+
     monkeypatch.setattr(LLMFactory, "get_model", _fake_get_model)
+    monkeypatch.setattr(LLMFactory, "get_router_model", _fake_get_router_model)
 
     # Patch memory backend to in-memory
     def _fake_build_backend(config, client=None, embedder=None):

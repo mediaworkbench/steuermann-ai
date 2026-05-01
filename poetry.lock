@@ -997,7 +997,7 @@ version = "0.14.0"
 description = "Python bindings to Rust's UUID library."
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "langgraph"]
 files = [
     {file = "fastuuid-0.14.0-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:6e6243d40f6c793c3e2ee14c13769e341b90be5ef0c23c82fa6515a96145181a"},
     {file = "fastuuid-0.14.0-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:13ec4f2c3b04271f62be2e1ce7e95ad2dd1cf97e94503a3760db739afbd48f00"},
@@ -2126,37 +2126,22 @@ typing-extensions = ">=4.7.0,<5.0.0"
 uuid-utils = ">=0.12.0,<1.0"
 
 [[package]]
-name = "langchain-ollama"
-version = "1.1.0"
-description = "An integration package connecting Ollama and LangChain"
+name = "langchain-litellm"
+version = "0.6.4"
+description = "An integration package connecting LiteLLM and LangChain"
 optional = false
-python-versions = "<4.0.0,>=3.10.0"
+python-versions = "<4.0,>=3.10"
 groups = ["langgraph"]
 files = [
-    {file = "langchain_ollama-1.1.0-py3-none-any.whl", hash = "sha256:43ac83a6eacb0f43855810739794dd55019e0d9b17bdcf3ecb3b1991ac3b59dd"},
-    {file = "langchain_ollama-1.1.0.tar.gz", hash = "sha256:f776f56f6782ae4da7692579b94a6575906118318d1023b455d7207f9d059811"},
+    {file = "langchain_litellm-0.6.4-py3-none-any.whl", hash = "sha256:60f4e37be1a47dc88f94fac7085675ef8fa04bba92f48735792d82f492120744"},
+    {file = "langchain_litellm-0.6.4.tar.gz", hash = "sha256:663281db392b3de1f07f891d0f80f9d4b26c0f0d2abbf854ef9b186d99c309ee"},
 ]
 
 [package.dependencies]
+cryptography = ">=46.0.5,<47.0.0"
+httpx = ">=0.28.1,<0.29.0"
 langchain-core = ">=1.2.21,<2.0.0"
-ollama = ">=0.6.1,<1.0.0"
-
-[[package]]
-name = "langchain-openai"
-version = "1.1.12"
-description = "An integration package connecting OpenAI and LangChain"
-optional = false
-python-versions = "<4.0.0,>=3.10.0"
-groups = ["langgraph"]
-files = [
-    {file = "langchain_openai-1.1.12-py3-none-any.whl", hash = "sha256:da71ca3f2d18c16f7a2443cc306aa195ad2a07054335ac9b0626dcae02b6a0c5"},
-    {file = "langchain_openai-1.1.12.tar.gz", hash = "sha256:ccf5ef02c896f6807b4d0e51aaf678a72ce81ae41201cae8d65e11eeff9ecb79"},
-]
-
-[package.dependencies]
-langchain-core = ">=1.2.21,<2.0.0"
-openai = ">=2.26.0,<3.0.0"
-tiktoken = ">=0.7.0,<1.0.0"
+litellm = ">=1.77.2,<1.82.7 || >1.82.7,<1.82.8 || >1.82.8,<2.0.0"
 
 [[package]]
 name = "langdetect"
@@ -2329,7 +2314,7 @@ version = "1.83.0"
 description = "Library to easily interface with LLM API providers"
 optional = false
 python-versions = "<4.0,>=3.9"
-groups = ["main"]
+groups = ["main", "langgraph"]
 files = [
     {file = "litellm-1.83.0-py3-none-any.whl", hash = "sha256:88c536d339248f3987571493015784671ba3f193a328e1ea6780dbebaa2094a8"},
     {file = "litellm-1.83.0.tar.gz", hash = "sha256:860bebc76c4bb27b4cf90b4a77acd66dba25aced37e3db98750de8a1766bfb7a"},
@@ -3113,22 +3098,6 @@ files = [
 rsa = ["cryptography (>=3.0.0)"]
 signals = ["blinker (>=1.4.0)"]
 signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
-
-[[package]]
-name = "ollama"
-version = "0.6.1"
-description = "The official Python client for Ollama."
-optional = false
-python-versions = ">=3.8"
-groups = ["langgraph"]
-files = [
-    {file = "ollama-0.6.1-py3-none-any.whl", hash = "sha256:fc4c984b345735c5486faeee67d8a265214a31cbb828167782dc642ce0a2bf8c"},
-    {file = "ollama-0.6.1.tar.gz", hash = "sha256:478c67546836430034b415ed64fa890fd3d1ff91781a9d548b3325274e69d7c6"},
-]
-
-[package.dependencies]
-httpx = ">=0.27"
-pydantic = ">=2.9"
 
 [[package]]
 name = "onnxruntime"
@@ -6546,4 +6515,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "6ea953e3d3542ab12c74fb2c35d5dedebc6c0f20110a5f26e4d4568cc7d1f243"
+content-hash = "9a5dcdd3da25484f25564ad0adfbd7b1775740741e4f0af50df80ba7bdd8acae"

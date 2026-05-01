@@ -50,7 +50,7 @@ Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration
 │  Graph Execution · Tool Routing · Memory · RAG · Crews      │
 └────┬─────────┬───────────┬───────────┬──────────────────────┘
      │         │           │           │
-   Qdrant   PostgreSQL   Redis      Ollama (host)
+   Qdrant   PostgreSQL   Redis      LM Studio (host)
    Vectors  Checkpoints  Cache      Local LLMs
 ```
 
@@ -63,7 +63,7 @@ Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration
 | **Qdrant**     | 6333 (internal) | Vector database — semantic memory, RAG embeddings               |
 | **Redis**      | 6379 (internal) | Response caching, message broker                                |
 | **Prometheus** | 9090 (internal) | Metrics collection and alerting                                 |
-| **Ollama**     | 11434 (host)    | Local LLM server — runs on host for GPU access                  |
+| **LM Studio** | 1234 (host)     | Local LLM server — runs on host for GPU access                  |
 
 By default only the frontend (3000) and FastAPI (8001) are bound to the host. Internal services (Qdrant, Prometheus, PostgreSQL, Redis) are accessible only within the Docker network. See [step 3](#3-optional-expose-internal-services-for-local-development) below to expose them during development.
 
@@ -364,7 +364,7 @@ Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md
 | --------------- | ----------------------------------------------------------- | ------------------------------------------------ |
 | Orchestration   | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
 | Multi-Agent     | [CrewAI](https://github.com/joaomdmoura/crewAI) ≥1.14       | Role-based collaborative agent reasoning         |
-| LLM Integration | [LangChain](https://github.com/langchain-ai/langchain) ≥1.2 | Unified LLM interface, tool binding              |
+| LLM Integration | [LangChain](https://github.com/langchain-ai/langchain) ≥1.2 + [langchain-litellm](https://github.com/langchain-ai/langchain/tree/master/libs/providers/litellm) 0.6 | Unified LLM interface via LiteLLM router |
 | Backend         | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135             | REST API, auth, metrics proxy                    |
 | Frontend        | [Next.js](https://nextjs.org/) ≥16 + React 19               | Production UI with App Router                    |
 | Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | Semantic memory, RAG embeddings                  |
@@ -373,7 +373,7 @@ Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md
 | Embeddings      | Multilingual models (local, LM Studio)                      | OpenAI-compatible API                            |
 | Cache           | [Redis](https://redis.io/) ≥5                               | Response caching, session data                   |
 | Monitoring      | [Prometheus](https://prometheus.io/)                        | Metrics collection and alerting                  |
-| LLM Server      | [Ollama](https://ollama.ai/)                                | Local model hosting with GPU acceleration        |
+| LLM Server      | [LM Studio](https://lmstudio.ai/)                           | Local model hosting with GPU acceleration        |
 | Tools           | [MCP SDK](https://modelcontextprotocol.io/)                 | Model Context Protocol integration               |
 
 ---

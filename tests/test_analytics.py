@@ -2,6 +2,7 @@
 Tests for analytics functionality: database schema, event logging, and metrics retrieval.
 """
 
+import os
 import pytest
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +16,7 @@ class TestAnalyticsSchema:
     def db_pool(self):
         """Create database pool for testing."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -77,7 +78,7 @@ class TestAnalyticsStoreLogEvent:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -181,7 +182,7 @@ class TestAnalyticsStoreUsageTrends:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -239,7 +240,7 @@ class TestAnalyticsStoreTokenConsumption:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -301,7 +302,7 @@ class TestAnalyticsStoreLatencyAnalysis:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -365,7 +366,7 @@ class TestAnalyticsStoreCostProjection:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )
@@ -458,7 +459,7 @@ class TestAnalyticsDataIsolation:
     def setup(self):
         """Set up test database and analytics store."""
         config = DatabaseConfig(
-            dsn="postgresql://framework:framework@localhost:5432/framework",
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
             minconn=1,
             maxconn=5,
         )

@@ -1,7 +1,6 @@
 """LLM factory with language-aware provider selection and optional fallback."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
@@ -18,60 +17,39 @@ class ModelSelection:
     model: object
     provider_type: str
     model_name: str
-    endpoint: Optional[str]
+    api_base: Optional[str]
     source: str
 
 
-def build_ollama_chat(provider: ProviderSettings, model_name: str):
+def build_litellm_chat(provider: ProviderSettings, model_name: str):
     try:
-        from langchain_ollama import ChatOllama
+        from langchain_litellm import ChatLiteLLM
     except Exception as exc:  # pragma: no cover - import errors surfaced in tests
-        raise RuntimeError("ChatOllama not available") from exc
-    return ChatOllama(
-        base_url=str(provider.endpoint) if provider.endpoint else None,
-        model=model_name,
-        temperature=provider.temperature,
-        num_predict=provider.max_tokens,
-        timeout=provider.timeout,
-    )
+        raise RuntimeError("ChatLiteLLM not available") from exc
 
-
-def build_openai_chat(provider: ProviderSettings, model_name: str):
-    try:
-        from langchain_openai import ChatOpenAI
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("ChatOpenAI not available") from exc
     model_kwargs = {}
     if provider.tool_calling != "native":
         model_kwargs["tool_choice"] = "none"
-    return ChatOpenAI(
-        model=model_name,
-        temperature=provider.temperature,
-        max_tokens=provider.max_tokens,
-        timeout=provider.timeout,
-        base_url=str(provider.endpoint) if provider.endpoint else None,
-        api_key=os.getenv("OPENAI_API_KEY", "lm-studio"),
-        model_kwargs=model_kwargs,
-    )
 
+    chat_kwargs = {
+        "model": model_name,
+        "temperature": provider.temperature,
+        "max_tokens": provider.max_tokens,
+        "timeout": provider.timeout,
+        "model_kwargs": model_kwargs,
+    }
+    if provider.api_base:
+        chat_kwargs["api_base"] = str(provider.api_base)
+    if provider.api_key:
+        chat_kwargs["api_key"] = provider.api_key
 
-def build_anthropic_chat(provider: ProviderSettings, model_name: str):
-    try:
-        from langchain_anthropic import ChatAnthropic
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("ChatAnthropic not available") from exc
-    return ChatAnthropic(
-        model=model_name,
-        temperature=provider.temperature,
-        max_tokens=provider.max_tokens,
-        timeout=provider.timeout,
+    return ChatLiteLLM(
+        **chat_kwargs,
     )
 
 
 DEFAULT_BUILDERS: Dict[str, BuilderFn] = {
-    "ollama": build_ollama_chat,
-    "openai": build_openai_chat,
-    "anthropic": build_anthropic_chat,
+    "litellm": build_litellm_chat,
 }
 
 
@@ -79,6 +57,13 @@ class LLMFactory:
     def __init__(self, config: CoreConfig, builders: Optional[Dict[str, BuilderFn]] = None):
         self.config = config
         self.builders = builders or DEFAULT_BUILDERS
+        self.default_builder_name = next(iter(self.builders.keys()))
+
+    @staticmethod
+    def _provider_from_model(model_name: str) -> str:
+        if "/" in model_name:
+            return model_name.split("/", 1)[0]
+        return "unknown"
 
     def _select_model(self, provider: ProviderSettings, language: str) -> str:
         # exact language
@@ -92,9 +77,9 @@ class LLMFactory:
         raise ValueError(f"No model configured for language '{language}' and no fallback available")
 
     def _build(self, provider: ProviderSettings, model_name: str):
-        builder = self.builders.get(provider.type)
+        builder = self.builders.get(self.default_builder_name)
         if not builder:
-            raise ValueError(f"Unsupported provider type: {provider.type}")
+            raise ValueError("No LLM builder configured")
         return builder(provider, model_name)
 
     def _build_selection(
@@ -104,12 +89,12 @@ class LLMFactory:
         source: str,
     ) -> ModelSelection:
         model = self._build(provider, model_name)
-        endpoint = str(provider.endpoint) if provider.endpoint else None
+        api_base = str(provider.api_base) if provider.api_base else None
         return ModelSelection(
             model=model,
-            provider_type=provider.type,
+            provider_type=self._provider_from_model(model_name),
             model_name=model_name,
-            endpoint=endpoint,
+            api_base=api_base,
             source=source,
         )
 
@@ -138,7 +123,7 @@ class LLMFactory:
                 return
             try:
                 model_name = model_override or self._select_model(provider, language)
-                key = (provider.type, model_name, source)
+                key = (self._provider_from_model(model_name), model_name, source)
                 if key in seen:
                     return
                 selection = self._build_selection(provider, model_name, source)
@@ -178,6 +163,80 @@ class LLMFactory:
 
     def get_model(self, language: str, prefer_local: bool = True):
         return self.get_model_selection(language=language, prefer_local=prefer_local).model
+
+    def get_router_model(
+        self,
+        language: str,
+        preferred_model: Optional[str] = None,
+    ):
+        """Return a ChatLiteLLMRouter model with primary->fallback routing."""
+        try:
+            from litellm import Router
+            from langchain_litellm import ChatLiteLLMRouter
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError("LiteLLM router dependencies not available") from exc
+
+        providers = self.config.llm.providers
+        primary = providers.primary
+        fallback = providers.fallback
+
+        primary_model = preferred_model or self._select_model(primary, language)
+        model_list = [
+            {
+                "model_name": "primary",
+                "litellm_params": self._to_router_params(primary, primary_model),
+            }
+        ]
+
+        if fallback:
+            fallback_model = preferred_model or self._select_model(fallback, language)
+            model_list.append(
+                {
+                    "model_name": "fallback",
+                    "litellm_params": self._to_router_params(fallback, fallback_model),
+                }
+            )
+
+        router = Router(
+            model_list=model_list,
+            num_retries=3,
+            retry_after=1,
+        )
+
+        model_kwargs = {}
+        if primary.tool_calling != "native":
+            model_kwargs["tool_choice"] = "none"
+        return ChatLiteLLMRouter(
+            router=router,
+            model_name="primary",
+            temperature=primary.temperature,
+            max_tokens=primary.max_tokens,
+            model_kwargs=model_kwargs,
+        )
+
+    def _to_router_params(self, provider: ProviderSettings, model_name: str) -> dict:
+        params: dict = {"model": model_name}
+        if provider.api_base:
+            params["api_base"] = str(provider.api_base)
+        if provider.api_key:
+            params["api_key"] = provider.api_key
+        if provider.timeout is not None:
+            params["timeout"] = provider.timeout
+        if provider.max_tokens is not None:
+            params["max_tokens"] = provider.max_tokens
+        if provider.order is not None:
+            params["order"] = provider.order
+        if provider.weight is not None:
+            params["weight"] = provider.weight
+        if provider.rpm is not None:
+            params["rpm"] = provider.rpm
+        if provider.tpm is not None:
+            params["tpm"] = provider.tpm
+        if provider.max_parallel_requests is not None:
+            params["max_parallel_requests"] = provider.max_parallel_requests
+        if provider.region_name:
+            params["region_name"] = provider.region_name
+        return params
 
     def get_model_with_config(
         self, language: str, prefer_local: bool = True

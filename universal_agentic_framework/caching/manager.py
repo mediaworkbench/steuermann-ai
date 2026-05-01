@@ -80,9 +80,16 @@ class RedisCacheBackend(CacheBackend):
         self.redis = None
         self.redis_url = redis_url
         self._initialized = False
+        self._loop = None  # Track the event loop the connection belongs to
     
     async def _ensure_connected(self):
-        """Ensure Redis connection is established."""
+        """Ensure Redis connection is established in the current event loop."""
+        import asyncio
+        current_loop = asyncio.get_running_loop()
+        # If initialized but in a different event loop, reset the connection
+        if self._initialized and self._loop is not current_loop:
+            self._initialized = False
+            self.redis = None
         if not self._initialized:
             try:
                 try:
@@ -92,6 +99,7 @@ class RedisCacheBackend(CacheBackend):
                 self.redis = await redis.from_url(self.redis_url, decode_responses=True)
                 await self.redis.ping()
                 self._initialized = True
+                self._loop = current_loop
                 logger.info(f"Connected to Redis at {self.redis_url}")
             except Exception as e:
                 logger.error(f"Failed to connect to Redis: {e}")
@@ -324,7 +332,7 @@ class CacheManager:
         backend: Optional[CacheBackend] = None,
         fork_name: str = "default",
         use_vector_db: bool = True,
-        qdrant_host: str = "localhost",
+        qdrant_host: Optional[str] = None,
         qdrant_port: int = 6333,
         similarity_threshold: float = 0.85,
         enable_compression: bool = False,
@@ -340,7 +348,7 @@ class CacheManager:
             backend: Cache backend (defaults to MemoryCacheBackend)
             fork_name: Name of the fork for metrics tracking
             use_vector_db: Whether to use Qdrant for semantic search
-            qdrant_host: Qdrant server host
+            qdrant_host: Qdrant server host (default: QDRANT_HOST env var or "localhost")
             qdrant_port: Qdrant server port
             similarity_threshold: Minimum cosine similarity for semantic matches
             enable_compression: Whether to enable cache compression (default: False)
@@ -350,10 +358,16 @@ class CacheManager:
             embedding_provider_type: Embedding provider type (remote-only)
             embedding_remote_endpoint: Required remote endpoint for embedding requests
         """
+        import os
         self.backend = backend or MemoryCacheBackend()
         self.fork_name = fork_name
         self.stats = {"hits": 0, "misses": 0, "errors": 0}
         self.similarity_threshold = similarity_threshold
+        # Resolve Qdrant host: explicit arg > QDRANT_HOST env var > localhost
+        qdrant_host = qdrant_host or os.getenv("QDRANT_HOST", "localhost")
+        qdrant_port = int(os.getenv("QDRANT_PORT", str(qdrant_port)))
+        # Resolve embedding endpoint: explicit arg > EMBEDDING_SERVER env var
+        embedding_remote_endpoint = embedding_remote_endpoint or os.getenv("EMBEDDING_SERVER")
         
         # Store embedding config for provider initialization
         self.embedding_model = embedding_model

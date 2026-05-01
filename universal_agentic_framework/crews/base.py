@@ -80,6 +80,27 @@ def _is_transient_error(exc: Exception) -> bool:
     return any(kw in msg for kw in transient_keywords)
 
 
+def _make_crewai_mcp_adapter(mcp_tool: Any) -> Any:
+    """Return a crewai.tools.BaseTool that delegates execution to *mcp_tool*.
+
+    Creates a minimal anonymous subclass so CrewAI v1.x validation accepts it
+    without touching the MCP transport layer.
+    """
+    try:
+        from crewai.tools import BaseTool as CrewAIBaseTool
+    except ImportError:
+        return None
+
+    class _MCPCrewAIAdapter(CrewAIBaseTool):
+        name: str = mcp_tool.name
+        description: str = mcp_tool.description or f"MCP tool: {mcp_tool.name}"
+
+        def _run(self, *args: Any, **kwargs: Any) -> str:  # type: ignore[override]
+            return mcp_tool._run(*args, **kwargs)
+
+    return _MCPCrewAIAdapter()
+
+
 # ---------------------------------------------------------------------------
 # Base crew class
 # ---------------------------------------------------------------------------
@@ -155,59 +176,26 @@ class BaseCrew(ABC):
 
         providers = self.core_config.llm.providers
         primary = providers.primary
-        # Resolve model name for the current language
-        llm_factory = self.llm_factory
-        model_name: str = llm_factory._select_model(primary, self.language)
-        
-        # Extract actual model name if it contains a custom provider prefix (e.g., "liquid/lfm2-24b-a2b" -> "lfm2-24b-a2b")
-        if "/" in model_name and model_name.count("/") == 1:
-            parts = model_name.split("/")
-            # Only treat as custom provider if first part is not a known provider
-            if parts[0].lower() not in ("openai", "anthropic", "claude", "google", "gemini", "azure", "aws", "bedrock"):
-                model_name = parts[1]
+        model_name: str = self.llm_factory._select_model(primary, self.language)
 
-        # Build the provider-prefixed model string that crewai.LLM expects
-        provider_type = primary.type.lower()
-        endpoint = str(primary.endpoint) if primary.endpoint else None
+        kwargs = {
+            "model": model_name,
+            "temperature": primary.temperature,
+        }
+        if primary.max_tokens is not None:
+            kwargs["max_tokens"] = primary.max_tokens
+        if primary.api_base:
+            kwargs["base_url"] = str(primary.api_base)
+        if primary.api_key:
+            kwargs["api_key"] = primary.api_key
 
-        if provider_type == "ollama":
-            # Use OpenAI-compatible mode for Ollama
-            base_url = endpoint or "http://localhost:11434"
-            if not base_url.endswith("/v1"):
-                base_url = base_url.rstrip("/") + "/v1"
-            return CrewAILLM(
-                model=f"openai/{model_name}",
-                base_url=base_url,
-                api_key="ollama",
-                temperature=primary.temperature,
-            )
-        elif provider_type == "openai":
-            # For OpenAI-compatible endpoints (custom base_url), use model name directly
-            # CrewAI will route to the custom endpoint specified in base_url
-            kwargs = dict(
-                model=model_name,
-                temperature=primary.temperature,
-            )
-            if endpoint:
-                kwargs["base_url"] = endpoint
-            return CrewAILLM(**kwargs)
-        elif provider_type == "anthropic":
-            return CrewAILLM(
-                model=f"anthropic/{model_name}",
-                temperature=primary.temperature,
-            )
-        else:
-            # Generic fallback — pass model string as-is
-            return CrewAILLM(
-                model=model_name,
-                temperature=primary.temperature,
-            )
+        return CrewAILLM(**kwargs)
 
     def _get_tools_for_agent(self, agent_name: str) -> List[Any]:
         """Resolve tool instances for *agent_name* from config.
 
-        Only returns tools that are crewai.tools.BaseTool instances to avoid
-        CrewAI v1.x validation errors caused by LangChain or custom tool types.
+        Returns crewai.tools.BaseTool instances.  MCPServerTool instances are
+        wrapped in a thin CrewAI adapter so they pass CrewAI v1.x validation.
         """
         crew_cfg = self.agents_config.crews.get(self.crew_name, {})
         if not crew_cfg:
@@ -222,16 +210,34 @@ class BaseCrew(ABC):
         except ImportError:
             _crewai_base_tool = None
 
+        try:
+            from langchain_core.tools import BaseTool as LangChainBaseTool
+            _langchain_base_tool = LangChainBaseTool
+        except ImportError:
+            _langchain_base_tool = None
+
         for name in tool_names:
             if name not in self.tool_registry.tools:
                 logger.warning("Tool not found for agent", tool=name, agent=agent_name, crew=self.crew_name)
                 continue
             tool = self.tool_registry.tools[name]
             if _crewai_base_tool and isinstance(tool, _crewai_base_tool):
+                # Already a native CrewAI tool — use directly
                 tools.append(tool)
+            elif _langchain_base_tool and isinstance(tool, _langchain_base_tool):
+                # LangChain-based tool (DateTimeTool, MCPServerTool, etc.) — wrap for CrewAI
+                wrapped = _make_crewai_mcp_adapter(tool)
+                if wrapped is not None:
+                    tools.append(wrapped)
+                    logger.debug("Wrapped LangChain tool for CrewAI", tool=name, tool_type=type(tool).__name__, agent=agent_name)
+                else:
+                    logger.warning(
+                        "Could not wrap LangChain tool for CrewAI — crewai not available",
+                        tool=name, agent=agent_name, crew=self.crew_name,
+                    )
             else:
                 logger.warning(
-                    "Tool skipped — not a crewai.tools.BaseTool instance",
+                    "Tool skipped — not a recognised BaseTool instance",
                     tool=name,
                     tool_type=type(tool).__name__,
                     agent=agent_name,

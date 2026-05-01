@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 import re
 from functools import lru_cache
@@ -994,7 +995,7 @@ def _safe_get_model(config, language: str, preferred_model: Optional[str] = None
                 source=selection.source,
             )
             return selection.model
-        return factory.get_model(language, prefer_local=True)
+        return factory.get_router_model(language=language)
     except Exception as e:
         logger.warning(f"LLM initialization failed: {e}, using echo model")
         class _EchoModel:
@@ -1018,10 +1019,10 @@ def _resolve_initial_model_metadata(config: Any, language: str, preferred_model:
     model_name = preferred_model or "unknown"
     try:
         primary = config.llm.providers.primary
-        provider = primary.type
         if not preferred_model:
             factory = LLMFactory(config)
             model_name = factory._select_model(primary, language)
+        provider = model_name.split("/", 1)[0] if "/" in model_name else "unknown"
     except Exception:
         pass
     return provider, model_name
@@ -2295,6 +2296,8 @@ def node_generate_response(state: GraphState) -> GraphState:
         )
     system_prompt += f"\n\n=== RESPONSE LANGUAGE ===\n{language_instruction}\n=== END RESPONSE LANGUAGE ===\n"
 
+    system_prompt += f"\n[Today: {datetime.date.today().isoformat()}. Treat this as 'now' for any recent/current queries.]"
+
     # Add only enabled tools to system prompt (skip in three-tier mode — Layer 2 already handled tools)
     loaded_tools = state.get("loaded_tools", [])
     user_settings = state.get("user_settings", {})
@@ -2519,6 +2522,26 @@ def node_generate_response(state: GraphState) -> GraphState:
             f"{sources_instruction}"
         )
 
+    # Add crew results as system-level context so the LLM synthesizes a fresh response
+    # (crew results must NOT appear as prior assistant turns — that causes the model to
+    # just add a short follow-up instead of producing a full answer).
+    _crew_result_prefixes = (
+        "Research Result:",
+        "Analytics Result:",
+        "Code Generation Result:",
+        "Planning Result:",
+    )
+    crew_results = state.get("crew_results", {})
+    for crew_name, crew_result in crew_results.items():
+        if isinstance(crew_result, dict) and crew_result.get("success") and crew_result.get("result"):
+            section = crew_name.upper().replace("_", " ")
+            system_prompt += (
+                f"\n\n=== {section} FINDINGS ===\n"
+                f"{crew_result['result']}\n"
+                f"=== END {section} FINDINGS ===\n"
+            )
+            logger.info("Crew result injected into context", crew=crew_name, result_length=len(crew_result["result"]))
+
     workspace_document_context = state.get("workspace_document_context") or []
     if state.get("workspace_writeback_requested") and len(workspace_document_context) == 1:
         target = workspace_document_context[0]
@@ -2537,11 +2560,17 @@ def node_generate_response(state: GraphState) -> GraphState:
     # Start with system prompt
     messages = [SystemMessage(content=system_prompt)]
     
-    # Add full conversation history (all previous user and assistant messages)
+    # Add full conversation history (all previous user and assistant messages).
+    # Skip crew-appended assistant messages — their content is already injected into
+    # the system prompt as FINDINGS context above.  Keeping them as AIMessage turns
+    # causes the model to treat the crew output as its own prior answer and only add
+    # a short follow-up instead of synthesising a full response.
     all_msgs = state.get("messages") or []
     for msg in all_msgs:
         role = msg.get("role", "user")
         content = msg.get("content", "")
+        if role == "assistant" and any(content.startswith(p) for p in _crew_result_prefixes):
+            continue  # already in system prompt as FINDINGS context
         if role == "user":
             messages.append(HumanMessage(content=content))
         elif role == "assistant":

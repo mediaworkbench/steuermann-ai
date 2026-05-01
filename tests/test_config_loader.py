@@ -37,9 +37,9 @@ def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
     assert core.fork.name == "starter"
     assert core.rag.collection_name == "framework"
     assert "postgresql://app:pw@localhost:5432/framework" in core.database.url
-    assert core.llm.providers.primary.type == "openai"
+    assert core.llm.providers.primary.models.en == "openai/liquid/lfm2-24b-a2b"
     # Pydantic HttpUrl adds trailing slash, so compare with 'in'
-    assert "localhost:11434" in str(core.llm.providers.primary.endpoint)
+    assert "localhost:11434" in str(core.llm.providers.primary.api_base)
     assert core.tokens.default_budget == 10000
 
 
@@ -100,24 +100,24 @@ def test_load_profile_metadata_valid_profile(tmp_path: Path) -> None:
 
 
 def test_load_core_config_applies_profile_overlay_for_allowed_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        config_dir = tmp_path / "config"
-        profiles_dir = tmp_path / "profiles"
-        profile_dir = profiles_dir / "medical"
-        config_dir.mkdir()
-        profile_dir.mkdir(parents=True)
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    profile_dir = profiles_dir / "medical"
+    config_dir.mkdir()
+    profile_dir.mkdir(parents=True)
 
-        config_dir.joinpath("core.yaml").write_text(
-                """
+    config_dir.joinpath("core.yaml").write_text(
+        """
 fork:
     name: $PROFILE_ID
     language: en
 llm:
     providers:
         primary:
-            type: openai
-            endpoint: $LLM_ENDPOINT
+            api_base: $LLM_ENDPOINT
+            api_key: test-key
             models:
-                en: base-model
+                en: openai/base-model
 database:
     url: sqlite:///base.db
 memory:
@@ -135,15 +135,15 @@ tokens:
 prompts:
     response_system:
         en: Base prompt
-                """,
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("profile.yaml").write_text(
-                "profile_id: medical\ndisplay_name: Medical Assistant\n",
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("core.yaml").write_text(
-                """
+        """,
+        encoding="utf-8",
+    )
+    profile_dir.joinpath("profile.yaml").write_text(
+        "profile_id: medical\ndisplay_name: Medical Assistant\n",
+        encoding="utf-8",
+    )
+    profile_dir.joinpath("core.yaml").write_text(
+        """
 fork:
     language: de
 prompts:
@@ -151,21 +151,21 @@ prompts:
         en: Profile prompt
 tokens:
     default_budget: 20000
-                """,
-                encoding="utf-8",
-        )
-        monkeypatch.setenv("PROFILE_ID", "medical")
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROFILE_ID", "medical")
 
-        core = load_core_config(
-                config_dir=config_dir,
-                profiles_dir=profiles_dir,
-            env={"PROFILE_ID": "medical", "LLM_ENDPOINT": "http://localhost:11434"},
-        )
+    core = load_core_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "medical", "LLM_ENDPOINT": "http://localhost:11434"},
+    )
 
-        assert core.fork.language == "de"
-        assert core.prompts.response_system["en"] == "Profile prompt"
-        assert core.tokens.default_budget == 20000
-        assert core.database.url == "sqlite:///base.db"
+    assert core.fork.language == "de"
+    assert core.prompts.response_system["en"] == "Profile prompt"
+    assert core.tokens.default_budget == 20000
+    assert core.database.url == "sqlite:///base.db"
 
 
 def test_load_core_config_rejects_disallowed_profile_override(tmp_path: Path) -> None:
@@ -182,9 +182,9 @@ fork:
 llm:
     providers:
         primary:
-            type: openai
+            api_key: profile-key
             models:
-                en: base-model
+                en: openai/base-model
 database:
     url: sqlite:///base.db
 memory:
