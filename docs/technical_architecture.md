@@ -10,7 +10,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 - FastAPI adapter layer (settings management, metrics exposure, auth)
 - Modern frontend (Next.js + React production stack)
 - Profile-based customization via declarative overlays
-- Unified technology stack (PostgreSQL, Qdrant, Ollama, Prometheus)
+- Unified technology stack (PostgreSQL, Qdrant, LM Studio, Prometheus)
 - Language-specific optimization per profile
 - Separate but integrated RAG/ingestion pipeline
 - Clear separation of concerns (orchestration, adaptation, presentation)
@@ -82,7 +82,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 ┌───────────┼──────────────────────────────────────────────────────┐
 │           │         Host Services (Outside Docker)                │
 │  ┌────────▼──────────┐                                            │
-│  │  Ollama Server    │  (http://host.docker.internal:11434)      │
+│  │  LM Studio        │  (http://host.docker.internal:1234/v1)    │
 │  │  - Local LLMs     │                                            │
 │  │  - Model serving  │                                            │
 │  └───────────────────┘                                            │
@@ -103,7 +103,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 | Memory          | LlamaIndex                  | ≥0.11.0          | Memory abstraction layer                                       |
 | Embeddings      | Remote provider abstraction | Current          | Config-driven embeddings via remote OpenAI-compatible endpoint |
 | Monitoring      | Prometheus                  | Latest           | Metrics collection & alerting                                  |
-| LLM Server      | Ollama                      | Latest           | Local model hosting                                            |
+| LLM Server      | LM Studio                   | Latest           | Local model hosting (host, port 1234)                          |
 
 ---
 
@@ -374,20 +374,25 @@ Advanced memory behavior is integrated into this architecture: semantic similari
 
 ### **7.1 LLM Provider Abstraction**
 
-All LLM access goes through `LLMFactory` using `langchain-litellm`. A single `ChatLiteLLM` instance handles any provider (Ollama, LM Studio, OpenAI-compatible) via LiteLLM's unified model string format (`ollama/model`, `openai/model`, `lm_studio/model`). Multi-model routing with automatic retries uses `ChatLiteLLMRouter` wrapping `litellm.Router`.
+All LLM access goes through `LLMFactory` using `langchain-litellm`. A single `ChatLiteLLM` instance handles any provider (LM Studio, OpenAI-compatible) via LiteLLM's unified model string format (`openai/model`). Multi-model routing with automatic retries uses `ChatLiteLLMRouter` wrapping `litellm.Router`.
 
 ```python
 from langchain_litellm import ChatLiteLLM, ChatLiteLLMRouter
 from litellm import Router
 
 # Single model — used by get_model()
+# IMPORTANT: api_base and api_key must be top-level kwargs, NOT inside model_kwargs
 def build_litellm_chat(provider_config, model_name: str) -> ChatLiteLLM:
-    return ChatLiteLLM(
-        model=model_name,          # e.g. "ollama/llama-3.1-8b"
-        api_base=provider_config.endpoint,
-        temperature=provider_config.temperature,
-        max_tokens=provider_config.max_tokens,
-    )
+    chat_kwargs = {
+        "model": model_name,          # e.g. "openai/liquid/lfm2-24b-a2b"
+        "temperature": provider_config.temperature,
+        "max_tokens": provider_config.max_tokens,
+    }
+    if provider_config.api_base:
+        chat_kwargs["api_base"] = str(provider_config.api_base)
+    if provider_config.api_key:
+        chat_kwargs["api_key"] = provider_config.api_key
+    return ChatLiteLLM(**chat_kwargs)
 
 # Router — used by get_router_model() in graph_builder.py
 def build_router(primary_model: str, fallback_model: str | None) -> ChatLiteLLMRouter:
@@ -411,10 +416,11 @@ def build_router(primary_model: str, fallback_model: str | None) -> ChatLiteLLMR
 llm:
   providers:
     primary:
-      api_base: "http://host.docker.internal:11434"
+      api_base: "http://host.docker.internal:1234/v1"  # LM Studio on host
+      api_key: "lm-studio"                              # required by LiteLLM, value ignored by LM Studio
       models:
-        de: "ollama/llama-3.1-8b-german"   # LiteLLM model string: provider/model
-        en: "ollama/llama-3.1-8b"
+        de: "openai/liquid/lfm2-24b-a2b"   # LiteLLM model string: openai/<lm-studio-raw-id>
+        en: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.7
       max_tokens: 4096
 
@@ -426,6 +432,8 @@ llm:
         en: "openai/gpt-4o"
       temperature: 0.3
 ```
+
+**LM Studio model ID convention:** LM Studio's `/v1/models` returns raw IDs like `liquid/lfm2-24b-a2b`. LiteLLM requires the `openai/` provider prefix. Always configure models as `openai/<lm-studio-raw-id>` (e.g. `openai/liquid/lfm2-24b-a2b`). Bare or wrongly-prefixed IDs will cause `BadRequestError: LLM Provider NOT provided`.
 
 **Runtime Selection** — `LLMFactory.get_router_model(language)` builds a `ChatLiteLLMRouter` where the primary model is tried first and the fallback is used on failure:
 
@@ -536,10 +544,14 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 `LLMFactory` uses `langchain-litellm` as the sole provider abstraction. `langchain-openai` and `langchain-ollama` have been removed from the dependency tree.
 
-- `ChatLiteLLM` — single model calls; provider detected from model string prefix (`ollama/`, `openai/`, `lm_studio/`)
+- `ChatLiteLLM` — single model calls; provider detected from model string prefix (`openai/`)
 - `ChatLiteLLMRouter` wrapping `litellm.Router` — primary→fallback routing with `num_retries=3`; `get_router_model()` in `graph_builder.py` uses this path
 - LiteLLM handles provider detection, streaming normalization, retries, and tool format translation
 - The framework retains all orchestration logic (graph, routing, memory, RAG, crews)
+- **`api_base` / `api_key` construction rule**: must be passed as top-level `ChatLiteLLM` constructor kwargs. Placing them only in `model_kwargs` causes `AuthenticationError`.
+- **CrewAI tool adapter**: `base.py::_get_tools_for_agent` wraps all `langchain_core.tools.BaseTool` subclasses (including `DateTimeTool`, `MCPServerTool`, etc.) into CrewAI-compatible adapters automatically.
+- **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
+- **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt; Research Crew Searcher task receives `current_date` / `current_year` as kickoff inputs.
 
 → **Implementation details, security sandbox, rate limiter:** [Tool Development Guide](tool_development_guide.md)
 
@@ -1087,7 +1099,7 @@ services:
 
 ### **13.3 Host Network Configuration**
 
-**Access to Ollama (on host):**
+**Access to LM Studio (on host):**
 
 ```yaml
 services:
@@ -1095,7 +1107,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway" # Linux
     environment:
-      - LLM_ENDPOINT=http://host.docker.internal:11434
+      - LLM_ENDPOINT=http://host.docker.internal:1234/v1
 ```
 
 **Platform-specific:**
@@ -1283,7 +1295,7 @@ docker compose up -d --build
 | Orchestration    | LangGraph (dedicated internal service)                  | Clear service boundaries and independent scaling                 |
 | Persistence      | PostgreSQL                                              | Unified storage, ACID guarantees                                 |
 | Vector Store     | Qdrant                                                  | Purpose-built, self-hosted, performant                           |
-| LLM Server       | Ollama or OpenAI-compatible local endpoint              | Fits on-prem deployment and local model serving                  |
+| LLM Server       | LM Studio (OpenAI-compatible local endpoint)            | Fits on-prem deployment and local model serving                  |
 | Embeddings       | OpenAI-compatible endpoint                              | Keeps runtime and ingestion aligned on a single remote interface |
 | Frontend         | Next.js + FastAPI                                       | Modern React stack, production-ready                             |
 | Monitoring       | Prometheus                                              | Simple, proven metrics and alerting                              |
@@ -1340,7 +1352,7 @@ This architecture covers:
 - **vs Pinecone**: Self-hosted requirement
 - **vs pgvector**: Dedicated vector search > Postgres extension
 
-### **Why Ollama on Host vs Docker?**
+### **Why LM Studio on Host vs Docker?**
 
 - Model management easier on host
 - GPU access simpler
