@@ -91,19 +91,17 @@ This document defines the technical architecture for the Steuermann - a domain-a
 
 ### **2.2 Technology Stack Summary**
 
-| Layer           | Component                   | Version          | Purpose                                                        |
-| --------------- | --------------------------- | ---------------- | -------------------------------------------------------------- |
-| Orchestration   | LangGraph                   | ≥1.1.0           | Workflow engine (containerized)                                |
-| Multi-Agent     | CrewAI                      | ≥1.14.0          | Collaborative reasoning                                        |
-| LLM Integration | LangChain + langchain-litellm | ≥1.2.0 / 0.6.4 | Unified LLM interface via LiteLLM router                     |
-| Adapter         | FastAPI                     | ≥0.135.0         | Settings/auth/metrics API                                      |
-| Frontend        | Next.js + React             | ≥16.0 + React 19 | Modern chat & settings UI                                      |
-| Vector Store    | Qdrant                      | ≥1.7.0           | Semantic memory, embeddings                                    |
-| Database        | PostgreSQL                  | ≥15.0            | Structured data, checkpoints, users/roles                      |
-| Memory          | LlamaIndex                  | ≥0.11.0          | Memory abstraction layer                                       |
-| Embeddings      | Remote provider abstraction | Current          | Config-driven embeddings via remote OpenAI-compatible endpoint |
-| Monitoring      | Prometheus                  | Latest           | Metrics collection & alerting                                  |
-| LLM Server      | LM Studio                   | Latest           | Local model hosting (host, port 1234)                          |
+- Orchestration: LangGraph (`>=1.1.0`) - Workflow engine (containerized)
+- Multi-Agent: CrewAI (`>=1.14.0`) - Collaborative reasoning
+- LLM Integration: LangChain + langchain-litellm (`>=1.2.0 / 0.6.4`) - Unified LLM interface via LiteLLM router
+- Adapter: FastAPI (`>=0.135.0`) - Settings/auth/metrics API
+- Frontend: Next.js + React (`>=16.0 + React 19`) - Modern chat and settings UI
+- Vector Store: Qdrant (`>=1.7.0`) - Semantic memory and embeddings
+- Database: PostgreSQL (`>=15.0`) - Structured data, checkpoints, users/roles
+- Memory: Mem0 OSS embedded (`>=2.0.1`) - Memory abstraction with embedded Qdrant-backed storage
+- Embeddings: Remote provider abstraction (Current) - Config-driven embeddings via remote OpenAI-compatible endpoint
+- Monitoring: Prometheus (Latest) - Metrics collection and alerting
+- LLM Server: LM Studio (Latest) - Local model hosting (host, port `1234`)
 
 ---
 
@@ -1384,7 +1382,7 @@ This architecture covers:
 | Plugin     | Tool or MCP server registered with the framework                 |
 | Ingestion  | Process of loading documents into vector store                   |
 
-_This document is complemented by:_
+*This document is complemented by:*
 
 - **[README.md](../README.md)** (current runtime snapshot and recent changes)
 - **[Configuration Reference](configuration.md)** (full schema documentation)

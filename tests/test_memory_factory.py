@@ -1,5 +1,5 @@
 from universal_agentic_framework.memory.factory import build_memory_backend
-from universal_agentic_framework.memory import QdrantMemoryBackend, InMemoryMemoryManager
+from universal_agentic_framework.memory import Mem0MemoryBackend, InMemoryMemoryManager
 from universal_agentic_framework.config.schemas import (
     CoreConfig,
     ForkSettings,
@@ -16,20 +16,23 @@ from universal_agentic_framework.config.schemas import (
 
 
 class _FakeClient:
-    def get_collection(self, name):
-        return None
-
-    def create_collection(self, collection_name, vectors_config):
-        pass
-
-    def upsert(self, *args, **kwargs):
-        pass
+    def add(self, *args, **kwargs):
+        return {"id": "mem_1"}
 
     def search(self, *args, **kwargs):
-        return []
+        return {"results": []}
 
-    def scroll(self, *args, **kwargs):
-        return [], None
+    def get_all(self, *args, **kwargs):
+        return {"results": []}
+
+    def delete_all(self, *args, **kwargs):
+        return {"status": "ok"}
+
+    def get(self, *args, **kwargs):
+        return None
+
+    def update(self, *args, **kwargs):
+        return {"status": "ok"}
 
 
 class _FakeEmbedder:
@@ -62,13 +65,14 @@ def _base_config(vs_type: str) -> CoreConfig:
     )
 
 
-def test_build_memory_backend_qdrant_returns_qdrant_backend():
-    cfg = _base_config("qdrant")
+def test_build_memory_backend_mem0_returns_mem0_backend():
+    cfg = _base_config("mem0")
     backend = build_memory_backend(cfg, client=_FakeClient(), embedder=_FakeEmbedder())
-    assert isinstance(backend, QdrantMemoryBackend)
+    assert isinstance(backend, Mem0MemoryBackend)
 
 
-def test_build_memory_backend_non_qdrant_returns_in_memory():
-    cfg = _base_config("otherstore")
+def test_build_memory_backend_non_mem0_returns_in_memory():
+    cfg = _base_config("mem0")
+    cfg.memory.vector_store.type = "legacy"
     backend = build_memory_backend(cfg)
     assert isinstance(backend, InMemoryMemoryManager)

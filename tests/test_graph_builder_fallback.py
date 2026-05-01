@@ -61,7 +61,7 @@ def _core_config() -> CoreConfig:
         ),
         database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
         memory=MemorySettings(
-            vector_store=VectorStoreSettings(type="qdrant", host="qdrant", port=6333, collection_prefix="starter"),
+            vector_store=VectorStoreSettings(type="mem0", host="qdrant", port=6333, collection_prefix="starter"),
             embeddings=EmbeddingSettings(model="model", dimension=384, batch_size=32),
             retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
         ),

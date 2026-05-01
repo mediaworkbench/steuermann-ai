@@ -83,7 +83,7 @@ class DatabaseSettings(BaseModel):
 
 
 class VectorStoreSettings(BaseModel):
-    type: str = "qdrant"
+    type: Literal["mem0"] = "mem0"
     host: str
     port: conint(gt=0) = 6333
     collection_prefix: str
@@ -102,10 +102,16 @@ class RetentionSettings(BaseModel):
     user_memory_days: PositiveInt = 365
 
 
+class Mem0Settings(BaseModel):
+    search_limit: PositiveInt = 10
+    custom_instructions: Optional[str] = None
+
+
 class MemorySettings(BaseModel):
     vector_store: VectorStoreSettings
     embeddings: EmbeddingSettings
     retention: RetentionSettings
+    mem0: Mem0Settings = Field(default_factory=Mem0Settings)
 
 
 class ToolRoutingSettings(BaseModel):

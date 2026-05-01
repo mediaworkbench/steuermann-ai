@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from backend.single_user import get_effective_user_id, require_api_access
 from universal_agentic_framework.config import load_core_config
+from universal_agentic_framework.memory import MemoryRatingBackend
 from universal_agentic_framework.memory.factory import build_memory_backend
 
 router = APIRouter(
@@ -28,7 +29,7 @@ async def rate_memory(
     cfg = load_core_config()
     backend = build_memory_backend(cfg)
 
-    if not hasattr(backend, "find_memory_point") or not hasattr(backend, "set_memory_user_rating"):
+    if not isinstance(backend, MemoryRatingBackend):
         raise HTTPException(status_code=503, detail="Memory backend does not support rating")
 
     point = backend.find_memory_point(memory_id)
