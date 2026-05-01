@@ -28,19 +28,23 @@ def build_litellm_chat(provider: ProviderSettings, model_name: str):
         raise RuntimeError("ChatLiteLLM not available") from exc
 
     model_kwargs = {}
-    if provider.api_base:
-        model_kwargs["api_base"] = str(provider.api_base)
-    if provider.api_key:
-        model_kwargs["api_key"] = provider.api_key
     if provider.tool_calling != "native":
         model_kwargs["tool_choice"] = "none"
 
+    chat_kwargs = {
+        "model": model_name,
+        "temperature": provider.temperature,
+        "max_tokens": provider.max_tokens,
+        "timeout": provider.timeout,
+        "model_kwargs": model_kwargs,
+    }
+    if provider.api_base:
+        chat_kwargs["api_base"] = str(provider.api_base)
+    if provider.api_key:
+        chat_kwargs["api_key"] = provider.api_key
+
     return ChatLiteLLM(
-        model=model_name,
-        temperature=provider.temperature,
-        max_tokens=provider.max_tokens,
-        timeout=provider.timeout,
-        model_kwargs=model_kwargs,
+        **chat_kwargs,
     )
 
 

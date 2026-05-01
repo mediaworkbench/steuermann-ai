@@ -37,7 +37,7 @@ def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
     assert core.fork.name == "starter"
     assert core.rag.collection_name == "framework"
     assert "postgresql://app:pw@localhost:5432/framework" in core.database.url
-    assert core.llm.providers.primary.models.en == "openai/lfm2-24b-a2b"
+    assert core.llm.providers.primary.models.en == "openai/liquid/lfm2-24b-a2b"
     # Pydantic HttpUrl adds trailing slash, so compare with 'in'
     assert "localhost:11434" in str(core.llm.providers.primary.api_base)
     assert core.tokens.default_budget == 10000

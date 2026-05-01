@@ -819,6 +819,40 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
     if not model_name:
         return None, None
 
+    def _canonical_model_aliases(available_models: list[str]) -> dict[str, str]:
+        """Build alias -> canonical model map.
+
+        Canonical form uses provider-prefixed names (for LiteLLM compatibility).
+        """
+        aliases: dict[str, str] = {}
+        for available in available_models:
+            if not available:
+                continue
+
+            canonical = available if available.startswith("openai/") else f"openai/{available}"
+
+            aliases[available] = canonical
+            if "/" in available:
+                rest = available.split("/", 1)[1]
+                aliases.setdefault(rest, canonical)
+                aliases.setdefault(f"openai/{rest}", f"openai/{rest}")
+            else:
+                aliases.setdefault(f"openai/{available}", canonical)
+
+        return aliases
+
+    def _request_aliases(name: str) -> list[str]:
+        candidates = [name]
+        if "/" in name:
+            rest = name.split("/", 1)[1]
+            candidates.append(rest)
+            candidates.append(f"openai/{rest}")
+        else:
+            candidates.append(f"openai/{name}")
+
+        # Preserve insertion order while removing duplicates.
+        return list(dict.fromkeys(candidates))
+
     async def _fetch_models() -> list[str]:
         async with httpx.AsyncClient(timeout=3.0) as client:
             base = str(LLM_ENDPOINT).rstrip("/")
@@ -829,8 +863,11 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
 
     try:
         available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models)
-        if model_name in available_models:
-            return model_name, None
+        alias_map = _canonical_model_aliases(available_models)
+        for candidate in _request_aliases(model_name):
+            if candidate in alias_map:
+                return alias_map[candidate], None
+
         warning = f"Preferred model '{model_name}' not found at configured LLM endpoint. Using default."
         logger.warning(warning)
         return None, warning

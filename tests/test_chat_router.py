@@ -536,6 +536,92 @@ def test_chat_infers_workspace_document_by_quoted_filename_from_message(client) 
     ]
 
 
+@pytest.mark.asyncio
+async def test_validate_preferred_model_accepts_provider_prefixed_when_endpoint_returns_raw(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_cb_call(func):
+        return await func()
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Dict[str, Any]:
+            return {
+                "data": [
+                    {"id": "liquid/lfm2-24b-a2b"},
+                    {"id": "qwen/qwen3.6-27b"},
+                ]
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            _ = args
+            _ = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            _ = exc_type
+            _ = exc
+            _ = tb
+            return None
+
+        async def get(self, url: str):
+            _ = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
+    monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+
+    validated, warning = await chat_module._validate_preferred_model("openai/liquid/lfm2-24b-a2b")
+    assert warning is None
+    assert validated == "openai/liquid/lfm2-24b-a2b"
+
+
+@pytest.mark.asyncio
+async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_cb_call(func):
+        return await func()
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Dict[str, Any]:
+            return {
+                "data": [
+                    {"id": "liquid/lfm2-24b-a2b"},
+                    {"id": "qwen/qwen3.6-27b"},
+                ]
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            _ = args
+            _ = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            _ = exc_type
+            _ = exc
+            _ = tb
+            return None
+
+        async def get(self, url: str):
+            _ = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
+    monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+
+    validated, warning = await chat_module._validate_preferred_model("liquid/lfm2-24b-a2b")
+    assert warning is None
+    assert validated == "openai/liquid/lfm2-24b-a2b"
+
+
 def test_chat_infers_workspace_document_by_bare_filename_from_message(client) -> None:
     test_client, _, fake_async_client = client
 

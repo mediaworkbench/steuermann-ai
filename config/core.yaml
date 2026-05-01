@@ -9,8 +9,8 @@ llm:
     primary:
       api_base: $LLM_ENDPOINT
       models:
-        en: "openai/lfm2-24b-a2b"
-        de: "openai/lfm2-24b-a2b"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
@@ -18,8 +18,8 @@ llm:
     fallback:
       api_base: $LLM_ENDPOINT
       models:
-        en: "openai/lfm2-24b-a2b"
-        de: "openai/lfm2-24b-a2b"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 32000
       timeout: 300
