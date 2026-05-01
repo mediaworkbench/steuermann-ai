@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 
 from .backend import MemoryBackend, MemoryRecord
 from .importance import MemoryImportanceScorer
@@ -543,3 +543,84 @@ class QdrantMemoryBackend(MemoryBackend):
         except Exception:
             # Ignore if client doesn't support filtered delete
             pass
+
+    def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
+        """Find a memory point by stable metadata.memory_id.
+
+        Returns a dict with point_id and payload when found.
+        """
+        if not memory_id:
+            return None
+
+        try:
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+            flt = Filter(
+                must=[
+                    FieldCondition(key="metadata.memory_id", match=MatchValue(value=memory_id)),
+                ]
+            )
+            points, _ = self._client.scroll(
+                self.collection_name,
+                scroll_filter=flt,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if points:
+                point = points[0]
+                return {
+                    "point_id": getattr(point, "id", None),
+                    "payload": getattr(point, "payload", {}) or {},
+                }
+        except Exception:
+            pass
+
+        # Compatibility fallback for clients/backends that do not support filtered scroll.
+        try:
+            points, _ = self._client.scroll(self.collection_name, limit=2000, with_payload=True, with_vectors=False)
+            for point in points:
+                payload = getattr(point, "payload", {}) or {}
+                metadata = payload.get("metadata", {}) or {}
+                if metadata.get("memory_id") == memory_id:
+                    return {
+                        "point_id": getattr(point, "id", None),
+                        "payload": payload,
+                    }
+        except Exception:
+            return None
+
+        return None
+
+    def set_memory_user_rating(
+        self,
+        *,
+        point_id: Any,
+        metadata: Optional[dict[str, Any]],
+        rating: int,
+    ) -> None:
+        """Persist user_rating in metadata for an existing point."""
+        updated_metadata = dict(metadata or {})
+        updated_metadata["user_rating"] = int(rating)
+
+        # Primary path: qdrant-client set_payload API.
+        try:
+            self._client.set_payload(
+                collection_name=self.collection_name,
+                payload={"metadata": updated_metadata},
+                points=[point_id],
+            )
+            return
+        except Exception:
+            pass
+
+        # Fallback path: REST API payload update.
+        import httpx
+
+        url = f"http://{self._host}:{self._port}/collections/{self.collection_name}/points/payload?wait=true"
+        payload_data = {
+            "payload": {"metadata": updated_metadata},
+            "points": [point_id],
+        }
+        response = httpx.put(url, json=payload_data, timeout=10.0)
+        response.raise_for_status()

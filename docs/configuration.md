@@ -155,6 +155,12 @@ memory:
 - Keep `dimension` synchronized with the selected model, otherwise Qdrant collection compatibility issues occur.
 - If migrating dimensions (for example `384 -> 768`), recreate existing vector collections.
 
+**Memory feedback ratings (importance scoring):**
+
+- Users can rate retrieved memories from `1` to `5` stars via `POST /api/memories/{memory_id}/rate`.
+- Ratings are persisted as `metadata.user_rating` in Qdrant payloads and automatically feed the feedback factor in memory importance scoring.
+- Authorization is enforced per memory owner (`user_id`) and non-owned memories return `403`.
+
 **Environment variables:**
 
 ```bash

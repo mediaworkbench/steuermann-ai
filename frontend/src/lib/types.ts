@@ -3,6 +3,14 @@ export interface ToolExecution {
   status: "success" | "error";
 }
 
+export interface MemoryReference {
+  memory_id: string;
+  text?: string;
+  user_rating?: number | null;
+  importance_score?: number | null;
+  is_related?: boolean;
+}
+
 export interface Source {
   type: "web" | "rag";
   label: string;
@@ -21,6 +29,7 @@ export interface MessageMetrics {
   sources?: Source[];
   attachments_used?: Array<{ id: string; original_name: string }>;
   documents_used?: Array<{ id: string; filename: string; version: number }>;
+  memories_used?: MemoryReference[];
 }
 
 export interface Message {
@@ -50,6 +59,7 @@ export interface ChatResponse {
       filename: string;
       version: number;
     }>;
+    memories_used?: MemoryReference[];
     workspace_document_writeback?: {
       status: "saved";
       document_id: string;

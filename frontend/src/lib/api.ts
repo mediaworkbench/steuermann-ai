@@ -391,6 +391,20 @@ export async function setMessageFeedback(
   }
 }
 
+export async function rateMemory(memoryId: string, rating: number): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/memories/${memoryId}/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Error rating memory:", error);
+    return false;
+  }
+}
+
 export async function searchConversations(
   userId: string,
   query: string,

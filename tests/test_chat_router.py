@@ -304,6 +304,7 @@ def test_chat_forwards_attachment_context(client) -> None:
     assert body["response"] == "Attachment-aware answer"
     assert body["metadata"]["attachments_used"] == [{"id": "att-1", "original_name": "notes.md"}]
     assert body["metadata"]["documents_used"] == []
+    assert body["metadata"]["memories_used"] == []
     assert body["metadata"]["workspace_document_writeback"] is None
     assert body["metadata"]["profile_id"] == "safety"
     assert fake_async_client.last_request_json["attachments"][0]["id"] == "att-1"
@@ -315,6 +316,7 @@ def test_chat_forwards_attachment_context(client) -> None:
     assert conversation_store.messages[1]["metadata"] == {
         "attachments_used": [{"id": "att-1", "original_name": "notes.md"}],
         "documents_used": [],
+        "memories_used": [],
         "workspace_document_writeback": None,
         "profile_id": "safety",
     }

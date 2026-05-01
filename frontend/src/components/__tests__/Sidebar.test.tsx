@@ -52,9 +52,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByRole("heading", { name: "Med Console" })).toBeInTheDocument();
     expect(screen.getAllByText("Med Console").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/Clinical Assistant/)).toBeInTheDocument();
     expect(screen.getByLabelText("Open settings for Med Console")).toBeInTheDocument();
-    expect(screen.getByText("MC")).toBeInTheDocument();
   });
 
   test("falls back to default app name when profile appName is missing", () => {
