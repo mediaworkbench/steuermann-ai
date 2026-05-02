@@ -1269,6 +1269,21 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
                     similarity += intent_boost
 
+                # Hard intent override: when user explicitly asks for web search,
+                # keep web_search_mcp above both threshold gates so Layer 2 can decide.
+                if tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
+                    min_top_score_cfg = getattr(
+                        getattr(config, "tool_routing", None), "min_top_score", 0.7
+                    )
+                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
+                    if similarity < forced_floor:
+                        logger.info(
+                            "Applying web-search intent override",
+                            original_similarity=round(similarity, 4),
+                            forced_similarity=round(forced_floor, 4),
+                        )
+                        similarity = forced_floor
+
                 logger.info(
                     "Tool scored (prefilter)",
                     tool=tool_name,
