@@ -169,3 +169,42 @@ export interface SearchResult {
   content: string;
   created_at: string;
 }
+
+// ── Memory management ────────────────────────────────────────────────
+
+export interface MemoryItem {
+  memory_id: string;
+  text: string;
+  user_rating: number | null;
+  importance_score: number | null;
+  is_related: boolean;
+  created_at: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryListResponse {
+  items: MemoryItem[];
+  count: number;
+  user_id: string;
+  limit: number;
+  offset: number;
+}
+
+export interface MemoryStats {
+  sample_limit: number;
+  sample_count: number;
+  totals: {
+    memories: number;
+    rated: number;
+    unrated: number;
+    related: number;
+    recent_7d: number;
+  };
+  ratios: {
+    rated_coverage: number;
+    related_ratio: number;
+  };
+  quality: {
+    average_importance: number;
+  };
+}
