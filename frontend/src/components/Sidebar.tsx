@@ -399,16 +399,6 @@ export function Sidebar({
         {/* User profile */}
         <div className="p-4 border-t border-white/10 bg-evergreen space-y-1">
           <Link
-            href="/memories"
-            prefetch={false}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10
-                       text-light-cyan transition-colors"
-            aria-label="Memory"
-          >
-            <Icon name="psychology" className="text-light-cyan/70" />
-            <span className="text-sm font-medium text-light-cyan">Memory</span>
-          </Link>
-          <Link
             href="/settings"
             prefetch={false}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10

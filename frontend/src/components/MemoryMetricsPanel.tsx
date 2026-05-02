@@ -2,6 +2,7 @@
 
 import { Brain, Database, GitMerge, Zap } from "lucide-react";
 import type { MetricsData } from "@/lib/api";
+import { useI18n } from "@/hooks/useI18n";
 
 interface Props {
   metrics: MetricsData;
@@ -35,18 +36,18 @@ function MiniCard({
   );
 }
 
-const OP_LABELS: Record<string, string> = {
-  load: "Load",
-  update: "Upsert",
-  query: "Query",
-};
-
 const STATUS_COLORS: Record<string, string> = {
   success: "text-emerald-600 bg-emerald-50",
   error: "text-red-600 bg-red-50",
 };
 
 export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
+  const { t } = useI18n();
+  const opLabels: Record<string, string> = {
+    load: t("metrics.memoryLoads"),
+    update: t("metrics.memoryUpdates"),
+    query: t("metrics.memoryQueries"),
+  };
   const ops = metrics.memory_ops ?? {};
   const byStatus = metrics.memory_ops_by_status ?? {};
 
@@ -95,41 +96,41 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
         }}
       >
         <Brain size={18} />
-        Memory operations
+        {t("metrics.memoryOperations")}
       </h3>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <MiniCard
           icon={<Database size={16} />}
-          label="Total ops"
+          label={t("metrics.totalOps")}
           value={formatNumber(Math.round(totalOps))}
         />
         {avgQuality !== null && (
           <MiniCard
             icon={<Zap size={16} />}
-            label="Avg quality"
+            label={t("metrics.avgQuality")}
             value={`${Math.round(avgQuality * 100)}%`}
           />
         )}
         {coocNodes !== null && (
           <MiniCard
             icon={<GitMerge size={16} />}
-            label="Co-occ nodes"
+            label={t("metrics.coOccurrenceNodes")}
             value={formatNumber(Math.round(coocNodes))}
           />
         )}
         {coocEdges !== null && (
           <MiniCard
             icon={<GitMerge size={16} />}
-            label="Co-occ edges"
+            label={t("metrics.coOccurrenceEdges")}
             value={formatNumber(Math.round(coocEdges))}
           />
         )}
         {rankingMs !== null && (
           <MiniCard
             icon={<Zap size={16} />}
-            label="Ranking latency"
+            label={t("metrics.rankingLatency")}
             value={rankingMs.toFixed(1)}
             unit="ms"
           />
@@ -143,16 +144,16 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
             <thead>
               <tr className="border-b border-evergreen/10">
                 <th className="py-2 text-left font-semibold text-evergreen/50 uppercase text-xs tracking-wider pr-4">
-                  Operation
+                  {t("metrics.operation")}
                 </th>
                 <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider px-4">
-                  Success
+                  {t("metrics.success")}
                 </th>
                 <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider px-4">
-                  Error
+                  {t("metrics.error")}
                 </th>
                 <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider pl-4">
-                  Total
+                  {t("metrics.total")}
                 </th>
               </tr>
             </thead>
@@ -168,7 +169,7 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
                 return (
                   <tr key={op} className="border-b border-evergreen/5 hover:bg-evergreen/[0.02]">
                     <td className="py-2 pr-4 font-medium text-evergreen">
-                      {OP_LABELS[op] ?? op}
+                      {opLabels[op] ?? op}
                     </td>
                     <td className="py-2 px-4 text-right">
                       {Object.keys(statuses).length > 0 ? (

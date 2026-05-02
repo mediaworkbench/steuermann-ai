@@ -1,15 +1,35 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from backend.prometheus_client import PrometheusClient, extract_value, extract_values_dict
 from backend.single_user import require_api_access
 
 
 router = APIRouter(prefix="/api", tags=["metrics"], dependencies=[Depends(require_api_access)])
+
+
+def _daily_series_from_range_query(results: list[Dict[str, Any]]) -> Dict[str, float]:
+    """Aggregate Prometheus range query values by UTC day (YYYY-MM-DD)."""
+    daily: Dict[str, float] = {}
+    for series in results:
+        values = series.get("values") or []
+        for item in values:
+            if not isinstance(item, list) or len(item) < 2:
+                continue
+            try:
+                ts = float(item[0])
+                value = float(item[1])
+            except (TypeError, ValueError):
+                continue
+            if value != value:  # NaN guard
+                continue
+            day = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            daily[day] = daily.get(day, 0.0) + value
+    return daily
 
 
 @router.get("/metrics")
@@ -212,3 +232,83 @@ async def get_metrics() -> Dict[str, Any]:
             metrics["workspace"]["cleanup_deleted_total"] = value
 
     return metrics
+
+
+@router.get("/analytics/memory-trends")
+async def get_memory_trends(
+    days: int = Query(default=30, ge=1, le=365),
+) -> Dict[str, Any]:
+    """Prometheus-backed daily memory trends for the last N days."""
+    client = PrometheusClient()
+
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=days - 1)
+    start = start_dt.isoformat()
+    end = end_dt.isoformat()
+    step = "1d"
+
+    load_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{operation="load"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    update_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{operation="update"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    error_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{status="error"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    quality_results = await client.query_range(
+        'sum(increase(langgraph_memory_quality_score_sum[1d])) / clamp_min(sum(increase(langgraph_memory_quality_score_count[1d])), 1)',
+        start=start,
+        end=end,
+        step=step,
+    )
+
+    load_daily = _daily_series_from_range_query(load_results)
+    update_daily = _daily_series_from_range_query(update_results)
+    error_daily = _daily_series_from_range_query(error_results)
+    quality_daily = _daily_series_from_range_query(quality_results)
+
+    trends = []
+    for offset in range(days):
+        current_day = (start_dt + timedelta(days=offset)).date().isoformat()
+        loads = load_daily.get(current_day, 0.0)
+        updates = update_daily.get(current_day, 0.0)
+        errors = error_daily.get(current_day, 0.0)
+        total_ops = loads + updates
+        error_rate = (errors / total_ops * 100.0) if total_ops > 0 else 0.0
+        avg_quality_score = quality_daily.get(current_day, 0.0)
+        trends.append(
+            {
+                "date": current_day,
+                "loads": round(loads, 4),
+                "updates": round(updates, 4),
+                "errors": round(errors, 4),
+                "error_rate": round(error_rate, 2),
+                "avg_quality_score": round(avg_quality_score, 4),
+            }
+        )
+
+    total_loads = sum(day["loads"] for day in trends)
+    total_updates = sum(day["updates"] for day in trends)
+    total_errors = sum(day["errors"] for day in trends)
+    total_ops = total_loads + total_updates
+
+    return {
+        "period_days": days,
+        "trends": trends,
+        "totals": {
+            "loads": round(total_loads, 4),
+            "updates": round(total_updates, 4),
+            "errors": round(total_errors, 4),
+            "error_rate": round((total_errors / total_ops * 100.0), 2) if total_ops > 0 else 0.0,
+        },
+    }

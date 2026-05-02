@@ -220,6 +220,26 @@ export interface LatencyAnalysisResponse {
   total_requests: number;
 }
 
+export interface MemoryTrendPoint {
+  date: string;
+  loads: number;
+  updates: number;
+  errors: number;
+  error_rate: number;
+  avg_quality_score: number;
+}
+
+export interface MemoryTrendsResponse {
+  period_days: number;
+  trends: MemoryTrendPoint[];
+  totals: {
+    loads: number;
+    updates: number;
+    errors: number;
+    error_rate: number;
+  };
+}
+
 export async function fetchUsageTrends(days: number = 30): Promise<UsageTrendsResponse | null> {
   try {
     const response = await fetch(`${API_BASE}/api/analytics/usage-trends?days=${days}`);
@@ -258,6 +278,20 @@ export async function fetchLatencyAnalysis(days: number = 30): Promise<LatencyAn
     return (await response.json()) as LatencyAnalysisResponse;
   } catch (error) {
     console.error("Error fetching latency analysis:", error);
+    return null;
+  }
+}
+
+export async function fetchMemoryTrends(days: number = 30): Promise<MemoryTrendsResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/analytics/memory-trends?days=${days}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memory trends: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as MemoryTrendsResponse;
+  } catch (error) {
+    console.error("Error fetching memory trends:", error);
     return null;
   }
 }

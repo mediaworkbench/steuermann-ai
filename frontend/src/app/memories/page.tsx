@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Star, RefreshCw, Brain } from "lucide-react";
 import { fetchMemories, fetchMemoryStats, deleteMemory, rateMemory } from "@/lib/api";
+import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 
@@ -27,10 +28,12 @@ function StarRating({
   memoryId,
   current,
   onRate,
+  getRateLabel,
 }: {
   memoryId: string;
   current: number | null;
   onRate: (id: string, r: number) => void;
+  getRateLabel: (count: number) => string;
 }) {
   const [hover, setHover] = useState(0);
   return (
@@ -42,7 +45,7 @@ function StarRating({
           onMouseEnter={() => setHover(n)}
           onMouseLeave={() => setHover(0)}
           className="p-0.5 rounded transition-colors cursor-pointer"
-          aria-label={`Rate ${n} stars`}
+          aria-label={getRateLabel(n)}
         >
           <Star
             size={13}
@@ -79,6 +82,7 @@ function StatCard({
 }
 
 export default function MemoriesPage() {
+  const { t, formatDate } = useI18n();
   const userId = CURRENT_USER_ID;
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [stats, setStats] = useState<MemoryStats | null>(null);
@@ -155,9 +159,9 @@ export default function MemoriesPage() {
           <div className="flex items-center gap-3">
             <Brain size={28} className="text-evergreen" />
             <div>
-              <h1 className="text-2xl font-bold text-evergreen">Memory</h1>
+              <h1 className="text-2xl font-bold text-evergreen">{t("memories.title")}</h1>
               <p className="text-sm text-evergreen/60">
-                Memories the agent has learned about you
+                {t("memories.subtitle")}
               </p>
             </div>
           </div>
@@ -167,19 +171,23 @@ export default function MemoriesPage() {
                        bg-evergreen text-light-cyan hover:bg-evergreen/80 transition-colors cursor-pointer"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Refresh
+            {t("memories.refresh")}
           </button>
         </div>
 
         {/* Stats strip */}
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <StatCard label="Total" value={stats.totals.memories} />
-            <StatCard label="Recent 7d" value={stats.totals.recent_7d} />
-            <StatCard label="Rated" value={stats.totals.rated} sub={`${Math.round(stats.ratios.rated_coverage * 100)}% coverage`} />
-            <StatCard label="Unrated" value={stats.totals.unrated} />
+            <StatCard label={t("memories.total")} value={stats.totals.memories} />
+            <StatCard label={t("memories.recent7d")} value={stats.totals.recent_7d} />
             <StatCard
-              label="Avg importance"
+              label={t("memories.rated")}
+              value={stats.totals.rated}
+              sub={t("memories.coverage", { count: Math.round(stats.ratios.rated_coverage * 100) })}
+            />
+            <StatCard label={t("memories.unrated")} value={stats.totals.unrated} />
+            <StatCard
+              label={t("memories.avgImportance")}
               value={`${Math.round((stats.quality.average_importance || 0) * 100)}%`}
             />
           </div>
@@ -189,7 +197,7 @@ export default function MemoriesPage() {
         <div>
           <input
             type="search"
-            placeholder="Filter memories…"
+            placeholder={t("memories.filterPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full max-w-md px-4 py-2 rounded-lg border border-evergreen/20
@@ -203,10 +211,10 @@ export default function MemoriesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-evergreen text-light-cyan text-xs uppercase tracking-wider">
-                <th className="px-4 py-3 text-left font-semibold">Memory</th>
-                <th className="px-4 py-3 text-left font-semibold hidden md:table-cell w-36">Importance</th>
-                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell w-36">Rating</th>
-                <th className="px-4 py-3 text-left font-semibold hidden lg:table-cell w-40">Saved</th>
+                <th className="px-4 py-3 text-left font-semibold">{t("memories.memory")}</th>
+                <th className="px-4 py-3 text-left font-semibold hidden md:table-cell w-36">{t("memories.importance")}</th>
+                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell w-36">{t("memories.rating")}</th>
+                <th className="px-4 py-3 text-left font-semibold hidden lg:table-cell w-40">{t("memories.saved")}</th>
                 <th className="px-4 py-3 w-12" />
               </tr>
             </thead>
@@ -214,14 +222,14 @@ export default function MemoriesPage() {
               {loading && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-evergreen/40">
-                    Loading…
+                    {t("memories.loading")}
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-evergreen/40">
-                    {search ? "No memories match your filter." : "No memories yet."}
+                    {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
                   </td>
                 </tr>
               )}
@@ -237,7 +245,7 @@ export default function MemoriesPage() {
                       <span className="line-clamp-3">{mem.text}</span>
                       {mem.is_related && (
                         <span className="ml-2 text-xs text-light-cyan bg-evergreen/20 px-1.5 py-0.5 rounded">
-                          related
+                          {t("memories.related")}
                         </span>
                       )}
                     </td>
@@ -249,11 +257,12 @@ export default function MemoriesPage() {
                         memoryId={mem.memory_id}
                         current={mem.user_rating}
                         onRate={handleRate}
+                        getRateLabel={(count) => t("memories.rateStars", { count })}
                       />
                     </td>
                     <td className="px-4 py-3 text-evergreen/40 text-xs hidden lg:table-cell">
                       {mem.created_at
-                        ? new Date(mem.created_at).toLocaleDateString()
+                        ? formatDate(mem.created_at)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -264,20 +273,20 @@ export default function MemoriesPage() {
                             disabled={deletingId === mem.memory_id}
                             className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer"
                           >
-                            {deletingId === mem.memory_id ? "…" : "Yes"}
+                            {deletingId === mem.memory_id ? "…" : t("memories.confirmYes")}
                           </button>
                           <button
                             onClick={() => setConfirmDelete(null)}
                             className="text-xs px-2 py-1 rounded bg-evergreen/10 text-evergreen hover:bg-evergreen/20 transition-colors cursor-pointer"
                           >
-                            No
+                            {t("memories.confirmNo")}
                           </button>
                         </div>
                       ) : (
                         <button
                           onClick={() => setConfirmDelete(mem.memory_id)}
                           className="p-1.5 rounded text-evergreen/30 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-                          aria-label="Delete memory"
+                          aria-label={t("memories.deleteMemory")}
                         >
                           <Trash2 size={14} />
                         </button>
@@ -293,7 +302,7 @@ export default function MemoriesPage() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between text-sm text-evergreen/50">
             <span>
-              Page {currentPage} of {totalPages} ({total} total)
+              {t("memories.pageOfTotal", { page: currentPage, pages: totalPages, total })}
             </span>
             <div className="flex gap-2">
               <button
@@ -302,7 +311,7 @@ export default function MemoriesPage() {
                 className="px-3 py-1.5 rounded border border-evergreen/20 hover:bg-evergreen/5
                            disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                Previous
+                {t("memories.previous")}
               </button>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}
@@ -310,7 +319,7 @@ export default function MemoriesPage() {
                 className="px-3 py-1.5 rounded border border-evergreen/20 hover:bg-evergreen/5
                            disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                Next
+                {t("memories.next")}
               </button>
             </div>
           </div>
