@@ -105,6 +105,7 @@ class RetentionSettings(BaseModel):
 class Mem0Settings(BaseModel):
     search_limit: PositiveInt = 10
     custom_instructions: Optional[str] = None
+    llm_provider: str = "openai"  # "lmstudio" for LM Studio servers (uses json_schema response format)
 
 
 class MemorySettings(BaseModel):

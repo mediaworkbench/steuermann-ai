@@ -39,6 +39,7 @@ def build_memory_backend(
             llm_api_key=llm_primary.api_key,
             search_limit=mem0_settings.search_limit,
             custom_instructions=mem0_settings.custom_instructions,
+            llm_provider=mem0_settings.llm_provider,
             client=client,
             embedder=embedder,
         )

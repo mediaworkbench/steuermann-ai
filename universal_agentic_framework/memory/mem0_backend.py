@@ -36,6 +36,7 @@ class Mem0MemoryBackend(MemoryBackend):
         llm_temperature: float,
         llm_max_tokens: Optional[int],
         llm_api_key: Optional[str],
+        llm_provider: str = "openai",
         search_limit: int = 10,
         custom_instructions: Optional[str] = None,
         enable_importance_scoring: bool = True,
@@ -75,14 +76,36 @@ class Mem0MemoryBackend(MemoryBackend):
                     "model": embedding_model,
                 },
             },
-            "llm": {
+        }
+
+        effective_api_key = llm_api_key or "not-needed"
+
+        if llm_provider == "lmstudio":
+            # LM Studio requires json_schema instead of json_object for response_format.
+            # Strip the "openai/" LiteLLM prefix that the main LLM stack uses — LM Studio
+            # expects the raw model name (e.g. "liquid/lfm2-24b-a2b").
+            lmstudio_model = llm_model.removeprefix("openai/")
+            config["llm"] = {
+                "provider": "lmstudio",
+                "config": {
+                    "model": lmstudio_model,
+                    "temperature": float(llm_temperature),
+                    "lmstudio_base_url": llm_api_base or "http://localhost:1234/v1",
+                    "lmstudio_response_format": {
+                        "type": "json_schema",
+                        "json_schema": {"type": "object", "schema": {}},
+                    },
+                },
+            }
+        else:
+            config["llm"] = {
                 "provider": "openai",
                 "config": {
                     "model": llm_model,
                     "temperature": float(llm_temperature),
+                    "api_key": effective_api_key,
                 },
-            },
-        }
+            }
 
         if llm_max_tokens is not None:
             config["llm"]["config"]["max_tokens"] = int(llm_max_tokens)
@@ -90,17 +113,12 @@ class Mem0MemoryBackend(MemoryBackend):
         if embedding_remote_endpoint:
             config["embedder"]["config"]["openai_base_url"] = embedding_remote_endpoint
 
-        if llm_api_base:
-            config["llm"]["config"]["openai_base_url"] = llm_api_base
-
-        # OpenAI-compatible clients require an api_key value even when local
-        # providers ignore it. Use a non-empty fallback when not configured.
-        effective_api_key = llm_api_key or "not-needed"
         config["embedder"]["config"]["api_key"] = effective_api_key
-        config["llm"]["config"]["api_key"] = effective_api_key
+        if llm_provider != "lmstudio":
+            config["llm"]["config"]["api_key"] = effective_api_key
 
-        if custom_instructions:
-            config["custom_instructions"] = custom_instructions
+            if custom_instructions:
+                config["custom_instructions"] = custom_instructions
 
         if self._client_override is not None:
             self._memory = self._client_override
@@ -357,9 +375,27 @@ class Mem0MemoryBackend(MemoryBackend):
             else:
                 raise
 
-        if add_response is None:
+        # Detect silent inference failure: Mem0 swallows LLM errors internally (e.g. when
+        # the local model rejects `response_format=json_object`) and returns an empty result
+        # without raising. Treat any empty response as a failed inference and fall back.
+        def _is_empty_response(r: Any) -> bool:
+            if r is None:
+                return True
+            if isinstance(r, list) and len(r) == 0:
+                return True
+            if isinstance(r, dict):
+                results = r.get("results")
+                if results is not None and isinstance(results, list) and len(results) == 0:
+                    return True
+            return False
+
+        if _is_empty_response(add_response):
             # Graceful degradation: store summary text verbatim without inference.
-            logger.info("mem0_infer_fallback_verbatim", user_id=user_id)
+            logger.warning(
+                "mem0_infer_fallback_verbatim",
+                user_id=user_id,
+                reason="empty_or_failed_inference",
+            )
             verbatim_payload = [{"role": "user", "content": text}]
             try:
                 add_response = self._memory.add(verbatim_payload, user_id=user_id, metadata=payload, infer=False)

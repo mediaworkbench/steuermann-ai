@@ -48,6 +48,7 @@ memory:
   mem0:
     search_limit: 10
     custom_instructions: null
+    llm_provider: "lmstudio"
 
 rag:
   enabled: true
