@@ -440,13 +440,22 @@ class Mem0MemoryBackend(MemoryBackend):
         if not text:
             return
 
-        # Mem0 OSS update signatures vary between versions; attempt common forms.
-        try:
-            self._memory.update(memory_id=memory_id, data=text)
-        except TypeError:
+        # Persist rating metadata across Mem0 OSS SDK signature variations.
+        update_attempts = [
+            {"memory_id": memory_id, "data": text, "metadata": updated},
+            {"memory_id": memory_id, "new_memory": text, "metadata": updated},
+            {"memory_id": memory_id, "metadata": updated},
+            {"memory_id": memory_id, "data": text},
+            {"memory_id": memory_id, "new_memory": text},
+        ]
+
+        for kwargs in update_attempts:
             try:
-                self._memory.update(memory_id=memory_id, new_memory=text)
+                self._memory.update(**kwargs)
+                return
+            except TypeError:
+                continue
             except Exception:
-                pass
-        except Exception:
-            pass
+                continue
+
+        logger.warning("mem0_rating_persist_failed", memory_id=memory_id)

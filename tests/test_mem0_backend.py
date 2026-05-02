@@ -98,6 +98,10 @@ class _FakeMemory:
     def update(self, *, memory_id: str, data: str = "", **kwargs: Any) -> None:
         if memory_id in self._store:
             self._store[memory_id]["memory"] = data
+            metadata = kwargs.get("metadata")
+            if isinstance(metadata, dict):
+                existing = dict(self._store[memory_id].get("metadata") or {})
+                self._store[memory_id]["metadata"] = {**existing, **metadata}
 
     def delete_all(
         self,
@@ -322,6 +326,27 @@ def test_set_memory_user_rating_appears_in_subsequent_load():
     rated = [r for r in records if r.metadata.get("memory_id") == mid]
     assert len(rated) == 1
     assert rated[0].metadata["user_rating"] == 4
+
+
+def test_set_memory_user_rating_persists_after_cache_reset():
+    backend = _make_backend()
+    rec = backend.upsert("u1", "persist rating")
+    mid = rec.metadata["memory_id"]
+
+    backend.set_memory_user_rating(
+        point_id=mid,
+        metadata={"memory_id": mid},
+        rating=5,
+    )
+
+    # Simulate a fresh in-process state (e.g., page reload/new request path).
+    backend._rating_overrides.clear()
+    backend._metadata_cache.clear()
+
+    records = backend.load("u1", top_k=10)
+    rated = [r for r in records if r.metadata.get("memory_id") == mid]
+    assert len(rated) == 1
+    assert rated[0].metadata.get("user_rating") == 5
 
 
 def test_co_occurrence_tracking_disabled():

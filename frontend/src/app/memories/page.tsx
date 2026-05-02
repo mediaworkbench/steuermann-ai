@@ -51,8 +51,8 @@ function StarRating({
             size={13}
             className={
               n <= (hover || current || 0)
-                ? "fill-yellow-400 text-yellow-400"
-                : "text-white/20"
+                ? "fill-yellow-400 text-yellow-500"
+                : "text-evergreen/35"
             }
           />
         </button>
