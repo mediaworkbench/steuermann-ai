@@ -38,3 +38,9 @@ class MemoryRatingBackend(Protocol):
         rating: int,
     ) -> None:
         ...
+
+
+@runtime_checkable
+class MemoryDeleteBackend(Protocol):
+    def delete_memory(self, *, memory_id: str, user_id: str) -> None:
+        ...

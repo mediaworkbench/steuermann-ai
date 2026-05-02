@@ -23,22 +23,54 @@ class _FakeMemory:
 
     def __init__(self) -> None:
         self._store: Dict[str, Dict[str, Any]] = {}
+        self.last_search_filters: Optional[Dict[str, Any]] = None
+        self.last_get_all_filters: Optional[Dict[str, Any]] = None
+        self.last_delete_all_filters: Optional[Dict[str, Any]] = None
+        self.last_add_infer: Optional[bool] = None
 
-    def add(self, text: str, *, user_id: str, metadata: Optional[dict] = None) -> dict:
+    def add(
+        self,
+        text: Any,
+        *,
+        user_id: str,
+        metadata: Optional[dict] = None,
+        infer: bool = True,
+    ) -> dict:
+        self.last_add_infer = infer
+        if isinstance(text, list):
+            # Mem0 canonical call path: list of chat-style messages.
+            text_value = "\n".join(
+                str(item.get("content") or "")
+                for item in text
+                if isinstance(item, dict)
+            ).strip()
+        else:
+            text_value = str(text)
         memory_id = uuid.uuid4().hex[:12]
         self._store[memory_id] = {
             "id": memory_id,
-            "memory": text,
+            "memory": text_value,
             "user_id": user_id,
             "metadata": dict(metadata or {}),
             "score": 1.0,
         }
         return {"results": [{"id": memory_id}]}
 
-    def search(self, query: str, *, user_id: str, limit: int = 10) -> dict:
+    def search(
+        self,
+        query: str,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        top_k: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        self.last_search_filters = dict(filters or {})
+        effective_user_id = user_id or self.last_search_filters.get("user_id")
+        effective_limit = top_k if top_k is not None else (limit if limit is not None else 10)
         results = [
-            v for v in self._store.values() if v["user_id"] == user_id
-        ][:limit]
+            v for v in self._store.values() if v["user_id"] == effective_user_id
+        ][:effective_limit]
         # Attach simple relevance score based on word overlap
         for r in results:
             words = set(query.lower().split())
@@ -46,8 +78,18 @@ class _FakeMemory:
             r["score"] = len(words & mem_words) / max(len(words), 1)
         return {"results": results}
 
-    def get_all(self, *, user_id: str, limit: int = 100) -> dict:
-        results = [v for v in self._store.values() if v["user_id"] == user_id][:limit]
+    def get_all(
+        self,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        top_k: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        self.last_get_all_filters = dict(filters or {})
+        effective_user_id = user_id or self.last_get_all_filters.get("user_id")
+        effective_limit = top_k if top_k is not None else (limit if limit is not None else 100)
+        results = [v for v in self._store.values() if v["user_id"] == effective_user_id][:effective_limit]
         return {"results": results}
 
     def get(self, *, memory_id: str) -> Optional[dict]:
@@ -57,10 +99,33 @@ class _FakeMemory:
         if memory_id in self._store:
             self._store[memory_id]["memory"] = data
 
-    def delete_all(self, *, user_id: str) -> None:
-        to_delete = [k for k, v in self._store.items() if v["user_id"] == user_id]
+    def delete_all(
+        self,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+    ) -> None:
+        self.last_delete_all_filters = dict(filters or {})
+        effective_user_id = user_id or self.last_delete_all_filters.get("user_id")
+        to_delete = [k for k, v in self._store.items() if v["user_id"] == effective_user_id]
         for k in to_delete:
             del self._store[k]
+
+
+class _NoHitSearchFakeMemory(_FakeMemory):
+    """Fake Memory backend where semantic search returns no hits."""
+
+    def search(
+        self,
+        query: str,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        top_k: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        self.last_search_filters = dict(filters or {})
+        return {"results": []}
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +152,11 @@ def _make_backend(**overrides: Any) -> Mem0MemoryBackend:
     return Mem0MemoryBackend(**kwargs)
 
 
+def _make_backend_nohit_search(**overrides: Any) -> Mem0MemoryBackend:
+    kwargs = {**_COMMON_KWARGS, **overrides, "client": _NoHitSearchFakeMemory()}
+    return Mem0MemoryBackend(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -104,6 +174,7 @@ def test_upsert_returns_memory_record():
     assert rec.text == "alpha beta gamma"
     assert rec.metadata.get("memory_id") is not None
     assert rec.metadata["tag"] == "x"
+    assert backend._memory.last_add_infer is False
 
 
 def test_load_with_query_applies_importance_scoring():
@@ -114,9 +185,22 @@ def test_load_with_query_applies_importance_scoring():
 
     records = backend.load("u1", query="machine learning", top_k=5)
     assert len(records) >= 1
+    assert backend._memory.last_search_filters == {"user_id": "u1"}
     # Records with higher relevance should appear first
     texts = [r.text for r in records]
     assert any("machine learning" in t for t in texts)
+
+
+def test_load_with_query_falls_back_to_recent_when_search_has_no_hits():
+    backend = _make_backend_nohit_search()
+    backend.upsert("u1", "most recent memory one")
+    backend.upsert("u1", "most recent memory two")
+
+    records = backend.load("u1", query="unrelated query", top_k=5)
+
+    assert len(records) == 2
+    assert backend._memory.last_search_filters == {"user_id": "u1"}
+    assert backend._memory.last_get_all_filters == {"user_id": "u1"}
 
 
 def test_load_without_query_returns_all_sorted_by_created_at():
@@ -157,6 +241,8 @@ def test_clear_removes_all_user_memories():
     backend.upsert("u2", "other user kept")
 
     backend.clear("u1")
+    assert backend._memory.last_get_all_filters == {"user_id": "u1"}
+    assert backend._memory.last_delete_all_filters == {"user_id": "u1"}
 
     assert backend.load("u1", top_k=10) == []
     assert len(backend.load("u2", top_k=10)) == 1
@@ -190,6 +276,20 @@ def test_find_memory_point_returns_correct_shape():
 def test_find_memory_point_returns_none_for_unknown():
     backend = _make_backend()
     assert backend.find_memory_point("nonexistent-id") is None
+
+
+def test_find_memory_point_handles_null_score():
+    backend = _make_backend()
+    rec = backend.upsert("u1", "null-score memory")
+    mid = rec.metadata["memory_id"]
+
+    # Mem0 get() may return score=None for item lookups.
+    backend._memory._store[mid]["score"] = None
+
+    point = backend.find_memory_point(mid)
+    assert point is not None
+    assert point["point_id"] == mid
+    assert point["payload"]["text"] == "null-score memory"
 
 
 def test_set_memory_user_rating_persists_in_cache():

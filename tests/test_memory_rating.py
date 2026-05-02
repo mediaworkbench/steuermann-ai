@@ -17,9 +17,13 @@ class FakeMemoryBackend:
                 "point_id": "p-1",
                 "payload": {
                     "user_id": "u1",
+                    "text": "memory one",
                     "metadata": {
                         "memory_id": "mem-1",
+                        "created_at": "2026-05-01T00:00:00+00:00",
                         "user_rating": None,
+                        "importance_score": 0.7,
+                        "is_related": False,
                     },
                 },
             },
@@ -27,13 +31,42 @@ class FakeMemoryBackend:
                 "point_id": "p-2",
                 "payload": {
                     "user_id": "other-user",
+                    "text": "memory two",
                     "metadata": {
                         "memory_id": "mem-2",
+                        "created_at": "2026-05-01T00:00:00+00:00",
                         "user_rating": None,
+                        "importance_score": 0.3,
+                        "is_related": True,
                     },
                 },
             },
         }
+
+    def load(
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        top_k: int = 5,
+        include_related: bool = False,
+        session_id: Optional[str] = None,
+    ):
+        _ = query, include_related, session_id
+        from universal_agentic_framework.memory.backend import MemoryRecord
+
+        out = []
+        for record in self.records.values():
+            payload = record.get("payload") or {}
+            if payload.get("user_id") != user_id:
+                continue
+            out.append(
+                MemoryRecord(
+                    user_id=user_id,
+                    text=str(payload.get("text") or ""),
+                    metadata=dict(payload.get("metadata") or {}),
+                )
+            )
+        return out[:top_k]
 
     def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
         return self.records.get(memory_id)
@@ -42,6 +75,15 @@ class FakeMemoryBackend:
         _ = point_id
         if metadata is not None:
             metadata["user_rating"] = rating
+
+    def delete_memory(self, *, memory_id: str, user_id: str) -> None:
+        record = self.records.get(memory_id)
+        if not record:
+            return
+        owner = ((record.get("payload") or {}).get("user_id"))
+        if owner != user_id:
+            raise PermissionError("Memory does not belong to user")
+        self.records.pop(memory_id, None)
 
 
 @pytest.fixture()
@@ -102,3 +144,63 @@ def test_rate_memory_requires_token_when_configured(client, monkeypatch: pytest.
     response = test_client.post("/api/memories/mem-1/rate", json={"rating": 4})
 
     assert response.status_code == 401
+
+
+def test_list_memories_returns_user_owned_memories(client):
+    test_client, _ = client
+
+    response = test_client.get("/api/memories?limit=50")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["items"][0]["memory_id"] == "mem-1"
+
+
+def test_get_memory_detail_success(client):
+    test_client, _ = client
+
+    response = test_client.get("/api/memories/mem-1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["memory_id"] == "mem-1"
+    assert body["text"] == "memory one"
+
+
+def test_get_memory_detail_forbidden_for_non_owner(client):
+    test_client, _ = client
+
+    response = test_client.get("/api/memories/mem-2")
+
+    assert response.status_code == 403
+
+
+def test_delete_memory_success(client):
+    test_client, backend = client
+
+    response = test_client.delete("/api/memories/mem-1")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "memory_id": "mem-1", "deleted": True}
+    assert "mem-1" not in backend.records
+
+
+def test_delete_memory_forbidden_for_non_owner(client):
+    test_client, backend = client
+
+    response = test_client.delete("/api/memories/mem-2")
+
+    assert response.status_code == 403
+    assert "mem-2" in backend.records
+
+
+def test_memory_stats_summary(client):
+    test_client, _ = client
+
+    response = test_client.get("/api/memories/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["totals"]["memories"] == 1
+    assert "rated_coverage" in body["ratios"]

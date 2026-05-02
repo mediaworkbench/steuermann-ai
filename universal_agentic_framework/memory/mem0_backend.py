@@ -4,9 +4,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
+import structlog
+
 from .backend import MemoryBackend, MemoryRecord
 from .importance import MemoryImportanceScorer
 from .linking import MemoryCoOccurrenceTracker
+
+
+logger = structlog.get_logger(__name__)
 
 
 class Mem0MemoryBackend(MemoryBackend):
@@ -87,9 +92,11 @@ class Mem0MemoryBackend(MemoryBackend):
         if llm_api_base:
             config["llm"]["config"]["openai_base_url"] = llm_api_base
 
-        if llm_api_key:
-            config["embedder"]["config"]["api_key"] = llm_api_key
-            config["llm"]["config"]["api_key"] = llm_api_key
+        # OpenAI-compatible clients require an api_key value even when local
+        # providers ignore it. Use a non-empty fallback when not configured.
+        effective_api_key = llm_api_key or "not-needed"
+        config["embedder"]["config"]["api_key"] = effective_api_key
+        config["llm"]["config"]["api_key"] = effective_api_key
 
         if custom_instructions:
             config["custom_instructions"] = custom_instructions
@@ -151,7 +158,12 @@ class Mem0MemoryBackend(MemoryBackend):
         # Canonical contract ID is the provider ID returned by Mem0.
         metadata["memory_id"] = memory_id
         metadata = self._merge_metadata(memory_id, metadata)
-        score = float(item.get("score", 1.0))
+
+        raw_score = item.get("score", 1.0)
+        try:
+            score = float(raw_score) if raw_score is not None else 1.0
+        except (TypeError, ValueError):
+            score = 1.0
 
         return {
             "memory_id": memory_id,
@@ -195,6 +207,47 @@ class Mem0MemoryBackend(MemoryBackend):
             )
         return out
 
+    def _search_memories(self, query: str, user_id: str, limit: int) -> Any:
+        """Search using Mem0 v3 filters API with backward-compatible fallback."""
+        try:
+            return self._memory.search(query, filters={"user_id": user_id}, top_k=limit)
+        except TypeError:
+            # Older Mem0 signatures accepted entity ids as top-level kwargs.
+            try:
+                return self._memory.search(query, user_id=user_id, top_k=limit)
+            except TypeError:
+                return self._memory.search(query, user_id=user_id, limit=limit)
+        except ValueError as exc:
+            # Guard against partial upgrades where top-level entity kwargs are rejected.
+            if "Top-level entity parameters" in str(exc):
+                logger.warning("mem0_search_requires_filters", error=str(exc))
+            raise
+
+    def _get_all_memories(self, user_id: str, limit: int) -> Any:
+        """Get all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        try:
+            return self._memory.get_all(filters={"user_id": user_id}, limit=limit)
+        except TypeError:
+            try:
+                return self._memory.get_all(user_id=user_id, top_k=limit)
+            except TypeError:
+                return self._memory.get_all(user_id=user_id, limit=limit)
+        except ValueError as exc:
+            if "Top-level entity parameters" in str(exc):
+                logger.warning("mem0_get_all_requires_filters", error=str(exc))
+            raise
+
+    def _delete_all_memories(self, user_id: str) -> None:
+        """Delete all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        try:
+            self._memory.delete_all(filters={"user_id": user_id})
+        except TypeError:
+            self._memory.delete_all(user_id=user_id)
+        except ValueError as exc:
+            if "Top-level entity parameters" in str(exc):
+                logger.warning("mem0_delete_all_requires_filters", error=str(exc))
+            raise
+
     def load(
         self,
         user_id: str,
@@ -206,10 +259,28 @@ class Mem0MemoryBackend(MemoryBackend):
         records: List[Dict[str, Any]] = []
 
         if query:
-            response = self._memory.search(query, user_id=user_id, limit=max(top_k * 2, self.search_limit))
+            response = self._search_memories(query, user_id=user_id, limit=max(top_k * 2, self.search_limit))
             records = [self._normalize_item(item) for item in self._extract_results(response)]
+            if not records:
+                # Retrieval fallback: when semantic search returns no hits,
+                # return recent memories to maintain conversational continuity.
+                logger.info(
+                    "mem0_search_no_hits_fallback_to_recent",
+                    user_id=user_id,
+                    top_k=top_k,
+                    search_limit=self.search_limit,
+                )
+                recent_response = self._get_all_memories(
+                    user_id=user_id,
+                    limit=max(top_k * 2, self.search_limit),
+                )
+                records = [self._normalize_item(item) for item in self._extract_results(recent_response)]
+                records.sort(
+                    key=lambda item: str(item["metadata"].get("created_at") or ""),
+                    reverse=True,
+                )
         else:
-            response = self._memory.get_all(user_id=user_id, limit=max(top_k * 2, self.search_limit))
+            response = self._get_all_memories(user_id=user_id, limit=max(top_k * 2, self.search_limit))
             records = [self._normalize_item(item) for item in self._extract_results(response)]
             records.sort(
                 key=lambda item: str(item["metadata"].get("created_at") or ""),
@@ -258,12 +329,30 @@ class Mem0MemoryBackend(MemoryBackend):
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
 
-        add_response = self._memory.add(text, user_id=user_id, metadata=payload)
+        message_payload = [{"role": "user", "content": text}]
+        try:
+            # Prefer infer=False so memory writes are robust when extraction LLM
+            # capabilities differ across local OpenAI-compatible providers.
+            add_response = self._memory.add(
+                message_payload,
+                user_id=user_id,
+                metadata=payload,
+                infer=False,
+            )
+        except TypeError:
+            # Backward compatibility with SDK variants that don't expose infer.
+            add_response = self._memory.add(message_payload, user_id=user_id, metadata=payload)
 
         memory_id = uuid.uuid4().hex[:12]
         if isinstance(add_response, dict):
             if isinstance(add_response.get("id"), str):
                 memory_id = add_response["id"]
+            elif isinstance(add_response.get("memory_id"), str):
+                memory_id = add_response["memory_id"]
+            elif isinstance(add_response.get("memory_ids"), list) and add_response.get("memory_ids"):
+                first_id = add_response.get("memory_ids")[0]
+                if isinstance(first_id, str):
+                    memory_id = first_id
             else:
                 results = add_response.get("results")
                 if isinstance(results, list) and results:
@@ -279,13 +368,13 @@ class Mem0MemoryBackend(MemoryBackend):
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
 
     def clear(self, user_id: str) -> None:
-        response = self._memory.get_all(user_id=user_id, limit=10_000)
+        response = self._get_all_memories(user_id=user_id, limit=10_000)
         memory_ids = [
             self._normalize_item(item)["memory_id"]
             for item in self._extract_results(response)
         ]
 
-        self._memory.delete_all(user_id=user_id)
+        self._delete_all_memories(user_id=user_id)
 
         for memory_id in memory_ids:
             self._metadata_cache.pop(memory_id, None)
@@ -307,6 +396,26 @@ class Mem0MemoryBackend(MemoryBackend):
                 "metadata": normalized["metadata"],
             },
         }
+
+    def delete_memory(self, *, memory_id: str, user_id: str) -> None:
+        point = self.find_memory_point(memory_id)
+        if point is None:
+            return
+
+        payload = point.get("payload") or {}
+        owner_user_id = payload.get("user_id")
+        if owner_user_id and owner_user_id != user_id:
+            raise PermissionError("Memory does not belong to user")
+
+        try:
+            self._memory.delete(memory_id=memory_id)
+        except TypeError:
+            self._memory.delete(memory_id)
+
+        self._metadata_cache.pop(memory_id, None)
+        self._text_cache.pop(memory_id, None)
+        self._owner_cache.pop(memory_id, None)
+        self._rating_overrides.pop(memory_id, None)
 
     def set_memory_user_rating(
         self,
