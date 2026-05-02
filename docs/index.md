@@ -51,7 +51,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 | LangGraph        | 8000 internal | Orchestration engine                      |
 | Prometheus       | 9090 internal | Metrics collection                        |
 | PostgreSQL       | 5432 internal | Conversations, checkpoints, users         |
-| Qdrant           | 6333 internal | Vector storage for RAG and memory         |
+| Qdrant           | 6333 internal | RAG vector store and Mem0 internal storage |
 
 ## Local Development (Host)
 

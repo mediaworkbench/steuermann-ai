@@ -17,6 +17,7 @@ from backend.routers.metrics import router as metrics_router
 from backend.routers.settings import router as settings_router
 from backend.routers.analytics import router as analytics_router
 from backend.routers.conversations import router as conversations_router
+from backend.routers.memories import router as memories_router
 from backend.routers.workspace import router as workspace_router
 from backend.db import (
     SettingsStore,
@@ -219,6 +220,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router)
     app.include_router(analytics_router)
     app.include_router(conversations_router)
+    app.include_router(memories_router)
     app.include_router(workspace_router)
 
     @app.get("/health")

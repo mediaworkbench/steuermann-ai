@@ -1269,6 +1269,21 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
                     similarity += intent_boost
 
+                # Hard intent override: when user explicitly asks for web search,
+                # keep web_search_mcp above both threshold gates so Layer 2 can decide.
+                if tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
+                    min_top_score_cfg = getattr(
+                        getattr(config, "tool_routing", None), "min_top_score", 0.7
+                    )
+                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
+                    if similarity < forced_floor:
+                        logger.info(
+                            "Applying web-search intent override",
+                            original_similarity=round(similarity, 4),
+                            forced_similarity=round(forced_floor, 4),
+                        )
+                        similarity = forced_floor
+
                 logger.info(
                     "Tool scored (prefilter)",
                     tool=tool_name,
@@ -2978,13 +2993,34 @@ def node_summarize(state: GraphState) -> GraphState:
     model = _safe_get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = _resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
-    user_msg = state["messages"][0]["content"] if state.get("messages") else ""
-    assistant_msg = state["messages"][-1]["content"] if state.get("messages") else ""
+    # Build a window of the last 3 user+assistant exchanges for richer fact extraction.
+    _msgs = state.get("messages", [])
+    _exchange_pairs: list[tuple[str, str]] = []
+    _i = len(_msgs) - 1
+    while _i >= 0 and len(_exchange_pairs) < 3:
+        if _msgs[_i].get("role") == "assistant":
+            _asst = _msgs[_i].get("content", "")
+            _j = _i - 1
+            while _j >= 0 and _msgs[_j].get("role") != "user":
+                _j -= 1
+            if _j >= 0:
+                _exchange_pairs.append((_msgs[_j].get("content", ""), _asst))
+                _i = _j - 1
+            else:
+                break
+        else:
+            _i -= 1
+    _exchange_pairs.reverse()
+    _exchange_text = "\n\n".join(
+        f"User: {u}\nAssistant: {a}" for u, a in _exchange_pairs
+    ) if _exchange_pairs else ""
     prompt = (
-        "Summarize the exchange for memory."
-        "\nUser: "
-        f"{user_msg}\nAssistant: {assistant_msg}\n"
-        "Respond with a single concise sentence capturing actionable facts."
+        "Extract facts about the user from this conversation.\n"
+        "Focus ONLY on what the USER stated: preferences, personal information, goals, "
+        "constraints, corrections, and context they provided.\n"
+        "Ignore assistant explanations. If no user facts are present, respond with 'No user facts'.\n"
+        "Respond with a single concise statement.\n\n"
+        f"{_exchange_text}"
     )
 
     budget_ctx = get_budget_context(state, config.tokens)
@@ -3057,19 +3093,52 @@ def node_update_memory(state: GraphState) -> GraphState:
     if not getattr(features_config, "long_term_memory", False):
         logger.info("Long-term memory disabled via features flag", fork_name=fork_name)
         return state
-    
+
+    # Trivial exchange filter: skip memory write for low-content turns.
+    _current_user_msg = ""
+    for _msg in reversed(state.get("messages", [])):
+        if isinstance(_msg, dict) and _msg.get("role") == "user":
+            _current_user_msg = _msg.get("content", "")
+            break
+    _trivial_patterns = {
+        "ok", "okay", "thanks", "thank you", "yes", "no", "sure", "got it",
+        "hi", "hello", "bye", "goodbye", "great", "perfect", "alright",
+    }
+    _stripped = _current_user_msg.strip().lower().rstrip("!.,?")
+    if len(_stripped) < 5 or (len(_stripped) < 20 and _stripped in _trivial_patterns):
+        logger.info("Skipping memory update for trivial exchange", user_id=user_id, preview=_stripped[:30])
+        return state
+
     logger.info("Building memory backend for upsert", user_id=user_id)
     backend = build_memory_backend(config)
     logger.info("Memory backend built", backend_type=type(backend).__name__, user_id=user_id)
 
+    # Build structured exchange messages (last 3 turns) for Mem0's native inference.
+    _msgs = state.get("messages", [])
+    _exchange_messages: list[dict] = []
+    _exchange_count = 0
+    _i = len(_msgs) - 1
+    while _i >= 0 and _exchange_count < 3:
+        _m = _msgs[_i]
+        _role = _m.get("role") if isinstance(_m, dict) else None
+        if _role in ("user", "assistant"):
+            _exchange_messages.insert(0, {"role": _role, "content": _m.get("content", "")})
+            if _role == "user":
+                _exchange_count += 1
+        _i -= 1
+
     summary_text = state.get("summary_text")
     if not summary_text:
-        user_msg = state["messages"][0]["content"] if state.get("messages") else ""
-        assistant_msg = state["messages"][-1]["content"] if state.get("messages") else ""
-        summary_text = f"Summary: {user_msg} -> {assistant_msg}"
+        # Fallback: build summary from current exchange using correct message selection.
+        _asst_fallback = ""
+        for _m in reversed(_msgs):
+            if isinstance(_m, dict) and _m.get("role") == "assistant":
+                _asst_fallback = _m.get("content", "")
+                break
+        summary_text = f"Summary: {_current_user_msg} -> {_asst_fallback}"
 
     logger.info("Summary text prepared", summary_length=len(summary_text), user_id=user_id)
-    
+
     budget_ctx = get_budget_context(state, config.tokens)
     upd_budget = get_node_budget(config.tokens, "update_memory", budget_ctx["per_turn_budget"])
     enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
@@ -3091,7 +3160,13 @@ def node_update_memory(state: GraphState) -> GraphState:
                 metadata["previous_digest_id"] = latest_digest.get("previous_digest_id")
 
             logger.info("Calling update_memory_node", user_id=user_id, text_length=len(summary_text))
-            result = update_memory_node(state, text=summary_text, metadata=metadata, backend=backend)
+            result = update_memory_node(
+                state,
+                text=summary_text,
+                metadata=metadata,
+                backend=backend,
+                messages=_exchange_messages if _exchange_messages else None,
+            )
             result["tokens_used"] = (result.get("tokens_used") or 0) + update_tokens
             result["turn_tokens_used"] = (result.get("turn_tokens_used") or 0) + update_tokens
             track_memory_operation(fork_name, "update", "success")

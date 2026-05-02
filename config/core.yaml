@@ -32,7 +32,7 @@ database:
 
 memory:
   vector_store:
-    type: "qdrant"
+    type: "mem0"
     host: $QDRANT_HOST
     port: 6333
     collection_prefix: $PROFILE_ID
@@ -45,6 +45,10 @@ memory:
   retention:
     session_memory_days: 90
     user_memory_days: 365
+  mem0:
+    search_limit: 10
+    custom_instructions: null
+    llm_provider: "lmstudio"
 
 rag:
   enabled: true

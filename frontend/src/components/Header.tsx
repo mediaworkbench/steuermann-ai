@@ -22,6 +22,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
   const [loggingOut, setLoggingOut] = useState(false);
   const navLinks = [
     { href: "/metrics", label: t("header.metrics"), icon: "bar_chart" },
+    { href: "/memories", label: t("header.memory"), icon: "psychology" },
     { href: "/settings", label: t("header.settings"), icon: "settings" },
   ];
   const hasMeta = activeConversation != null;

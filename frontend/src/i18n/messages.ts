@@ -13,6 +13,7 @@ export type Messages = {
   };
   header: {
     metrics: string;
+      memory: string;
     settings: string;
     openNavigation: string;
     activeSession: string;
@@ -269,9 +270,24 @@ export type Messages = {
     minAverageMaxDuration: string;
     min: string;
     max: string;
+    memoryTrends: string;
+    dailyMemoryOpsQualityAndErrorRate: string;
+    noMemoryTrendData: string;
     summary: string;
     keyMetricsForPeriod: string;
     uniqueUsers: string;
+    memoryLoads: string;
+    memoryUpdates: string;
+    memoryQueries: string;
+    memoryErrorRate: string;
+    totalOps: string;
+    avgQuality: string;
+    coOccurrenceNodes: string;
+    coOccurrenceEdges: string;
+    rankingLatency: string;
+    operation: string;
+    success: string;
+    error: string;
     noUsageData: string;
     noTokenData: string;
     noLatencyData: string;
@@ -280,6 +296,47 @@ export type Messages = {
     errorLoadingTrends: string;
     days: string;
     na: string;
+    retrievalFeedback: string;
+    retrievalFeedbackSubtitle: string;
+    retrievalSignalsTotal: string;
+    retrievedWithRating: string;
+    retrievedWithoutRating: string;
+    priorRatingCoverage: string;
+    ratedAfterRetrieval: string;
+    feedbackCoverage: string;
+    ratingBuckets: string;
+    bucketNone: string;
+    bucketLow: string;
+    bucketMid: string;
+    bucketHigh: string;
+    noRetrievalData: string;
+  };
+  memories: {
+    title: string;
+    subtitle: string;
+    refresh: string;
+    total: string;
+    recent7d: string;
+    rated: string;
+    unrated: string;
+    avgImportance: string;
+    coverage: string;
+    filterPlaceholder: string;
+    memory: string;
+    importance: string;
+    rating: string;
+    saved: string;
+    loading: string;
+    noMemoriesMatchFilter: string;
+    noMemoriesYet: string;
+    related: string;
+    deleteMemory: string;
+    confirmYes: string;
+    confirmNo: string;
+    pageOfTotal: string;
+    previous: string;
+    next: string;
+    rateStars: string;
   };
   charts: {
     loading: string;
@@ -295,6 +352,13 @@ export type Messages = {
     tokenUsageByModel: string;
     total: string;
     tokens: string;
+    loads: string;
+    updates: string;
+    errors: string;
+    errorRatePercent: string;
+    qualityPercent: string;
+    loadingMemoryTrends: string;
+    noMemoryTrendData: string;
     maxLatency: string;
     avgLatency: string;
     minLatency: string;
@@ -315,6 +379,7 @@ export const messages: Record<Locale, Messages> = {
     },
     header: {
       metrics: "Metrics",
+      memory: "Memory",
       settings: "Settings",
       openNavigation: "Open navigation",
       activeSession: "Active session",
@@ -573,9 +638,24 @@ export const messages: Record<Locale, Messages> = {
       minAverageMaxDuration: "Min, average, and maximum request duration",
       min: "Min",
       max: "Max",
+      memoryTrends: "Memory Trends",
+      dailyMemoryOpsQualityAndErrorRate: "Daily loads, updates, errors, quality, and error rate",
+      noMemoryTrendData: "No memory trend data",
       summary: "Summary",
       keyMetricsForPeriod: "Key metrics for the selected period",
       uniqueUsers: "Unique Users",
+      memoryLoads: "Memory Loads",
+      memoryUpdates: "Memory Updates",
+      memoryQueries: "Memory Queries",
+      memoryErrorRate: "Memory Error Rate",
+      totalOps: "Total Ops",
+      avgQuality: "Avg Quality",
+      coOccurrenceNodes: "Co-Occ Nodes",
+      coOccurrenceEdges: "Co-Occ Edges",
+      rankingLatency: "Ranking Latency",
+      operation: "Operation",
+      success: "Success",
+      error: "Error",
       noUsageData: "No usage data available",
       noTokenData: "No token data available",
       noLatencyData: "No latency data available",
@@ -584,6 +664,47 @@ export const messages: Record<Locale, Messages> = {
       errorLoadingTrends: "Error loading trends",
       days: "days",
       na: "N/A",
+      retrievalFeedback: "Retrieval Feedback Loop",
+      retrievalFeedbackSubtitle: "How often retrieved memories are subsequently rated by the user",
+      retrievalSignalsTotal: "Retrieval Signals",
+      retrievedWithRating: "Retrieved with Rating",
+      retrievedWithoutRating: "Retrieved without Rating",
+      priorRatingCoverage: "Prior Rating Coverage",
+      ratedAfterRetrieval: "Rated after Retrieval",
+      feedbackCoverage: "Feedback Coverage",
+      ratingBuckets: "Rating Buckets at Retrieval",
+      bucketNone: "Unrated",
+      bucketLow: "Low (1–2)",
+      bucketMid: "Mid (3)",
+      bucketHigh: "High (4–5)",
+      noRetrievalData: "No retrieval quality data yet",
+    },
+    memories: {
+      title: "Memory",
+      subtitle: "Memories the agent has learned about you",
+      refresh: "Refresh",
+      total: "Total",
+      recent7d: "Recent 7d",
+      rated: "Rated",
+      unrated: "Unrated",
+      avgImportance: "Avg importance",
+      coverage: "{count}% coverage",
+      filterPlaceholder: "Filter memories...",
+      memory: "Memory",
+      importance: "Importance",
+      rating: "Rating",
+      saved: "Saved",
+      loading: "Loading...",
+      noMemoriesMatchFilter: "No memories match your filter.",
+      noMemoriesYet: "No memories yet.",
+      related: "related",
+      deleteMemory: "Delete memory",
+      confirmYes: "Yes",
+      confirmNo: "No",
+      pageOfTotal: "Page {page} of {pages} ({total} total)",
+      previous: "Previous",
+      next: "Next",
+      rateStars: "Rate {count} stars",
     },
     charts: {
       loading: "Loading...",
@@ -599,6 +720,13 @@ export const messages: Record<Locale, Messages> = {
       tokenUsageByModel: "Token Usage by Model",
       total: "Total",
       tokens: "Tokens",
+      loads: "Loads",
+      updates: "Updates",
+      errors: "Errors",
+      errorRatePercent: "Error Rate %",
+      qualityPercent: "Quality %",
+      loadingMemoryTrends: "Loading memory trends...",
+      noMemoryTrendData: "No memory trend data",
       maxLatency: "Max Latency",
       avgLatency: "Avg Latency",
       minLatency: "Min Latency",
@@ -617,6 +745,7 @@ export const messages: Record<Locale, Messages> = {
     },
     header: {
       metrics: "Metrik",
+      memory: "Speicher",
       settings: "Einstellungen",
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
@@ -875,9 +1004,24 @@ export const messages: Record<Locale, Messages> = {
       minAverageMaxDuration: "Minimale, durchschnittliche und maximale Anfragedauer",
       min: "Min",
       max: "Max",
+      memoryTrends: "Speichertrends",
+      dailyMemoryOpsQualityAndErrorRate: "Tägliche Ladevorgänge, Updates, Fehler, Qualität und Fehlerrate",
+      noMemoryTrendData: "Keine Speichertrenddaten verfügbar",
       summary: "Zusammenfassung",
       keyMetricsForPeriod: "Wichtige Kennzahlen für den ausgewählten Zeitraum",
       uniqueUsers: "Eindeutige Nutzer",
+      memoryLoads: "Speicher-Ladevorgänge",
+      memoryUpdates: "Speicher-Updates",
+      memoryQueries: "Speicher-Abfragen",
+      memoryErrorRate: "Speicher-Fehlerrate",
+      totalOps: "Gesamtvorgänge",
+      avgQuality: "Durchschn. Qualität",
+      coOccurrenceNodes: "Ko-Vorkommen Knoten",
+      coOccurrenceEdges: "Ko-Vorkommen Kanten",
+      rankingLatency: "Ranking-Latenz",
+      operation: "Vorgang",
+      success: "Erfolg",
+      error: "Fehler",
       noUsageData: "Keine Nutzungsdaten verfügbar",
       noTokenData: "Keine Token-Daten verfügbar",
       noLatencyData: "Keine Latenzdaten verfügbar",
@@ -886,6 +1030,47 @@ export const messages: Record<Locale, Messages> = {
       errorLoadingTrends: "Fehler beim Laden der Trends",
       days: "Tage",
       na: "k.A.",
+      retrievalFeedback: "Abruf-Feedback-Schleife",
+      retrievalFeedbackSubtitle: "Wie oft abgerufene Erinnerungen anschließend vom Nutzer bewertet werden",
+      retrievalSignalsTotal: "Abrufsignale",
+      retrievedWithRating: "Mit Bewertung abgerufen",
+      retrievedWithoutRating: "Ohne Bewertung abgerufen",
+      priorRatingCoverage: "Vorherige Bewertungsabdeckung",
+      ratedAfterRetrieval: "Nach Abruf bewertet",
+      feedbackCoverage: "Feedback-Abdeckung",
+      ratingBuckets: "Bewertungskategorien beim Abruf",
+      bucketNone: "Nicht bewertet",
+      bucketLow: "Niedrig (1–2)",
+      bucketMid: "Mittel (3)",
+      bucketHigh: "Hoch (4–5)",
+      noRetrievalData: "Noch keine Abrufqualitätsdaten vorhanden",
+    },
+    memories: {
+      title: "Speicher",
+      subtitle: "Erinnerungen, die der Agent über dich gelernt hat",
+      refresh: "Aktualisieren",
+      total: "Gesamt",
+      recent7d: "Letzte 7 Tage",
+      rated: "Bewertet",
+      unrated: "Unbewertet",
+      avgImportance: "Durchschn. Wichtigkeit",
+      coverage: "{count}% Abdeckung",
+      filterPlaceholder: "Erinnerungen filtern...",
+      memory: "Speicher",
+      importance: "Wichtigkeit",
+      rating: "Bewertung",
+      saved: "Gespeichert",
+      loading: "Wird geladen...",
+      noMemoriesMatchFilter: "Keine Erinnerungen entsprechen deinem Filter.",
+      noMemoriesYet: "Noch keine Erinnerungen.",
+      related: "verwandt",
+      deleteMemory: "Speicher löschen",
+      confirmYes: "Ja",
+      confirmNo: "Nein",
+      pageOfTotal: "Seite {page} von {pages} ({total} gesamt)",
+      previous: "Zurück",
+      next: "Weiter",
+      rateStars: "{count} Sterne bewerten",
     },
     charts: {
       loading: "Wird geladen...",
@@ -901,6 +1086,13 @@ export const messages: Record<Locale, Messages> = {
       tokenUsageByModel: "Token-Nutzung nach Modell",
       total: "Gesamt",
       tokens: "Token",
+      loads: "Ladevorgänge",
+      updates: "Updates",
+      errors: "Fehler",
+      errorRatePercent: "Fehlerrate %",
+      qualityPercent: "Qualität %",
+      loadingMemoryTrends: "Speichertrends werden geladen...",
+      noMemoryTrendData: "Keine Speichertrenddaten verfügbar",
       maxLatency: "Max-Latenz",
       avgLatency: "Durchschn.-Latenz",
       minLatency: "Min-Latenz",

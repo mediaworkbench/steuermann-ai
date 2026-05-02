@@ -3,6 +3,14 @@ export interface ToolExecution {
   status: "success" | "error";
 }
 
+export interface MemoryReference {
+  memory_id: string;
+  text?: string;
+  user_rating?: number | null;
+  importance_score?: number | null;
+  is_related?: boolean;
+}
+
 export interface Source {
   type: "web" | "rag";
   label: string;
@@ -21,6 +29,7 @@ export interface MessageMetrics {
   sources?: Source[];
   attachments_used?: Array<{ id: string; original_name: string }>;
   documents_used?: Array<{ id: string; filename: string; version: number }>;
+  memories_used?: MemoryReference[];
 }
 
 export interface Message {
@@ -50,6 +59,7 @@ export interface ChatResponse {
       filename: string;
       version: number;
     }>;
+    memories_used?: MemoryReference[];
     workspace_document_writeback?: {
       status: "saved";
       document_id: string;
@@ -158,4 +168,43 @@ export interface SearchResult {
   role: string;
   content: string;
   created_at: string;
+}
+
+// ── Memory management ────────────────────────────────────────────────
+
+export interface MemoryItem {
+  memory_id: string;
+  text: string;
+  user_rating: number | null;
+  importance_score: number | null;
+  is_related: boolean;
+  created_at: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryListResponse {
+  items: MemoryItem[];
+  count: number;
+  user_id: string;
+  limit: number;
+  offset: number;
+}
+
+export interface MemoryStats {
+  sample_limit: number;
+  sample_count: number;
+  totals: {
+    memories: number;
+    rated: number;
+    unrated: number;
+    related: number;
+    recent_7d: number;
+  };
+  ratios: {
+    rated_coverage: number;
+    related_ratio: number;
+  };
+  quality: {
+    average_importance: number;
+  };
 }

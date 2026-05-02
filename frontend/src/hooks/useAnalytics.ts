@@ -5,6 +5,9 @@ import {
   fetchUsageTrends,
   fetchTokenConsumption,
   fetchLatencyAnalysis,
+  fetchMemoryTrends,
+  fetchMemoryRetrievalQuality,
+  type MemoryRetrievalQualityData,
 } from "@/lib/api";
 
 interface UseAnalyticsOptions {
@@ -17,6 +20,15 @@ interface UseAnalyticsReturn {
   usageTrends: { date: string; requests: number; users: number }[] | null;
   tokenConsumption: { date: string; total_tokens: number; avg_tokens: number; requests: number }[] | null;
   latencyAnalysis: { date: string; avg_latency_ms: number; min_latency_ms: number; max_latency_ms: number; requests: number }[] | null;
+  memoryTrends: {
+    date: string;
+    loads: number;
+    updates: number;
+    errors: number;
+    error_rate: number;
+    avg_quality_score: number;
+  }[] | null;
+  memoryRetrievalQuality: MemoryRetrievalQualityData | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -31,6 +43,15 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
   const [usageTrends, setUsageTrends] = useState<{ date: string; requests: number; users: number }[] | null>(null);
   const [tokenConsumption, setTokenConsumption] = useState<{ date: string; total_tokens: number; avg_tokens: number; requests: number }[] | null>(null);
   const [latencyAnalysis, setLatencyAnalysis] = useState<{ date: string; avg_latency_ms: number; min_latency_ms: number; max_latency_ms: number; requests: number }[] | null>(null);
+  const [memoryTrends, setMemoryTrends] = useState<{
+    date: string;
+    loads: number;
+    updates: number;
+    errors: number;
+    error_rate: number;
+    avg_quality_score: number;
+  }[] | null>(null);
+  const [memoryRetrievalQuality, setMemoryRetrievalQuality] = useState<MemoryRetrievalQualityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,17 +59,21 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     setLoading(true);
     setError(null);
     try {
-      const [trends, tokens, latency] = await Promise.all([
+      const [trends, tokens, latency, memory, retrievalQuality] = await Promise.all([
         fetchUsageTrends(days),
         fetchTokenConsumption(days),
         fetchLatencyAnalysis(days),
+        fetchMemoryTrends(days),
+        fetchMemoryRetrievalQuality(),
       ]);
 
       if (trends) setUsageTrends(trends.trends || []);
       if (tokens) setTokenConsumption(tokens.consumption || []);
       if (latency) setLatencyAnalysis(latency.latency_data || []);
+      if (memory) setMemoryTrends(memory.trends || []);
+      if (retrievalQuality) setMemoryRetrievalQuality(retrievalQuality);
 
-      if (!trends || !tokens || !latency) {
+      if (!trends || !tokens || !latency || !memory) {
         setError("Failed to load some analytics data");
       }
     } catch (err) {
@@ -71,6 +96,8 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     usageTrends,
     tokenConsumption,
     latencyAnalysis,
+    memoryTrends,
+    memoryRetrievalQuality,
     loading,
     error,
     refetch,

@@ -132,10 +132,10 @@ llm:
 ```yaml
 memory:
   vector_store:
-    type: "qdrant" # Only qdrant supported currently
-    host: "qdrant" # Docker service name or hostname
+    type: "mem0" # Mem0 OSS embedded mode (hard cutover)
+    host: "qdrant" # Docker service name or hostname for Mem0 vector storage
     port: 6333 # Qdrant port
-    collection_prefix: "${fork.name}" # Collections named {prefix}_memory, {prefix}_knowledge (profile-scoped prefix)
+    collection_prefix: "${fork.name}" # Mem0 collection name uses this prefix
 
   embeddings:
     model: "text-embedding-granite-embedding-278m-multilingual" # embedding model
@@ -147,6 +147,10 @@ memory:
   retention:
     session_memory_days: 90 # Delete session memories after N days
     user_memory_days: 365 # Delete user memories after N days
+
+  mem0:
+    search_limit: 10 # Internal Mem0 retrieval window before local reranking
+    custom_instructions: null # Optional extraction guidance for Mem0
 ```
 
 **Embedding provider notes:**
@@ -154,6 +158,12 @@ memory:
 - `provider: "remote"` uses an OpenAI-compatible embeddings endpoint (for example LM Studio).
 - Keep `dimension` synchronized with the selected model, otherwise Qdrant collection compatibility issues occur.
 - If migrating dimensions (for example `384 -> 768`), recreate existing vector collections.
+
+**Memory feedback ratings (importance scoring):**
+
+- Users can rate retrieved memories from `1` to `5` stars via `POST /api/memories/{memory_id}/rate`.
+- Ratings are persisted as `metadata.user_rating` through the Mem0 adapter and automatically feed the feedback factor in memory importance scoring.
+- Authorization is enforced per memory owner (`user_id`) and non-owned memories return `403`.
 
 **Environment variables:**
 
@@ -735,9 +745,11 @@ llm:
 
 memory:
   vector_store:
-    type: "qdrant"
+    type: "mem0"
     host: "qdrant"
     collection_prefix: "simple-assistant"
+  mem0:
+    search_limit: 10
 
 database:
   url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
@@ -775,10 +787,13 @@ llm:
 
 memory:
   vector_store:
-    type: "qdrant"
+    type: "mem0"
     host: "qdrant"
     port: 6333
     collection_prefix: "medical-ai-de"
+
+  mem0:
+    search_limit: 10
 
   embeddings:
     model: "distiluse-base-multilingual-cased-v2"

@@ -1,4 +1,4 @@
-"""Minimal in-memory memory manager as placeholder for Qdrant/LlamaIndex integration."""
+"""Minimal in-memory memory manager stub. Long-term semantic memory is handled by Mem0MemoryBackend."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,7 +24,7 @@ class InMemoryMemoryManager:
             filtered = records
         return filtered[:top_k]
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None) -> MemoryRecord:
+    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[list] = None) -> MemoryRecord:
         rec = MemoryRecord(user_id=user_id, text=text, metadata=metadata or {})
         self._store.setdefault(user_id, []).append(rec)
         return rec

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "steuermann-ai"
-version = "0.1"
+version = "0.2"
 description = "Template scaffold for Steuermann"
 authors = ["Steuermann Maintainers"]
 readme = "README.md"
@@ -13,6 +13,7 @@ PyYAML = "^6.0"
 structlog = "^24.0"
 httpx = "^0.28.0"
 litellm = "<1.83.14"
+mem0ai = "^2.0.1"
 
 [tool.poetry.group.langgraph.dependencies]
 langgraph = "^1.1.6"

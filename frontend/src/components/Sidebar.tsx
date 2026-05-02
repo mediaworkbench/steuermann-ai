@@ -397,7 +397,7 @@ export function Sidebar({
         )}
 
         {/* User profile */}
-        <div className="p-4 border-t border-white/10 bg-evergreen">
+        <div className="p-4 border-t border-white/10 bg-evergreen space-y-1">
           <Link
             href="/settings"
             prefetch={false}

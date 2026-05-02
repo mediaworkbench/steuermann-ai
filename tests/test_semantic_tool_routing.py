@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
 from universal_agentic_framework.orchestration.graph_builder import (
+    node_prefilter_tools,
     node_route_tools,
     node_call_tools_native,
     node_generate_response,
@@ -690,6 +691,43 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
 
     assert captured_kwargs["request_url"] == "https://www.tagesschau.de/"
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    """Explicit web-search requests should keep web_search_mcp through strict prefilter gates."""
+    set_mock_config(mock_config, similarity_threshold=0.55, top_k=5)
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.1, 0.2, 0.3])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+
+    # Keep all similarities intentionally low to verify intent override behavior.
+    mock_score_similarity.return_value = 0.05
+
+    loaded_tools = [
+        FakeTool("datetime_tool", "Get date and time"),
+        FakeTool("calculator_tool", "Perform calculations"),
+        FakeTool("file_ops_tool", "Read and write files"),
+        FakeTool("web_search_mcp", "Search the web for current information"),
+        FakeTool("extract_webpage_mcp", "Extract webpage content"),
+    ]
+
+    state = {
+        "messages": [{"role": "user", "content": "please search the web for current EV battery breakthroughs"}],
+        "loaded_tools": loaded_tools,
+        "language": "en",
+    }
+
+    result = node_prefilter_tools(state)
+    candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
+    assert "web_search_mcp" in candidate_names
 
 
 @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")

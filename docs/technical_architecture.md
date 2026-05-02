@@ -91,19 +91,17 @@ This document defines the technical architecture for the Steuermann - a domain-a
 
 ### **2.2 Technology Stack Summary**
 
-| Layer           | Component                   | Version          | Purpose                                                        |
-| --------------- | --------------------------- | ---------------- | -------------------------------------------------------------- |
-| Orchestration   | LangGraph                   | ≥1.1.0           | Workflow engine (containerized)                                |
-| Multi-Agent     | CrewAI                      | ≥1.14.0          | Collaborative reasoning                                        |
-| LLM Integration | LangChain + langchain-litellm | ≥1.2.0 / 0.6.4 | Unified LLM interface via LiteLLM router                     |
-| Adapter         | FastAPI                     | ≥0.135.0         | Settings/auth/metrics API                                      |
-| Frontend        | Next.js + React             | ≥16.0 + React 19 | Modern chat & settings UI                                      |
-| Vector Store    | Qdrant                      | ≥1.7.0           | Semantic memory, embeddings                                    |
-| Database        | PostgreSQL                  | ≥15.0            | Structured data, checkpoints, users/roles                      |
-| Memory          | LlamaIndex                  | ≥0.11.0          | Memory abstraction layer                                       |
-| Embeddings      | Remote provider abstraction | Current          | Config-driven embeddings via remote OpenAI-compatible endpoint |
-| Monitoring      | Prometheus                  | Latest           | Metrics collection & alerting                                  |
-| LLM Server      | LM Studio                   | Latest           | Local model hosting (host, port 1234)                          |
+- Orchestration: LangGraph (`>=1.1.0`) - Workflow engine (containerized)
+- Multi-Agent: CrewAI (`>=1.14.0`) - Collaborative reasoning
+- LLM Integration: LangChain + langchain-litellm (`>=1.2.0 / 0.6.4`) - Unified LLM interface via LiteLLM router
+- Adapter: FastAPI (`>=0.135.0`) - Settings/auth/metrics API
+- Frontend: Next.js + React (`>=16.0 + React 19`) - Modern chat and settings UI
+- Vector Store: Qdrant (`>=1.7.0`) - RAG embeddings and Mem0 internal vector storage
+- Database: PostgreSQL (`>=15.0`) - Structured data, checkpoints, users/roles
+- Memory: Mem0 OSS embedded (`>=2.0.1`) - Memory abstraction with embedded Qdrant-backed storage
+- Embeddings: Remote provider abstraction (Current) - Config-driven embeddings via remote OpenAI-compatible endpoint
+- Monitoring: Prometheus (Latest) - Metrics collection and alerting
+- LLM Server: LM Studio (Latest) - Local model hosting (host, port `1234`)
 
 ---
 
@@ -332,9 +330,9 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 └─────────────────────────────────────────────────────────┘
                         │
 ┌─────────────────────────────────────────────────────────┐
-│  Tier 2: Semantic Long-Term Memory (Qdrant + LlamaIndex)│
+│  Tier 2: Semantic Long-Term Memory (Mem0 OSS)           │
 │  - User facts, preferences, summaries                   │
-│  - Vector similarity search                             │
+│  - Vector similarity search via Qdrant-backed Mem0      │
 │  - Loaded at session start, updated explicitly          │
 └─────────────────────────────────────────────────────────┘
                         │
@@ -348,7 +346,7 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 
 ### **6.2 Memory Operations as Graph Nodes**
 
-Memory is loaded explicitly at graph start and written only by dedicated memory nodes — never automatic. The `load_memory_node` queries Qdrant for user facts/preferences/history. The `update_memory_node` distills new conversation into long-term memory via LLM summarization.
+Memory is loaded explicitly at graph start and written only by dedicated memory nodes — never automatic. The `load_memory_node` queries via the `Mem0MemoryBackend` adapter for user facts/preferences/history. The `update_memory_node` distills new conversation into long-term memory via LLM summarization and persists via Mem0.
 
 Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
 
@@ -1384,7 +1382,7 @@ This architecture covers:
 | Plugin     | Tool or MCP server registered with the framework                 |
 | Ingestion  | Process of loading documents into vector store                   |
 
-_This document is complemented by:_
+*This document is complemented by:*
 
 - **[README.md](../README.md)** (current runtime snapshot and recent changes)
 - **[Configuration Reference](configuration.md)** (full schema documentation)

@@ -152,6 +152,7 @@ export interface MetricsData {
   latency: Record<string, number>;
   sessions: Record<string, number>;
   memory_ops: Record<string, number>;
+  memory_ops_by_status: Record<string, number>;
   llm_calls: Record<string, number>;
   attachments?: Record<string, number>;
   attachment_retries?: Record<string, number>;
@@ -219,6 +220,37 @@ export interface LatencyAnalysisResponse {
   total_requests: number;
 }
 
+export interface MemoryTrendPoint {
+  date: string;
+  loads: number;
+  updates: number;
+  errors: number;
+  error_rate: number;
+  avg_quality_score: number;
+}
+
+export interface MemoryRetrievalQualityData {
+  retrieval_signals_total: number;
+  retrieved_with_prior_rating: number;
+  retrieved_without_prior_rating: number;
+  prior_rating_coverage: number;
+  rating_bucket_distribution: Record<string, number>;
+  rated_after_retrieval_total: number;
+  feedback_coverage: number;
+  timestamp: string;
+}
+
+export interface MemoryTrendsResponse {
+  period_days: number;
+  trends: MemoryTrendPoint[];
+  totals: {
+    loads: number;
+    updates: number;
+    errors: number;
+    error_rate: number;
+  };
+}
+
 export async function fetchUsageTrends(days: number = 30): Promise<UsageTrendsResponse | null> {
   try {
     const response = await fetch(`${API_BASE}/api/analytics/usage-trends?days=${days}`);
@@ -257,6 +289,34 @@ export async function fetchLatencyAnalysis(days: number = 30): Promise<LatencyAn
     return (await response.json()) as LatencyAnalysisResponse;
   } catch (error) {
     console.error("Error fetching latency analysis:", error);
+    return null;
+  }
+}
+
+export async function fetchMemoryTrends(days: number = 30): Promise<MemoryTrendsResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/analytics/memory-trends?days=${days}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memory trends: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as MemoryTrendsResponse;
+  } catch (error) {
+    console.error("Error fetching memory trends:", error);
+    return null;
+  }
+}
+
+export async function fetchMemoryRetrievalQuality(): Promise<MemoryRetrievalQualityData | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/analytics/memory-retrieval-quality`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memory retrieval quality: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as MemoryRetrievalQualityData;
+  } catch (error) {
+    console.error("Error fetching memory retrieval quality:", error);
     return null;
   }
 }
@@ -390,6 +450,72 @@ export async function setMessageFeedback(
     return null;
   }
 }
+
+export async function rateMemory(memoryId: string, rating: number): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/memories/${memoryId}/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Error rating memory:", error);
+    return false;
+  }
+}
+
+export async function fetchMemories(
+  userId: string = CURRENT_USER_ID,
+  limit: number = 50,
+  offset: number = 0,
+): Promise<import("@/lib/types").MemoryListResponse | null> {
+  try {
+    const params = new URLSearchParams({
+      user_id: userId,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const response = await fetch(`${API_BASE}/api/memories?${params}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memories: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as import("@/lib/types").MemoryListResponse;
+  } catch (error) {
+    console.error("Error fetching memories:", error);
+    return null;
+  }
+}
+
+export async function fetchMemoryStats(
+  userId: string = CURRENT_USER_ID,
+): Promise<import("@/lib/types").MemoryStats | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/memories/stats?user_id=${encodeURIComponent(userId)}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memory stats: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as import("@/lib/types").MemoryStats;
+  } catch (error) {
+    console.error("Error fetching memory stats:", error);
+    return null;
+  }
+}
+
+export async function deleteMemory(memoryId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/memories/${memoryId}`, {
+      method: "DELETE",
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Error deleting memory:", error);
+    return false;
+  }
+}
+
 
 export async function searchConversations(
   userId: string,

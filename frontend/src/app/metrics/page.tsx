@@ -12,6 +12,9 @@ import { RequestsChart } from "@/components/RequestsChart";
 import UsageTrendChart from "@/components/UsageTrendChart";
 import TokenConsumptionChart from "@/components/TokenConsumptionChart";
 import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
+import MemoryTrendsChart from "@/components/MemoryTrendsChart";
+import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
+import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
@@ -146,6 +149,8 @@ export default function MetricsPage() {
     usageTrends,
     tokenConsumption,
     latencyAnalysis,
+    memoryTrends,
+    memoryRetrievalQuality,
     loading: analyticsLoading,
     error: analyticsError,
     refetch: refetchAnalytics,
@@ -336,19 +341,7 @@ export default function MetricsPage() {
               </div>
 
               {Object.keys(metrics.memory_ops).length > 0 && (
-                <div className={styles.card}>
-                  <h3 className={styles.cardTitle}>{t("metrics.memoryOperations")}</h3>
-                  <div className={styles.opsGrid}>
-                    {Object.entries(metrics.memory_ops).map(([operation, value]) => (
-                      <div key={operation} className={styles.opItem}>
-                        <p className={styles.opLabel}>{operation}</p>
-                        <p className={styles.opValue}>
-                          {typeof value === "number" ? formatNumber(Math.round(value)) : 0}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <MemoryMetricsPanel metrics={metrics} formatNumber={formatNumber} />
               )}
 
               {Object.keys(metrics.llm_calls).length > 0 && (
@@ -535,6 +528,16 @@ export default function MetricsPage() {
               </div>
 
               <div className={styles.chartCard}>
+                <h3 className={styles.chartTitle}>{t("metrics.memoryTrends")}</h3>
+                <p className={styles.chartSubtitle}>{t("metrics.dailyMemoryOpsQualityAndErrorRate")}</p>
+                {memoryTrends && memoryTrends.length > 0 ? (
+                  <MemoryTrendsChart data={memoryTrends} />
+                ) : <p>{t("metrics.noMemoryTrendData")}</p>}
+              </div>
+
+              <RetrievalFeedbackPanel data={memoryRetrievalQuality} formatNumber={formatNumber} />
+
+              <div className={styles.chartCard}>
                 <h3 className={styles.chartTitle}>{t("metrics.summary")}</h3>
                 <p className={styles.chartSubtitle}>{t("metrics.keyMetricsForPeriod")}</p>
                 {usageTrends && usageTrends.length > 0 ? (
@@ -543,6 +546,11 @@ export default function MetricsPage() {
                     <div className={styles.summaryRow}><span>{t("metrics.uniqueUsers")}</span><span>{formatNumber(usageTrends.reduce((sum, trend) => sum + trend.users, 0))}</span></div>
                     <div className={styles.summaryRow}><span>{t("metrics.totalTokens")}</span><span>{tokenConsumption ? (tokenConsumption.reduce((sum, token) => sum + token.total_tokens, 0) / 1000).toFixed(1) + "K" : t("metrics.na")}</span></div>
                     <div className={styles.summaryRow}><span>{t("metrics.avgLatency")}</span><span>{trendsAvgLatencyText}</span></div>
+                    <div className={styles.summaryRow}><span>{t("metrics.memoryLoads")}</span><span>{memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.loads, 0))) : t("metrics.na")}</span></div>
+                    <div className={styles.summaryRow}><span>{t("metrics.memoryUpdates")}</span><span>{memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.updates, 0))) : t("metrics.na")}</span></div>
+                    <div className={styles.summaryRow}><span>{t("metrics.memoryErrorRate")}</span><span>{memoryTrends && memoryTrends.length > 0 ? `${(
+                      memoryTrends.reduce((sum, day) => sum + day.error_rate, 0) / memoryTrends.length
+                    ).toFixed(2)}%` : t("metrics.na")}</span></div>
                   </div>
                 ) : <p>{t("metrics.noSummaryData")}</p>}
               </div>

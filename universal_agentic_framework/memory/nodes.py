@@ -163,7 +163,7 @@ def load_memory_node(
     return state
 
 
-def update_memory_node(state: Dict[str, Any], text: str, metadata: Optional[dict] = None, backend: Optional[MemoryBackend] = None) -> Dict[str, Any]:
+def update_memory_node(state: Dict[str, Any], text: str, metadata: Optional[dict] = None, backend: Optional[MemoryBackend] = None, messages: Optional[list] = None) -> Dict[str, Any]:
     """Write a distilled memory entry for the user.
 
     Expects state to include key: "user_id".
@@ -186,7 +186,7 @@ def update_memory_node(state: Dict[str, Any], text: str, metadata: Optional[dict
     
     logger.info("Attempting upsert", user_id=user_id, text_length=len(text) if text else 0, backend_type=type(store).__name__)
     try:
-        result = store.upsert(user_id=user_id, text=text, metadata=metadata)
+        result = store.upsert(user_id=user_id, text=text, metadata=metadata, messages=messages)
         logger.info("Upsert successful", user_id=user_id, memory_id=result.metadata.get("memory_id") if hasattr(result, "metadata") else "unknown")
         return state
     except Exception as e:

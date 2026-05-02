@@ -1,15 +1,35 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from backend.prometheus_client import PrometheusClient, extract_value, extract_values_dict
 from backend.single_user import require_api_access
 
 
 router = APIRouter(prefix="/api", tags=["metrics"], dependencies=[Depends(require_api_access)])
+
+
+def _daily_series_from_range_query(results: list[Dict[str, Any]]) -> Dict[str, float]:
+    """Aggregate Prometheus range query values by UTC day (YYYY-MM-DD)."""
+    daily: Dict[str, float] = {}
+    for series in results:
+        values = series.get("values") or []
+        for item in values:
+            if not isinstance(item, list) or len(item) < 2:
+                continue
+            try:
+                ts = float(item[0])
+                value = float(item[1])
+            except (TypeError, ValueError):
+                continue
+            if value != value:  # NaN guard
+                continue
+            day = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            daily[day] = daily.get(day, 0.0) + value
+    return daily
 
 
 @router.get("/metrics")
@@ -23,6 +43,7 @@ async def get_metrics() -> Dict[str, Any]:
         "latency": {},
         "sessions": {},
         "memory_ops": {},
+        "memory_ops_by_status": {},
         "llm_calls": {},
         "attachments": {},
         "attachment_retries": {},
@@ -74,6 +95,52 @@ async def get_metrics() -> Dict[str, Any]:
         value = extract_value(result)
         if value is not None:
             metrics["memory_ops"][operation] = value
+
+    # Memory operations broken down by operation + status
+    mem_ops_status_results = await client.query(
+        'sum by (operation, status) (langgraph_memory_operations_total)'
+    )
+    mem_ops_by_status: dict = {}
+    for result in mem_ops_status_results:
+        labels = result.get("metric", {})
+        operation = labels.get("operation", "unknown")
+        status = labels.get("status", "unknown")
+        value = extract_value(result)
+        if value is not None:
+            key = f"{operation}/{status}"
+            mem_ops_by_status[key] = value
+    metrics["memory_ops_by_status"] = mem_ops_by_status
+
+    # Memory quality score (average of histogram sum/count)
+    mem_quality_results = await client.query(
+        'sum(langgraph_memory_quality_score_sum) / sum(langgraph_memory_quality_score_count)'
+    )
+    for result in mem_quality_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["avg_quality_score"] = round(value, 4)
+
+    # Co-occurrence graph size
+    cooc_nodes_results = await client.query('sum(langgraph_memory_co_occurrence_graph_nodes)')
+    for result in cooc_nodes_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["co_occurrence_nodes"] = value
+
+    cooc_edges_results = await client.query('sum(langgraph_memory_co_occurrence_graph_edges)')
+    for result in cooc_edges_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["co_occurrence_edges"] = value
+
+    # Importance ranking duration (avg)
+    importance_dur_results = await client.query(
+        'sum(langgraph_memory_importance_ranking_duration_seconds_sum) / sum(langgraph_memory_importance_ranking_duration_seconds_count)'
+    )
+    for result in importance_dur_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["avg_importance_ranking_ms"] = round(value * 1000, 2)
 
     # LLM calls by provider and model
     llm_results = await client.query('sum by (provider, model, status) (langgraph_llm_calls_total)')
@@ -165,3 +232,156 @@ async def get_metrics() -> Dict[str, Any]:
             metrics["workspace"]["cleanup_deleted_total"] = value
 
     return metrics
+
+
+@router.get("/analytics/memory-trends")
+async def get_memory_trends(
+    days: int = Query(default=30, ge=1, le=365),
+) -> Dict[str, Any]:
+    """Prometheus-backed daily memory trends for the last N days."""
+    client = PrometheusClient()
+
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=days - 1)
+    start = start_dt.isoformat()
+    end = end_dt.isoformat()
+    step = "1d"
+
+    load_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{operation="load"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    update_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{operation="update"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    error_results = await client.query_range(
+        'sum(increase(langgraph_memory_operations_total{status="error"}[1d]))',
+        start=start,
+        end=end,
+        step=step,
+    )
+    quality_results = await client.query_range(
+        'sum(increase(langgraph_memory_quality_score_sum[1d])) / clamp_min(sum(increase(langgraph_memory_quality_score_count[1d])), 1)',
+        start=start,
+        end=end,
+        step=step,
+    )
+
+    load_daily = _daily_series_from_range_query(load_results)
+    update_daily = _daily_series_from_range_query(update_results)
+    error_daily = _daily_series_from_range_query(error_results)
+    quality_daily = _daily_series_from_range_query(quality_results)
+
+    trends = []
+    for offset in range(days):
+        current_day = (start_dt + timedelta(days=offset)).date().isoformat()
+        loads = load_daily.get(current_day, 0.0)
+        updates = update_daily.get(current_day, 0.0)
+        errors = error_daily.get(current_day, 0.0)
+        total_ops = loads + updates
+        error_rate = (errors / total_ops * 100.0) if total_ops > 0 else 0.0
+        avg_quality_score = quality_daily.get(current_day, 0.0)
+        trends.append(
+            {
+                "date": current_day,
+                "loads": round(loads, 4),
+                "updates": round(updates, 4),
+                "errors": round(errors, 4),
+                "error_rate": round(error_rate, 2),
+                "avg_quality_score": round(avg_quality_score, 4),
+            }
+        )
+
+    total_loads = sum(day["loads"] for day in trends)
+    total_updates = sum(day["updates"] for day in trends)
+    total_errors = sum(day["errors"] for day in trends)
+    total_ops = total_loads + total_updates
+
+    return {
+        "period_days": days,
+        "trends": trends,
+        "totals": {
+            "loads": round(total_loads, 4),
+            "updates": round(total_updates, 4),
+            "errors": round(total_errors, 4),
+            "error_rate": round((total_errors / total_ops * 100.0), 2) if total_ops > 0 else 0.0,
+        },
+    }
+
+
+@router.get("/analytics/memory-retrieval-quality")
+async def get_memory_retrieval_quality() -> Dict[str, Any]:
+    """Retrieval quality feedback-loop metrics.
+
+    Returns how many memories have been served in chat context (retrieval signals),
+    their pre-existing rating distribution, and how many were subsequently rated by
+    the user (the core feedback signal that drives quality monitoring).
+    """
+    client = PrometheusClient()
+
+    # Total retrieval signals
+    total_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total)'
+    )
+    total_signals = 0.0
+    for result in total_results:
+        v = extract_value(result)
+        if v is not None:
+            total_signals += v
+
+    # Already-rated vs unrated at retrieval time
+    rated_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total{rated="yes"})'
+    )
+    unrated_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total{rated="no"})'
+    )
+    retrieved_rated = 0.0
+    for result in rated_results:
+        v = extract_value(result)
+        if v is not None:
+            retrieved_rated += v
+    retrieved_unrated = 0.0
+    for result in unrated_results:
+        v = extract_value(result)
+        if v is not None:
+            retrieved_unrated += v
+
+    # Rating-bucket breakdown
+    bucket_results = await client.query(
+        'sum by (rating_bucket) (langgraph_memory_retrieval_signal_total)'
+    )
+    bucket_counts: Dict[str, float] = {}
+    for result in bucket_results:
+        bucket = result.get("metric", {}).get("rating_bucket", "unknown")
+        v = extract_value(result)
+        if v is not None:
+            bucket_counts[bucket] = v
+
+    # Rated-after-retrieval (feedback loop fired)
+    rated_after_results = await client.query(
+        'sum(langgraph_memory_rated_after_retrieval_total)'
+    )
+    rated_after_retrieval = 0.0
+    for result in rated_after_results:
+        v = extract_value(result)
+        if v is not None:
+            rated_after_retrieval += v
+
+    feedback_coverage = (rated_after_retrieval / total_signals) if total_signals > 0 else 0.0
+
+    return {
+        "retrieval_signals_total": total_signals,
+        "retrieved_with_prior_rating": retrieved_rated,
+        "retrieved_without_prior_rating": retrieved_unrated,
+        "prior_rating_coverage": round(retrieved_rated / total_signals, 4) if total_signals > 0 else 0.0,
+        "rating_bucket_distribution": bucket_counts,
+        "rated_after_retrieval_total": rated_after_retrieval,
+        "feedback_coverage": round(feedback_coverage, 4),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
