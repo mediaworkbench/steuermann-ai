@@ -1,9 +1,38 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, Optional, Tuple
+
+import structlog
 
 from universal_agentic_framework.config import CoreConfig
 from . import InMemoryMemoryManager, Mem0MemoryBackend, MemoryBackend
+
+logger = structlog.get_logger(__name__)
+
+# Module-level singleton cache: avoids reinitializing Memory.from_config() and
+# triggering Qdrant index creation round-trips on every graph node invocation.
+# Keyed on config fields that affect backend identity. Bypassed when test
+# client/embedder overrides are injected (to preserve test isolation).
+_backend_cache: Dict[Tuple, MemoryBackend] = {}
+
+
+def _cache_key(config: CoreConfig) -> Tuple:
+    vs = config.memory.vector_store
+    emb = config.memory.embeddings
+    llm = config.llm.providers.primary
+    mem0 = config.memory.mem0
+    return (
+        vs.type,
+        vs.host,
+        vs.port,
+        vs.collection_prefix,
+        emb.model,
+        emb.dimension,
+        emb.remote_endpoint,
+        str(llm.api_base),
+        mem0.llm_provider,
+        mem0.search_limit,
+    )
 
 
 def build_memory_backend(
@@ -18,6 +47,7 @@ def build_memory_backend(
     In-memory backend remains available for testing and emergency fallback.
 
     Fake/stub `client` and `embedder` can be injected for testing.
+    When test overrides are provided the cache is bypassed to preserve isolation.
     """
     vs = config.memory.vector_store
     emb = config.memory.embeddings
@@ -25,7 +55,14 @@ def build_memory_backend(
     if vs.type.lower() == "mem0":
         llm_primary = config.llm.providers.primary
         mem0_settings = config.memory.mem0
-        return Mem0MemoryBackend(
+
+        # Bypass cache when test overrides are present.
+        if client is None and embedder is None:
+            key = _cache_key(config)
+            if key in _backend_cache:
+                return _backend_cache[key]
+
+        backend = Mem0MemoryBackend(
             host=vs.host,
             port=vs.port,
             collection_prefix=vs.collection_prefix,
@@ -43,5 +80,12 @@ def build_memory_backend(
             client=client,
             embedder=embedder,
         )
+
+        if client is None and embedder is None:
+            key = _cache_key(config)
+            _backend_cache[key] = backend
+            logger.info("memory_backend_cached", backend_type=type(backend).__name__)
+
+        return backend
 
     return InMemoryMemoryManager()
