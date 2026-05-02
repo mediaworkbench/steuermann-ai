@@ -23,6 +23,7 @@ async def get_metrics() -> Dict[str, Any]:
         "latency": {},
         "sessions": {},
         "memory_ops": {},
+        "memory_ops_by_status": {},
         "llm_calls": {},
         "attachments": {},
         "attachment_retries": {},
@@ -74,6 +75,52 @@ async def get_metrics() -> Dict[str, Any]:
         value = extract_value(result)
         if value is not None:
             metrics["memory_ops"][operation] = value
+
+    # Memory operations broken down by operation + status
+    mem_ops_status_results = await client.query(
+        'sum by (operation, status) (langgraph_memory_operations_total)'
+    )
+    mem_ops_by_status: dict = {}
+    for result in mem_ops_status_results:
+        labels = result.get("metric", {})
+        operation = labels.get("operation", "unknown")
+        status = labels.get("status", "unknown")
+        value = extract_value(result)
+        if value is not None:
+            key = f"{operation}/{status}"
+            mem_ops_by_status[key] = value
+    metrics["memory_ops_by_status"] = mem_ops_by_status
+
+    # Memory quality score (average of histogram sum/count)
+    mem_quality_results = await client.query(
+        'sum(langgraph_memory_quality_score_sum) / sum(langgraph_memory_quality_score_count)'
+    )
+    for result in mem_quality_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["avg_quality_score"] = round(value, 4)
+
+    # Co-occurrence graph size
+    cooc_nodes_results = await client.query('sum(langgraph_memory_co_occurrence_graph_nodes)')
+    for result in cooc_nodes_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["co_occurrence_nodes"] = value
+
+    cooc_edges_results = await client.query('sum(langgraph_memory_co_occurrence_graph_edges)')
+    for result in cooc_edges_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["co_occurrence_edges"] = value
+
+    # Importance ranking duration (avg)
+    importance_dur_results = await client.query(
+        'sum(langgraph_memory_importance_ranking_duration_seconds_sum) / sum(langgraph_memory_importance_ranking_duration_seconds_count)'
+    )
+    for result in importance_dur_results:
+        value = extract_value(result)
+        if value is not None:
+            metrics["memory_ops"]["avg_importance_ranking_ms"] = round(value * 1000, 2)
 
     # LLM calls by provider and model
     llm_results = await client.query('sum by (provider, model, status) (langgraph_llm_calls_total)')

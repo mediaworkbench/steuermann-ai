@@ -12,6 +12,7 @@ import { RequestsChart } from "@/components/RequestsChart";
 import UsageTrendChart from "@/components/UsageTrendChart";
 import TokenConsumptionChart from "@/components/TokenConsumptionChart";
 import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
+import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
@@ -336,19 +337,7 @@ export default function MetricsPage() {
               </div>
 
               {Object.keys(metrics.memory_ops).length > 0 && (
-                <div className={styles.card}>
-                  <h3 className={styles.cardTitle}>{t("metrics.memoryOperations")}</h3>
-                  <div className={styles.opsGrid}>
-                    {Object.entries(metrics.memory_ops).map(([operation, value]) => (
-                      <div key={operation} className={styles.opItem}>
-                        <p className={styles.opLabel}>{operation}</p>
-                        <p className={styles.opValue}>
-                          {typeof value === "number" ? formatNumber(Math.round(value)) : 0}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <MemoryMetricsPanel metrics={metrics} formatNumber={formatNumber} />
               )}
 
               {Object.keys(metrics.llm_calls).length > 0 && (

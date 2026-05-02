@@ -152,6 +152,7 @@ export interface MetricsData {
   latency: Record<string, number>;
   sessions: Record<string, number>;
   memory_ops: Record<string, number>;
+  memory_ops_by_status: Record<string, number>;
   llm_calls: Record<string, number>;
   attachments?: Record<string, number>;
   attachment_retries?: Record<string, number>;
