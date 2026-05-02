@@ -229,6 +229,17 @@ export interface MemoryTrendPoint {
   avg_quality_score: number;
 }
 
+export interface MemoryRetrievalQualityData {
+  retrieval_signals_total: number;
+  retrieved_with_prior_rating: number;
+  retrieved_without_prior_rating: number;
+  prior_rating_coverage: number;
+  rating_bucket_distribution: Record<string, number>;
+  rated_after_retrieval_total: number;
+  feedback_coverage: number;
+  timestamp: string;
+}
+
 export interface MemoryTrendsResponse {
   period_days: number;
   trends: MemoryTrendPoint[];
@@ -292,6 +303,20 @@ export async function fetchMemoryTrends(days: number = 30): Promise<MemoryTrends
     return (await response.json()) as MemoryTrendsResponse;
   } catch (error) {
     console.error("Error fetching memory trends:", error);
+    return null;
+  }
+}
+
+export async function fetchMemoryRetrievalQuality(): Promise<MemoryRetrievalQualityData | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/analytics/memory-retrieval-quality`);
+    if (!response.ok) {
+      console.error(`Failed to fetch memory retrieval quality: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as MemoryRetrievalQualityData;
+  } catch (error) {
+    console.error("Error fetching memory retrieval quality:", error);
     return null;
   }
 }

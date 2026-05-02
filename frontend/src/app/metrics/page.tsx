@@ -14,6 +14,7 @@ import TokenConsumptionChart from "@/components/TokenConsumptionChart";
 import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
 import MemoryTrendsChart from "@/components/MemoryTrendsChart";
 import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
+import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
@@ -149,6 +150,7 @@ export default function MetricsPage() {
     tokenConsumption,
     latencyAnalysis,
     memoryTrends,
+    memoryRetrievalQuality,
     loading: analyticsLoading,
     error: analyticsError,
     refetch: refetchAnalytics,
@@ -532,6 +534,8 @@ export default function MetricsPage() {
                   <MemoryTrendsChart data={memoryTrends} />
                 ) : <p>{t("metrics.noMemoryTrendData")}</p>}
               </div>
+
+              <RetrievalFeedbackPanel data={memoryRetrievalQuality} formatNumber={formatNumber} />
 
               <div className={styles.chartCard}>
                 <h3 className={styles.chartTitle}>{t("metrics.summary")}</h3>

@@ -26,6 +26,7 @@ from universal_agentic_framework.monitoring.metrics import (
     track_workspace_revised_copy_created,
     track_workspace_write_allowed,
     track_workspace_write_denied,
+    track_memory_retrieval_signal,
 )
 from universal_agentic_framework.tools.file_ops.tool import WorkspaceFileOpsTool
 
@@ -1065,6 +1066,14 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         for doc in documents
     ]
     memories_used = _serialize_loaded_memories(result.get("loaded_memory"))
+
+    # Emit retrieval-quality feedback signals for each memory served in this response.
+    for _mem in memories_used:
+        try:
+            track_memory_retrieval_signal(PROFILE_ID, _mem.get("user_rating"))
+        except Exception:
+            pass
+
     workspace_document_writeback = None
 
     if workspace_writeback_requested and len(documents) == 1:

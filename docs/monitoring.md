@@ -158,6 +158,57 @@ langgraph_memory_related_retrieved{fork_name="starter"}
 langgraph_memory_age_days{fork_name="starter"}
 ```
 
+### Memory Retrieval Quality / Feedback Loop Metrics
+
+These counters instrument the relationship between what the agent retrieves and how users subsequently rate it.
+
+```promql
+# Total memories served in chat context, by prior-rating state and rating bucket
+# Labels: fork_name, rated (yes/no), rating_bucket (none/low/mid/high)
+langgraph_memory_retrieval_signal_total{fork_name="starter"}
+
+# Memories rated by the user shortly after being retrieved (feedback loop fired)
+langgraph_memory_rated_after_retrieval_total{fork_name="starter"}
+
+# Derived: feedback coverage (what fraction of retrieved memories get rated)
+sum(langgraph_memory_rated_after_retrieval_total) /
+  sum(langgraph_memory_retrieval_signal_total)
+
+# Derived: prior-rating coverage at retrieval time
+sum(langgraph_memory_retrieval_signal_total{rated="yes"}) /
+  sum(langgraph_memory_retrieval_signal_total)
+
+# Breakdown by rating bucket at retrieval
+sum by (rating_bucket) (langgraph_memory_retrieval_signal_total)
+```
+
+**Dashboard**: These are surfaced in the **Metrics → Trends** tab under "Retrieval Feedback Loop".
+
+### Memory Health Thresholds
+
+The following thresholds are recommended for operational alerting and manual review. The `/metrics` dashboard surface shows these as contextual data; configure Prometheus alert rules in `monitoring/alerts.yml` for automated firing.
+
+| Signal | Healthy | Warning | Critical |
+| --- | --- | --- | --- |
+| Memory load success rate | ≥ 95% | 90–95% | < 90% |
+| Memory load error rate | < 5% | 5–10% | > 10% |
+| Average importance score | ≥ 0.5 | 0.3–0.5 | < 0.3 |
+| Rated coverage (memories with user_rating) | ≥ 30% | 10–30% | < 10% |
+| Feedback coverage (rated after retrieval) | ≥ 20% | 5–20% | < 5% |
+| Prior rating coverage at retrieval time | ≥ 40% | 20–40% | < 20% |
+| P95 importance ranking latency | < 50 ms | 50–100 ms | > 100 ms |
+
+### Memory Retrieval Failure Triage
+
+If `memory_load_failed` events appear in LangGraph logs or the memory load error rate crosses threshold:
+
+1. **Check Qdrant availability** — `curl http://localhost:6333/healthz` from inside the `langgraph` container. If unavailable, restart the `qdrant` service.
+2. **Check embedding model** — Verify the configured embedding endpoint (`memory.embeddings.remote_endpoint` in `core.yaml`) is reachable. Run a quick smoke: `curl -X POST <endpoint>/v1/embeddings -d '{"model":"...", "input":"test"}'`.
+3. **Check Mem0 initialization** — Look for `api_key` or `llm.config.api_base` errors in the langgraph startup logs. The `LLM_ENDPOINT` env var must be set and reachable at LangGraph startup.
+4. **Inspect null-score events** — If memories return with missing scores (visible as importance `0.0` in the dashboard), the Qdrant vector has no score attached. This is handled defensively (`score = float(item.get("score") or 1.0)`) but indicates Mem0 returned an unexpected shape.
+5. **Check ownership filtering** — If a user sees 0 memories but Qdrant has data, the `filters={"user_id": ...}` in `Mem0MemoryBackend.load()` may not match. Confirm `AUTH_USERNAME` or the authenticated user ID matches the `user_id` stored during memory upsert.
+6. **Rating persistence failures** — A `WARNING` log line containing `"Could not persist rating to Mem0 after all attempts"` means the in-memory `_rating_overrides` cache was used as fallback. Ratings are not lost for the current process lifetime but will not survive a restart. Investigate the Mem0 SDK `update()` API shape for the running version.
+
 ---
 
 ## Example Queries
@@ -258,6 +309,8 @@ service to `docker-compose.yml` with a receiver configuration.
 | `P95LatencyHigh` | p95 latency >5s for 5 minutes | warning |
 | `NoSuccessfulRequests` | All requests fail for 10 minutes | critical |
 | `DailyTokenUsageHigh` | >1M tokens in 24 hours | warning |
+| `MemoryLoadErrorRateHigh` | Memory load error rate >10% over 5 minutes | warning |
+| `MemoryQualityScoreLow` | Average importance score <0.3 | warning |
 
 Check active alerts: [Prometheus alerts](http://localhost:9090/alerts)
 

@@ -296,6 +296,20 @@ export type Messages = {
     errorLoadingTrends: string;
     days: string;
     na: string;
+    retrievalFeedback: string;
+    retrievalFeedbackSubtitle: string;
+    retrievalSignalsTotal: string;
+    retrievedWithRating: string;
+    retrievedWithoutRating: string;
+    priorRatingCoverage: string;
+    ratedAfterRetrieval: string;
+    feedbackCoverage: string;
+    ratingBuckets: string;
+    bucketNone: string;
+    bucketLow: string;
+    bucketMid: string;
+    bucketHigh: string;
+    noRetrievalData: string;
   };
   memories: {
     title: string;
@@ -650,6 +664,20 @@ export const messages: Record<Locale, Messages> = {
       errorLoadingTrends: "Error loading trends",
       days: "days",
       na: "N/A",
+      retrievalFeedback: "Retrieval Feedback Loop",
+      retrievalFeedbackSubtitle: "How often retrieved memories are subsequently rated by the user",
+      retrievalSignalsTotal: "Retrieval Signals",
+      retrievedWithRating: "Retrieved with Rating",
+      retrievedWithoutRating: "Retrieved without Rating",
+      priorRatingCoverage: "Prior Rating Coverage",
+      ratedAfterRetrieval: "Rated after Retrieval",
+      feedbackCoverage: "Feedback Coverage",
+      ratingBuckets: "Rating Buckets at Retrieval",
+      bucketNone: "Unrated",
+      bucketLow: "Low (1–2)",
+      bucketMid: "Mid (3)",
+      bucketHigh: "High (4–5)",
+      noRetrievalData: "No retrieval quality data yet",
     },
     memories: {
       title: "Memory",
@@ -1002,6 +1030,20 @@ export const messages: Record<Locale, Messages> = {
       errorLoadingTrends: "Fehler beim Laden der Trends",
       days: "Tage",
       na: "k.A.",
+      retrievalFeedback: "Abruf-Feedback-Schleife",
+      retrievalFeedbackSubtitle: "Wie oft abgerufene Erinnerungen anschließend vom Nutzer bewertet werden",
+      retrievalSignalsTotal: "Abrufsignale",
+      retrievedWithRating: "Mit Bewertung abgerufen",
+      retrievedWithoutRating: "Ohne Bewertung abgerufen",
+      priorRatingCoverage: "Vorherige Bewertungsabdeckung",
+      ratedAfterRetrieval: "Nach Abruf bewertet",
+      feedbackCoverage: "Feedback-Abdeckung",
+      ratingBuckets: "Bewertungskategorien beim Abruf",
+      bucketNone: "Nicht bewertet",
+      bucketLow: "Niedrig (1–2)",
+      bucketMid: "Mittel (3)",
+      bucketHigh: "Hoch (4–5)",
+      noRetrievalData: "Noch keine Abrufqualitätsdaten vorhanden",
     },
     memories: {
       title: "Speicher",

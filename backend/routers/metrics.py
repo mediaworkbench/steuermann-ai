@@ -312,3 +312,76 @@ async def get_memory_trends(
             "error_rate": round((total_errors / total_ops * 100.0), 2) if total_ops > 0 else 0.0,
         },
     }
+
+
+@router.get("/analytics/memory-retrieval-quality")
+async def get_memory_retrieval_quality() -> Dict[str, Any]:
+    """Retrieval quality feedback-loop metrics.
+
+    Returns how many memories have been served in chat context (retrieval signals),
+    their pre-existing rating distribution, and how many were subsequently rated by
+    the user (the core feedback signal that drives quality monitoring).
+    """
+    client = PrometheusClient()
+
+    # Total retrieval signals
+    total_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total)'
+    )
+    total_signals = 0.0
+    for result in total_results:
+        v = extract_value(result)
+        if v is not None:
+            total_signals += v
+
+    # Already-rated vs unrated at retrieval time
+    rated_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total{rated="yes"})'
+    )
+    unrated_results = await client.query(
+        'sum(langgraph_memory_retrieval_signal_total{rated="no"})'
+    )
+    retrieved_rated = 0.0
+    for result in rated_results:
+        v = extract_value(result)
+        if v is not None:
+            retrieved_rated += v
+    retrieved_unrated = 0.0
+    for result in unrated_results:
+        v = extract_value(result)
+        if v is not None:
+            retrieved_unrated += v
+
+    # Rating-bucket breakdown
+    bucket_results = await client.query(
+        'sum by (rating_bucket) (langgraph_memory_retrieval_signal_total)'
+    )
+    bucket_counts: Dict[str, float] = {}
+    for result in bucket_results:
+        bucket = result.get("metric", {}).get("rating_bucket", "unknown")
+        v = extract_value(result)
+        if v is not None:
+            bucket_counts[bucket] = v
+
+    # Rated-after-retrieval (feedback loop fired)
+    rated_after_results = await client.query(
+        'sum(langgraph_memory_rated_after_retrieval_total)'
+    )
+    rated_after_retrieval = 0.0
+    for result in rated_after_results:
+        v = extract_value(result)
+        if v is not None:
+            rated_after_retrieval += v
+
+    feedback_coverage = (rated_after_retrieval / total_signals) if total_signals > 0 else 0.0
+
+    return {
+        "retrieval_signals_total": total_signals,
+        "retrieved_with_prior_rating": retrieved_rated,
+        "retrieved_without_prior_rating": retrieved_unrated,
+        "prior_rating_coverage": round(retrieved_rated / total_signals, 4) if total_signals > 0 else 0.0,
+        "rating_bucket_distribution": bucket_counts,
+        "rated_after_retrieval_total": rated_after_retrieval,
+        "feedback_coverage": round(feedback_coverage, 4),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

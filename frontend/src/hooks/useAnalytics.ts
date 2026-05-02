@@ -6,6 +6,8 @@ import {
   fetchTokenConsumption,
   fetchLatencyAnalysis,
   fetchMemoryTrends,
+  fetchMemoryRetrievalQuality,
+  type MemoryRetrievalQualityData,
 } from "@/lib/api";
 
 interface UseAnalyticsOptions {
@@ -26,6 +28,7 @@ interface UseAnalyticsReturn {
     error_rate: number;
     avg_quality_score: number;
   }[] | null;
+  memoryRetrievalQuality: MemoryRetrievalQualityData | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -48,6 +51,7 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     error_rate: number;
     avg_quality_score: number;
   }[] | null>(null);
+  const [memoryRetrievalQuality, setMemoryRetrievalQuality] = useState<MemoryRetrievalQualityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,17 +59,19 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     setLoading(true);
     setError(null);
     try {
-      const [trends, tokens, latency, memory] = await Promise.all([
+      const [trends, tokens, latency, memory, retrievalQuality] = await Promise.all([
         fetchUsageTrends(days),
         fetchTokenConsumption(days),
         fetchLatencyAnalysis(days),
         fetchMemoryTrends(days),
+        fetchMemoryRetrievalQuality(),
       ]);
 
       if (trends) setUsageTrends(trends.trends || []);
       if (tokens) setTokenConsumption(tokens.consumption || []);
       if (latency) setLatencyAnalysis(latency.latency_data || []);
       if (memory) setMemoryTrends(memory.trends || []);
+      if (retrievalQuality) setMemoryRetrievalQuality(retrievalQuality);
 
       if (!trends || !tokens || !latency || !memory) {
         setError("Failed to load some analytics data");
@@ -91,6 +97,7 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     tokenConsumption,
     latencyAnalysis,
     memoryTrends,
+    memoryRetrievalQuality,
     loading,
     error,
     refetch,

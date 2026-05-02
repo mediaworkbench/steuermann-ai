@@ -97,6 +97,19 @@ MEMORY_AGE_DAYS = Histogram(
     buckets=(0, 1, 7, 14, 30, 60, 90, 180, 365),
 )
 
+# Memory retrieval quality / feedback-loop metrics
+MEMORY_RETRIEVAL_SIGNAL_TOTAL = Counter(
+    "langgraph_memory_retrieval_signal_total",
+    "Count of memories served in chat context, tagged with current rating state",
+    ["fork_name", "rated", "rating_bucket"],  # rated: yes/no; rating_bucket: none/low/mid/high
+)
+
+MEMORY_RATED_AFTER_RETRIEVAL_TOTAL = Counter(
+    "langgraph_memory_rated_after_retrieval_total",
+    "Count of memories rated by the user after being retrieved in a recent conversation",
+    ["fork_name"],
+)
+
 # Cache metrics
 CACHE_HITS_TOTAL = Counter(
     "cache_hits_total",
@@ -518,6 +531,48 @@ def track_memory_age(fork_name: str, age_days: float) -> None:
         age_days: Age of memory in days
     """
     MEMORY_AGE_DAYS.labels(fork_name=fork_name).observe(age_days)
+
+
+def _rating_bucket(user_rating: Any) -> str:
+    """Map a raw user_rating value to a named bucket: none / low / mid / high."""
+    if user_rating is None:
+        return "none"
+    try:
+        r = int(user_rating)
+    except (TypeError, ValueError):
+        return "none"
+    if r <= 2:
+        return "low"
+    if r == 3:
+        return "mid"
+    return "high"
+
+
+def track_memory_retrieval_signal(fork_name: str, user_rating: Any) -> None:
+    """Emit one retrieval-quality signal for a single memory served in chat context.
+
+    Called once per entry in ``memories_used`` at chat-response time.
+
+    Args:
+        fork_name: Active profile / fork identifier.
+        user_rating: Current ``user_rating`` value on the memory (may be None).
+    """
+    rated = "yes" if user_rating is not None else "no"
+    bucket = _rating_bucket(user_rating)
+    MEMORY_RETRIEVAL_SIGNAL_TOTAL.labels(
+        fork_name=fork_name,
+        rated=rated,
+        rating_bucket=bucket,
+    ).inc()
+
+
+def track_memory_rated_after_retrieval(fork_name: str) -> None:
+    """Emit a feedback-loop signal: the user rated a memory that was recently retrieved.
+
+    Args:
+        fork_name: Active profile / fork identifier.
+    """
+    MEMORY_RATED_AFTER_RETRIEVAL_TOTAL.labels(fork_name=fork_name).inc()
 
 
 # Cache tracking functions

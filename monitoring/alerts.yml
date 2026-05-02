@@ -51,3 +51,33 @@ groups:
         annotations:
           summary: Daily token usage high
           description: Token usage in the last 24h exceeded 1,000,000 tokens.
+
+      - alert: MemoryLoadErrorRateHigh
+        expr: >
+          sum(rate(langgraph_memory_operations_total{status="error"}[5m])) /
+          clamp_min(sum(rate(langgraph_memory_operations_total[5m])), 1) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: High memory load error rate
+          description: >
+            More than 10% of memory operations are failing over the last 5 minutes.
+            Check Qdrant availability and Mem0 initialization logs (see monitoring.md
+            for triage steps).
+
+      - alert: MemoryQualityScoreLow
+        expr: >
+          sum(langgraph_memory_quality_score_sum) /
+          clamp_min(sum(langgraph_memory_quality_score_count), 1) < 0.3
+        for: 10m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: Memory quality score below threshold
+          description: >
+            Average importance score has been below 0.3 for 10 minutes.
+            Consider reviewing recent memory upserts or the importance scoring
+            configuration in core.yaml.
