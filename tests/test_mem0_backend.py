@@ -178,7 +178,7 @@ def test_upsert_returns_memory_record():
     assert rec.text == "alpha beta gamma"
     assert rec.metadata.get("memory_id") is not None
     assert rec.metadata["tag"] == "x"
-    assert backend._memory.last_add_infer is False
+    assert backend._memory.last_add_infer is True
 
 
 def test_load_with_query_applies_importance_scoring():

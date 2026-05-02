@@ -18,7 +18,7 @@ class MemoryBackend(Protocol):
     def load(self, user_id: str, query: Optional[str] = None, top_k: int = 5) -> List[MemoryRecord]:
         ...
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None) -> MemoryRecord:
+    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[list] = None) -> MemoryRecord:
         ...
 
     def clear(self, user_id: str) -> None:

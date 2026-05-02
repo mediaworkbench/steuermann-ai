@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -324,24 +325,47 @@ class Mem0MemoryBackend(MemoryBackend):
 
         return out
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None) -> MemoryRecord:
+    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[List[Dict[str, Any]]] = None) -> MemoryRecord:
         payload = dict(metadata or {})
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
 
-        message_payload = [{"role": "user", "content": text}]
+        # Use structured exchange messages when provided (richer context for Mem0 inference),
+        # otherwise wrap the summary text as a single user message.
+        message_payload = messages if messages else [{"role": "user", "content": text}]
+
+        add_response = None
         try:
-            # Prefer infer=False so memory writes are robust when extraction LLM
-            # capabilities differ across local OpenAI-compatible providers.
+            # infer=True: Mem0's LLM extracts, deduplicates and merges facts automatically.
             add_response = self._memory.add(
                 message_payload,
                 user_id=user_id,
                 metadata=payload,
-                infer=False,
+                infer=True,
             )
-        except TypeError:
-            # Backward compatibility with SDK variants that don't expose infer.
-            add_response = self._memory.add(message_payload, user_id=user_id, metadata=payload)
+        except (json.JSONDecodeError, ValueError, KeyError) as exc:
+            logger.warning(
+                "mem0_infer_failed",
+                error=str(exc),
+                user_id=user_id,
+                exc_info=True,
+            )
+        except Exception as exc:
+            _err = str(exc).lower()
+            if any(kw in _err for kw in ("json", "parse", "decode", "extract", "format", "invalid")):
+                logger.warning("mem0_infer_failed", error=str(exc), user_id=user_id)
+            else:
+                raise
+
+        if add_response is None:
+            # Graceful degradation: store summary text verbatim without inference.
+            logger.info("mem0_infer_fallback_verbatim", user_id=user_id)
+            verbatim_payload = [{"role": "user", "content": text}]
+            try:
+                add_response = self._memory.add(verbatim_payload, user_id=user_id, metadata=payload, infer=False)
+            except Exception as exc:
+                logger.error("mem0_verbatim_fallback_failed", error=str(exc), user_id=user_id)
+                add_response = {}
 
         memory_id = uuid.uuid4().hex[:12]
         if isinstance(add_response, dict):
