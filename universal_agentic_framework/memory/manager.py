@@ -1,4 +1,4 @@
-"""Minimal in-memory memory manager as placeholder for Qdrant/LlamaIndex integration."""
+"""Minimal in-memory memory manager stub. Long-term semantic memory is handled by Mem0MemoryBackend."""
 from __future__ import annotations
 
 from dataclasses import dataclass

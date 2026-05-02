@@ -60,7 +60,7 @@ Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration
 | **FastAPI**    | 8001            | Backend adapter — auth, settings, metrics proxy, streaming chat |
 | **LangGraph**  | 8000 (internal) | Orchestration engine — graph execution, tool routing, memory    |
 | **PostgreSQL** | 5432 (internal) | Conversations, user data, checkpoints, audit logs               |
-| **Qdrant**     | 6333 (internal) | Vector database — semantic memory, RAG embeddings               |
+| **Qdrant**     | 6333 (internal) | Vector database — RAG embeddings and Mem0 internal storage      |
 | **Redis**      | 6379 (internal) | Response caching, message broker                                |
 | **Prometheus** | 9090 (internal) | Metrics collection and alerting                                 |
 | **LM Studio** | 1234 (host)     | Local LLM server — runs on host for GPU access                  |
@@ -90,11 +90,14 @@ LangGraph is the single source of truth for control flow. It decides what happen
 
 Memory is not an afterthought — it is an explicit, first-class part of the execution graph. Memory nodes load relevant context before the LLM responds and persist new memories after.
 
-- **Semantic search** via Qdrant with configurable similarity thresholds
+- **Mem0 OSS** embedded backend with Qdrant-backed vector storage — no external memory service required
+- **Semantic search** via Mem0's retrieval pipeline with configurable similarity thresholds
 - **Importance scoring** — multi-factor ranking based on relevance, recency (exponential decay), access frequency (logarithmic), and explicit user feedback
+- **User rating feedback loop** — memories rated after retrieval are tracked via Prometheus counters; feedback coverage visible in the Metrics Trends dashboard
 - **Co-occurrence linking** — automatically builds a knowledge graph by tracking which memories are retrieved together, enabling context expansion and related-memory discovery
 - **Memory summarization** — compresses and synthesizes older memories to maintain quality without unbounded growth
 - **Explicit lifecycle** — memory load and update operations are dedicated graph nodes, not hidden side effects
+- **Full CRUD API** — `/api/memories` endpoints with list, detail, delete, stats, and rate; `/memories` frontend page for user-facing memory management
 
 ### RAG & Knowledge Ingestion
 
@@ -148,8 +151,9 @@ A production-ready Next.js application — not a demo chat widget — with real 
 - **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history
 - **Settings panel** — model selection, language preferences, tool toggles, RAG configuration
 - **Metrics dashboard** at `/metrics` with two views:
-  - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown (auto-refreshes every 10 seconds)
-  - **Trends** — usage over time, token consumption, latency analysis, summary cards, CSV export
+  - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
+  - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, summary cards, CSV export
+- **Memory management** at `/memories` — browse, rate, and delete individual memories with full filtering and sorting
 - **Workspace sidebar** for managing uploaded documents per conversation
 - **Dark/light theme** with system preference detection
 - **Profile-aware branding** — colors, logos, and labels adapt to the active deployment profile
@@ -367,9 +371,9 @@ Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md
 | LLM Integration | [LangChain](https://github.com/langchain-ai/langchain) ≥1.2 + [langchain-litellm](https://github.com/langchain-ai/langchain/tree/master/libs/providers/litellm) 0.6 | Unified LLM interface via LiteLLM router |
 | Backend         | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135             | REST API, auth, metrics proxy                    |
 | Frontend        | [Next.js](https://nextjs.org/) ≥16 + React 19               | Production UI with App Router                    |
-| Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | Semantic memory, RAG embeddings                  |
+| Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | RAG embeddings and Mem0 internal vector store    |
 | Database        | [PostgreSQL](https://www.postgresql.org/) ≥15               | Conversations, checkpoints, users, audit logs    |
-| Memory          | [LlamaIndex](https://www.llamaindex.ai/) ≥0.11              | Memory abstraction layer                         |
+| Memory          | [Mem0 OSS](https://github.com/mem0ai/mem0) ≥2.0             | Memory abstraction with embedded Qdrant backend  |
 | Embeddings      | Multilingual models (local, LM Studio)                      | OpenAI-compatible API                            |
 | Cache           | [Redis](https://redis.io/) ≥5                               | Response caching, session data                   |
 | Monitoring      | [Prometheus](https://prometheus.io/)                        | Metrics collection and alerting                  |
