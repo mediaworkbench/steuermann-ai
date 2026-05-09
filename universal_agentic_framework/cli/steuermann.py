@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import tarfile
+import tomllib
 from typing import Any, Iterable
 
 import yaml
@@ -68,6 +69,83 @@ EXPECTED_SEVERITY_POLICY = {
     "blocking": "error",
     "advisory": "warning",
 }
+DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE = ">=0.2,<1.0"
+DEFAULT_BUNDLE_REQUIRED_KEYS = ["profile_id", "display_name", "description"]
+
+
+def _framework_version() -> str:
+    pyproject = Path("pyproject.toml")
+    if pyproject.exists():
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        version = str((data.get("tool") or {}).get("poetry", {}).get("version", "")).strip()
+        if version:
+            return version
+    return "0.0.0"
+
+
+def _parse_version_tuple(raw: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", raw)]
+    if not parts:
+        raise ValueError(f"Invalid version '{raw}'")
+    return tuple(parts)
+
+
+def _compare_versions(left: tuple[int, ...], right: tuple[int, ...]) -> int:
+    width = max(len(left), len(right))
+    left_n = left + (0,) * (width - len(left))
+    right_n = right + (0,) * (width - len(right))
+    if left_n < right_n:
+        return -1
+    if left_n > right_n:
+        return 1
+    return 0
+
+
+def _version_in_range(version: str, version_range: str) -> bool:
+    ops = {
+        ">": lambda cmp: cmp > 0,
+        ">=": lambda cmp: cmp >= 0,
+        "<": lambda cmp: cmp < 0,
+        "<=": lambda cmp: cmp <= 0,
+        "==": lambda cmp: cmp == 0,
+    }
+    version_tuple = _parse_version_tuple(version)
+    clauses = [item.strip() for item in version_range.split(",") if item.strip()]
+    if not clauses:
+        return False
+    for clause in clauses:
+        match = re.match(r"^(>=|<=|>|<|==)\s*([0-9][0-9A-Za-z._-]*)$", clause)
+        if not match:
+            return False
+        op, raw_target = match.groups()
+        target_tuple = _parse_version_tuple(raw_target)
+        compare_result = _compare_versions(version_tuple, target_tuple)
+        if not ops[op](compare_result):
+            return False
+    return True
+
+
+def _profile_compatibility(profile_dir: Path, profile_id: str) -> dict[str, Any]:
+    compatibility: dict[str, Any] = {
+        "framework_version": _framework_version(),
+        "framework_version_range": DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE,
+        "minimum_required_keys": list(DEFAULT_BUNDLE_REQUIRED_KEYS),
+    }
+
+    profile_yaml = profile_dir / "profile.yaml"
+    if profile_yaml.exists():
+        profile_data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
+        configured = profile_data.get("compatibility")
+        if isinstance(configured, dict):
+            range_value = configured.get("framework_version_range")
+            if isinstance(range_value, str) and range_value.strip():
+                compatibility["framework_version_range"] = range_value.strip()
+            keys_value = configured.get("minimum_required_keys")
+            if isinstance(keys_value, list) and all(isinstance(item, str) for item in keys_value):
+                compatibility["minimum_required_keys"] = list(keys_value)
+
+    compatibility["profile_id"] = profile_id
+    return compatibility
 
 
 def _with_profile_env(profile_id: str | None) -> dict[str, str]:
@@ -369,6 +447,47 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
             "path": str(CONTRACT_PATH),
             "status": "ok" if not missing_flags and not extra_flags else "fail",
             "details": flag_detail,
+        }
+    )
+
+    profile_bundle_compatibility = contract.get("profile_bundle_compatibility") or {}
+    contract_default_range = profile_bundle_compatibility.get("framework_version_range_default")
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if contract_default_range == DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE else "fail",
+            "details": (
+                "profile_bundle_compatibility.framework_version_range_default matches CLI default"
+                if contract_default_range == DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE
+                else (
+                    "profile_bundle_compatibility.framework_version_range_default mismatch: "
+                    f"expected {DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE}, got {contract_default_range}"
+                )
+            ),
+        }
+    )
+
+    contract_required_keys = set(profile_bundle_compatibility.get("minimum_required_keys_default") or [])
+    runtime_required_keys = set(DEFAULT_BUNDLE_REQUIRED_KEYS)
+    missing_required_keys = sorted(runtime_required_keys - contract_required_keys)
+    extra_required_keys = sorted(contract_required_keys - runtime_required_keys)
+    if not missing_required_keys and not extra_required_keys:
+        required_keys_detail = "profile_bundle_compatibility.minimum_required_keys_default matches CLI defaults"
+    else:
+        parts = []
+        if missing_required_keys:
+            parts.append(f"missing: {', '.join(missing_required_keys)}")
+        if extra_required_keys:
+            parts.append(f"extra: {', '.join(extra_required_keys)}")
+        required_keys_detail = (
+            "profile_bundle_compatibility.minimum_required_keys_default drift — "
+            f"{'; '.join(parts)}"
+        )
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if not missing_required_keys and not extra_required_keys else "fail",
+            "details": required_keys_detail,
         }
     )
 
@@ -687,12 +806,17 @@ def cmd_profile_scaffold(args: argparse.Namespace) -> int:
     if profile_yaml.exists():
         data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
         data["profile_id"] = profile_id
+        data.setdefault("compatibility", {})
+        compatibility = data["compatibility"]
+        if isinstance(compatibility, dict):
+            compatibility.setdefault("framework_version_range", DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE)
+            compatibility.setdefault("minimum_required_keys", list(DEFAULT_BUNDLE_REQUIRED_KEYS))
         profile_yaml.write_text(yaml.safe_dump(data, sort_keys=True, allow_unicode=False), encoding="utf-8")
 
     manifest = {
         "schema_version": 1,
         "profile_id": profile_id,
-        "framework_version": "0.x",
+        "compatibility": _profile_compatibility(target, profile_id),
         "required_files": PROFILE_REQUIRED_FILES + ["prompts/"],
     }
     (target / "bundle_manifest.yaml").write_text(
@@ -704,11 +828,12 @@ def cmd_profile_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
-def _bundle_manifest(profile_id: str) -> dict[str, Any]:
+def _bundle_manifest(profile_id: str, profile_dir: Path | None = None) -> dict[str, Any]:
+    resolved_profile_dir = profile_dir or (_profiles_root() / profile_id)
     return {
         "schema_version": 1,
         "profile_id": profile_id,
-        "framework_version_range": ">=0.2,<1.0",
+        "compatibility": _profile_compatibility(resolved_profile_dir, profile_id),
         "required_files": PROFILE_REQUIRED_FILES + ["prompts/"],
     }
 
@@ -730,7 +855,7 @@ def cmd_profile_bundle_export(args: argparse.Namespace) -> int:
     with tarfile.open(out_path, "w:gz") as tf:
         tf.add(profile_dir, arcname=args.profile)
         manifest_bytes = yaml.safe_dump(
-            _bundle_manifest(args.profile), sort_keys=True, allow_unicode=False
+            _bundle_manifest(args.profile, profile_dir=profile_dir), sort_keys=True, allow_unicode=False
         ).encode("utf-8")
         info = tarfile.TarInfo(name="bundle_manifest.yaml")
         info.size = len(manifest_bytes)
@@ -776,6 +901,32 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
             print("Unsupported bundle schema version", file=sys.stderr)
             return 1
 
+        compatibility = manifest.get("compatibility") or {}
+        if not isinstance(compatibility, dict):
+            print("Bundle compatibility metadata missing or invalid", file=sys.stderr)
+            return 1
+
+        framework_version_range = compatibility.get("framework_version_range")
+        if not isinstance(framework_version_range, str) or not framework_version_range.strip():
+            print("Bundle compatibility.framework_version_range missing", file=sys.stderr)
+            return 1
+
+        current_version = _framework_version()
+        if not _version_in_range(current_version, framework_version_range):
+            print(
+                (
+                    "Bundle incompatible with current framework version "
+                    f"{current_version}; required range: {framework_version_range}"
+                ),
+                file=sys.stderr,
+            )
+            return 1
+
+        required_keys = compatibility.get("minimum_required_keys") or []
+        if not isinstance(required_keys, list) or not all(isinstance(item, str) for item in required_keys):
+            print("Bundle compatibility.minimum_required_keys must be a string list", file=sys.stderr)
+            return 1
+
         members = [n for n in names if n != "bundle_manifest.yaml"]
         root_dirs = sorted({n.split("/")[0] for n in members if "/" in n})
         if not root_dirs:
@@ -795,7 +946,28 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
         print(f"Imported profile missing files: {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    _print_payload({"status": "ok", "target": str(target)}, args.format)
+    profile_yaml = target / "profile.yaml"
+    profile_data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
+    missing_required_keys = [key for key in required_keys if not _dig_optional(profile_data, key)[0]]
+    if missing_required_keys:
+        print(
+            f"Imported profile missing required metadata keys: {', '.join(missing_required_keys)}",
+            file=sys.stderr,
+        )
+        return 1
+
+    _print_payload(
+        {
+            "status": "ok",
+            "target": str(target),
+            "compatibility": {
+                "framework_version": current_version,
+                "framework_version_range": framework_version_range,
+                "minimum_required_keys": required_keys,
+            },
+        },
+        args.format,
+    )
     return 0
 
 
@@ -831,10 +1003,30 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
             }
         )
 
-    checks.extend(_contract_check_payload()["checks"])
+    contract_checks = _contract_check_payload()["checks"]
+    checks.extend(contract_checks)
 
     has_fail = any(c["status"] == "fail" for c in checks)
-    payload = {"status": "error" if has_fail else "ok", "checks": checks}
+    drift_items = [
+        {
+            "path": str(item.get("path", "")),
+            "status": item.get("status", "fail"),
+            "details": item.get("details", ""),
+            "severity": "error" if args.strict else "warning",
+        }
+        for item in checks
+        if item.get("status") == "fail"
+    ]
+    payload = {
+        "status": "error" if has_fail else "ok",
+        "checks": checks,
+        "drift_report": {
+            "total": len(drift_items),
+            "items": drift_items,
+            "docs_checks": len([i for i in checks if str(i.get("path", "")).startswith("docs/") or i.get("path") == "README.md"]),
+            "contract_checks": len(contract_checks),
+        },
+    }
     _print_payload(payload, args.format)
     return 1 if (has_fail and args.strict) else 0
 

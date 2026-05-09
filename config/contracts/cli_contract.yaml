@@ -45,3 +45,9 @@ profile_safety:
     - authentication
     - ingestion_service
     - monitoring
+profile_bundle_compatibility:
+  framework_version_range_default: ">=0.2,<1.0"
+  minimum_required_keys_default:
+    - profile_id
+    - display_name
+    - description

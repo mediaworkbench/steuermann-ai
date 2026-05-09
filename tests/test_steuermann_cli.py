@@ -2,10 +2,27 @@
 
 import json
 from pathlib import Path
+import tarfile
 
 import pytest
+import yaml
 
 import universal_agentic_framework.cli.steuermann as steuermann
+
+
+def _create_profile_dir(root: Path, name: str = "starter") -> Path:
+    profile_dir = root / "config" / "profiles" / name
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "prompts").mkdir()
+    for filename in ["core.yaml", "features.yaml", "agents.yaml", "tools.yaml", "ui.yaml"]:
+        (profile_dir / filename).write_text("{}\n", encoding="utf-8")
+    (profile_dir / "profile.yaml").write_text(
+        "profile_id: starter\n"
+        "display_name: Starter\n"
+        "description: Starter profile\n",
+        encoding="utf-8",
+    )
+    return profile_dir
 
 
 def test_parser_has_expected_top_level_commands() -> None:
@@ -61,6 +78,8 @@ def test_setup_doctor_reports_env_presence_and_advisories(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PROFILE_ID", raising=False)
+    monkeypatch.delenv("ACTIVE_PROFILE_ID", raising=False)
 
     class DummyRag:
         collection_name = "framework"
@@ -104,6 +123,9 @@ def test_docs_check_reports_contract_parity_details(capsys: pytest.CaptureFixtur
     details = [check["details"] for check in payload["checks"]]
     assert any("Contract covers expected CLI/runtime config sections" in detail for detail in details)
     assert any("Precedence matches base -> profile -> environment" in detail for detail in details)
+    assert "drift_report" in payload
+    assert "total" in payload["drift_report"]
+    assert "items" in payload["drift_report"]
 
 
 def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
@@ -116,6 +138,8 @@ def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
     assert any("severity_policy.blocking is error" in detail for detail in details)
     assert any("allowed_core_prefixes matches loader constants" in detail for detail in details)
     assert any("disallowed_feature_flags matches loader constants" in detail for detail in details)
+    assert any("framework_version_range_default matches CLI default" in detail for detail in details)
+    assert any("minimum_required_keys_default matches CLI defaults" in detail for detail in details)
 
 
 def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -171,6 +195,63 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
     assert any("disallowed_feature_flags drift" in d for d in details)
 
 
+def test_config_contract_check_detects_bundle_compatibility_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    bad_contract = {
+        "schema_version": 1,
+        "contract_name": "test",
+        "precedence": ["base", "profile", "environment"],
+        "sections": {
+            s: {
+                "source_file": f"config/{f}",
+                "profile_overlay_file": f"config/profiles/<profile_id>/{f}",
+                "profile_mutability": "partial",
+            }
+            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()
+        },
+        "policies": {
+            "docs_mutation": "disabled",
+            "manual_config_editing": "supported",
+            "ingest_interface": "steuermann_ingest_only",
+            "json_output_stability": "required",
+        },
+        "severity_policy": {"blocking": "error", "advisory": "warning"},
+        "profile_safety": {
+            "allowed_core_prefixes": [
+                "fork.language",
+                "fork.locale",
+                "fork.timezone",
+                "fork.supported_languages",
+                "llm",
+                "prompts",
+                "tool_routing",
+                "rag",
+                "tokens",
+                "memory.retention",
+            ],
+            "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
+        },
+        "profile_bundle_compatibility": {
+            "framework_version_range_default": ">=9.0,<10.0",
+            "minimum_required_keys_default": ["profile_id"],
+        },
+    }
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        yaml.safe_dump(bad_contract), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["config", "contract-check", "--format", "json"])
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    details = [check["details"] for check in payload["checks"]]
+    assert any("framework_version_range_default mismatch" in d for d in details)
+    assert any("minimum_required_keys_default drift" in d for d in details)
+
+
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         steuermann,
@@ -210,4 +291,177 @@ def test_docs_check_strict_fails_on_contract_drift(tmp_path: Path, monkeypatch: 
     )
     monkeypatch.chdir(tmp_path)
     code = steuermann.main(["docs", "check", "--strict", "--format", "json"])
+    assert code == 1
+
+
+def test_docs_check_reports_drift_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    (tmp_path / "README.md").write_text("missing steuermann references\n", encoding="utf-8")
+    (tmp_path / "docs" / "index.md").write_text("missing command index\n", encoding="utf-8")
+    (tmp_path / "docs" / "configuration.md").write_text("missing precedence\n", encoding="utf-8")
+    (tmp_path / "docs" / "profile_creation.md").write_text("profile\n", encoding="utf-8")
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        "schema_version: 1\nprecedence: [base, profile, environment]\nsections: {}\npolicies:\n  docs_mutation: disabled\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["docs", "check", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["drift_report"]["total"] > 0
+    assert payload["drift_report"]["items"]
+    assert any(item["status"] == "fail" for item in payload["drift_report"]["items"])
+
+
+def test_profile_scaffold_writes_compatibility_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_profile_dir(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    target = tmp_path / "external-profile"
+    code = steuermann.main(
+        [
+            "profile",
+            "scaffold",
+            "--from",
+            "starter",
+            "--to",
+            str(target),
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+
+    profile_data = yaml.safe_load((target / "profile.yaml").read_text(encoding="utf-8"))
+    compatibility = profile_data.get("compatibility") or {}
+    assert compatibility.get("framework_version_range") == steuermann.DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE
+    assert compatibility.get("minimum_required_keys") == steuermann.DEFAULT_BUNDLE_REQUIRED_KEYS
+
+    manifest = yaml.safe_load((target / "bundle_manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest.get("compatibility", {}).get("framework_version_range")
+    assert manifest.get("compatibility", {}).get("minimum_required_keys")
+
+
+def test_profile_bundle_import_fails_on_incompatible_major_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _create_profile_dir(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    bundle_path = tmp_path / "starter.tar.gz"
+    export_code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "export",
+            "--profile",
+            "starter",
+            "--out",
+            str(bundle_path),
+            "--format",
+            "json",
+        ]
+    )
+    assert export_code == 0
+
+    # Rewrite bundle manifest to require incompatible major framework version.
+    with tarfile.open(bundle_path, "r:gz") as src:
+        members = src.getmembers()
+        files: dict[str, bytes] = {}
+        for member in members:
+            extracted = src.extractfile(member)
+            if extracted is not None:
+                files[member.name] = extracted.read()
+
+    manifest = yaml.safe_load(files["bundle_manifest.yaml"].decode("utf-8"))
+    manifest["compatibility"]["framework_version_range"] = ">=1.0,<2.0"
+    files["bundle_manifest.yaml"] = yaml.safe_dump(manifest, sort_keys=True, allow_unicode=False).encode("utf-8")
+
+    with tarfile.open(bundle_path, "w:gz") as dst:
+        for name, content in files.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            dst.addfile(info, steuermann._BytesReader(content))
+
+    target = tmp_path / "imported-profile"
+    code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "import",
+            "--bundle",
+            str(bundle_path),
+            "--to",
+            str(target),
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    assert not target.exists()
+
+
+def test_profile_bundle_import_fails_when_required_profile_keys_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _create_profile_dir(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    bundle_path = tmp_path / "starter.tar.gz"
+    export_code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "export",
+            "--profile",
+            "starter",
+            "--out",
+            str(bundle_path),
+            "--format",
+            "json",
+        ]
+    )
+    assert export_code == 0
+
+    with tarfile.open(bundle_path, "r:gz") as src:
+        members = src.getmembers()
+        files: dict[str, bytes] = {}
+        for member in members:
+            extracted = src.extractfile(member)
+            if extracted is not None:
+                files[member.name] = extracted.read()
+
+    # Remove required field from profile and make manifest require it.
+    profile_data = yaml.safe_load(files["starter/profile.yaml"].decode("utf-8"))
+    profile_data.pop("description", None)
+    files["starter/profile.yaml"] = yaml.safe_dump(profile_data, sort_keys=True, allow_unicode=False).encode("utf-8")
+
+    manifest = yaml.safe_load(files["bundle_manifest.yaml"].decode("utf-8"))
+    manifest["compatibility"]["minimum_required_keys"] = ["profile_id", "display_name", "description"]
+    files["bundle_manifest.yaml"] = yaml.safe_dump(manifest, sort_keys=True, allow_unicode=False).encode("utf-8")
+
+    with tarfile.open(bundle_path, "w:gz") as dst:
+        for name, content in files.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            dst.addfile(info, steuermann._BytesReader(content))
+
+    target = tmp_path / "imported-profile"
+    code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "import",
+            "--bundle",
+            str(bundle_path),
+            "--to",
+            str(target),
+            "--format",
+            "json",
+        ]
+    )
     assert code == 1
