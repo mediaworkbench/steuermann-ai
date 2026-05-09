@@ -358,11 +358,47 @@ Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md
 
 ---
 
+## Operations CLI
+
+The `steuermann` CLI ships as the single operational interface for validation, diagnostics, scaffolding, and documentation conformance. It is available after `poetry install`:
+
+```bash
+poetry run steuermann --help
+```
+
+| Command | Purpose |
+|---|---|
+| `steuermann profile active` | Show active profile id, directory, and metadata validity |
+| `steuermann profile scaffold --from starter --to <dir>` | Create a new profile overlay from a template |
+| `steuermann profile bundle export --profile <id> --out <file>` | Package a profile into a portable `.tar.gz` bundle |
+| `steuermann profile bundle import --bundle <file> --to <dir>` | Import and validate a profile bundle |
+| `steuermann config show [--section <s>]` | Render the fully merged effective configuration |
+| `steuermann config explain --key <dot.path>` | Trace the source of a specific config key (base / overlay / env) |
+| `steuermann config validate [--strict]` | Validate schema, required files, and env substitutions |
+| `steuermann config set --profile <id> --key <k> --value <v>` | Dry-run set of a profile-safe key (add `--apply --confirm APPLY` to persist) |
+| `steuermann config unset --profile <id> --key <k>` | Dry-run removal of a profile-safe key override |
+| `steuermann config contract-check` | Verify CLI contract parity with the runtime loader |
+| `steuermann setup doctor [--probe-endpoints]` | Preflight checks: env vars, endpoints, profile alignment |
+| `steuermann docs check [--strict]` | Documentation conformance drift report (read-only) |
+| `steuermann ingest ingest --source <dir> --collection <name>` | Index documents into Qdrant |
+| `steuermann ingest watch --source <dir> --collection <name>` | Live watch mode with automatic re-indexing |
+| `steuermann ingest validate --source <dir>` | Parse-only validation without writing to Qdrant |
+| `steuermann ingest reindex --source <dir> --collection <name>` | Clear and rebuild a collection |
+
+Every command supports `--format json` for CI-compatible machine-readable output with deterministic exit codes.
+
+See [docs/cli.md](docs/cli.md) for the full CLI reference including argument details, guardrail behaviour, and workflow examples.
+
+---
+
 ## Documentation
+
+**Start here:** [docs/index.md](docs/index.md) — navigation hub for all documentation.
 
 | Document                                                             | Description                                    |
 | -------------------------------------------------------------------- | ---------------------------------------------- |
 | [docs/index.md](docs/index.md)                                       | Complete documentation index                   |
+| [docs/cli.md](docs/cli.md)                                           | Operations CLI reference (`steuermann`)        |
 | [docs/technical_architecture.md](docs/technical_architecture.md)     | System design, service boundaries, data flow   |
 | [docs/configuration.md](docs/configuration.md)                       | Configuration schema and reference             |
 | [docs/profile_creation.md](docs/profile_creation.md)                 | Step-by-step guide to creating domain profiles |
@@ -405,6 +441,6 @@ Steuermann is in **experimental beta**. The core orchestration, memory, RAG pipe
 
 <div align="center">
 
-**[Documentation](docs/index.md)** · **[Architecture](docs/technical_architecture.md)** · **[Configuration](docs/configuration.md)** · **[Profile Guide](docs/profile_creation.md)**
+**[Documentation](docs/index.md)** · **[CLI Reference](docs/cli.md)** · **[Architecture](docs/technical_architecture.md)** · **[Configuration](docs/configuration.md)** · **[Profile Guide](docs/profile_creation.md)**
 
 </div>

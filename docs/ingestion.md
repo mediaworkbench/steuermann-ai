@@ -1,6 +1,8 @@
 # Ingestion Pipeline Guide
 
-Complete guide to ingesting domain knowledge into the Steuermann.
+Complete guide to ingesting domain knowledge into Steuermann.
+
+> **CLI entrypoint:** All ingestion commands run through the unified `steuermann` CLI: `poetry run steuermann ingest <subcommand>`. There is no separate `ingest` script.
 
 ---
 
@@ -35,13 +37,13 @@ Documents → Parser → Chunker → Validator → Embedder → Qdrant
 poetry install
 
 # Ingest documents from a directory
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /path/to/documents \
   --collection my-knowledge \
   --language en
 
 # Watch directory for new files
-poetry run ingest watch \
+poetry run steuermann ingest watch \
   --source /path/to/documents \
   --collection my-knowledge \
   --language en
@@ -93,7 +95,7 @@ ingestion:
 Then run:
 
 ```bash
-poetry run ingest ingest --config config/ingestion.yaml
+poetry run steuermann ingest ingest --config config/ingestion.yaml
 ```
 
 ---
@@ -213,7 +215,7 @@ docker compose up -d ingestion
 
 **Example:**
 ```bash
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /docs/manuals.pdf \
   --collection manuals
 ```
@@ -233,7 +235,7 @@ poetry run ingest ingest \
 
 **Example:**
 ```bash
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /docs/reports \
   --collection reports
 ```
@@ -250,7 +252,7 @@ poetry run ingest ingest \
 
 **Example:**
 ```bash
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /docs/wiki/*.md \
   --collection wiki
 ```
@@ -269,7 +271,7 @@ poetry run ingest ingest \
 
 **Example:**
 ```bash
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /docs/notes/*.txt \
   --collection notes
 ```
@@ -284,7 +286,7 @@ Ingest documents from a directory or file.
 
 **Syntax:**
 ```bash
-poetry run ingest ingest [OPTIONS]
+poetry run steuermann ingest ingest [OPTIONS]
 ```
 
 **Options:**
@@ -299,18 +301,18 @@ poetry run ingest ingest [OPTIONS]
 
 ```bash
 # Basic ingestion
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /data/documents \
   --collection docs \
   --language en
 
 # With config file
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /data/documents \
   --config config/ingestion.yaml
 
 # Validate only (dry run)
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /data/documents \
   --language en \
   --validate-only \
@@ -323,7 +325,7 @@ Watch a directory for new files and automatically ingest them.
 
 **Syntax:**
 ```bash
-poetry run ingest watch [OPTIONS]
+poetry run steuermann ingest watch [OPTIONS]
 ```
 
 **Options:**
@@ -336,7 +338,7 @@ poetry run ingest watch [OPTIONS]
 
 ```bash
 # Watch directory
-poetry run ingest watch \
+poetry run steuermann ingest watch \
   --source /data/incoming \
   --collection live-docs \
   --language en
@@ -355,7 +357,7 @@ Validate documents without ingesting (language check, parsing test).
 
 **Syntax:**
 ```bash
-poetry run ingest validate [OPTIONS]
+poetry run steuermann ingest validate [OPTIONS]
 ```
 
 **Options:**
@@ -368,7 +370,7 @@ poetry run ingest validate [OPTIONS]
 
 ```bash
 # Validate documents
-poetry run ingest validate \
+poetry run steuermann ingest validate \
   --source /data/new-docs \
   --language de \
   --verbose
@@ -387,7 +389,7 @@ Clear and rebuild a collection from source.
 
 **Syntax:**
 ```bash
-poetry run ingest reindex [OPTIONS]
+poetry run steuermann ingest reindex [OPTIONS]
 ```
 
 **Options:**
@@ -401,13 +403,13 @@ poetry run ingest reindex [OPTIONS]
 
 ```bash
 # Reindex collection (with confirmation)
-poetry run ingest reindex \
+poetry run steuermann ingest reindex \
   --source /data/documents \
   --collection docs \
   --language en
 
 # Skip confirmation
-poetry run ingest reindex \
+poetry run steuermann ingest reindex \
   --source /data/documents \
   --collection docs \
   --yes
@@ -687,7 +689,7 @@ curl http://localhost:6333/collections/my-knowledge
 
 ```bash
 # Via CLI (safe - requires confirmation)
-poetry run ingest reindex \
+poetry run steuermann ingest reindex \
   --source /data/documents \
   --collection my-knowledge
 
@@ -870,8 +872,8 @@ embedding:
 2. **Process in smaller batches:**
 ```bash
 # Split directory and ingest separately
-poetry run ingest ingest --source /data/docs/batch1
-poetry run ingest ingest --source /data/docs/batch2
+poetry run steuermann ingest ingest --source /data/docs/batch1
+poetry run steuermann ingest ingest --source /data/docs/batch2
 ```
 
 3. **Use smaller embedding model:**
@@ -928,7 +930,7 @@ ls -la /data/incoming/
 2. **Test manually:**
 ```bash
 # Stop watch mode, try manual ingest
-poetry run ingest ingest --source /data/incoming/new_file.pdf
+poetry run steuermann ingest ingest --source /data/incoming/new_file.pdf
 ```
 
 3. **Use polling (slower but more compatible):**
@@ -984,7 +986,7 @@ When updating knowledge:
 
 ```bash
 # Create new versioned collection
-poetry run ingest ingest \
+poetry run steuermann ingest ingest \
   --source /data/docs-v2 \
   --collection my-knowledge-v2
 
@@ -999,13 +1001,13 @@ curl -X DELETE http://localhost:6333/collections/my-knowledge-v1
 
 ```bash
 # Always validate first
-poetry run ingest validate \
+poetry run steuermann ingest validate \
   --source /data/new-docs \
   --verbose
 
 # Review output, fix issues
 # Then ingest
-poetry run ingest ingest --source /data/new-docs
+poetry run steuermann ingest ingest --source /data/new-docs
 ```
 
 ### 6. Monitor Collection Size
@@ -1084,9 +1086,9 @@ For large document sets:
 
 ```bash
 # Process in parallel (multiple terminals)
-poetry run ingest ingest --source /data/batch1 --collection kb &
-poetry run ingest ingest --source /data/batch2 --collection kb &
-poetry run ingest ingest --source /data/batch3 --collection kb &
+poetry run steuermann ingest ingest --source /data/batch1 --collection kb &
+poetry run steuermann ingest ingest --source /data/batch2 --collection kb &
+poetry run steuermann ingest ingest --source /data/batch3 --collection kb &
 wait
 ```
 

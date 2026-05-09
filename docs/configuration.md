@@ -104,11 +104,13 @@ llm:
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
-- `ollama/llama-3.1-8b` — Local Ollama (set `api_base` to Ollama endpoint)
+- `ollama/llama-3.1-8b` — Local Ollama (default docker-compose endpoint: `http://host.docker.internal:11434`)
 - `openai/gpt-4o` — OpenAI API (set `api_key` or `OPENAI_API_KEY` env var)
 - `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
-- `lm_studio/lfm2-24b` — LM Studio OpenAI-compatible server (set `api_base`)
+- `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
+
+**LM Studio vs Ollama:** The docker-compose default endpoint is `http://host.docker.internal:11434` (Ollama). If you use LM Studio (port `1234`), set `LLM_ENDPOINT=http://host.docker.internal:1234/v1` in `.env`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
 **Tool calling modes:**
 
@@ -170,8 +172,11 @@ memory:
 **Environment variables:**
 
 ```bash
-EMBEDDING_SERVER=http://host.docker.internal:8000/v1
+EMBEDDING_SERVER=http://host.docker.internal:8000/v1  # Default: LM Studio embeddings endpoint
+LLM_ENDPOINT=http://host.docker.internal:1234/v1       # LM Studio LLM endpoint (default docker-compose: port 11434 for Ollama)
 ```
+
+`EMBEDDING_SERVER` and `LLM_ENDPOINT` are independent — they can point to the same LM Studio instance on different ports or to completely separate servers.
 
 ### RAG Retrieval Configuration
 
@@ -247,11 +252,13 @@ LangGraph checkpointing is configurable and can be enabled in local/dev and prod
 
 ```yaml
 checkpointing:
-  enabled: false # Master switch (can be overridden by env)
+  enabled: true # Base config default — overridden by CHECKPOINTER_ENABLED env var
   backend: "sqlite" # Options: sqlite, postgres
   sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
 ```
+
+**Note:** `config/core.yaml` defaults `enabled: true`, but the docker-compose environment sets `CHECKPOINTER_ENABLED=false`. Because environment variables take precedence over config files, **checkpointing is effectively disabled by default** in the Docker stack. Set `CHECKPOINTER_ENABLED=true` in `.env` to enable it.
 
 **Runtime env overrides:**
 

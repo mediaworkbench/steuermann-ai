@@ -432,7 +432,7 @@ No additional configuration needed.
 
 - [Technical Architecture](technical_architecture.md) - System design
 - [Configuration Guide](configuration.md) - Config reference
-- [Development Roadmap](development_roadmap.md) - Future enhancements
+- [Status & Roadmap](status.md) - Current state and future work
 
 ---
 
