@@ -116,6 +116,237 @@ def test_config_explain_emits_source_chain(capsys: pytest.CaptureFixture[str]) -
     assert payload["source_chain"]
 
 
+def test_config_set_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    before = core_path.read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--value",
+            "0.4",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "dry-run"
+    assert payload["new_value"] == 0.4
+    assert core_path.read_text(encoding="utf-8") == before
+
+
+def test_config_set_apply_writes_and_validates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--value",
+            "0.5",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "apply"
+    assert payload["reverted"] is False
+    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
+    assert data["llm"]["temperature"] == 0.5
+
+
+def test_config_set_rejects_non_profile_safe_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _create_profile_dir(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.memory.vector_store.host",
+            "--value",
+            "qdrant",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert "profile-safe" in payload["error"]
+
+
+def test_config_set_apply_reverts_on_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    before = core_path.read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "error", "errors": ["bad"], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--value",
+            "0.1",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["reverted"] is True
+    assert core_path.read_text(encoding="utf-8") == before
+
+
+def test_config_unset_dry_run_does_not_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    before = core_path.read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    code = steuermann.main(
+        [
+            "config",
+            "unset",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "dry-run"
+    assert payload["would_change"] is True
+    assert core_path.read_text(encoding="utf-8") == before
+
+
+def test_config_unset_apply_removes_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "unset",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "apply"
+    assert payload["reverted"] is False
+    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    assert "llm" not in data
+
+
+def test_config_unset_apply_reverts_on_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    before = core_path.read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "error", "errors": ["bad"], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "unset",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["reverted"] is True
+    assert core_path.read_text(encoding="utf-8") == before
+
+
 def test_docs_check_reports_contract_parity_details(capsys: pytest.CaptureFixture[str]) -> None:
     code = steuermann.main(["docs", "check", "--format", "json"])
     assert code == 0
@@ -141,6 +372,10 @@ def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
     assert any("disallowed_feature_flags matches loader constants" in detail for detail in details)
     assert any("framework_version_range_default matches CLI default" in detail for detail in details)
     assert any("minimum_required_keys_default matches CLI defaults" in detail for detail in details)
+    assert any("mutator_surface.config_set.profile_scope is named_profile_only" in detail for detail in details)
+    assert any("mutator_surface.config_set.key_scope is profile_safe_core_only" in detail for detail in details)
+    assert any("mutator_surface.config_unset.profile_scope is named_profile_only" in detail for detail in details)
+    assert any("mutator_surface.config_unset.key_scope is profile_safe_core_only" in detail for detail in details)
 
 
 def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -251,6 +486,83 @@ def test_config_contract_check_detects_bundle_compatibility_drift(
     details = [check["details"] for check in payload["checks"]]
     assert any("framework_version_range_default mismatch" in d for d in details)
     assert any("minimum_required_keys_default drift" in d for d in details)
+
+
+def test_config_contract_check_detects_mutator_surface_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    bad_contract = {
+        "schema_version": 1,
+        "contract_name": "test",
+        "precedence": ["base", "profile", "environment"],
+        "sections": {
+            s: {
+                "source_file": f"config/{f}",
+                "profile_overlay_file": f"config/profiles/<profile_id>/{f}",
+                "profile_mutability": "partial",
+            }
+            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()
+        },
+        "policies": {
+            "docs_mutation": "disabled",
+            "manual_config_editing": "supported",
+            "ingest_interface": "steuermann_ingest_only",
+            "json_output_stability": "required",
+        },
+        "severity_policy": {"blocking": "error", "advisory": "warning"},
+        "profile_safety": {
+            "allowed_core_prefixes": [
+                "fork.language",
+                "fork.locale",
+                "fork.timezone",
+                "fork.supported_languages",
+                "llm",
+                "prompts",
+                "tool_routing",
+                "rag",
+                "tokens",
+                "memory.retention",
+            ],
+            "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
+        },
+        "profile_bundle_compatibility": {
+            "framework_version_range_default": steuermann.DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE,
+            "minimum_required_keys_default": steuermann.DEFAULT_BUNDLE_REQUIRED_KEYS,
+        },
+        "mutator_surface": {
+            "config_set": {
+                "profile_scope": "base_allowed",
+                "target_file": "features.yaml",
+                "key_scope": "any",
+                "dry_run_default": False,
+                "requires_apply_flag": False,
+                "rollback_on_validation_error": False,
+            },
+            "config_unset": {
+                "profile_scope": "base_allowed",
+                "target_file": "features.yaml",
+                "key_scope": "any",
+                "dry_run_default": False,
+                "requires_apply_flag": False,
+                "rollback_on_validation_error": False,
+            },
+        },
+    }
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        yaml.safe_dump(bad_contract), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["config", "contract-check", "--format", "json"])
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    details = [check["details"] for check in payload["checks"]]
+    assert any("mutator_surface.config_set.profile_scope mismatch" in d for d in details)
+    assert any("mutator_surface.config_set.key_scope mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.profile_scope mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.key_scope mismatch" in d for d in details)
 
 
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:

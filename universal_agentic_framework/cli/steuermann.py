@@ -69,6 +69,24 @@ EXPECTED_SEVERITY_POLICY = {
     "blocking": "error",
     "advisory": "warning",
 }
+EXPECTED_MUTATOR_SURFACE = {
+    "config_set": {
+        "profile_scope": "named_profile_only",
+        "target_file": "core.yaml",
+        "key_scope": "profile_safe_core_only",
+        "dry_run_default": True,
+        "requires_apply_flag": True,
+        "rollback_on_validation_error": True,
+    },
+    "config_unset": {
+        "profile_scope": "named_profile_only",
+        "target_file": "core.yaml",
+        "key_scope": "profile_safe_core_only",
+        "dry_run_default": True,
+        "requires_apply_flag": True,
+        "rollback_on_validation_error": True,
+    }
+}
 DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE = ">=0.2,<1.0"
 DEFAULT_BUNDLE_REQUIRED_KEYS = ["profile_id", "display_name", "description"]
 
@@ -253,6 +271,57 @@ def _dig_optional(data: dict[str, Any], dot_key: str) -> tuple[bool, Any]:
         return True, _dig(data, dot_key)
     except KeyError:
         return False, None
+
+
+def _set_dot_path(data: dict[str, Any], dot_key: str, value: Any) -> None:
+    parts = dot_key.split(".")
+    current: dict[str, Any] = data
+    for part in parts[:-1]:
+        next_value = current.get(part)
+        if next_value is None:
+            current[part] = {}
+            next_value = current[part]
+        if not isinstance(next_value, dict):
+            raise ValueError(f"Cannot set nested key under non-object path: {part}")
+        current = next_value
+    current[parts[-1]] = value
+
+
+def _unset_dot_path(data: dict[str, Any], dot_key: str) -> tuple[bool, Any]:
+    parts = dot_key.split(".")
+    current: Any = data
+    lineage: list[tuple[dict[str, Any], str]] = []
+
+    for part in parts[:-1]:
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        lineage.append((current, part))
+        current = current[part]
+
+    last = parts[-1]
+    if not isinstance(current, dict) or last not in current:
+        return False, None
+
+    old_value = current[last]
+    del current[last]
+
+    for parent, key in reversed(lineage):
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            del parent[key]
+        else:
+            break
+
+    return True, old_value
+
+def _is_profile_safe_core_key(key: str) -> bool:
+    if not key.startswith("core."):
+        return False
+    core_subkey = key.split(".", 1)[1]
+    return any(
+        core_subkey == allowed or core_subkey.startswith(f"{allowed}.")
+        for allowed in _PROFILE_CORE_ALLOWED_PREFIXES
+    )
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -491,6 +560,26 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
         }
     )
 
+    mutator_surface = contract.get("mutator_surface") or {}
+    for command_name, expected_config in EXPECTED_MUTATOR_SURFACE.items():
+        contract_config = mutator_surface.get(command_name) or {}
+        for key, expected_value in expected_config.items():
+            actual_value = contract_config.get(key)
+            checks.append(
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if actual_value == expected_value else "fail",
+                    "details": (
+                        f"mutator_surface.{command_name}.{key} is {expected_value}"
+                        if actual_value == expected_value
+                        else (
+                            f"mutator_surface.{command_name}.{key} mismatch: "
+                            f"expected {expected_value}, got {actual_value}"
+                        )
+                    ),
+                }
+            )
+
     return checks
 
 
@@ -680,6 +769,155 @@ def cmd_config_validate(args: argparse.Namespace) -> int:
     }
     _print_payload(payload, args.format)
     return 1 if has_error or (args.strict and has_warning) else 0
+
+def cmd_config_set(args: argparse.Namespace) -> int:
+    profile_id = args.profile
+    payload: dict[str, Any] = {
+        "status": "error",
+        "profile": profile_id,
+        "key": args.key,
+        "apply": bool(args.apply),
+    }
+
+    if profile_id == "base":
+        payload["error"] = "Mutating base profile is not supported; target a named profile overlay"
+        _print_payload(payload, args.format)
+        return 1
+
+    if not _is_profile_safe_core_key(args.key):
+        payload["error"] = "Only profile-safe core keys can be set"
+        payload["allowed_core_prefixes"] = sorted(_PROFILE_CORE_ALLOWED_PREFIXES)
+        _print_payload(payload, args.format)
+        return 1
+
+    profile_dir = _profiles_root() / profile_id
+    core_path = profile_dir / "core.yaml"
+    if not core_path.exists():
+        payload["error"] = f"Profile core file missing: {core_path}"
+        _print_payload(payload, args.format)
+        return 1
+
+    try:
+        parsed_value = yaml.safe_load(args.value)
+    except Exception as exc:
+        payload["error"] = f"Failed to parse --value as YAML: {exc}"
+        _print_payload(payload, args.format)
+        return 1
+
+    current_data = _read_yaml(core_path)
+    profile_key = args.key.split(".", 1)[1]
+    old_exists, old_value = _dig_optional(current_data, profile_key)
+    updated_data = _deep_merge({}, current_data)
+    _set_dot_path(updated_data, profile_key, parsed_value)
+
+    payload["file"] = str(core_path)
+    payload["old_value"] = old_value if old_exists else None
+    payload["new_value"] = parsed_value
+    payload["would_change"] = (old_value != parsed_value) if old_exists else True
+
+    if not args.apply:
+        payload["status"] = "ok"
+        payload["mode"] = "dry-run"
+        _print_payload(payload, args.format)
+        return 0
+
+    original_text = core_path.read_text(encoding="utf-8")
+    core_path.write_text(
+        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        encoding="utf-8",
+    )
+
+    validation = _validate_one_profile(profile_id)
+    payload["validation"] = validation
+    if validation.get("status") == "error":
+        core_path.write_text(original_text, encoding="utf-8")
+        payload["status"] = "error"
+        payload["mode"] = "apply"
+        payload["reverted"] = True
+        payload["error"] = "Applied change failed profile validation and was reverted"
+        _print_payload(payload, args.format)
+        return 1
+
+    payload["status"] = "ok"
+    payload["mode"] = "apply"
+    payload["reverted"] = False
+    _print_payload(payload, args.format)
+    return 0
+
+
+def cmd_config_unset(args: argparse.Namespace) -> int:
+    profile_id = args.profile
+    payload: dict[str, Any] = {
+        "status": "error",
+        "profile": profile_id,
+        "key": args.key,
+        "apply": bool(args.apply),
+    }
+
+    if profile_id == "base":
+        payload["error"] = "Mutating base profile is not supported; target a named profile overlay"
+        _print_payload(payload, args.format)
+        return 1
+
+    if not _is_profile_safe_core_key(args.key):
+        payload["error"] = "Only profile-safe core keys can be unset"
+        payload["allowed_core_prefixes"] = sorted(_PROFILE_CORE_ALLOWED_PREFIXES)
+        _print_payload(payload, args.format)
+        return 1
+
+    profile_dir = _profiles_root() / profile_id
+    core_path = profile_dir / "core.yaml"
+    if not core_path.exists():
+        payload["error"] = f"Profile core file missing: {core_path}"
+        _print_payload(payload, args.format)
+        return 1
+
+    current_data = _read_yaml(core_path)
+    profile_key = args.key.split(".", 1)[1]
+    updated_data = _deep_merge({}, current_data)
+    found, old_value = _unset_dot_path(updated_data, profile_key)
+
+    payload["file"] = str(core_path)
+    payload["old_value"] = old_value if found else None
+    payload["new_value"] = None
+    payload["would_change"] = found
+
+    if not args.apply:
+        payload["status"] = "ok"
+        payload["mode"] = "dry-run"
+        _print_payload(payload, args.format)
+        return 0
+
+    if not found:
+        payload["status"] = "ok"
+        payload["mode"] = "apply"
+        payload["reverted"] = False
+        payload["note"] = "Key not present; no changes applied"
+        _print_payload(payload, args.format)
+        return 0
+
+    original_text = core_path.read_text(encoding="utf-8")
+    core_path.write_text(
+        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        encoding="utf-8",
+    )
+
+    validation = _validate_one_profile(profile_id)
+    payload["validation"] = validation
+    if validation.get("status") == "error":
+        core_path.write_text(original_text, encoding="utf-8")
+        payload["status"] = "error"
+        payload["mode"] = "apply"
+        payload["reverted"] = True
+        payload["error"] = "Applied change failed profile validation and was reverted"
+        _print_payload(payload, args.format)
+        return 1
+
+    payload["status"] = "ok"
+    payload["mode"] = "apply"
+    payload["reverted"] = False
+    _print_payload(payload, args.format)
+    return 0
 
 
 def cmd_config_contract_check(args: argparse.Namespace) -> int:
@@ -1112,6 +1350,27 @@ def create_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--strict", action="store_true", help="Treat warnings as failures")
     _add_common_format_arg(validate_parser)
     validate_parser.set_defaults(func=cmd_config_validate)
+
+    set_parser = config_subparsers.add_parser(
+        "set",
+        help="Set a profile-safe key in profile core overlay (dry-run by default)",
+    )
+    set_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
+    set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    set_parser.add_argument("--value", required=True, help="New value parsed as YAML scalar/object")
+    set_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
+    _add_common_format_arg(set_parser)
+    set_parser.set_defaults(func=cmd_config_set)
+
+    unset_parser = config_subparsers.add_parser(
+        "unset",
+        help="Unset a profile-safe key in profile core overlay (dry-run by default)",
+    )
+    unset_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
+    unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    unset_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
+    _add_common_format_arg(unset_parser)
+    unset_parser.set_defaults(func=cmd_config_unset)
 
     contract_parser = config_subparsers.add_parser("contract-check", help="Validate CLI contract parity")
     _add_common_format_arg(contract_parser)

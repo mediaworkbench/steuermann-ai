@@ -51,3 +51,18 @@ profile_bundle_compatibility:
     - profile_id
     - display_name
     - description
+mutator_surface:
+  config_set:
+    profile_scope: named_profile_only
+    target_file: core.yaml
+    key_scope: profile_safe_core_only
+    dry_run_default: true
+    requires_apply_flag: true
+    rollback_on_validation_error: true
+  config_unset:
+    profile_scope: named_profile_only
+    target_file: core.yaml
+    key_scope: profile_safe_core_only
+    dry_run_default: true
+    requires_apply_flag: true
+    rollback_on_validation_error: true

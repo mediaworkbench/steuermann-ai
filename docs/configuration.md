@@ -681,6 +681,18 @@ poetry run steuermann config contract-check --format json
 
 # Check docs conformance and emit categorized drift report
 poetry run steuermann docs check --format json
+
+# Preview a profile-safe change without writing
+poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --format json
+
+# Persist a profile-safe change and run post-write validation
+poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --apply --format json
+
+# Preview an unset operation without writing
+poetry run steuermann config unset --profile starter --key core.llm.temperature --format json
+
+# Persist an unset operation with post-write validation and rollback safeguards
+poetry run steuermann config unset --profile starter --key core.llm.temperature --apply --format json
 ```
 
 ### Drift Report Domains
