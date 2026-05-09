@@ -28,6 +28,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 ## Feature Guides
 
+- **[cli.md](cli.md)** - Operations CLI reference: all `steuermann` commands, arguments, guardrail behaviour, and workflow examples
 - **[ingestion.md](ingestion.md)** - Document ingestion, watch mode, recursive discovery, and collection alignment
 - **[monitoring.md](monitoring.md)** - Metrics dashboard, Prometheus queries, and operational checks
 - **[performance_optimization.md](performance_optimization.md)** - Short tuning guide for caching, token budgets, and conversation compression
@@ -44,14 +45,17 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 ## Runtime Snapshot
 
-| Service          | Port          | Role                                      |
-| ---------------- | ------------- | ----------------------------------------- |
-| Next.js frontend | 3000          | Chat UI, settings, metrics dashboard      |
-| FastAPI adapter  | 8001          | Auth, settings, metrics proxy, chat relay |
-| LangGraph        | 8000 internal | Orchestration engine                      |
-| Prometheus       | 9090 internal | Metrics collection                        |
-| PostgreSQL       | 5432 internal | Conversations, checkpoints, users         |
-| Qdrant           | 6333 internal | RAG vector store and Mem0 internal storage |
+| Service          | Port                  | Role                                       |
+| ---------------- | --------------------- | ------------------------------------------ |
+| Next.js frontend | 3000 (host-exposed)   | Chat UI, settings, metrics dashboard       |
+| FastAPI adapter  | 8001 (host-exposed)   | Auth, settings, metrics proxy, chat relay  |
+| LangGraph        | 8000 (internal only)  | Orchestration engine                       |
+| Prometheus       | 9090 (internal only)  | Metrics collection                         |
+| PostgreSQL       | 5432 (internal only)  | Conversations, checkpoints, users          |
+| Qdrant           | 6333 (internal only)  | RAG vector store and Mem0 internal storage |
+| Redis            | 6379 (internal only)  | Response caching                           |
+
+Use `docker-compose.override.yml` (copy from `.example`) to expose internal ports for local development.
 
 ## Local Development (Host)
 
@@ -60,5 +64,7 @@ The commands below are for host-side development and test execution. They are no
 ```bash
 poetry install
 poetry run pytest
+poetry run steuermann --help
+poetry run steuermann docs check --format json
 docker compose up -d
 ```

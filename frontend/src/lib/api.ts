@@ -66,6 +66,7 @@ export interface SystemConfig {
   available_tools: Array<{ id: string; label: string }>;
   rag_defaults: { collection_name: string; top_k: number };
   default_model: string;
+  framework_version: string;
   supported_languages: string[];
   profile: {
     id: string;

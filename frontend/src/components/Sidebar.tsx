@@ -52,6 +52,7 @@ export function Sidebar({
   const profile = useProfile();
   const profileDisplayName = profile.appName || profile.displayName || "Steuermann";
   const profileAppName = profile.appName || "Steuermann";
+  const frameworkVersion = profile.frameworkVersion || "unknown";
 
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -138,9 +139,12 @@ export function Sidebar({
         <div className="p-6 pb-2">
           <div className="flex items-center justify-between mb-6">
             <div className="flex flex-col">
-              <h1 className="text-light-cyan text-xl font-bold tracking-tight leading-tight">
-                {profileAppName}
-              </h1>
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-light-cyan text-xl font-bold tracking-tight leading-tight">
+                  {profileAppName}
+                </h1>
+                <span className="text-light-cyan/60 text-xs font-mono">v{frameworkVersion}</span>
+              </div>
               <span className="text-pacific-blue text-xs font-mono mt-1">
                 {t("sidebar.platformSubtitle")}
               </span>

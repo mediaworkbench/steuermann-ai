@@ -16,6 +16,8 @@ The runtime configuration model is:
 
 The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
 
+Configuration files remain directly editable. The `steuermann` CLI is a validation, diagnostics, and scaffolding companion; it does not replace manual YAML or `.env` editing.
+
 ---
 
 ## Core Configuration (`core.yaml`)
@@ -102,11 +104,13 @@ llm:
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
-- `ollama/llama-3.1-8b` — Local Ollama (set `api_base` to Ollama endpoint)
+- `ollama/llama-3.1-8b` — Local Ollama (default docker-compose endpoint: `http://host.docker.internal:11434`)
 - `openai/gpt-4o` — OpenAI API (set `api_key` or `OPENAI_API_KEY` env var)
 - `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
-- `lm_studio/lfm2-24b` — LM Studio OpenAI-compatible server (set `api_base`)
+- `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
+
+**LM Studio vs Ollama:** The docker-compose default endpoint is `http://host.docker.internal:11434` (Ollama). If you use LM Studio (port `1234`), set `LLM_ENDPOINT=http://host.docker.internal:1234/v1` in `.env`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
 **Tool calling modes:**
 
@@ -168,8 +172,11 @@ memory:
 **Environment variables:**
 
 ```bash
-EMBEDDING_SERVER=http://host.docker.internal:8000/v1
+EMBEDDING_SERVER=http://host.docker.internal:8000/v1  # Default: LM Studio embeddings endpoint
+LLM_ENDPOINT=http://host.docker.internal:1234/v1       # LM Studio LLM endpoint (default docker-compose: port 11434 for Ollama)
 ```
+
+`EMBEDDING_SERVER` and `LLM_ENDPOINT` are independent — they can point to the same LM Studio instance on different ports or to completely separate servers.
 
 ### RAG Retrieval Configuration
 
@@ -245,11 +252,13 @@ LangGraph checkpointing is configurable and can be enabled in local/dev and prod
 
 ```yaml
 checkpointing:
-  enabled: false # Master switch (can be overridden by env)
+  enabled: true # Base config default — overridden by CHECKPOINTER_ENABLED env var
   backend: "sqlite" # Options: sqlite, postgres
   sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
 ```
+
+**Note:** `config/core.yaml` defaults `enabled: true`, but the docker-compose environment sets `CHECKPOINTER_ENABLED=false`. Because environment variables take precedence over config files, **checkpointing is effectively disabled by default** in the Docker stack. Set `CHECKPOINTER_ENABLED=true` in `.env` to enable it.
 
 **Runtime env overrides:**
 
@@ -668,25 +677,44 @@ config = load_core_config(fork_config_dir=Path("config"))
 ### Manual Validation
 
 ```bash
-# Validate all configs
-poetry run python -c "
-from pathlib import Path
-from universal_agentic_framework.config.loader import (
-    load_core_config,
-    load_agents_config,
-    load_tools_config,
-    load_features
-)
+# Validate all configs via the canonical CLI
+poetry run steuermann config validate --format json
 
-config_dir = Path('config')
-core = load_core_config(config_dir)
-agents = load_agents_config(config_dir)
-tools = load_tools_config(config_dir)
-features = load_features(config_dir)
+# Fail if advisory warnings are present
+poetry run steuermann config validate --strict --format json
 
-print('✓ All configurations valid')
-"
+# Validate CLI contract parity against runtime/config surface
+poetry run steuermann config contract-check --format json
+
+# Check docs conformance and emit categorized drift report
+poetry run steuermann docs check --format json
+
+# Preview a profile-safe change without writing
+poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --format json
+
+# Persist a profile-safe change and run post-write validation
+poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --apply --confirm APPLY --format json
+
+# Preview an unset operation without writing
+poetry run steuermann config unset --profile starter --key core.llm.temperature --format json
+
+# Persist an unset operation with post-write validation and rollback safeguards
+poetry run steuermann config unset --profile starter --key core.llm.temperature --apply --confirm APPLY --format json
 ```
+
+When `--apply` is used without `--confirm APPLY`, interactive terminals prompt for confirmation.
+Non-interactive execution (automation/CI) remains strict and requires the explicit `--confirm APPLY` flag.
+
+### Drift Report Domains
+
+`poetry run steuermann docs check --format json` now emits `drift_report.items[]` with a `domain` field.
+
+- `docs` - drift in README/docs command or precedence guidance.
+- `contract` - general contract parity drift.
+- `bundle-compat` - drift in `profile_bundle_compatibility` defaults.
+- `other` - non-standard checks outside the known categories.
+
+The same payload includes `drift_report.by_domain` counters for quick filtering in automation.
 
 ### Common Validation Errors
 

@@ -30,6 +30,7 @@ from backend.db import (
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 from backend.secrets import validate_secrets
+from backend.version import get_framework_version
 from universal_agentic_framework.monitoring.metrics import track_workspace_cleanup_deleted
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ async def lifespan(app: FastAPI):
         db_pool.close()
 def create_app() -> FastAPI:
     """Create the FastAPI application for the adapter service."""
-    app = FastAPI(title="Steuermann API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Steuermann API", version=get_framework_version(), lifespan=lifespan)
 
     # Wire rate-limiter state so slowapi decorators can find it.
     app.state.limiter = limiter

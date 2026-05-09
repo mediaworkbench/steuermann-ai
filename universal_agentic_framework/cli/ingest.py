@@ -124,44 +124,6 @@ class DocumentEventHandler(FileSystemEventHandler):
         
         finally:
             self.processing.discard(str(file_path))    
-    def on_deleted(self, event):
-        """Handle file deletion."""
-        if event.is_directory:
-            return
-        
-        file_path = Path(event.src_path)
-        
-        # Check if file type is supported (keep in sync with file_patterns)
-        if file_path.suffix.lower() not in [".pdf", ".docx", ".md", ".markdown", ".txt"]:
-            return
-        
-        # Avoid duplicate processing
-        if str(file_path) in self.processing:
-            return
-        
-        self.processing.add(str(file_path))
-        
-        try:
-            logger.info("File deleted", file=str(file_path))
-            result = self.service.delete_file_from_collection(file_path)
-            
-            if result["status"] == "success":
-                logger.info(
-                    "Auto-deletion successful",
-                    file=str(file_path)
-                )
-            else:
-                logger.warning(
-                    "Auto-deletion failed",
-                    file=str(file_path),
-                    error=result.get("error")
-                )
-        
-        except Exception as e:
-            logger.error("Auto-deletion error", file=str(file_path), error=str(e))
-        
-        finally:
-            self.processing.discard(str(file_path))
 
 def load_config_from_yaml(config_path: Path) -> Dict[str, Any]:
     """Load ingestion configuration from YAML file.
@@ -171,9 +133,22 @@ def load_config_from_yaml(config_path: Path) -> Dict[str, Any]:
         
     Returns:
         Configuration dictionary
+        
+    Raises:
+        ValueError: If file cannot be read or YAML is malformed
     """
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError as e:
+        raise ValueError(f"Configuration file not found: {config_path}") from e
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in configuration file {config_path}: {e}") from e
+    except Exception as e:
+        raise ValueError(f"Failed to load configuration file {config_path}: {e}") from e
+    
+    if not isinstance(config, dict):
+        raise ValueError(f"Configuration file must be a YAML object, got {type(config).__name__}")
     
     # Extract ingestion config
     ingestion_config = config.get("ingestion", {})
@@ -302,34 +277,27 @@ def cmd_ingest(args):
     # Run ingestion
     stats = service.ingest_directory(validate_only=args.validate_only)
     
-    # Print results
-    print("\n" + "=" * 60)
-    print("INGESTION RESULTS")
-    print("=" * 60)
-    print(f"Files processed:  {stats['processed']}")
-    print(f"Files skipped:    {stats['skipped']}")
-    print(f"Files with errors: {stats['errors']}")
-    print(f"Total chunks:     {stats['total_chunks']}")
-    timing_total = stats.get("timings_ms", {}).get("total", 0)
-    if timing_total:
-        print(f"Total time (ms):  {timing_total}")
-    print("=" * 60)
+    # Log results
+    logger.info(
+        "Ingestion complete",
+        processed=stats['processed'],
+        skipped=stats['skipped'],
+        errors=stats['errors'],
+        total_chunks=stats['total_chunks'],
+        total_time_ms=stats.get("timings_ms", {}).get("total", 0)
+    )
     
     if args.verbose:
-        print("\nFile Details:")
         for file_result in stats["files"]:
-            status_icon = {
-                "success": "✓",
-                "skipped": "○",
-                "error": "✗"
-            }.get(file_result["status"], "?")
-            
-            print(f"{status_icon} {file_result['file']}")
-            if file_result["status"] == "success":
-                print(f"  Chunks: {file_result['chunks']}")
-            elif file_result["status"] in ["skipped", "error"]:
-                reason = file_result.get("reason") or file_result.get("error", "Unknown")
-                print(f"  Reason: {reason}")
+            status_level = "info" if file_result["status"] == "success" else "warning"
+            log_fn = getattr(logger, status_level)
+            log_fn(
+                f"{file_result['file']} - {file_result['status']}",
+                file=file_result['file'],
+                status=file_result['status'],
+                chunks=file_result.get('chunks'),
+                reason=file_result.get('reason') or file_result.get('error')
+            )
     
     return 0 if stats["errors"] == 0 else 1
 
@@ -437,23 +405,27 @@ def cmd_watch(args):
     check_thread = threading.Thread(target=periodic_check, daemon=True)
     check_thread.start()
     
-    print(f"\n👁️  Watching {service.config.source_path} for new documents...")
-    print(f"Collection: {service.config.collection_name}")
-    print(f"Language: {service.config.target_language}")
-    print("\nPress Ctrl+C to stop\n")
+    logger.info(
+        "Watch mode started",
+        source_path=str(service.config.source_path),
+        collection=service.config.collection_name,
+        language=service.config.target_language
+    )
     
     # Initial scan and ingest of existing documents
-    print("\n📂 Scanning for existing documents...")
+    logger.info("Scanning for existing documents")
     try:
         stats = service.ingest_directory()
         if stats["processed"] > 0:
-            print(f"✓ Ingested {stats['processed']} existing documents ({stats['total_chunks']} chunks)")
-            if stats["skipped"] > 0:
-                print(f"○ Skipped {stats['skipped']} documents (already ingested or invalid)")
-            if stats["errors"] > 0:
-                print(f"✗ Errors: {stats['errors']} documents failed")
+            logger.info(
+                "Initial ingestion complete",
+                processed=stats['processed'],
+                total_chunks=stats['total_chunks'],
+                skipped=stats.get('skipped', 0),
+                errors=stats.get('errors', 0)
+            )
         else:
-            print("✓ No new documents to ingest")
+            logger.info("No new documents found in initial scan")
     except Exception as e:
         logger.warning("Initial scan failed", error=str(e))
         print(f"⚠️  Initial scan failed: {e}")
@@ -575,15 +547,8 @@ def cmd_reindex(args):
     return 0
 
 
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Document ingestion CLI for Steuermann"
-    )
-    
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    
-    # Ingest command
+def add_ingest_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    """Register ingestion subcommands under an argparse subparser group."""
     ingest_parser = subparsers.add_parser("ingest", help="Ingest documents")
     ingest_parser.add_argument("--source", required=True, help="Source directory or file")
     ingest_parser.add_argument("--config", help="Path to configuration YAML file")
@@ -592,24 +557,21 @@ def main():
     ingest_parser.add_argument("--validate-only", action="store_true", help="Only validate, don't ingest")
     ingest_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     ingest_parser.set_defaults(func=cmd_ingest)
-    
-    # Watch command
+
     watch_parser = subparsers.add_parser("watch", help="Watch directory for new files")
     watch_parser.add_argument("--source", required=True, help="Source directory to watch")
     watch_parser.add_argument("--config", help="Path to configuration YAML file")
     watch_parser.add_argument("--collection", help="Collection name (if not in config)")
     watch_parser.add_argument("--language", help="Target language (if not in config)")
     watch_parser.set_defaults(func=cmd_watch)
-    
-    # Validate command
+
     validate_parser = subparsers.add_parser("validate", help="Validate documents only")
     validate_parser.add_argument("--source", required=True, help="Source directory or file")
     validate_parser.add_argument("--config", help="Path to configuration YAML file")
     validate_parser.add_argument("--language", help="Target language")
     validate_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     validate_parser.set_defaults(func=cmd_validate)
-    
-    # Reindex command
+
     reindex_parser = subparsers.add_parser("reindex", help="Clear and reindex collection")
     reindex_parser.add_argument("--source", required=True, help="Source directory")
     reindex_parser.add_argument("--config", help="Path to configuration YAML file")
@@ -617,19 +579,36 @@ def main():
     reindex_parser.add_argument("--language", help="Target language (if not in config)")
     reindex_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     reindex_parser.set_defaults(func=cmd_reindex)
-    
-    args = parser.parse_args()
-    
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create standalone ingestion parser."""
+    parser = argparse.ArgumentParser(description="Document ingestion CLI for Steuermann")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    add_ingest_subcommands(subparsers)
+    return parser
+
+
+def run_cli(argv: list[str] | None = None) -> int:
+    """Run ingestion parser with optional argv."""
+    parser = create_parser()
+    args = parser.parse_args(argv)
+
     if not args.command:
         parser.print_help()
         return 1
-    
+
     try:
         return args.func(args)
     except Exception as e:
         logger.error("Command failed", error=str(e), exc_info=True)
-        print(f"\n❌ Error: {str(e)}", file=sys.stderr)
+        print(f"\nError: {str(e)}", file=sys.stderr)
         return 1
+
+
+def main() -> int:
+    """Main CLI entry point."""
+    return run_cli()
 
 
 if __name__ == "__main__":

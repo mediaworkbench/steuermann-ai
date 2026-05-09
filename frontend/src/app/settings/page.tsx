@@ -14,6 +14,7 @@ export default function SettingsPage() {
   const [userId] = useState(CURRENT_USER_ID);
   const profile = useProfile();
   const profileDisplayName = profile.displayName;
+  const frameworkVersion = profile.frameworkVersion;
   const { t } = useI18n();
   const { settings, loading, error, saveSettings } = useSettings(userId);
 
@@ -26,6 +27,7 @@ export default function SettingsPage() {
       <section className={styles.accountCard}>
         <div className={styles.accountInfo}>
           <h2 className={styles.accountName}>Profile: {profileDisplayName}</h2>
+          <p className={styles.versionText}>Framework version: {frameworkVersion}</p>
         </div>
       </section>
 

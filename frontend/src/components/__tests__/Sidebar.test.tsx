@@ -39,6 +39,7 @@ describe("Sidebar", () => {
       roleLabel: "Clinical Assistant",
       appName: "Med Console",
       description: "Clinical profile",
+      frameworkVersion: "0.2.1",
       theme: {
         colors: {},
         fonts: {},
@@ -62,6 +63,7 @@ describe("Sidebar", () => {
       roleLabel: "Local Profile",
       appName: "",
       description: "",
+      frameworkVersion: "0.2.1",
       theme: {
         colors: {},
         fonts: {},

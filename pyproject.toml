@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "steuermann-ai"
-version = "0.2"
+version = "0.2.1"
 description = "Template scaffold for Steuermann"
 authors = ["Steuermann Maintainers"]
 readme = "README.md"
@@ -48,7 +48,7 @@ markdown = "^3.10"
 watchdog = "^6.0.0"
 
 [tool.poetry.scripts]
-ingest = "universal_agentic_framework.cli.ingest:main"
+steuermann = "universal_agentic_framework.cli.steuermann:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

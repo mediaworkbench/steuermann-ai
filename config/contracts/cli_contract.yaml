@@ -1,0 +1,76 @@
+schema_version: 1
+contract_name: steuermann_cli_contract
+precedence:
+  - base
+  - profile
+  - environment
+sections:
+  core:
+    source_file: config/core.yaml
+    profile_overlay_file: config/profiles/<profile_id>/core.yaml
+    profile_mutability: partial
+  features:
+    source_file: config/features.yaml
+    profile_overlay_file: config/profiles/<profile_id>/features.yaml
+    profile_mutability: partial
+  tools:
+    source_file: config/tools.yaml
+    profile_overlay_file: config/profiles/<profile_id>/tools.yaml
+    profile_mutability: partial
+  agents:
+    source_file: config/agents.yaml
+    profile_overlay_file: config/profiles/<profile_id>/agents.yaml
+    profile_mutability: partial
+policies:
+  docs_mutation: disabled
+  manual_config_editing: supported
+  ingest_interface: steuermann_ingest_only
+  json_output_stability: required
+severity_policy:
+  blocking: error
+  advisory: warning
+profile_safety:
+  allowed_core_prefixes:
+    - fork.language
+    - fork.locale
+    - fork.timezone
+    - fork.supported_languages
+    - llm
+    - prompts
+    - tool_routing
+    - rag
+    - tokens
+    - memory.retention
+  disallowed_feature_flags:
+    - authentication
+    - ingestion_service
+    - monitoring
+profile_bundle_compatibility:
+  framework_version_range_default: ">=0.2,<1.0"
+  minimum_required_keys_default:
+    - profile_id
+    - display_name
+    - description
+mutator_surface:
+  config_set:
+    profile_scope: named_profile_only
+    target_file: core.yaml
+    key_scope: profile_safe_core_only
+    dry_run_default: true
+    requires_apply_flag: true
+    requires_confirm_token: true
+    confirm_token: APPLY
+    interactive_tty_prompt_fallback: true
+    non_interactive_requires_confirm_flag: true
+    rollback_on_validation_error: true
+  config_unset:
+    profile_scope: named_profile_only
+    target_file: core.yaml
+    key_scope: profile_safe_core_only
+    dry_run_default: true
+    requires_apply_flag: true
+    requires_confirm_token: true
+    confirm_token: APPLY
+    interactive_tty_prompt_fallback: true
+    non_interactive_requires_confirm_flag: true
+    rollback_on_validation_error: true
