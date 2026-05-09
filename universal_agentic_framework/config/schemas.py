@@ -63,12 +63,96 @@ class ProviderSettings(BaseModel):
 
 
 class LLMProviders(BaseModel):
-    primary: ProviderSettings
+    # Legacy compatibility fields.
+    primary: Optional[ProviderSettings] = None
     fallback: Optional[ProviderSettings] = None
+    # New role-based config allows arbitrary provider IDs under llm.providers.
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="after")
+    def _coerce_extra_provider_entries(self) -> "LLMProviders":
+        if not self.model_extra:
+            return self
+        for provider_id, raw_value in list(self.model_extra.items()):
+            if isinstance(raw_value, ProviderSettings):
+                continue
+            if isinstance(raw_value, dict):
+                self.model_extra[provider_id] = ProviderSettings.model_validate(raw_value)
+        return self
+
+    def get_registry(self) -> Dict[str, ProviderSettings]:
+        registry: Dict[str, ProviderSettings] = {}
+        if self.primary:
+            registry["primary"] = self.primary
+        if self.fallback:
+            registry["fallback"] = self.fallback
+        if self.model_extra:
+            for provider_id, provider in self.model_extra.items():
+                if isinstance(provider, ProviderSettings):
+                    registry[str(provider_id)] = provider
+        return registry
+
+
+class RoleProviderRef(BaseModel):
+    provider_id: str
+
+
+class LLMRoleSettings(BaseModel):
+    providers: List[RoleProviderRef] = Field(default_factory=list)
+    config_only: bool = False
+
+
+class LLMRoles(BaseModel):
+    chat: LLMRoleSettings
+    embedding: LLMRoleSettings
+    vision: LLMRoleSettings
+    auxiliary: LLMRoleSettings
 
 
 class LLMSettings(BaseModel):
     providers: LLMProviders
+    roles: Optional[LLMRoles] = None
+
+    @model_validator(mode="after")
+    def _normalize_roles_and_legacy_compat(self) -> "LLMSettings":
+        registry = self.providers.get_registry()
+        if not registry:
+            raise ValueError("llm.providers must contain at least one configured provider")
+
+        # Build default role mapping from legacy primary/fallback config.
+        if self.roles is None:
+            chain: List[RoleProviderRef] = []
+            if self.providers.primary:
+                chain.append(RoleProviderRef(provider_id="primary"))
+            if self.providers.fallback:
+                chain.append(RoleProviderRef(provider_id="fallback"))
+            if not chain:
+                first_provider_id = next(iter(registry.keys()))
+                chain = [RoleProviderRef(provider_id=first_provider_id)]
+
+            self.roles = LLMRoles(
+                chat=LLMRoleSettings(providers=chain, config_only=False),
+                embedding=LLMRoleSettings(providers=[chain[0]], config_only=True),
+                vision=LLMRoleSettings(providers=[chain[0]], config_only=True),
+                auxiliary=LLMRoleSettings(providers=[chain[0]], config_only=True),
+            )
+
+        # Ensure role references point to existing provider IDs.
+        for role_name in ("chat", "embedding", "vision", "auxiliary"):
+            role_cfg = getattr(self.roles, role_name)
+            if not role_cfg.providers:
+                raise ValueError(f"llm.roles.{role_name}.providers must not be empty")
+            for ref in role_cfg.providers:
+                if ref.provider_id not in registry:
+                    raise ValueError(
+                        f"llm.roles.{role_name}.providers references unknown provider_id '{ref.provider_id}'"
+                    )
+
+        # Backwards-compatible access for runtime surfaces still using primary/fallback.
+        chat_chain = self.roles.chat.providers
+        self.providers.primary = registry[chat_chain[0].provider_id]
+        self.providers.fallback = registry[chat_chain[1].provider_id] if len(chat_chain) > 1 else None
+        return self
 
 
 class DatabaseSettings(BaseModel):

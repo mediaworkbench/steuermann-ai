@@ -6,7 +6,7 @@ fork:
 
 llm:
   providers:
-    primary:
+    lmstudio:
       api_base: $LLM_ENDPOINT
       models:
         en: "openai/liquid/lfm2-24b-a2b"
@@ -15,7 +15,7 @@ llm:
       max_tokens: 4096
       timeout: 300
       tool_calling: "native"
-    fallback:
+    ollama:
       api_base: $LLM_ENDPOINT
       models:
         en: "openai/liquid/lfm2-24b-a2b"
@@ -24,6 +24,35 @@ llm:
       max_tokens: 32000
       timeout: 300
       tool_calling: "native"
+    openrouter:
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
+      models:
+        en: "openrouter/openai/gpt-4o-mini"
+        de: "openrouter/openai/gpt-4o-mini"
+      temperature: 0.3
+      max_tokens: 4096
+      timeout: 300
+      tool_calling: "native"
+  roles:
+    chat:
+      providers:
+        - provider_id: "lmstudio"
+        - provider_id: "ollama"
+        - provider_id: "openrouter"
+      config_only: false
+    embedding:
+      providers:
+        - provider_id: "lmstudio"
+      config_only: true
+    vision:
+      providers:
+        - provider_id: "lmstudio"
+      config_only: true
+    auxiliary:
+      providers:
+        - provider_id: "lmstudio"
+      config_only: true
 
 database:
   url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
