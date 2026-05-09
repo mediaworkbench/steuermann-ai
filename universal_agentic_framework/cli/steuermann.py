@@ -1007,16 +1007,34 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
     checks.extend(contract_checks)
 
     has_fail = any(c["status"] == "fail" for c in checks)
-    drift_items = [
-        {
-            "path": str(item.get("path", "")),
-            "status": item.get("status", "fail"),
-            "details": item.get("details", ""),
-            "severity": "error" if args.strict else "warning",
-        }
-        for item in checks
-        if item.get("status") == "fail"
-    ]
+
+    def classify_domain(item: dict[str, Any]) -> str:
+        path = str(item.get("path", ""))
+        details = str(item.get("details", ""))
+        if path.startswith("docs/") or path == "README.md":
+            return "docs"
+        if path == str(CONTRACT_PATH) and details.startswith("profile_bundle_compatibility"):
+            return "bundle-compat"
+        if path == str(CONTRACT_PATH):
+            return "contract"
+        return "other"
+
+    drift_items = []
+    by_domain: dict[str, int] = {"docs": 0, "contract": 0, "bundle-compat": 0, "other": 0}
+    for item in checks:
+        if item.get("status") != "fail":
+            continue
+        domain = classify_domain(item)
+        by_domain[domain] = by_domain.get(domain, 0) + 1
+        drift_items.append(
+            {
+                "path": str(item.get("path", "")),
+                "status": item.get("status", "fail"),
+                "details": item.get("details", ""),
+                "severity": "error" if args.strict else "warning",
+                "domain": domain,
+            }
+        )
     payload = {
         "status": "error" if has_fail else "ok",
         "checks": checks,
@@ -1025,6 +1043,7 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
             "items": drift_items,
             "docs_checks": len([i for i in checks if str(i.get("path", "")).startswith("docs/") or i.get("path") == "README.md"]),
             "contract_checks": len(contract_checks),
+            "by_domain": by_domain,
         },
     }
     _print_payload(payload, args.format)

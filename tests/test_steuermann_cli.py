@@ -126,6 +126,7 @@ def test_docs_check_reports_contract_parity_details(capsys: pytest.CaptureFixtur
     assert "drift_report" in payload
     assert "total" in payload["drift_report"]
     assert "items" in payload["drift_report"]
+    assert "by_domain" in payload["drift_report"]
 
 
 def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
@@ -313,6 +314,89 @@ def test_docs_check_reports_drift_items(tmp_path: Path, monkeypatch: pytest.Monk
     assert payload["drift_report"]["total"] > 0
     assert payload["drift_report"]["items"]
     assert any(item["status"] == "fail" for item in payload["drift_report"]["items"])
+    assert all("domain" in item for item in payload["drift_report"]["items"])
+    assert "contract" in payload["drift_report"]["by_domain"]
+
+
+def test_docs_check_classifies_bundle_compat_drift_domain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    (tmp_path / "README.md").write_text("steuermann\n", encoding="utf-8")
+    (tmp_path / "docs" / "index.md").write_text("steuermann\n", encoding="utf-8")
+    (tmp_path / "docs" / "configuration.md").write_text(
+        "repository defaults\nprofile overlay\nenvironment variables\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "profile_creation.md").write_text("profile\n", encoding="utf-8")
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "precedence": ["base", "profile", "environment"],
+                "sections": {
+                    "core": {
+                        "source_file": "config/core.yaml",
+                        "profile_overlay_file": "config/profiles/<profile_id>/core.yaml",
+                        "profile_mutability": "partial",
+                    },
+                    "features": {
+                        "source_file": "config/features.yaml",
+                        "profile_overlay_file": "config/profiles/<profile_id>/features.yaml",
+                        "profile_mutability": "partial",
+                    },
+                    "tools": {
+                        "source_file": "config/tools.yaml",
+                        "profile_overlay_file": "config/profiles/<profile_id>/tools.yaml",
+                        "profile_mutability": "partial",
+                    },
+                    "agents": {
+                        "source_file": "config/agents.yaml",
+                        "profile_overlay_file": "config/profiles/<profile_id>/agents.yaml",
+                        "profile_mutability": "partial",
+                    },
+                },
+                "policies": {
+                    "docs_mutation": "disabled",
+                    "manual_config_editing": "supported",
+                    "ingest_interface": "steuermann_ingest_only",
+                    "json_output_stability": "required",
+                },
+                "severity_policy": {"blocking": "error", "advisory": "warning"},
+                "profile_safety": {
+                    "allowed_core_prefixes": [
+                        "fork.language",
+                        "fork.locale",
+                        "fork.timezone",
+                        "fork.supported_languages",
+                        "llm",
+                        "prompts",
+                        "tool_routing",
+                        "rag",
+                        "tokens",
+                        "memory.retention",
+                    ],
+                    "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
+                },
+                "profile_bundle_compatibility": {
+                    "framework_version_range_default": ">=9.0,<10.0",
+                    "minimum_required_keys_default": steuermann.DEFAULT_BUNDLE_REQUIRED_KEYS,
+                },
+            },
+            sort_keys=True,
+            allow_unicode=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["docs", "check", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["drift_report"]["by_domain"]["bundle-compat"] >= 1
+    assert any(item["domain"] == "bundle-compat" for item in payload["drift_report"]["items"])
 
 
 def test_profile_scaffold_writes_compatibility_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
