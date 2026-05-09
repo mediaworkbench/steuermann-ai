@@ -222,6 +222,7 @@ poetry install
 poetry run steuermann setup doctor --format json
 poetry run steuermann config validate --format json
 poetry run steuermann config contract-check --format json
+poetry run steuermann docs check --format json
 ```
 
 Linux hosts (bind-mount permissions): set UID/GID in `.env` before first build so container users match your host account.

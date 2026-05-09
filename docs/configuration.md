@@ -678,7 +678,21 @@ poetry run steuermann config validate --strict --format json
 
 # Validate CLI contract parity against runtime/config surface
 poetry run steuermann config contract-check --format json
+
+# Check docs conformance and emit categorized drift report
+poetry run steuermann docs check --format json
 ```
+
+### Drift Report Domains
+
+`poetry run steuermann docs check --format json` now emits `drift_report.items[]` with a `domain` field.
+
+- `docs` - drift in README/docs command or precedence guidance.
+- `contract` - general contract parity drift.
+- `bundle-compat` - drift in `profile_bundle_compatibility` defaults.
+- `other` - non-standard checks outside the known categories.
+
+The same payload includes `drift_report.by_domain` counters for quick filtering in automation.
 
 ### Common Validation Errors
 
