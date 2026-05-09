@@ -218,6 +218,9 @@ git clone https://github.com/mediaworkbench/steuermann-ai.git
 cd steuermann-ai
 cp .env.example .env
 # Edit .env — at minimum set POSTGRES_PASSWORD
+poetry install
+poetry run steuermann setup doctor --format json
+poetry run steuermann config validate --format json
 ```
 
 Linux hosts (bind-mount permissions): set UID/GID in `.env` before first build so container users match your host account.

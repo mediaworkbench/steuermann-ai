@@ -16,6 +16,8 @@ The runtime configuration model is:
 
 The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
 
+Configuration files remain directly editable. The `steuermann` CLI is a validation, diagnostics, and scaffolding companion; it does not replace manual YAML or `.env` editing.
+
 ---
 
 ## Core Configuration (`core.yaml`)
@@ -668,24 +670,14 @@ config = load_core_config(fork_config_dir=Path("config"))
 ### Manual Validation
 
 ```bash
-# Validate all configs
-poetry run python -c "
-from pathlib import Path
-from universal_agentic_framework.config.loader import (
-    load_core_config,
-    load_agents_config,
-    load_tools_config,
-    load_features
-)
+# Validate all configs via the canonical CLI
+poetry run steuermann config validate --format json
 
-config_dir = Path('config')
-core = load_core_config(config_dir)
-agents = load_agents_config(config_dir)
-tools = load_tools_config(config_dir)
-features = load_features(config_dir)
+# Fail if advisory warnings are present
+poetry run steuermann config validate --strict --format json
 
-print('✓ All configurations valid')
-"
+# Validate CLI contract parity against runtime/config surface
+poetry run steuermann config contract-check --format json
 ```
 
 ### Common Validation Errors

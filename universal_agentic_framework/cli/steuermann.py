@@ -48,6 +48,12 @@ DOCS_CONFORMANCE_FILES = [
     Path("docs/profile_creation.md"),
 ]
 CONTRACT_PATH = Path("config/contracts/cli_contract.yaml")
+REQUIRED_CONTRACT_POLICIES = {
+    "docs_mutation": "disabled",
+    "manual_config_editing": "supported",
+    "ingest_interface": "steuermann_ingest_only",
+    "json_output_stability": "required",
+}
 
 
 def _with_profile_env(profile_id: str | None) -> dict[str, str]:
@@ -174,6 +180,108 @@ def _env_refs(value: Any) -> list[str]:
     for raw in ENV_PLACEHOLDER_RE.findall(value):
         refs.append(raw.strip("{}"))
     return refs
+
+
+def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    expected_sections = set(CONFIG_SECTION_FILES)
+    contract_sections = set((contract.get("sections") or {}).keys())
+
+    missing_sections = sorted(expected_sections - contract_sections)
+    extra_sections = sorted(contract_sections - expected_sections)
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if not missing_sections else "fail",
+            "details": (
+                "Contract covers expected CLI/runtime config sections"
+                if not missing_sections
+                else f"Missing contract sections: {', '.join(missing_sections)}"
+            ),
+        }
+    )
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if not extra_sections else "fail",
+            "details": (
+                "No unknown contract sections"
+                if not extra_sections
+                else f"Unknown contract sections: {', '.join(extra_sections)}"
+            ),
+        }
+    )
+
+    for section, filename in CONFIG_SECTION_FILES.items():
+        section_data = (contract.get("sections") or {}).get(section, {})
+        expected_source = f"config/{filename}"
+        actual_source = section_data.get("source_file")
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if actual_source == expected_source else "fail",
+                "details": (
+                    f"{section}.source_file matches {expected_source}"
+                    if actual_source == expected_source
+                    else f"{section}.source_file mismatch: expected {expected_source}, got {actual_source}"
+                ),
+            }
+        )
+
+    precedence = contract.get("precedence") or []
+    expected_precedence = ["base", "profile", "environment"]
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if precedence == expected_precedence else "fail",
+            "details": (
+                "Precedence matches base -> profile -> environment"
+                if precedence == expected_precedence
+                else f"Precedence mismatch: expected {expected_precedence}, got {precedence}"
+            ),
+        }
+    )
+
+    contract_policies = contract.get("policies") or {}
+    for policy_name, expected_value in REQUIRED_CONTRACT_POLICIES.items():
+        actual_value = contract_policies.get(policy_name)
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if actual_value == expected_value else "fail",
+                "details": (
+                    f"{policy_name} policy is {expected_value}"
+                    if actual_value == expected_value
+                    else f"{policy_name} policy mismatch: expected {expected_value}, got {actual_value}"
+                ),
+            }
+        )
+
+    return checks
+
+
+def _contract_check_payload() -> dict[str, Any]:
+    contract = _read_yaml(CONTRACT_PATH)
+    checks: list[dict[str, Any]] = [
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if bool(contract) else "fail",
+            "details": "Contract loaded" if contract else "Contract file missing or invalid",
+        }
+    ]
+    if contract:
+        schema_ok = contract.get("schema_version") == 1
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if schema_ok else "fail",
+                "details": "schema_version is 1" if schema_ok else "schema_version mismatch",
+            }
+        )
+        checks.extend(_contract_parity_report(contract))
+
+    has_fail = any(check["status"] == "fail" for check in checks)
+    return {"status": "error" if has_fail else "ok", "checks": checks}
 
 
 def _profiles_root() -> Path:
@@ -331,12 +439,19 @@ def cmd_config_validate(args: argparse.Namespace) -> int:
     profiles = [args.profile] if args.profile else ["base"] + _iter_profiles()
     results = [_validate_one_profile(profile) for profile in profiles]
     has_error = any(item["status"] == "error" for item in results)
+    has_warning = any(item.get("warnings") for item in results)
     payload = {
         "results": results,
-        "status": "error" if has_error else "ok",
+        "status": "error" if has_error else ("warning" if has_warning else "ok"),
     }
     _print_payload(payload, args.format)
-    return 1 if has_error else 0
+    return 1 if has_error or (args.strict and has_warning) else 0
+
+
+def cmd_config_contract_check(args: argparse.Namespace) -> int:
+    payload = _contract_check_payload()
+    _print_payload(payload, args.format)
+    return 1 if payload["status"] == "error" else 0
 
 
 def cmd_setup_doctor(args: argparse.Namespace) -> int:
@@ -576,44 +691,7 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
             }
         )
 
-    contract = _read_yaml(CONTRACT_PATH)
-    contract_exists = bool(contract)
-    checks.append(
-        {
-            "path": str(CONTRACT_PATH),
-            "status": "ok" if contract_exists else "fail",
-            "details": "Contract loaded" if contract_exists else "Contract file missing or invalid",
-        }
-    )
-    if contract_exists:
-        schema_ok = contract.get("schema_version") == 1
-        docs_mutation_ok = contract.get("policies", {}).get("docs_mutation") == "disabled"
-        manual_edit_ok = contract.get("policies", {}).get("manual_config_editing") == "supported"
-        ingest_policy_ok = contract.get("policies", {}).get("ingest_interface") == "steuermann_ingest_only"
-        checks.extend(
-            [
-                {
-                    "path": str(CONTRACT_PATH),
-                    "status": "ok" if schema_ok else "fail",
-                    "details": "schema_version is 1" if schema_ok else "schema_version mismatch",
-                },
-                {
-                    "path": str(CONTRACT_PATH),
-                    "status": "ok" if docs_mutation_ok else "fail",
-                    "details": "docs_mutation policy is disabled" if docs_mutation_ok else "docs_mutation policy mismatch",
-                },
-                {
-                    "path": str(CONTRACT_PATH),
-                    "status": "ok" if manual_edit_ok else "fail",
-                    "details": "manual_config_editing policy is supported" if manual_edit_ok else "manual_config_editing policy mismatch",
-                },
-                {
-                    "path": str(CONTRACT_PATH),
-                    "status": "ok" if ingest_policy_ok else "fail",
-                    "details": "ingest_interface policy is steuermann_ingest_only" if ingest_policy_ok else "ingest_interface policy mismatch",
-                },
-            ]
-        )
+    checks.extend(_contract_check_payload()["checks"])
 
     has_fail = any(c["status"] == "fail" for c in checks)
     payload = {"status": "error" if has_fail else "ok", "checks": checks}
@@ -680,8 +758,13 @@ def create_parser() -> argparse.ArgumentParser:
 
     validate_parser = config_subparsers.add_parser("validate", help="Validate config for profile(s)")
     validate_parser.add_argument("--profile", help="Profile to validate (default: base + all profiles)")
+    validate_parser.add_argument("--strict", action="store_true", help="Treat warnings as failures")
     _add_common_format_arg(validate_parser)
     validate_parser.set_defaults(func=cmd_config_validate)
+
+    contract_parser = config_subparsers.add_parser("contract-check", help="Validate CLI contract parity")
+    _add_common_format_arg(contract_parser)
+    contract_parser.set_defaults(func=cmd_config_contract_check)
 
     setup_parser = subparsers.add_parser("setup", help="Setup diagnostics")
     setup_subparsers = setup_parser.add_subparsers(dest="setup_command")
