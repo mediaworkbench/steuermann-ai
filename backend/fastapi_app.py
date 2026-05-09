@@ -20,6 +20,7 @@ from backend.routers.conversations import router as conversations_router
 from backend.routers.memories import router as memories_router
 from backend.routers.workspace import router as workspace_router
 from backend.db import (
+    LLMCapabilityProbeStore,
     SettingsStore,
     AnalyticsStore,
     ConversationStore,
@@ -120,6 +121,48 @@ def _run_workspace_startup_cleanup(app: FastAPI) -> None:
     )
 
 
+def _run_llm_capability_startup_probe(app: FastAPI) -> None:
+    if not _env_bool("LLM_CAPABILITY_PROBE_ENABLED", True):
+        logger.info("LLM capability probe skipped (disabled by env)")
+        return
+    if not _env_bool("LLM_CAPABILITY_PROBE_ON_STARTUP", True):
+        logger.info("LLM capability probe skipped (startup probe disabled)")
+        return
+
+    probe_store = getattr(app.state, "llm_capability_probe_store", None)
+    if probe_store is None:
+        logger.warning("LLM capability probe store unavailable, skipping startup probe")
+        return
+
+    try:
+        from backend.llm_capability_probe import LLMCapabilityProbeRunner
+
+        profile_id = os.getenv("PROFILE_ID", "starter")
+        runner = LLMCapabilityProbeRunner(profile_id=profile_id)
+        results = runner.run()
+
+        mismatch_count = 0
+        error_count = 0
+        for result in results:
+            persisted = probe_store.upsert_probe_result(result.model_dump())
+            if persisted.get("capability_mismatch"):
+                mismatch_count += 1
+            if persisted.get("status") == "error":
+                error_count += 1
+
+        logger.info(
+            "LLM capability startup probe complete",
+            extra={
+                "profile_id": profile_id,
+                "probed_targets": len(results),
+                "capability_mismatches": mismatch_count,
+                "probe_errors": error_count,
+            },
+        )
+    except Exception as exc:
+        logger.warning("LLM capability startup probe failed: %s", exc)
+
+
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -172,6 +215,7 @@ async def lifespan(app: FastAPI):
     db_pool = init_db_pool()
     app.state.db_pool = db_pool
     app.state.settings_store = SettingsStore(db_pool)
+    app.state.llm_capability_probe_store = LLMCapabilityProbeStore(db_pool)
     app.state.analytics_store = AnalyticsStore(db_pool)
     app.state.conversation_store = ConversationStore(db_pool)
     app.state.conversation_attachment_store = ConversationAttachmentStore(db_pool)
@@ -184,6 +228,7 @@ async def lifespan(app: FastAPI):
     app.state.user_workspace_file_manager = UserWorkspaceFileManager(attachment_manager=attachment_manager)
 
     _run_workspace_startup_cleanup(app)
+    _run_llm_capability_startup_probe(app)
 
     try:
         yield
