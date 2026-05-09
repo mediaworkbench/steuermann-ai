@@ -41,10 +41,42 @@ def test_docs_check_strict_fails_on_missing_docs(tmp_path: Path, monkeypatch: py
     assert code == 1
 
 
-def test_setup_doctor_fails_when_postgres_password_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_doctor_fails_when_postgres_password_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
     code = steuermann.main(["setup", "doctor", "--format", "json"])
     assert code == 1
+
+
+def test_setup_doctor_reports_env_presence_and_advisories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / ".env").write_text(
+        "POSTGRES_PASSWORD=secret\nLLM_ENDPOINT=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    class DummyRag:
+        collection_name = "framework"
+
+    class DummyCore:
+        rag = DummyRag()
+
+    monkeypatch.setattr(steuermann, "load_core_config", lambda env=None: DummyCore())
+
+    code = steuermann.main(["setup", "doctor", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    names = [check["name"] for check in payload["checks"]]
+    assert ".env presence" in names
+    assert "LLM_ENDPOINT" in names
+    assert "EMBEDDING_SERVER" in names
 
 
 def test_config_explain_emits_source_chain(capsys: pytest.CaptureFixture[str]) -> None:
@@ -82,6 +114,61 @@ def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
     details = [check["details"] for check in payload["checks"]]
     assert any("core.profile_overlay_file matches" in detail for detail in details)
     assert any("severity_policy.blocking is error" in detail for detail in details)
+    assert any("allowed_core_prefixes matches loader constants" in detail for detail in details)
+    assert any("disallowed_feature_flags matches loader constants" in detail for detail in details)
+
+
+def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    bad_contract = {
+        "schema_version": 1,
+        "contract_name": "test",
+        "precedence": ["base", "profile", "environment"],
+        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
+        "severity_policy": {"blocking": "error", "advisory": "warning"},
+        "profile_safety": {
+            "allowed_core_prefixes": ["llm", "prompts"],  # incomplete
+            "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
+        },
+    }
+    import yaml as _yaml
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        _yaml.safe_dump(bad_contract), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["config", "contract-check", "--format", "json"])
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    details = [check["details"] for check in payload["checks"]]
+    assert any("allowed_core_prefixes drift" in d for d in details)
+
+
+def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "config" / "contracts").mkdir(parents=True)
+    bad_contract = {
+        "schema_version": 1,
+        "contract_name": "test",
+        "precedence": ["base", "profile", "environment"],
+        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
+        "severity_policy": {"blocking": "error", "advisory": "warning"},
+        "profile_safety": {
+            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.retention"],
+            "disallowed_feature_flags": ["authentication"],  # missing ingestion_service, monitoring
+        },
+    }
+    import yaml as _yaml
+    (tmp_path / "config" / "contracts" / "cli_contract.yaml").write_text(
+        _yaml.safe_dump(bad_contract), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    code = steuermann.main(["config", "contract-check", "--format", "json"])
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    details = [check["details"] for check in payload["checks"]]
+    assert any("disallowed_feature_flags drift" in d for d in details)
 
 
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -15,6 +15,10 @@ from typing import Any, Iterable
 import yaml
 
 from universal_agentic_framework.cli.ingest import add_ingest_subcommands
+from universal_agentic_framework.config.loader import (
+    _DISALLOWED_PROFILE_FEATURE_FLAGS,
+    _PROFILE_CORE_ALLOWED_PREFIXES,
+)
 from universal_agentic_framework.config import (
     get_active_profile_id,
     get_profile_dir,
@@ -324,6 +328,50 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    # --- schema-field coverage: profile_safety ---
+    profile_safety = contract.get("profile_safety") or {}
+    contract_prefixes = set(profile_safety.get("allowed_core_prefixes") or [])
+    runtime_prefixes = _PROFILE_CORE_ALLOWED_PREFIXES
+    missing_prefixes = sorted(runtime_prefixes - contract_prefixes)
+    extra_prefixes = sorted(contract_prefixes - runtime_prefixes)
+    if not missing_prefixes and not extra_prefixes:
+        prefix_detail = "profile_safety.allowed_core_prefixes matches loader constants"
+    else:
+        parts = []
+        if missing_prefixes:
+            parts.append(f"missing: {', '.join(missing_prefixes)}")
+        if extra_prefixes:
+            parts.append(f"extra: {', '.join(extra_prefixes)}")
+        prefix_detail = f"profile_safety.allowed_core_prefixes drift — {'; '.join(parts)}"
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if not missing_prefixes and not extra_prefixes else "fail",
+            "details": prefix_detail,
+        }
+    )
+
+    contract_flags = set(profile_safety.get("disallowed_feature_flags") or [])
+    runtime_flags = _DISALLOWED_PROFILE_FEATURE_FLAGS
+    missing_flags = sorted(runtime_flags - contract_flags)
+    extra_flags = sorted(contract_flags - runtime_flags)
+    if not missing_flags and not extra_flags:
+        flag_detail = "profile_safety.disallowed_feature_flags matches loader constants"
+    else:
+        parts = []
+        if missing_flags:
+            parts.append(f"missing: {', '.join(missing_flags)}")
+        if extra_flags:
+            parts.append(f"extra: {', '.join(extra_flags)}")
+        flag_detail = f"profile_safety.disallowed_feature_flags drift — {'; '.join(parts)}"
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if not missing_flags and not extra_flags else "fail",
+            "details": flag_detail,
+        }
+    )
+
     return checks
 
 
@@ -523,6 +571,7 @@ def cmd_config_contract_check(args: argparse.Namespace) -> int:
 
 def cmd_setup_doctor(args: argparse.Namespace) -> int:
     checks: list[dict[str, Any]] = []
+    env = _load_env_file()
 
     def add_check(name: str, ok: bool, blocking: bool, details: str) -> None:
         checks.append({
@@ -532,7 +581,15 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
             "details": details,
         })
 
-    postgres_password = os.getenv("POSTGRES_PASSWORD")
+    env_file = Path(".env")
+    add_check(
+        ".env presence",
+        env_file.exists(),
+        False,
+        "Found local .env file" if env_file.exists() else "No .env file found; relying on process environment only",
+    )
+
+    postgres_password = env.get("POSTGRES_PASSWORD")
     add_check(
         "POSTGRES_PASSWORD",
         bool(postgres_password),
@@ -540,8 +597,24 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Set POSTGRES_PASSWORD in .env or environment" if not postgres_password else "Present",
     )
 
-    profile_id = get_active_profile_id()
-    profile_dir = get_profile_dir(profile_id=profile_id, require_exists=False)
+    llm_endpoint = env.get("LLM_ENDPOINT")
+    add_check(
+        "LLM_ENDPOINT",
+        bool(llm_endpoint),
+        False,
+        "Set LLM_ENDPOINT for local validation and runtime config resolution" if not llm_endpoint else llm_endpoint,
+    )
+
+    embedding_server = env.get("EMBEDDING_SERVER")
+    add_check(
+        "EMBEDDING_SERVER",
+        bool(embedding_server),
+        False,
+        "Set EMBEDDING_SERVER for embedding-backed memory and ingestion" if not embedding_server else embedding_server,
+    )
+
+    profile_id = get_active_profile_id(env)
+    profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=False)
     profile_ok = profile_id == "base" or (profile_dir is not None and profile_dir.exists())
     add_check(
         "PROFILE_ID",
@@ -550,9 +623,9 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Profile directory missing" if not profile_ok else f"Resolved profile: {profile_id}",
     )
 
-    ingest_collection = os.getenv("INGEST_COLLECTION")
+    ingest_collection = env.get("INGEST_COLLECTION")
     try:
-        core = load_core_config()
+        core = load_core_config(env=env)
         rag_collection = core.rag.collection_name
         aligned = not ingest_collection or ingest_collection == rag_collection
         add_check(
@@ -571,7 +644,7 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
     if args.probe_endpoints:
         import httpx
 
-        endpoint = os.getenv("LLM_ENDPOINT", "")
+        endpoint = env.get("LLM_ENDPOINT", "")
         ok = bool(endpoint)
         details = "LLM_ENDPOINT missing"
         if endpoint:

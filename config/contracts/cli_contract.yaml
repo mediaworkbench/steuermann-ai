@@ -29,3 +29,19 @@ policies:
 severity_policy:
   blocking: error
   advisory: warning
+profile_safety:
+  allowed_core_prefixes:
+    - fork.language
+    - fork.locale
+    - fork.timezone
+    - fork.supported_languages
+    - llm
+    - prompts
+    - tool_routing
+    - rag
+    - tokens
+    - memory.retention
+  disallowed_feature_flags:
+    - authentication
+    - ingestion_service
+    - monitoring

@@ -221,6 +221,7 @@ cp .env.example .env
 poetry install
 poetry run steuermann setup doctor --format json
 poetry run steuermann config validate --format json
+poetry run steuermann config contract-check --format json
 ```
 
 Linux hosts (bind-mount permissions): set UID/GID in `.env` before first build so container users match your host account.
@@ -319,6 +320,13 @@ docker compose up -d ingestion
 Watch mode detects new files in real time, performs periodic sweeps every 30 seconds, and removes chunks when source files are deleted. Configure language and thresholds via `INGEST_LANGUAGE` and `INGEST_LANGUAGE_THRESHOLD` in `.env`.
 
 For host-side development and local test execution with Poetry, see `docs/index.md`.
+
+### 6. (Optional) Scaffold a new profile
+
+```bash
+poetry run steuermann profile scaffold --from starter --to config/profiles/my-profile --profile-id my-profile
+poetry run steuermann config validate --profile my-profile --format json
+```
 
 ---
 
