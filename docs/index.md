@@ -44,13 +44,13 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 ## Runtime Snapshot
 
-| Service          | Port          | Role                                      |
-| ---------------- | ------------- | ----------------------------------------- |
-| Next.js frontend | 3000          | Chat UI, settings, metrics dashboard      |
-| FastAPI adapter  | 8001          | Auth, settings, metrics proxy, chat relay |
-| LangGraph        | 8000 internal | Orchestration engine                      |
-| Prometheus       | 9090 internal | Metrics collection                        |
-| PostgreSQL       | 5432 internal | Conversations, checkpoints, users         |
+| Service          | Port          | Role                                       |
+| ---------------- | ------------- | ------------------------------------------ |
+| Next.js frontend | 3000          | Chat UI, settings, metrics dashboard       |
+| FastAPI adapter  | 8001          | Auth, settings, metrics proxy, chat relay  |
+| LangGraph        | 8000 internal | Orchestration engine                       |
+| Prometheus       | 9090 internal | Metrics collection                         |
+| PostgreSQL       | 5432 internal | Conversations, checkpoints, users          |
 | Qdrant           | 6333 internal | RAG vector store and Mem0 internal storage |
 
 ## Local Development (Host)
@@ -60,5 +60,6 @@ The commands below are for host-side development and test execution. They are no
 ```bash
 poetry install
 poetry run pytest
+poetry run steuermann --help
 docker compose up -d
 ```

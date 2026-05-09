@@ -1,0 +1,31 @@
+schema_version: 1
+contract_name: steuermann_cli_contract
+precedence:
+  - base
+  - profile
+  - environment
+sections:
+  core:
+    source_file: config/core.yaml
+    profile_overlay_file: config/profiles/<profile_id>/core.yaml
+    profile_mutability: partial
+  features:
+    source_file: config/features.yaml
+    profile_overlay_file: config/profiles/<profile_id>/features.yaml
+    profile_mutability: partial
+  tools:
+    source_file: config/tools.yaml
+    profile_overlay_file: config/profiles/<profile_id>/tools.yaml
+    profile_mutability: partial
+  agents:
+    source_file: config/agents.yaml
+    profile_overlay_file: config/profiles/<profile_id>/agents.yaml
+    profile_mutability: partial
+policies:
+  docs_mutation: disabled
+  manual_config_editing: supported
+  ingest_interface: steuermann_ingest_only
+  json_output_stability: required
+severity_policy:
+  blocking: error
+  advisory: warning

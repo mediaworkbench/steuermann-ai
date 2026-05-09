@@ -124,44 +124,6 @@ class DocumentEventHandler(FileSystemEventHandler):
         
         finally:
             self.processing.discard(str(file_path))    
-    def on_deleted(self, event):
-        """Handle file deletion."""
-        if event.is_directory:
-            return
-        
-        file_path = Path(event.src_path)
-        
-        # Check if file type is supported (keep in sync with file_patterns)
-        if file_path.suffix.lower() not in [".pdf", ".docx", ".md", ".markdown", ".txt"]:
-            return
-        
-        # Avoid duplicate processing
-        if str(file_path) in self.processing:
-            return
-        
-        self.processing.add(str(file_path))
-        
-        try:
-            logger.info("File deleted", file=str(file_path))
-            result = self.service.delete_file_from_collection(file_path)
-            
-            if result["status"] == "success":
-                logger.info(
-                    "Auto-deletion successful",
-                    file=str(file_path)
-                )
-            else:
-                logger.warning(
-                    "Auto-deletion failed",
-                    file=str(file_path),
-                    error=result.get("error")
-                )
-        
-        except Exception as e:
-            logger.error("Auto-deletion error", file=str(file_path), error=str(e))
-        
-        finally:
-            self.processing.discard(str(file_path))
 
 def load_config_from_yaml(config_path: Path) -> Dict[str, Any]:
     """Load ingestion configuration from YAML file.
@@ -575,15 +537,8 @@ def cmd_reindex(args):
     return 0
 
 
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Document ingestion CLI for Steuermann"
-    )
-    
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    
-    # Ingest command
+def add_ingest_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    """Register ingestion subcommands under an argparse subparser group."""
     ingest_parser = subparsers.add_parser("ingest", help="Ingest documents")
     ingest_parser.add_argument("--source", required=True, help="Source directory or file")
     ingest_parser.add_argument("--config", help="Path to configuration YAML file")
@@ -592,24 +547,21 @@ def main():
     ingest_parser.add_argument("--validate-only", action="store_true", help="Only validate, don't ingest")
     ingest_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     ingest_parser.set_defaults(func=cmd_ingest)
-    
-    # Watch command
+
     watch_parser = subparsers.add_parser("watch", help="Watch directory for new files")
     watch_parser.add_argument("--source", required=True, help="Source directory to watch")
     watch_parser.add_argument("--config", help="Path to configuration YAML file")
     watch_parser.add_argument("--collection", help="Collection name (if not in config)")
     watch_parser.add_argument("--language", help="Target language (if not in config)")
     watch_parser.set_defaults(func=cmd_watch)
-    
-    # Validate command
+
     validate_parser = subparsers.add_parser("validate", help="Validate documents only")
     validate_parser.add_argument("--source", required=True, help="Source directory or file")
     validate_parser.add_argument("--config", help="Path to configuration YAML file")
     validate_parser.add_argument("--language", help="Target language")
     validate_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     validate_parser.set_defaults(func=cmd_validate)
-    
-    # Reindex command
+
     reindex_parser = subparsers.add_parser("reindex", help="Clear and reindex collection")
     reindex_parser.add_argument("--source", required=True, help="Source directory")
     reindex_parser.add_argument("--config", help="Path to configuration YAML file")
@@ -617,19 +569,36 @@ def main():
     reindex_parser.add_argument("--language", help="Target language (if not in config)")
     reindex_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     reindex_parser.set_defaults(func=cmd_reindex)
-    
-    args = parser.parse_args()
-    
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create standalone ingestion parser."""
+    parser = argparse.ArgumentParser(description="Document ingestion CLI for Steuermann")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+    add_ingest_subcommands(subparsers)
+    return parser
+
+
+def run_cli(argv: list[str] | None = None) -> int:
+    """Run ingestion parser with optional argv."""
+    parser = create_parser()
+    args = parser.parse_args(argv)
+
     if not args.command:
         parser.print_help()
         return 1
-    
+
     try:
         return args.func(args)
     except Exception as e:
         logger.error("Command failed", error=str(e), exc_info=True)
-        print(f"\n❌ Error: {str(e)}", file=sys.stderr)
+        print(f"\nError: {str(e)}", file=sys.stderr)
         return 1
+
+
+def main() -> int:
+    """Main CLI entry point."""
+    return run_cli()
 
 
 if __name__ == "__main__":
