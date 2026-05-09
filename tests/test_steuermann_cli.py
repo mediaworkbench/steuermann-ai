@@ -961,14 +961,16 @@ def test_profile_scaffold_writes_compatibility_metadata(tmp_path: Path, monkeypa
     )
     assert code == 0
 
+    # Compatibility metadata should NOT be in profile.yaml
     profile_data = yaml.safe_load((target / "profile.yaml").read_text(encoding="utf-8"))
-    compatibility = profile_data.get("compatibility") or {}
-    assert compatibility.get("framework_version_range") == steuermann.DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE
-    assert compatibility.get("minimum_required_keys") == steuermann.DEFAULT_BUNDLE_REQUIRED_KEYS
+    assert "compatibility" not in profile_data, "profile.yaml should not contain compatibility metadata"
+    assert profile_data.get("profile_id") == "external-profile"
+    assert profile_data.get("display_name") is not None
 
+    # Compatibility metadata should be in bundle_manifest.yaml
     manifest = yaml.safe_load((target / "bundle_manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest.get("compatibility", {}).get("framework_version_range")
-    assert manifest.get("compatibility", {}).get("minimum_required_keys")
+    assert manifest.get("compatibility", {}).get("framework_version_range") == steuermann.DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE
+    assert manifest.get("compatibility", {}).get("minimum_required_keys") == steuermann.DEFAULT_BUNDLE_REQUIRED_KEYS
 
 
 def test_profile_bundle_import_fails_on_incompatible_major_version(

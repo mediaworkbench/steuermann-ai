@@ -1083,12 +1083,9 @@ def cmd_profile_scaffold(args: argparse.Namespace) -> int:
     if profile_yaml.exists():
         data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
         data["profile_id"] = profile_id
-        data.setdefault("compatibility", {})
-        compatibility = data["compatibility"]
-        if isinstance(compatibility, dict):
-            compatibility.setdefault("framework_version_range", DEFAULT_BUNDLE_FRAMEWORK_VERSION_RANGE)
-            compatibility.setdefault("minimum_required_keys", list(DEFAULT_BUNDLE_REQUIRED_KEYS))
         profile_yaml.write_text(yaml.safe_dump(data, sort_keys=True, allow_unicode=False), encoding="utf-8")
+
+    # Bundle metadata goes in bundle_manifest.yaml, not profile.yaml
 
     manifest = {
         "schema_version": 1,
