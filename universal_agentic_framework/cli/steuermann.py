@@ -35,6 +35,19 @@ PROFILE_REQUIRED_FILES = [
     "ui.yaml",
 ]
 ENV_PLACEHOLDER_RE = re.compile(r"\$(\{?[A-Z0-9_]+\}?)")
+CONFIG_SECTION_FILES = {
+    "core": "core.yaml",
+    "features": "features.yaml",
+    "tools": "tools.yaml",
+    "agents": "agents.yaml",
+}
+DOCS_CONFORMANCE_FILES = [
+    Path("README.md"),
+    Path("docs/index.md"),
+    Path("docs/configuration.md"),
+    Path("docs/profile_creation.md"),
+]
+CONTRACT_PATH = Path("config/contracts/cli_contract.yaml")
 
 
 def _with_profile_env(profile_id: str | None) -> dict[str, str]:
@@ -52,6 +65,12 @@ def _stable_dump(payload: Any, fmt: str) -> str:
 
 def _print_payload(payload: Any, fmt: str) -> None:
     print(_stable_dump(payload, fmt))
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _collect_unresolved_placeholders(value: Any, path: str = "") -> list[dict[str, str]]:
@@ -115,6 +134,48 @@ def _dig(data: dict[str, Any], dot_key: str) -> Any:
     return current
 
 
+def _dig_optional(data: dict[str, Any], dot_key: str) -> tuple[bool, Any]:
+    try:
+        return True, _dig(data, dot_key)
+    except KeyError:
+        return False, None
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _section_paths(section: str, active_profile: str) -> tuple[Path | None, Path | None]:
+    if section in CONFIG_SECTION_FILES:
+        filename = CONFIG_SECTION_FILES[section]
+        base_path = Path("config") / filename
+        profile_path = Path("config/profiles") / active_profile / filename if active_profile != "base" else None
+        return base_path, profile_path
+
+    if section == "ui":
+        return None, (Path("config/profiles") / active_profile / "ui.yaml" if active_profile != "base" else None)
+
+    if section == "profile_metadata":
+        return None, (Path("config/profiles") / active_profile / "profile.yaml" if active_profile != "base" else None)
+
+    return None, None
+
+
+def _env_refs(value: Any) -> list[str]:
+    if not isinstance(value, str):
+        return []
+    refs: list[str] = []
+    for raw in ENV_PLACEHOLDER_RE.findall(value):
+        refs.append(raw.strip("{}"))
+    return refs
+
+
 def _profiles_root() -> Path:
     return Path("config/profiles")
 
@@ -171,27 +232,55 @@ def cmd_config_explain(args: argparse.Namespace) -> int:
         print(f"Key not found: {args.key}", file=sys.stderr)
         return 1
 
-    source_chain: list[dict[str, str]] = []
-    root_key = args.key.split(".", 1)[0]
-    base_file = "config/core.yaml"
-    if root_key == "features":
-        base_file = "config/features.yaml"
-    elif root_key == "tools":
-        base_file = "config/tools.yaml"
-    elif root_key == "agents":
-        base_file = "config/agents.yaml"
-    elif root_key in {"ui", "profile_metadata"}:
-        base_file = f"config/profiles/{active}/ui.yaml" if active != "base" else "config/profiles/base/ui.yaml"
+    key_parts = args.key.split(".", 1)
+    section = key_parts[0]
+    subkey = key_parts[1] if len(key_parts) > 1 else ""
+    base_path, profile_path = _section_paths(section, active)
 
-    source_chain.append({"layer": "base", "source": base_file})
-    if active != "base":
-        source_chain.append({"layer": "profile", "source": f"config/profiles/{active}/{base_file.split('/')[-1]}"})
-    source_chain.append({"layer": "environment", "source": "process environment"})
+    source_chain: list[dict[str, Any]] = []
+    merged_raw: dict[str, Any] = {}
+
+    if base_path:
+        base_data = _read_yaml(base_path)
+        merged_raw = _deep_merge(merged_raw, base_data)
+        exists, _ = _dig_optional(base_data, subkey) if subkey else (True, base_data)
+        source_chain.append({
+            "layer": "base",
+            "source": str(base_path),
+            "key_present": exists,
+        })
+
+    if profile_path:
+        profile_data = _read_yaml(profile_path)
+        if profile_data:
+            merged_raw = _deep_merge(merged_raw, profile_data)
+        exists, _ = _dig_optional(profile_data, subkey) if subkey else (bool(profile_data), profile_data)
+        source_chain.append({
+            "layer": "profile",
+            "source": str(profile_path),
+            "key_present": exists,
+        })
+
+    raw_exists, raw_value = _dig_optional(merged_raw, subkey) if subkey else (bool(merged_raw), merged_raw)
+    refs = _env_refs(raw_value)
+    if refs:
+        env_state = {name: ("set" if name in env else "missing") for name in refs}
+        source_chain.append(
+            {
+                "layer": "environment",
+                "source": "process environment",
+                "references": refs,
+                "reference_state": env_state,
+            }
+        )
+    else:
+        source_chain.append({"layer": "environment", "source": "process environment", "references": []})
 
     payload = {
         "active_profile": active,
         "key": args.key,
         "value": value,
+        "raw_value_pre_env": raw_value if raw_exists else None,
         "source_chain": source_chain,
     }
     _print_payload(payload, args.format)
@@ -456,15 +545,8 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
 
 
 def cmd_docs_check(args: argparse.Namespace) -> int:
-    docs_to_check = [
-        Path("README.md"),
-        Path("docs/index.md"),
-        Path("docs/configuration.md"),
-        Path("docs/profile_creation.md"),
-    ]
-
     checks: list[dict[str, Any]] = []
-    for doc in docs_to_check:
+    for doc in DOCS_CONFORMANCE_FILES:
         exists = doc.exists()
         details = "Found" if exists else "Missing"
         checks.append({"path": str(doc), "status": "ok" if exists else "fail", "details": details})
@@ -480,6 +562,57 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
                 "status": "ok" if has_reference else "fail",
                 "details": "Contains steuermann references" if has_reference else "Missing steuermann command references",
             }
+        )
+
+    configuration_path = Path("docs/configuration.md")
+    if configuration_path.exists():
+        configuration_text = configuration_path.read_text(encoding="utf-8")
+        has_precedence = "repository defaults" in configuration_text and "profile overlay" in configuration_text and "environment variables" in configuration_text
+        checks.append(
+            {
+                "path": str(configuration_path),
+                "status": "ok" if has_precedence else "fail",
+                "details": "Contains precedence model guidance" if has_precedence else "Missing precedence model guidance",
+            }
+        )
+
+    contract = _read_yaml(CONTRACT_PATH)
+    contract_exists = bool(contract)
+    checks.append(
+        {
+            "path": str(CONTRACT_PATH),
+            "status": "ok" if contract_exists else "fail",
+            "details": "Contract loaded" if contract_exists else "Contract file missing or invalid",
+        }
+    )
+    if contract_exists:
+        schema_ok = contract.get("schema_version") == 1
+        docs_mutation_ok = contract.get("policies", {}).get("docs_mutation") == "disabled"
+        manual_edit_ok = contract.get("policies", {}).get("manual_config_editing") == "supported"
+        ingest_policy_ok = contract.get("policies", {}).get("ingest_interface") == "steuermann_ingest_only"
+        checks.extend(
+            [
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if schema_ok else "fail",
+                    "details": "schema_version is 1" if schema_ok else "schema_version mismatch",
+                },
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if docs_mutation_ok else "fail",
+                    "details": "docs_mutation policy is disabled" if docs_mutation_ok else "docs_mutation policy mismatch",
+                },
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if manual_edit_ok else "fail",
+                    "details": "manual_config_editing policy is supported" if manual_edit_ok else "manual_config_editing policy mismatch",
+                },
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if ingest_policy_ok else "fail",
+                    "details": "ingest_interface policy is steuermann_ingest_only" if ingest_policy_ok else "ingest_interface policy mismatch",
+                },
+            ]
         )
 
     has_fail = any(c["status"] == "fail" for c in checks)
@@ -581,7 +714,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.print_help()
         return 1
 
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except Exception as exc:
+        if hasattr(args, "format") and getattr(args, "format") == "json":
+            print(json.dumps({"status": "error", "error": str(exc)}, indent=2, sort_keys=True))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
