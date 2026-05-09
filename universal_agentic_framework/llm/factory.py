@@ -6,6 +6,7 @@ from typing import Callable, Dict, Optional, Tuple
 
 from universal_agentic_framework.config import CoreConfig
 from universal_agentic_framework.config.schemas import ProviderSettings
+from universal_agentic_framework.llm.provider_registry import parse_model_id
 
 BuilderFn = Callable[[ProviderSettings, str], object]
 
@@ -61,9 +62,10 @@ class LLMFactory:
 
     @staticmethod
     def _provider_from_model(model_name: str) -> str:
-        if "/" in model_name:
-            return model_name.split("/", 1)[0]
-        return "unknown"
+        try:
+            return parse_model_id(model_name).provider
+        except Exception:
+            return "unknown"
 
     def _select_model(self, provider: ProviderSettings, language: str) -> str:
         # exact language

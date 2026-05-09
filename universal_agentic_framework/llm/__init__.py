@@ -1,7 +1,8 @@
-"""LLM factory utilities."""
-from .factory import LLMFactory, build_litellm_chat
+"""LLM utilities."""
+
+from .provider_registry import normalize_model_id, parse_model_id
 
 __all__ = [
-    "LLMFactory",
-    "build_litellm_chat",
+    "normalize_model_id",
+    "parse_model_id",
 ]

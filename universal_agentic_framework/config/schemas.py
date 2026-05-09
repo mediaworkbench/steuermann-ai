@@ -5,6 +5,8 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, HttpUrl, PositiveInt, conint, confloat, ConfigDict, field_validator, model_validator
 
+from universal_agentic_framework.llm.provider_registry import normalize_model_id
+
 
 PROFILE_ID_PATTERN = r"^[a-z0-9_-]+$"
 
@@ -55,15 +57,8 @@ class ProviderSettings(BaseModel):
         for language, model in self.models.model_dump().items():
             if not model:
                 continue
-            model_value = str(model).strip()
-            # Enforce canonical LiteLLM provider/model naming.
-            if "/" not in model_value:
-                raise ValueError(
-                    f"models.{language} must be a full LiteLLM model string like 'openai/gpt-4o'"
-                )
-            provider_prefix = model_value.split("/", 1)[0]
-            if not provider_prefix:
-                raise ValueError(f"models.{language} has an invalid provider prefix")
+            model_value = normalize_model_id(str(model))
+            setattr(self.models, language, model_value)
         return self
 
 
