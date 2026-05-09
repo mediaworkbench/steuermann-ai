@@ -1089,6 +1089,7 @@ def cmd_profile_scaffold(args: argparse.Namespace) -> int:
 
     manifest = {
         "schema_version": 1,
+        "manifest_version": 1,
         "profile_id": profile_id,
         "compatibility": _profile_compatibility(target, profile_id),
         "required_files": PROFILE_REQUIRED_FILES + ["prompts/"],
@@ -1106,6 +1107,7 @@ def _bundle_manifest(profile_id: str, profile_dir: Path | None = None) -> dict[s
     resolved_profile_dir = profile_dir or (_profiles_root() / profile_id)
     return {
         "schema_version": 1,
+        "manifest_version": 1,
         "profile_id": profile_id,
         "compatibility": _profile_compatibility(resolved_profile_dir, profile_id),
         "required_files": PROFILE_REQUIRED_FILES + ["prompts/"],

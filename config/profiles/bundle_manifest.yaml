@@ -6,6 +6,7 @@ compatibility:
   - display_name
   - description
   profile_id: starter
+manifest_version: '1'
 profile_id: starter
 required_files:
 - profile.yaml

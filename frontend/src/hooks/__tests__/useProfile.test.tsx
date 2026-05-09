@@ -15,6 +15,7 @@ function ProfileProbe() {
       <span data-testid="profile-id">{profile.id}</span>
       <span data-testid="display-name">{profile.displayName}</span>
       <span data-testid="role-label">{profile.roleLabel}</span>
+      <span data-testid="framework-version">{profile.frameworkVersion}</span>
       <span data-testid="loading">{String(profile.loading)}</span>
     </div>
   );
@@ -35,6 +36,7 @@ describe("useProfile", () => {
       available_tools: [],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "base-model",
+      framework_version: "0.2.1",
       supported_languages: ["en"],
       profile: {
         id: "medical",
@@ -61,6 +63,7 @@ describe("useProfile", () => {
       expect(screen.getByTestId("profile-id")).toHaveTextContent("medical");
       expect(screen.getByTestId("display-name")).toHaveTextContent("Medical Assistant");
       expect(screen.getByTestId("role-label")).toHaveTextContent("Clinical Assistant");
+      expect(screen.getByTestId("framework-version")).toHaveTextContent("0.2.1");
       expect(screen.getByTestId("loading")).toHaveTextContent("false");
     });
 

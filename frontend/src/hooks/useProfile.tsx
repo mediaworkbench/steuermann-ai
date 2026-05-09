@@ -21,6 +21,7 @@ interface ProfileContextValue {
   roleLabel: string;
   appName: string;
   description: string;
+  frameworkVersion: string;
   theme: ProfileTheme;
   loading: boolean;
 }
@@ -65,6 +66,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     roleLabel: SINGLE_USER_ROLE_LABEL,
     appName: SINGLE_USER_APP_NAME,
     description: "",
+    frameworkVersion: "unknown",
     theme: EMPTY_THEME,
     loading: true,
   });
@@ -91,6 +93,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         roleLabel: profile.role_label || SINGLE_USER_ROLE_LABEL,
         appName: profile.app_name || profile.display_name || SINGLE_USER_APP_NAME,
         description: profile.description || "",
+        frameworkVersion: config?.framework_version || "unknown",
         theme: profile.theme || EMPTY_THEME,
         loading: false,
       };

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.routers.settings import router
+from backend.version import get_framework_version
 
 
 def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
@@ -84,6 +85,7 @@ theme:
 
     assert response.status_code == 200
     body = response.json()
+    assert body["framework_version"] == get_framework_version()
     assert body["profile"]["id"] == "medical"
     assert body["profile"]["display_name"] == "Medical Assistant"
     assert body["profile"]["role_label"] == "Clinical Assistant"
@@ -130,6 +132,7 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     response = client.get("/api/system-config")
     assert response.status_code == 200
     body = response.json()
+    assert body["framework_version"] == get_framework_version()
     assert body["supported_languages"] == ["de", "en"]
 
     # Fallback 2: derive from fork.language when no prompt files are available.
@@ -145,6 +148,7 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     response = client.get("/api/system-config")
     assert response.status_code == 200
     body = response.json()
+    assert body["framework_version"] == get_framework_version()
     assert body["supported_languages"] == ["en"]
 
 

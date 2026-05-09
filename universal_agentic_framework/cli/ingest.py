@@ -133,9 +133,22 @@ def load_config_from_yaml(config_path: Path) -> Dict[str, Any]:
         
     Returns:
         Configuration dictionary
+        
+    Raises:
+        ValueError: If file cannot be read or YAML is malformed
     """
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError as e:
+        raise ValueError(f"Configuration file not found: {config_path}") from e
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in configuration file {config_path}: {e}") from e
+    except Exception as e:
+        raise ValueError(f"Failed to load configuration file {config_path}: {e}") from e
+    
+    if not isinstance(config, dict):
+        raise ValueError(f"Configuration file must be a YAML object, got {type(config).__name__}")
     
     # Extract ingestion config
     ingestion_config = config.get("ingestion", {})
@@ -264,34 +277,27 @@ def cmd_ingest(args):
     # Run ingestion
     stats = service.ingest_directory(validate_only=args.validate_only)
     
-    # Print results
-    print("\n" + "=" * 60)
-    print("INGESTION RESULTS")
-    print("=" * 60)
-    print(f"Files processed:  {stats['processed']}")
-    print(f"Files skipped:    {stats['skipped']}")
-    print(f"Files with errors: {stats['errors']}")
-    print(f"Total chunks:     {stats['total_chunks']}")
-    timing_total = stats.get("timings_ms", {}).get("total", 0)
-    if timing_total:
-        print(f"Total time (ms):  {timing_total}")
-    print("=" * 60)
+    # Log results
+    logger.info(
+        "Ingestion complete",
+        processed=stats['processed'],
+        skipped=stats['skipped'],
+        errors=stats['errors'],
+        total_chunks=stats['total_chunks'],
+        total_time_ms=stats.get("timings_ms", {}).get("total", 0)
+    )
     
     if args.verbose:
-        print("\nFile Details:")
         for file_result in stats["files"]:
-            status_icon = {
-                "success": "✓",
-                "skipped": "○",
-                "error": "✗"
-            }.get(file_result["status"], "?")
-            
-            print(f"{status_icon} {file_result['file']}")
-            if file_result["status"] == "success":
-                print(f"  Chunks: {file_result['chunks']}")
-            elif file_result["status"] in ["skipped", "error"]:
-                reason = file_result.get("reason") or file_result.get("error", "Unknown")
-                print(f"  Reason: {reason}")
+            status_level = "info" if file_result["status"] == "success" else "warning"
+            log_fn = getattr(logger, status_level)
+            log_fn(
+                f"{file_result['file']} - {file_result['status']}",
+                file=file_result['file'],
+                status=file_result['status'],
+                chunks=file_result.get('chunks'),
+                reason=file_result.get('reason') or file_result.get('error')
+            )
     
     return 0 if stats["errors"] == 0 else 1
 
@@ -399,23 +405,27 @@ def cmd_watch(args):
     check_thread = threading.Thread(target=periodic_check, daemon=True)
     check_thread.start()
     
-    print(f"\n👁️  Watching {service.config.source_path} for new documents...")
-    print(f"Collection: {service.config.collection_name}")
-    print(f"Language: {service.config.target_language}")
-    print("\nPress Ctrl+C to stop\n")
+    logger.info(
+        "Watch mode started",
+        source_path=str(service.config.source_path),
+        collection=service.config.collection_name,
+        language=service.config.target_language
+    )
     
     # Initial scan and ingest of existing documents
-    print("\n📂 Scanning for existing documents...")
+    logger.info("Scanning for existing documents")
     try:
         stats = service.ingest_directory()
         if stats["processed"] > 0:
-            print(f"✓ Ingested {stats['processed']} existing documents ({stats['total_chunks']} chunks)")
-            if stats["skipped"] > 0:
-                print(f"○ Skipped {stats['skipped']} documents (already ingested or invalid)")
-            if stats["errors"] > 0:
-                print(f"✗ Errors: {stats['errors']} documents failed")
+            logger.info(
+                "Initial ingestion complete",
+                processed=stats['processed'],
+                total_chunks=stats['total_chunks'],
+                skipped=stats.get('skipped', 0),
+                errors=stats.get('errors', 0)
+            )
         else:
-            print("✓ No new documents to ingest")
+            logger.info("No new documents found in initial scan")
     except Exception as e:
         logger.warning("Initial scan failed", error=str(e))
         print(f"⚠️  Initial scan failed: {e}")

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.db import SettingsStore
 from backend.single_user import get_effective_user_id, require_api_access
+from backend.version import get_framework_version
 from universal_agentic_framework.config import (
     get_active_profile_id,
     load_core_config,
@@ -62,6 +63,7 @@ class SystemConfigResponse(BaseModel):
     available_tools: List[Dict[str, str]]
     rag_defaults: Dict[str, Any]
     default_model: str
+    framework_version: str
     profile: ProfileConfigResponse
     supported_languages: List[str] = Field(default_factory=list)
 
@@ -192,6 +194,7 @@ async def get_system_config() -> Dict[str, Any]:
                 "top_k": int(top_k) if isinstance(top_k, (int, float, str)) else 5,
             },
             "default_model": default_model,
+            "framework_version": get_framework_version(),
             "supported_languages": supported_languages,
             "profile": {
                 "id": profile_id,
@@ -219,6 +222,7 @@ async def get_system_config() -> Dict[str, Any]:
             ],
             "rag_defaults": {"collection_name": "framework", "top_k": 5},
             "default_model": "gemma3:4b",
+            "framework_version": get_framework_version(),
             "supported_languages": ["en"],
             "profile": {
                 "id": "base",

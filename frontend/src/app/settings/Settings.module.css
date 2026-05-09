@@ -55,6 +55,12 @@
   letter-spacing: -0.01em;
 }
 
+.versionText {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 .error {
   background: #fef2f2;
   border: 1px solid #fecaca;

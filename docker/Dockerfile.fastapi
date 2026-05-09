@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy installed Python packages and app code from builder
 COPY --from=builder /usr/local /usr/local
+COPY --from=builder /app/pyproject.toml ./pyproject.toml
 COPY --from=builder /app/backend ./backend/
 COPY --from=builder /app/config ./config/
 COPY --from=builder /app/universal_agentic_framework ./universal_agentic_framework/
