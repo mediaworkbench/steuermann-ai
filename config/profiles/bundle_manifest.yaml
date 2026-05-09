@@ -1,0 +1,18 @@
+compatibility:
+  framework_version: '0.2'
+  framework_version_range: '>=0.2,<1.0'
+  minimum_required_keys:
+  - profile_id
+  - display_name
+  - description
+  profile_id: starter
+profile_id: starter
+required_files:
+- profile.yaml
+- core.yaml
+- features.yaml
+- agents.yaml
+- tools.yaml
+- ui.yaml
+- prompts/
+schema_version: 1

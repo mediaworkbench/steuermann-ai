@@ -736,6 +736,66 @@ def test_config_unset_apply_accepts_interactive_confirm(
     assert "llm" not in data
 
 
+def test_profile_bundle_import_does_not_modify_existing_profiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    starter_dir = _create_profile_dir(tmp_path, name="starter")
+    (starter_dir / "profile.yaml").write_text(
+        "profile_id: starter\n"
+        "display_name: Starter Original\n"
+        "description: Original starter profile\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(steuermann, "_framework_version", lambda: "0.2")
+
+    bundle_path = tmp_path / "starter.tar.gz"
+    export_code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "export",
+            "--profile",
+            "starter",
+            "--out",
+            str(bundle_path),
+            "--format",
+            "json",
+        ]
+    )
+    assert export_code == 0
+
+    import_code = steuermann.main(
+        [
+            "profile",
+            "bundle",
+            "import",
+            "--bundle",
+            str(bundle_path),
+            "--to",
+            "config/profiles/imported-starter",
+            "--format",
+            "json",
+        ]
+    )
+    assert import_code == 0
+
+    assert (tmp_path / "config" / "profiles" / "starter").exists()
+    assert (tmp_path / "config" / "profiles" / "imported-starter").exists()
+
+    starter_profile = yaml.safe_load(
+        (tmp_path / "config" / "profiles" / "starter" / "profile.yaml").read_text(encoding="utf-8")
+    )
+    assert starter_profile["display_name"] == "Starter Original"
+
+    imported_profile = yaml.safe_load(
+        (tmp_path / "config" / "profiles" / "imported-starter" / "profile.yaml").read_text(encoding="utf-8")
+    )
+    assert imported_profile["profile_id"] == "imported-starter"
+    assert steuermann._validate_profile_files(tmp_path / "config" / "profiles" / "imported-starter") == []
+
+
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         steuermann,

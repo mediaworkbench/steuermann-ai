@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import tarfile
+import tempfile
 import tomllib
 from typing import Any, Iterable
 
@@ -1212,10 +1213,17 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
         profile_root = root_dirs[0]
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
-        tf.extractall(parent)
 
-    extracted = parent / profile_root
-    extracted.rename(target)
+        # Extract into an isolated staging directory first so existing
+        # profiles in parent are never modified by tar extraction.
+        with tempfile.TemporaryDirectory(prefix="steuermann-import-") as staging:
+            staging_path = Path(staging)
+            tf.extractall(staging_path, filter="data")
+            extracted = staging_path / profile_root
+            if not extracted.exists() or not extracted.is_dir():
+                print("Imported bundle missing profile root directory", file=sys.stderr)
+                return 1
+            shutil.move(str(extracted), str(target))
 
     missing = _validate_profile_files(target)
     if missing:
@@ -1224,6 +1232,15 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
 
     profile_yaml = target / "profile.yaml"
     profile_data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
+
+    # Keep metadata consistent with directory name so profile validation passes
+    # after importing into a differently named target folder.
+    profile_data["profile_id"] = target.name
+    profile_yaml.write_text(
+        yaml.safe_dump(profile_data, sort_keys=True, allow_unicode=False),
+        encoding="utf-8",
+    )
+
     missing_required_keys = [key for key in required_keys if not _dig_optional(profile_data, key)[0]]
     if missing_required_keys:
         print(
