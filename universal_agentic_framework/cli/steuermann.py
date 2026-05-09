@@ -76,6 +76,10 @@ EXPECTED_MUTATOR_SURFACE = {
         "key_scope": "profile_safe_core_only",
         "dry_run_default": True,
         "requires_apply_flag": True,
+        "requires_confirm_token": True,
+        "confirm_token": "APPLY",
+        "interactive_tty_prompt_fallback": True,
+        "non_interactive_requires_confirm_flag": True,
         "rollback_on_validation_error": True,
     },
     "config_unset": {
@@ -84,6 +88,10 @@ EXPECTED_MUTATOR_SURFACE = {
         "key_scope": "profile_safe_core_only",
         "dry_run_default": True,
         "requires_apply_flag": True,
+        "requires_confirm_token": True,
+        "confirm_token": "APPLY",
+        "interactive_tty_prompt_fallback": True,
+        "non_interactive_requires_confirm_flag": True,
         "rollback_on_validation_error": True,
     }
 }
@@ -770,6 +778,22 @@ def cmd_config_validate(args: argparse.Namespace) -> int:
     _print_payload(payload, args.format)
     return 1 if has_error or (args.strict and has_warning) else 0
 
+
+def _resolve_apply_confirmation(confirm_value: str, payload: dict[str, Any]) -> tuple[bool, str | None]:
+    if confirm_value == "APPLY":
+        return True, "flag"
+
+    if not sys.stdin.isatty():
+        payload["error"] = "Apply mode requires --confirm APPLY"
+        return False, None
+
+    entered = input("Type APPLY to persist this change: ").strip()
+    if entered == "APPLY":
+        return True, "interactive"
+
+    payload["error"] = "Apply confirmation failed; expected APPLY"
+    return False, None
+
 def cmd_config_set(args: argparse.Namespace) -> int:
     profile_id = args.profile
     payload: dict[str, Any] = {
@@ -820,6 +844,13 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         payload["mode"] = "dry-run"
         _print_payload(payload, args.format)
         return 0
+
+    confirmed, confirmation_source = _resolve_apply_confirmation(args.confirm, payload)
+    if not confirmed:
+        payload["mode"] = "apply"
+        _print_payload(payload, args.format)
+        return 1
+    payload["confirmation_source"] = confirmation_source
 
     original_text = core_path.read_text(encoding="utf-8")
     core_path.write_text(
@@ -887,6 +918,13 @@ def cmd_config_unset(args: argparse.Namespace) -> int:
         payload["mode"] = "dry-run"
         _print_payload(payload, args.format)
         return 0
+
+    confirmed, confirmation_source = _resolve_apply_confirmation(args.confirm, payload)
+    if not confirmed:
+        payload["mode"] = "apply"
+        _print_payload(payload, args.format)
+        return 1
+    payload["confirmation_source"] = confirmation_source
 
     if not found:
         payload["status"] = "ok"
@@ -1359,6 +1397,7 @@ def create_parser() -> argparse.ArgumentParser:
     set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
     set_parser.add_argument("--value", required=True, help="New value parsed as YAML scalar/object")
     set_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
+    set_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
     _add_common_format_arg(set_parser)
     set_parser.set_defaults(func=cmd_config_set)
 
@@ -1369,6 +1408,7 @@ def create_parser() -> argparse.ArgumentParser:
     unset_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
     unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
     unset_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
+    unset_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
     _add_common_format_arg(unset_parser)
     unset_parser.set_defaults(func=cmd_config_unset)
 

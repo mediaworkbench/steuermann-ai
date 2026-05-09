@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import sys
 import tarfile
 
 import pytest
@@ -167,6 +168,8 @@ def test_config_set_apply_writes_and_validates(tmp_path: Path, monkeypatch: pyte
             "--value",
             "0.5",
             "--apply",
+            "--confirm",
+            "APPLY",
             "--format",
             "json",
         ]
@@ -231,6 +234,8 @@ def test_config_set_apply_reverts_on_validation_error(
             "--value",
             "0.1",
             "--apply",
+            "--confirm",
+            "APPLY",
             "--format",
             "json",
         ]
@@ -297,6 +302,8 @@ def test_config_unset_apply_removes_key(
             "--key",
             "core.llm.temperature",
             "--apply",
+            "--confirm",
+            "APPLY",
             "--format",
             "json",
         ]
@@ -336,6 +343,8 @@ def test_config_unset_apply_reverts_on_validation_error(
             "--key",
             "core.llm.temperature",
             "--apply",
+            "--confirm",
+            "APPLY",
             "--format",
             "json",
         ]
@@ -374,8 +383,76 @@ def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
     assert any("minimum_required_keys_default matches CLI defaults" in detail for detail in details)
     assert any("mutator_surface.config_set.profile_scope is named_profile_only" in detail for detail in details)
     assert any("mutator_surface.config_set.key_scope is profile_safe_core_only" in detail for detail in details)
+    assert any("mutator_surface.config_set.requires_confirm_token is True" in detail for detail in details)
+    assert any("mutator_surface.config_set.confirm_token is APPLY" in detail for detail in details)
+    assert any("mutator_surface.config_set.interactive_tty_prompt_fallback is True" in detail for detail in details)
+    assert any("mutator_surface.config_set.non_interactive_requires_confirm_flag is True" in detail for detail in details)
     assert any("mutator_surface.config_unset.profile_scope is named_profile_only" in detail for detail in details)
     assert any("mutator_surface.config_unset.key_scope is profile_safe_core_only" in detail for detail in details)
+    assert any("mutator_surface.config_unset.requires_confirm_token is True" in detail for detail in details)
+    assert any("mutator_surface.config_unset.confirm_token is APPLY" in detail for detail in details)
+    assert any("mutator_surface.config_unset.interactive_tty_prompt_fallback is True" in detail for detail in details)
+    assert any("mutator_surface.config_unset.non_interactive_requires_confirm_flag is True" in detail for detail in details)
+
+
+def test_config_set_apply_requires_confirm_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    (profile_dir / "core.yaml").write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--value",
+            "0.5",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert "--confirm APPLY" in payload["error"]
+
+
+def test_config_unset_apply_requires_confirm_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    (profile_dir / "core.yaml").write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    code = steuermann.main(
+        [
+            "config",
+            "unset",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert "--confirm APPLY" in payload["error"]
 
 
 def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -539,6 +616,10 @@ def test_config_contract_check_detects_mutator_surface_drift(
                 "key_scope": "any",
                 "dry_run_default": False,
                 "requires_apply_flag": False,
+                "requires_confirm_token": False,
+                "confirm_token": "NOPE",
+                "interactive_tty_prompt_fallback": False,
+                "non_interactive_requires_confirm_flag": False,
                 "rollback_on_validation_error": False,
             },
             "config_unset": {
@@ -547,6 +628,10 @@ def test_config_contract_check_detects_mutator_surface_drift(
                 "key_scope": "any",
                 "dry_run_default": False,
                 "requires_apply_flag": False,
+                "requires_confirm_token": False,
+                "confirm_token": "NOPE",
+                "interactive_tty_prompt_fallback": False,
+                "non_interactive_requires_confirm_flag": False,
                 "rollback_on_validation_error": False,
             },
         },
@@ -561,8 +646,94 @@ def test_config_contract_check_detects_mutator_surface_drift(
     details = [check["details"] for check in payload["checks"]]
     assert any("mutator_surface.config_set.profile_scope mismatch" in d for d in details)
     assert any("mutator_surface.config_set.key_scope mismatch" in d for d in details)
+    assert any("mutator_surface.config_set.requires_confirm_token mismatch" in d for d in details)
+    assert any("mutator_surface.config_set.confirm_token mismatch" in d for d in details)
+    assert any("mutator_surface.config_set.interactive_tty_prompt_fallback mismatch" in d for d in details)
+    assert any("mutator_surface.config_set.non_interactive_requires_confirm_flag mismatch" in d for d in details)
     assert any("mutator_surface.config_unset.profile_scope mismatch" in d for d in details)
     assert any("mutator_surface.config_unset.key_scope mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.requires_confirm_token mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.confirm_token mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.interactive_tty_prompt_fallback mismatch" in d for d in details)
+    assert any("mutator_surface.config_unset.non_interactive_requires_confirm_flag mismatch" in d for d in details)
+
+
+def test_config_set_apply_accepts_interactive_confirm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "APPLY")
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "set",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--value",
+            "0.2",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["confirmation_source"] == "interactive"
+    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
+    assert data["llm"]["temperature"] == 0.2
+
+
+def test_config_unset_apply_accepts_interactive_confirm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    core_path = profile_dir / "core.yaml"
+    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "APPLY")
+    monkeypatch.setattr(
+        steuermann,
+        "_validate_one_profile",
+        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
+    )
+
+    code = steuermann.main(
+        [
+            "config",
+            "unset",
+            "--profile",
+            "starter",
+            "--key",
+            "core.llm.temperature",
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["confirmation_source"] == "interactive"
+    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
+    assert "llm" not in data
 
 
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -58,6 +58,10 @@ mutator_surface:
     key_scope: profile_safe_core_only
     dry_run_default: true
     requires_apply_flag: true
+    requires_confirm_token: true
+    confirm_token: APPLY
+    interactive_tty_prompt_fallback: true
+    non_interactive_requires_confirm_flag: true
     rollback_on_validation_error: true
   config_unset:
     profile_scope: named_profile_only
@@ -65,4 +69,8 @@ mutator_surface:
     key_scope: profile_safe_core_only
     dry_run_default: true
     requires_apply_flag: true
+    requires_confirm_token: true
+    confirm_token: APPLY
+    interactive_tty_prompt_fallback: true
+    non_interactive_requires_confirm_flag: true
     rollback_on_validation_error: true

@@ -686,14 +686,17 @@ poetry run steuermann docs check --format json
 poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --format json
 
 # Persist a profile-safe change and run post-write validation
-poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --apply --format json
+poetry run steuermann config set --profile starter --key core.llm.temperature --value 0.6 --apply --confirm APPLY --format json
 
 # Preview an unset operation without writing
 poetry run steuermann config unset --profile starter --key core.llm.temperature --format json
 
 # Persist an unset operation with post-write validation and rollback safeguards
-poetry run steuermann config unset --profile starter --key core.llm.temperature --apply --format json
+poetry run steuermann config unset --profile starter --key core.llm.temperature --apply --confirm APPLY --format json
 ```
+
+When `--apply` is used without `--confirm APPLY`, interactive terminals prompt for confirmation.
+Non-interactive execution (automation/CI) remains strict and requires the explicit `--confirm APPLY` flag.
 
 ### Drift Report Domains
 
