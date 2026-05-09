@@ -51,19 +51,17 @@ poetry run steuermann profile active --format json
 Create a new profile overlay directory from a source template. Copies the full required file set and writes a valid `profile.yaml` with the target profile id.
 
 ```bash
-steuermann profile scaffold --from <source_profile_id> --to <target_directory> [--profile-id <id>]
+steuermann profile scaffold --from <source_profile_id> --profile <target_profile_id>
 ```
 
 - `--from` — source profile to copy from (e.g. `starter`)
-- `--to` — target directory path (can be inside or outside the repository)
-- `--profile-id` — override the `profile_id` written into `profile.yaml` (defaults to the directory name)
+- `--profile` — target profile id (directory under `config/profiles/`)
 
 **Example:**
 ```bash
 poetry run steuermann profile scaffold \
   --from starter \
-  --to config/profiles/medical-ai-de \
-  --profile-id medical-ai-de
+  --profile medical-ai-de
 ```
 
 ---
@@ -93,17 +91,17 @@ poetry run steuermann profile bundle export \
 Import a profile bundle into a target directory after validating compatibility metadata. Existing profiles with the same name are never overwritten — the command aborts if the target already exists.
 
 ```bash
-steuermann profile bundle import --bundle <path.tar.gz> --to <target_directory>
+steuermann profile bundle import --bundle <path.tar.gz> --profile <target_profile_id>
 ```
 
 - `--bundle` — bundle path to import
-- `--to` — target profile directory (must not already exist)
+- `--profile` — target profile id (directory under `config/profiles/`, must not already exist)
 
 **Example:**
 ```bash
 poetry run steuermann profile bundle import \
   --bundle /tmp/starter-bundle.tar.gz \
-  --to config/profiles/imported-profile
+  --profile imported-profile
 ```
 
 ---
@@ -342,8 +340,7 @@ steuermann ingest reindex --source <dir> --collection <name> [--language <lang>]
 # 1. Scaffold from starter
 poetry run steuermann profile scaffold \
   --from starter \
-  --to config/profiles/my-profile \
-  --profile-id my-profile
+  --profile my-profile
 
 # 2. Edit config/profiles/my-profile/core.yaml (model, language, RAG, etc.)
 
@@ -394,7 +391,7 @@ poetry run steuermann profile bundle export \
 # Import into target repository
 poetry run steuermann profile bundle import \
   --bundle /tmp/starter.tar.gz \
-  --to config/profiles/imported-starter
+  --profile imported-starter
 
 # Validate immediately after import
 poetry run steuermann config validate --profile imported-starter --format json

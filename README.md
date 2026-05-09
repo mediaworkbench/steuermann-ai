@@ -325,7 +325,7 @@ For host-side development and local test execution with Poetry, see `docs/index.
 ### 6. (Optional) Scaffold a new profile
 
 ```bash
-poetry run steuermann profile scaffold --from starter --to config/profiles/my-profile --profile-id my-profile
+poetry run steuermann profile scaffold --from starter --profile my-profile
 poetry run steuermann config validate --profile my-profile --format json
 ```
 
@@ -369,9 +369,9 @@ poetry run steuermann --help
 | Command | Purpose |
 |---|---|
 | `steuermann profile active` | Show active profile id, directory, and metadata validity |
-| `steuermann profile scaffold --from starter --to <dir>` | Create a new profile overlay from a template |
+| `steuermann profile scaffold --from starter --profile <id>` | Create a new profile overlay from a template |
 | `steuermann profile bundle export --profile <id> --out <file>` | Package a profile into a portable `.tar.gz` bundle |
-| `steuermann profile bundle import --bundle <file> --to <dir>` | Import and validate a profile bundle |
+| `steuermann profile bundle import --bundle <file> --profile <id>` | Import and validate a profile bundle |
 | `steuermann config show [--section <s>]` | Render the fully merged effective configuration |
 | `steuermann config explain --key <dot.path>` | Trace the source of a specific config key (base / overlay / env) |
 | `steuermann config validate [--strict]` | Validate schema, required files, and env substitutions |

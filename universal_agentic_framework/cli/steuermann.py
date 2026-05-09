@@ -1075,10 +1075,10 @@ def cmd_profile_scaffold(args: argparse.Namespace) -> int:
         print(f"Starter profile not found: {starter_dir}", file=sys.stderr)
         return 1
 
-    target = Path(args.to)
+    target = _profiles_root() / args.profile
     _copytree(starter_dir, target)
 
-    profile_id = args.profile_id or target.name
+    profile_id = args.profile
     profile_yaml = target / "profile.yaml"
     if profile_yaml.exists():
         data = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
@@ -1158,7 +1158,7 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
         print(f"Bundle not found: {bundle}", file=sys.stderr)
         return 1
 
-    target = Path(args.to)
+    target = _profiles_root() / args.profile
     if target.exists():
         print(f"Target already exists: {target}", file=sys.stderr)
         return 1
@@ -1232,7 +1232,7 @@ def cmd_profile_bundle_import(args: argparse.Namespace) -> int:
 
     # Keep metadata consistent with directory name so profile validation passes
     # after importing into a differently named target folder.
-    profile_data["profile_id"] = target.name
+    profile_data["profile_id"] = args.profile
     profile_yaml.write_text(
         yaml.safe_dump(profile_data, sort_keys=True, allow_unicode=False),
         encoding="utf-8",
@@ -1358,8 +1358,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     scaffold_parser = profile_subparsers.add_parser("scaffold", help="Create profile scaffold")
     scaffold_parser.add_argument("--from", dest="from_profile", required=True, help="Source profile template")
-    scaffold_parser.add_argument("--to", required=True, help="Target directory")
-    scaffold_parser.add_argument("--profile-id", help="Override profile_id in generated profile.yaml")
+    scaffold_parser.add_argument("--profile", required=True, help="Target profile id (directory under config/profiles)")
     _add_common_format_arg(scaffold_parser)
     scaffold_parser.set_defaults(func=cmd_profile_scaffold)
 
@@ -1374,7 +1373,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     import_parser = bundle_subparsers.add_parser("import", help="Import profile bundle")
     import_parser.add_argument("--bundle", required=True, help="Bundle path (.tar.gz)")
-    import_parser.add_argument("--to", required=True, help="Target directory")
+    import_parser.add_argument("--profile", required=True, help="Target profile id (directory under config/profiles)")
     _add_common_format_arg(import_parser)
     import_parser.set_defaults(func=cmd_profile_bundle_import)
 

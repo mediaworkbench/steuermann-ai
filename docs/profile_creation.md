@@ -36,7 +36,7 @@ Equivalent scaffold flow with the canonical CLI:
 
 ```bash
 cd steuermann-ai
-poetry run steuermann profile scaffold --from starter --to config/profiles/medical-ai-de --profile-id medical-ai-de
+poetry run steuermann profile scaffold --from starter --profile medical-ai-de
 poetry run steuermann config validate --profile medical-ai-de --format json
 ```
 

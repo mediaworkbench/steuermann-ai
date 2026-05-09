@@ -773,8 +773,8 @@ def test_profile_bundle_import_does_not_modify_existing_profiles(
             "import",
             "--bundle",
             str(bundle_path),
-            "--to",
-            "config/profiles/imported-starter",
+            "--profile",
+            "imported-starter",
             "--format",
             "json",
         ]
@@ -946,15 +946,15 @@ def test_profile_scaffold_writes_compatibility_metadata(tmp_path: Path, monkeypa
     _create_profile_dir(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    target = tmp_path / "external-profile"
+    target = tmp_path / "config" / "profiles" / "external-profile"
     code = steuermann.main(
         [
             "profile",
             "scaffold",
             "--from",
             "starter",
-            "--to",
-            str(target),
+            "--profile",
+            "external-profile",
             "--format",
             "json",
         ]
@@ -1023,8 +1023,8 @@ def test_profile_bundle_import_fails_on_incompatible_major_version(
             "import",
             "--bundle",
             str(bundle_path),
-            "--to",
-            str(target),
+            "--profile",
+            "imported-profile",
             "--format",
             "json",
         ]
@@ -1087,8 +1087,8 @@ def test_profile_bundle_import_fails_when_required_profile_keys_missing(
             "import",
             "--bundle",
             str(bundle_path),
-            "--to",
-            str(target),
+            "--profile",
+            "imported-profile",
             "--format",
             "json",
         ]
