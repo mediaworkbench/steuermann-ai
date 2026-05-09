@@ -54,10 +54,20 @@ REQUIRED_CONTRACT_POLICIES = {
     "ingest_interface": "steuermann_ingest_only",
     "json_output_stability": "required",
 }
+EXPECTED_SECTION_MUTABILITY = {
+    "core": "partial",
+    "features": "partial",
+    "tools": "partial",
+    "agents": "partial",
+}
+EXPECTED_SEVERITY_POLICY = {
+    "blocking": "error",
+    "advisory": "warning",
+}
 
 
 def _with_profile_env(profile_id: str | None) -> dict[str, str]:
-    env = dict(os.environ)
+    env = _load_env_file()
     if profile_id:
         env["PROFILE_ID"] = profile_id
     return env
@@ -77,6 +87,22 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _load_env_file(path: Path = Path(".env")) -> dict[str, str]:
+    env = dict(os.environ)
+    if not path.exists():
+        return env
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        env.setdefault(key, value)
+    return env
 
 
 def _collect_unresolved_placeholders(value: Any, path: str = "") -> list[dict[str, str]]:
@@ -216,6 +242,10 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
         section_data = (contract.get("sections") or {}).get(section, {})
         expected_source = f"config/{filename}"
         actual_source = section_data.get("source_file")
+        expected_overlay = f"config/profiles/<profile_id>/{filename}"
+        actual_overlay = section_data.get("profile_overlay_file")
+        expected_mutability = EXPECTED_SECTION_MUTABILITY[section]
+        actual_mutability = section_data.get("profile_mutability")
         checks.append(
             {
                 "path": str(CONTRACT_PATH),
@@ -224,6 +254,28 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{section}.source_file matches {expected_source}"
                     if actual_source == expected_source
                     else f"{section}.source_file mismatch: expected {expected_source}, got {actual_source}"
+                ),
+            }
+        )
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if actual_overlay == expected_overlay else "fail",
+                "details": (
+                    f"{section}.profile_overlay_file matches {expected_overlay}"
+                    if actual_overlay == expected_overlay
+                    else f"{section}.profile_overlay_file mismatch: expected {expected_overlay}, got {actual_overlay}"
+                ),
+            }
+        )
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if actual_mutability == expected_mutability else "fail",
+                "details": (
+                    f"{section}.profile_mutability is {expected_mutability}"
+                    if actual_mutability == expected_mutability
+                    else f"{section}.profile_mutability mismatch: expected {expected_mutability}, got {actual_mutability}"
                 ),
             }
         )
@@ -253,6 +305,21 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{policy_name} policy is {expected_value}"
                     if actual_value == expected_value
                     else f"{policy_name} policy mismatch: expected {expected_value}, got {actual_value}"
+                ),
+            }
+        )
+
+    severity_policy = contract.get("severity_policy") or {}
+    for key, expected_value in EXPECTED_SEVERITY_POLICY.items():
+        actual_value = severity_policy.get(key)
+        checks.append(
+            {
+                "path": str(CONTRACT_PATH),
+                "status": "ok" if actual_value == expected_value else "fail",
+                "details": (
+                    f"severity_policy.{key} is {expected_value}"
+                    if actual_value == expected_value
+                    else f"severity_policy.{key} mismatch: expected {expected_value}, got {actual_value}"
                 ),
             }
         )

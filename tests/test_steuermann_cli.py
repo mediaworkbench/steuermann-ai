@@ -79,6 +79,9 @@ def test_config_contract_check_runs(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
+    details = [check["details"] for check in payload["checks"]]
+    assert any("core.profile_overlay_file matches" in detail for detail in details)
+    assert any("severity_policy.blocking is error" in detail for detail in details)
 
 
 def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,6 +93,18 @@ def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(steuermann, "_iter_profiles", lambda: [])
     code = steuermann.main(["config", "validate", "--strict", "--format", "json"])
     assert code == 1
+
+
+def test_load_env_file_reads_dotenv_without_overriding_process_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".env").write_text("FOO=from-file\nBAR=from-file\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BAR", "from-env")
+    env = steuermann._load_env_file()
+    assert env["FOO"] == "from-file"
+    assert env["BAR"] == "from-env"
 
 
 def test_docs_check_strict_fails_on_contract_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -32,6 +32,14 @@ export PROFILE_ID=medical-ai-de
 docker compose up -d --build
 ```
 
+Equivalent scaffold flow with the canonical CLI:
+
+```bash
+cd steuermann-ai
+poetry run steuermann profile scaffold --from starter --to config/profiles/medical-ai-de --profile-id medical-ai-de
+poetry run steuermann config validate --profile medical-ai-de --format json
+```
+
 ---
 
 ## Required Files
@@ -65,10 +73,12 @@ Add `config/profiles/<profile_id>/prompts/<language>.yaml` when the profile need
 After creating or updating a profile overlay:
 
 1. Run `poetry run pytest -q`.
-2. Rebuild services with `docker compose up -d --build`.
-3. Check [README.md](../README.md) startup URLs still match your local configuration.
-4. Verify the frontend loads and `/metrics` remains reachable.
-5. Confirm chat responses include the expected `profile_id` metadata path.
+2. Run `poetry run steuermann config validate --profile <profile_id> --format json`.
+3. Run `poetry run steuermann config contract-check --format json`.
+4. Rebuild services with `docker compose up -d --build`.
+5. Check [README.md](../README.md) startup URLs still match your local configuration.
+6. Verify the frontend loads and `/metrics` remains reachable.
+7. Confirm chat responses include the expected `profile_id` metadata path.
 
 ---
 
