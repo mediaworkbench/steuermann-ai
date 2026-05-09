@@ -204,6 +204,7 @@ class GraphState(TypedDict, total=False):
     fork_name: str  # Fork identifier for metrics
     profile_id: str  # Active deployment profile identifier
     user_settings: Dict[str, Any]  # User preferences: tool_toggles, rag_config, preferred_model, theme, language
+    llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
     loaded_memory: List[Dict[str, Any]]
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
@@ -211,6 +212,7 @@ class GraphState(TypedDict, total=False):
     loaded_tools: List[Any]  # BaseTool instances from registry
     candidate_tools: List[Dict[str, Any]]  # Layer 1 pre-filter output: [{tool, name, score}]
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
+    tool_calling_mode_reason: str  # Why selected mode was chosen (configured or downgraded)
     prefilter_intents: Dict[str, Any]  # Intent detection results from Layer 1 for Layer 2 use
     tool_results: Dict[str, str]  # Tool name -> execution result
     tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name -> structured execution envelope
@@ -970,6 +972,89 @@ def _apply_top_k_scored_tools(
     return sorted(scored_tools, key=lambda x: x[1], reverse=True)[:top_k]
 
 
+def _resolve_effective_tool_calling_mode(config: Any, state: GraphState) -> Tuple[str, str]:
+    """Resolve tool-calling mode with optional probe-aware downgrade.
+
+    Curated downgrade: if configured mode is native but probe signals mismatch
+    (bind_tools/tool schema failure), force structured mode.
+    """
+    language = state.get("language") or getattr(config.fork, "language", "en")
+    provider_id = "primary"
+    configured_mode = "structured"
+    selected_model_name = None
+
+    provider = None
+    try:
+        role_cfg = getattr(getattr(config.llm, "roles", None), "chat", None)
+        role_providers = getattr(role_cfg, "providers", None)
+        if role_providers:
+            provider_id = str(role_providers[0].provider_id)
+            providers = config.llm.providers
+            registry_getter = getattr(providers, "get_registry", None)
+            if callable(registry_getter):
+                provider = registry_getter().get(provider_id)
+    except Exception:
+        provider = None
+
+    if provider is None:
+        provider = getattr(config.llm.providers, "primary", None)
+
+    if provider is not None:
+        configured_mode = str(getattr(provider, "tool_calling", "structured"))
+        models = getattr(provider, "models", None)
+        if isinstance(models, dict):
+            selected_model_name = models.get(language)
+            if not selected_model_name:
+                for model_value in models.values():
+                    if model_value:
+                        selected_model_name = model_value
+                        break
+        else:
+            selected_model_name = getattr(models, language, None)
+            if not selected_model_name and models is not None:
+                if hasattr(models, "model_dump"):
+                    model_values = list(models.model_dump().values())
+                else:
+                    model_values = list(vars(models).values())
+                for model_value in model_values:
+                    if model_value:
+                        selected_model_name = model_value
+                        break
+
+    if configured_mode != "native":
+        return configured_mode, "configured_non_native_mode"
+
+    probe_rows = state.get("llm_capability_probes") or []
+    if not probe_rows:
+        return configured_mode, "configured_native_no_probe"
+
+    matching_rows = [
+        row for row in probe_rows
+        if str(row.get("provider_id") or "") == provider_id
+    ]
+    if selected_model_name:
+        model_specific = [
+            row for row in matching_rows
+            if str(row.get("model_name") or "") == str(selected_model_name)
+        ]
+        if model_specific:
+            matching_rows = model_specific
+
+    if not matching_rows:
+        return configured_mode, "configured_native_probe_provider_not_found"
+
+    probe = matching_rows[0]
+    mismatch = bool(probe.get("capability_mismatch", False))
+    bind_failed = probe.get("supports_bind_tools") is False
+    schema_failed = probe.get("supports_tool_schema") is False
+    status = str(probe.get("status") or "").lower()
+
+    if mismatch or bind_failed or schema_failed or status in {"warning", "error"}:
+        return "structured", "probe_capability_mismatch_downgrade"
+
+    return configured_mode, "configured_native_probe_ok"
+
+
 def _safe_get_model(config, language: str, preferred_model: Optional[str] = None):
     """Return an LLM model; fallback to simple echo if providers fail.
     
@@ -1185,6 +1270,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
     empty_state = {
         "candidate_tools": [],
         "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "default_empty_state",
         "prefilter_intents": {},
         "tool_results": {},
         "tool_execution_results": {},
@@ -1336,15 +1422,11 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 if score >= similarity_threshold
             ]
 
-            # Determine tool_calling_mode from provider config
-            try:
-                provider = config.llm.providers.primary
-                tool_calling_mode = getattr(provider, "tool_calling", "structured")
-            except Exception:
-                tool_calling_mode = "structured"
+            tool_calling_mode, tool_calling_mode_reason = _resolve_effective_tool_calling_mode(config, state)
 
             state["candidate_tools"] = candidates
             state["tool_calling_mode"] = tool_calling_mode
+            state["tool_calling_mode_reason"] = tool_calling_mode_reason
             state["prefilter_intents"] = intents
             state["tool_results"] = {}
             state["tool_execution_results"] = {}
@@ -1354,6 +1436,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 "Tool pre-filter completed (Layer 1)",
                 candidates=len(candidates),
                 tool_calling_mode=tool_calling_mode,
+                tool_calling_mode_reason=tool_calling_mode_reason,
                 candidate_names=[c["name"] for c in candidates],
             )
 

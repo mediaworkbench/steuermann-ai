@@ -842,6 +842,42 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     return settings
 
 
+def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
+    """Load latest persisted probe results grouped by provider.
+
+    Returns most recent row per provider_id for the active profile.
+    """
+    probe_store = getattr(request.app.state, "llm_capability_probe_store", None)
+    if probe_store is None:
+        return []
+
+    profile_id = ACTIVE_PROFILE_ID or PROFILE_ID
+    try:
+        rows = probe_store.list_probe_results(profile_id=profile_id, limit=100)
+    except Exception as exc:
+        logger.warning("Failed to load LLM capability probes", extra={"error": str(exc)})
+        return []
+
+    latest_by_provider: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        provider_id = str(row.get("provider_id") or "").strip()
+        if not provider_id or provider_id in latest_by_provider:
+            continue
+        latest_by_provider[provider_id] = {
+            "provider_id": provider_id,
+            "model_name": row.get("model_name"),
+            "configured_tool_calling_mode": row.get("configured_tool_calling_mode"),
+            "supports_bind_tools": row.get("supports_bind_tools"),
+            "supports_tool_schema": row.get("supports_tool_schema"),
+            "capability_mismatch": bool(row.get("capability_mismatch", False)),
+            "status": row.get("status"),
+            "error_message": row.get("error_message"),
+            "probed_at": row.get("probed_at"),
+        }
+
+    return list(latest_by_provider.values())
+
+
 async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """Validate preferred model using OpenAI-compatible /v1/models. Returns (validated_model, warning)."""
     if not model_name:
@@ -948,12 +984,14 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
     documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
     workspace_writeback_requested = _has_workspace_save_intent(request_body.message)
+    llm_capability_probes = _get_latest_llm_capability_probes(request)
     
     state = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
+        "llm_capability_probes": llm_capability_probes,
         "attachments": [
             {
                 "id": attachment["id"],
@@ -984,6 +1022,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         "message_length": len(request_body.message),
         "language": effective_language,
         "has_preferred_model": bool(user_settings.get("preferred_model")),
+        "probe_result_count": len(llm_capability_probes),
         "attachment_count": len(attachments),
         "document_count": len(documents),
     })

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -12,7 +13,8 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.db import SettingsStore
+from backend.db import SettingsStore, LLMCapabilityProbeStore
+from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.single_user import get_effective_user_id, require_api_access
 from backend.version import get_framework_version
 from universal_agentic_framework.config import (
@@ -22,6 +24,8 @@ from universal_agentic_framework.config import (
     load_profile_ui_config,
     load_tools_config,
 )
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_api_access)])
@@ -87,6 +91,48 @@ def _get_settings_store(request: Request) -> SettingsStore:
     return store
 
 
+def _get_probe_store(request: Request) -> Optional[LLMCapabilityProbeStore]:
+    """Get probe store from app state; returns None if not available."""
+    return getattr(request.app.state, "llm_capability_probe_store", None)
+
+
+def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
+    """Trigger curated reprobe when user selects a new preferred model."""
+    probe_store = _get_probe_store(request)
+    if not probe_store:
+        logger.debug("Probe store unavailable; skipping reprobe trigger")
+        return
+
+    try:
+        profile_id = get_active_profile_id()
+        runner = LLMCapabilityProbeRunner(profile_id=profile_id)
+        
+        # Run full reprobe to detect which provider the model is configured for
+        # This is simpler than trying to parse provider IDs from model names
+        results = runner.run()
+        
+        # Persist all reprobe results
+        for result in results:
+            probe_store.upsert_probe_result(result)
+        
+        logger.info(
+            "Reprobe triggered on preferred model change",
+            extra={
+                "profile_id": profile_id,
+                "new_model": new_model,
+                "reprobe_count": len(results),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Reprobe failed on model change",
+            extra={
+                "new_model": new_model,
+                "error": str(exc),
+            },
+        )
+
+
 @router.get("/settings/user/{user_id}", response_model=UserSettingsResponse)
 def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
     """Retrieve persisted user settings or return defaults."""
@@ -112,6 +158,11 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     """Persist user settings for the given user id."""
     effective_user_id = get_effective_user_id(user_id)
     store = _get_settings_store(request)
+    
+    # Get old settings to detect model changes
+    old_record = store.get_user_settings(effective_user_id)
+    old_model = old_record.get("preferred_model") if old_record else None
+    
     record = store.upsert_user_settings(
         user_id=effective_user_id,
         tool_toggles=settings.tool_toggles,
@@ -121,10 +172,16 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
         theme=settings.theme,
         language=settings.language,
     )
+    
     # Clear settings cache for this user to force reload on next chat request
     from backend.routers.chat import _settings_cache
     if effective_user_id in _settings_cache:
         del _settings_cache[effective_user_id]
+    
+    # Trigger curated reprobe if preferred_model changed
+    if settings.preferred_model and settings.preferred_model != old_model:
+        _trigger_reprobe_on_model_change(request, settings.preferred_model)
+    
     return record
 
 
@@ -234,6 +291,50 @@ async def get_system_config() -> Dict[str, Any]:
             },
             "error": str(e),
         }
+
+
+@router.post("/llm/reprobe")
+def trigger_llm_reprobe(request: Request) -> Dict[str, Any]:
+    """Manually trigger LLM capability reprobe for all configured providers."""
+    probe_store = _get_probe_store(request)
+    if not probe_store:
+        raise HTTPException(status_code=503, detail="Probe store unavailable")
+    
+    try:
+        profile_id = get_active_profile_id()
+        runner = LLMCapabilityProbeRunner(profile_id=profile_id)
+        
+        # Run full reprobe
+        results = runner.run()
+        
+        # Persist all reprobe results
+        for result in results:
+            probe_store.upsert_probe_result(result)
+        
+        logger.info(
+            "Manual LLM reprobe triggered",
+            extra={"profile_id": profile_id, "reprobe_count": len(results)},
+        )
+        
+        return {
+            "status": "ok",
+            "profile_id": profile_id,
+            "reprobe_count": len(results),
+            "results": [
+                {
+                    "provider_id": r.provider_id,
+                    "model_name": r.model_name,
+                    "status": r.status,
+                    "capability_mismatch": r.capability_mismatch,
+                    "supports_bind_tools": r.supports_bind_tools,
+                    "error_message": r.error_message,
+                }
+                for r in results
+            ],
+        }
+    except Exception as exc:
+        logger.error("Manual reprobe failed", extra={"error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Reprobe failed: {exc}") from exc
 
 
 @router.post("/ingestion/reingest-all", response_model=ReingestAllResponse)

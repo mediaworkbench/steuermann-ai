@@ -730,6 +730,82 @@ def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
     assert "web_search_mcp" in candidate_names
 
 
+@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
+    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+    mock_score_similarity.return_value = 0.95
+
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "loaded_tools": [FakeTool("datetime_tool", "Get date and time")],
+        "language": "en",
+        "llm_capability_probes": [
+            {
+                "provider_id": "primary",
+                "model_name": "llama",
+                "supports_bind_tools": False,
+                "supports_tool_schema": False,
+                "capability_mismatch": True,
+                "status": "warning",
+            }
+        ],
+    }
+
+    result = node_prefilter_tools(state)
+
+    assert result["tool_calling_mode"] == "structured"
+    assert result["tool_calling_mode_reason"] == "probe_capability_mismatch_downgrade"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_keeps_native_mode_when_probe_is_ok(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
+    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+    mock_score_similarity.return_value = 0.95
+
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "loaded_tools": [FakeTool("datetime_tool", "Get date and time")],
+        "language": "en",
+        "llm_capability_probes": [
+            {
+                "provider_id": "primary",
+                "model_name": "llama",
+                "supports_bind_tools": True,
+                "supports_tool_schema": True,
+                "capability_mismatch": False,
+                "status": "ok",
+            }
+        ],
+    }
+
+    result = node_prefilter_tools(state)
+
+    assert result["tool_calling_mode"] == "native"
+    assert result["tool_calling_mode_reason"] == "configured_native_probe_ok"
+
+
 @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, mock_model_factory):

@@ -47,6 +47,17 @@ class LLMCapabilityProbeRunner:
             results.append(self._probe_target(target))
         return results
 
+    def reprobe_model(self, provider_id: str, model_name: str) -> LLMCapabilityProbeResult:
+        """Reprobe a specific provider+model combination (curated reprobe)."""
+        llm_cfg = self._core_config.llm
+        registry = llm_cfg.providers.get_registry()
+        provider = registry.get(provider_id)
+        if provider is None:
+            raise ValueError(f"Unknown provider_id: {provider_id}")
+
+        target = ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name)
+        return self._probe_target(target)
+
     def _collect_targets(self) -> list[ProbeTarget]:
         llm_cfg = self._core_config.llm
         registry = llm_cfg.providers.get_registry()
