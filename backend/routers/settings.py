@@ -166,19 +166,28 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     
     preferred_model = settings.preferred_model
     if preferred_model:
-        provider_prefix = "openai"
-        try:
-            core = load_core_config()
-            default_model = core.llm.providers.primary.models.en
-            if default_model:
-                provider_prefix = parse_model_id(str(default_model)).provider
-        except Exception:
-            pass
-
-        try:
-            preferred_model = normalize_model_id(preferred_model)
-        except Exception:
-            preferred_model = f"{provider_prefix}/{str(preferred_model).strip()}"
+        preferred_model = str(preferred_model).strip()
+        # Keep raw user input as-is; only normalize already provider-prefixed values.
+        if "/" in preferred_model:
+            try:
+                provider = parse_model_id(preferred_model).provider
+                known_prefixes = {
+                    "openai",
+                    "ollama",
+                    "lm_studio",
+                    "openrouter",
+                    "anthropic",
+                    "azure",
+                    "bedrock",
+                    "groq",
+                    "mistral",
+                    "vertex_ai",
+                }
+                if provider in known_prefixes:
+                    preferred_model = normalize_model_id(preferred_model)
+            except Exception:
+                # Unknown/non-provider slash patterns (e.g., org/model) are preserved.
+                pass
 
     record = store.upsert_user_settings(
         user_id=effective_user_id,

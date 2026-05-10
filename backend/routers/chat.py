@@ -889,22 +889,11 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
     if not model_name:
         return None, None
 
-    def _default_provider_prefix() -> str:
-        try:
-            cfg = load_core_config()
-            default_model = cfg.llm.providers.primary.models.en
-            if default_model:
-                return parse_model_id(str(default_model)).provider
-        except Exception:
-            pass
-        return "openai"
-
-    provider_prefix = _default_provider_prefix()
-
     known_prefixes = {
         "openai",
         "ollama",
         "lm_studio",
+        "openrouter",
         "anthropic",
         "azure",
         "bedrock",
@@ -912,6 +901,20 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
         "mistral",
         "vertex_ai",
     }
+
+    def _default_provider_prefix() -> str:
+        # /models is OpenAI-compatible by default; do not couple this to profile defaults.
+        return "openai"
+
+    def _provider_prefix_for_request(request_model: str) -> str:
+        request_model = str(request_model).strip()
+        if "/" in request_model:
+            head = request_model.split("/", 1)[0].strip().lower()
+            if head in known_prefixes:
+                return head
+        return _default_provider_prefix()
+
+    provider_prefix = _provider_prefix_for_request(model_name)
 
     def _canonical_from_endpoint_id(raw_name: str) -> str:
         raw_name = str(raw_name).strip()

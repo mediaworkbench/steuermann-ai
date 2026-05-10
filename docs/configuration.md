@@ -590,6 +590,8 @@ Note on PROFILE_ID:
 # LLM API Keys (if using remote providers)
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
+LLM_CAPABILITY_PROBE_ENABLED=true
+LLM_CAPABILITY_PROBE_ON_STARTUP=true
 
 # LangGraph (internal service)
 LANGGRAPH_SERVER_HOST=0.0.0.0
@@ -626,6 +628,8 @@ FEATURE_WEB_SEARCH=false
 DEBUG=false
 LOG_LEVEL=INFO
 ```
+
+LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=false` to disable probing globally, or `LLM_CAPABILITY_PROBE_ON_STARTUP=false` to keep probing enabled but skip the automatic startup probe.
 
 **Chat/Workspace notes:**
 

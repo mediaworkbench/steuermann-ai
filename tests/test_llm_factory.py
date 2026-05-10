@@ -1,6 +1,6 @@
 from universal_agentic_framework.config.schemas import CoreConfig, LLMSettings, LLMProviders, ProviderModelMap, ProviderSettings, ForkSettings, DatabaseSettings, MemorySettings, VectorStoreSettings, EmbeddingSettings, RetentionSettings, TokensSettings
 from universal_agentic_framework.llm.factory import LLMFactory
-from universal_agentic_framework.llm.provider_registry import parse_model_id
+from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 
 
 class DummyModel:
@@ -133,6 +133,16 @@ def test_provider_settings_normalizes_known_provider_aliases():
     assert settings.models.en == "lm_studio/liquid/lfm2-24b-a2b"
     parsed = parse_model_id(settings.models.en)
     assert parsed.provider == "lm_studio"
+    assert parsed.model == "liquid/lfm2-24b-a2b"
+
+
+def test_normalize_model_id_accepts_openai_prefixed_model():
+    assert normalize_model_id("openai/liquid/lfm2-24b-a2b") == "openai/liquid/lfm2-24b-a2b"
+
+
+def test_parse_model_id_accepts_openai_prefixed_model():
+    parsed = parse_model_id("openai/liquid/lfm2-24b-a2b")
+    assert parsed.provider == "openai"
     assert parsed.model == "liquid/lfm2-24b-a2b"
 
 
