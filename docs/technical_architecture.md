@@ -289,6 +289,93 @@ Benefits:
 - ✅ Deterministic extraction fallback prevents URL prompts from failing when native tool calls are missing/malformed
 - ✅ No model-specific code — mode selection is configuration-driven
 
+#### **4.4.1 Tool-Calling Mode Enforcement**
+
+Mode validation and enforcement is implemented at all tool routing layers.
+
+The framework validates that the resolved tool-calling mode matches the invoked Layer 2 node, ensuring consistency across the pipeline:
+
+**Flow:**
+
+1. **Prefilter Node** (`node_prefilter_tools`, Layer 1)
+   - Resolves `tool_calling_mode` and `tool_calling_mode_reason` from probe data
+   - Downgrades native → structured if probe shows capability_mismatch or error status
+   - Stores mode and reason in GraphState
+
+2. **Route Decision** (`route_tool_strategy`, conditional edge)
+   - Routes to appropriate Layer 2 node based on `tool_calling_mode`
+   - Logs routing decision with mode, reason, and candidate tool names
+   - Fallback to structured mode if invalid mode detected
+
+3. **Layer 2 Node Validation** (native/structured/react nodes)
+   - Each node validates that `tool_calling_mode` matches expected invocation
+   - `_validate_and_log_tool_calling_mode()` function checks mode consistency
+   - Non-blocking enforcement: logs warnings on mismatch but proceeds gracefully
+   - Ensures audit trail for debugging mode decisions
+
+**Implementation Details:**
+
+```python
+# Mode validation at Layer 2 invocation
+def _validate_and_log_tool_calling_mode(
+    state: GraphState, 
+    expected_mode: str, 
+    node_name: str,
+    fork_name: str
+) -> Tuple[bool, str]:
+    """Validate tool-calling mode matches expectations at invocation.
+    
+    Returns (is_valid, reason_string) tuple for audit logging.
+    """
+    actual_mode = state.get("tool_calling_mode", "structured")
+    candidates = state.get("candidate_tools", [])
+    
+    # Skip validation if no candidates (mode irrelevant)
+    if not candidates:
+        return True, "no_candidates"
+    
+    is_valid = actual_mode == expected_mode
+    reason = f"{actual_mode}_mode_valid" if is_valid else \
+             f"mode_mismatch_expected_{expected_mode}_got_{actual_mode}"
+    
+    log_level = "info" if is_valid else "warning"
+    logger.log(log_level, 
+        f"Tool calling mode validation ({node_name})",
+        expected_mode=expected_mode, actual_mode=actual_mode,
+        is_valid=is_valid, candidates=len(candidates))
+    
+    return is_valid, reason
+```
+
+**Downgrade Logic:**
+
+Mode is downgraded from native → structured when:
+
+- `capability_mismatch` = true (probe detected `bind_tools()` not supported)
+- `status` ∈ {"warning", "error"} (probe execution failed or found issues)
+- `supports_bind_tools` = false (model doesn't support native tool binding)
+- No probe data available for configured provider (fallback to no-downgrade)
+
+Downgrade reason: `probe_capability_mismatch_downgrade`
+
+**Reason Tracking:**
+
+Reason field propagates through entire pipeline:
+
+- `configured_native_probe_ok` — probe shows capability OK, native mode safe
+- `configured_non_native_mode` — provider configured for structured/react
+- `configured_native_no_probe` — native configured but no probe data (risky, proceed cautiously)
+- `probe_capability_mismatch_downgrade` — probe detected mismatch, downgraded to structured
+- `configured_native_probe_provider_not_found` — provider not found in probe results
+
+**Benefits:**
+
+- ✅ Prevents mode mismatches at invocation (consistency across layers)
+- ✅ Non-blocking validation (graceful degradation, never breaks chat flow)
+- ✅ Comprehensive audit trail (reason field aids debugging)
+- ✅ Automatic downgrade (safer than failing on unsupported models)
+- ✅ Works across all provider types (LM Studio, Ollama, OpenAI-compatible)
+
 ### **4.5 Response Handling**
 
 The FastAPI adapter streams responses from LangGraph back to the Next.js frontend. Streaming support is built-in using Server-Sent Events (SSE) for real-time message updates.
