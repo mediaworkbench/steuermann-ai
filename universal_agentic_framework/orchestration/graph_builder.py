@@ -1055,6 +1055,62 @@ def _resolve_effective_tool_calling_mode(config: Any, state: GraphState) -> Tupl
     return configured_mode, "configured_native_probe_ok"
 
 
+def _validate_and_log_tool_calling_mode(
+    state: GraphState, 
+    expected_mode: str, 
+    node_name: str,
+    fork_name: str
+) -> Tuple[bool, str]:
+    """Validate that the resolved tool-calling mode matches expectations at invocation.
+    
+    Args:
+        state: Current graph state
+        expected_mode: Expected mode for this invocation node (e.g., 'native', 'structured')
+        node_name: Name of the calling node (for logging)
+        fork_name: Fork name (for logging)
+        
+    Returns:
+        Tuple of (is_valid, reason_string)
+        - is_valid: True if mode matches expectations or is compatible
+        - reason_string: Descriptive reason for validation result
+    """
+    actual_mode = state.get("tool_calling_mode", "structured")
+    mode_reason = state.get("tool_calling_mode_reason", "unknown")
+    candidates = state.get("candidate_tools", [])
+    
+    # If no candidates, mode is irrelevant
+    if not candidates:
+        logger.debug(
+            f"Tool calling mode validation ({node_name}): no candidates, mode irrelevant",
+            expected_mode=expected_mode,
+            actual_mode=actual_mode,
+        )
+        return True, "no_candidates"
+    
+    # Validate mode match
+    is_valid = actual_mode == expected_mode
+    
+    log_level = "info" if is_valid else "warning"
+    log_fn = logger.info if is_valid else logger.warning
+    
+    log_fn(
+        f"Tool calling mode validation ({node_name})",
+        extra={
+            "expected_mode": expected_mode,
+            "actual_mode": actual_mode,
+            "mode_reason": mode_reason,
+            "is_valid": is_valid,
+            "candidates": len(candidates),
+            "fork_name": fork_name,
+        },
+    )
+    
+    if is_valid:
+        return True, f"{actual_mode}_mode_valid"
+    else:
+        return False, f"mode_mismatch_expected_{expected_mode}_got_{actual_mode}"
+
+
 def _safe_get_model(config, language: str, preferred_model: Optional[str] = None):
     """Return an LLM model; fallback to simple echo if providers fail.
     
@@ -1601,6 +1657,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     Uses LangChain's ``bind_tools`` + ``tool_calls`` parsing.  Executes the
     tools the model requests, stores results in the same ``tool_results`` /
     ``tool_execution_results`` fields used by the rest of the pipeline.
+    
+    Mode enforcement: Validates that tool_calling_mode is 'native' before proceeding.
     """
     config = load_core_config()
     fork_name = getattr(config.fork, "name", "default-fork")
@@ -1609,6 +1667,16 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+
+    # Validate that this node should be executing (mode enforcement)
+    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+        state, "native", "call_tools_native", fork_name
+    )
+    if not is_valid:
+        logger.warning(
+            "Native tool calling invoked but mode doesn't match; proceeding with caution",
+            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+        )
 
     user_msg = (
         state.get("messages", [])[-1].get("content", "")
@@ -1798,6 +1866,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     For models without native function-calling support.  Tool schemas are
     injected into the system prompt alongside an instruction to output JSON
     when a tool should be called.
+    
+    Mode enforcement: Validates that tool_calling_mode is 'structured' before proceeding.
     """
     config = load_core_config()
     fork_name = getattr(config.fork, "name", "default-fork")
@@ -1806,6 +1876,16 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+
+    # Validate that this node should be executing (mode enforcement)
+    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+        state, "structured", "call_tools_structured", fork_name
+    )
+    if not is_valid:
+        logger.warning(
+            "Structured tool calling invoked but mode doesn't match; proceeding with caution",
+            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+        )
 
     user_msg = (
         state.get("messages", [])[-1].get("content", "")
@@ -1970,6 +2050,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     """Layer 2 (react): ReAct-style tool calling loop (Thought → Action → Observation).
 
     For weaker models that need step-by-step reasoning.
+    
+    Mode enforcement: Validates that tool_calling_mode is 'react' before proceeding.
     """
     config = load_core_config()
     fork_name = getattr(config.fork, "name", "default-fork")
@@ -1978,6 +2060,16 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+
+    # Validate that this node should be executing (mode enforcement)
+    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+        state, "react", "call_tools_react", fork_name
+    )
+    if not is_valid:
+        logger.warning(
+            "ReAct tool calling invoked but mode doesn't match; proceeding with caution",
+            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+        )
 
     user_msg = (
         state.get("messages", [])[-1].get("content", "")
@@ -3346,12 +3438,38 @@ def build_graph() -> StateGraph:
 
     # Layer 2: Route to appropriate tool-calling strategy based on prefilter results
     def route_tool_strategy(state):
+        """Route to the appropriate tool-calling strategy based on resolved mode.
+        
+        Logs comprehensive mode routing information for debugging and monitoring.
+        """
         candidates = state.get("candidate_tools", [])
         if not candidates:
+            logger.info("Tool strategy routing: no candidates, skipping tool calling")
             return "no_tools"
+            
         mode = state.get("tool_calling_mode", "structured")
+        mode_reason = state.get("tool_calling_mode_reason", "unknown")
+        
         if mode not in ("native", "structured", "react"):
+            logger.warning(
+                "Tool strategy routing: invalid mode, falling back to structured",
+                extra={
+                    "invalid_mode": mode,
+                    "candidates": len(candidates),
+                    "mode_reason": mode_reason,
+                },
+            )
             return "structured"
+        
+        logger.info(
+            "Tool strategy routing: routing to strategy node",
+            extra={
+                "mode": mode,
+                "mode_reason": mode_reason,
+                "candidates": len(candidates),
+                "candidate_names": [c.get("name", "unknown") for c in candidates],
+            },
+        )
         return mode
 
     graph.add_conditional_edges(
