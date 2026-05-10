@@ -1180,6 +1180,51 @@ def _invoke_with_model_fallback(
     preferred_model: Optional[str] = None,
 ) -> Tuple[str, str, str, object]:
     """Invoke a model with ordered runtime fallback and return response text + runtime metadata."""
+
+    def _normalize_response_text(raw: Any) -> str:
+        """Normalize provider-specific response payloads to plain text.
+
+        Some providers return OpenAI-style content blocks as a list instead of a
+        single string. We collapse supported block types into one text payload.
+        """
+        if raw is None:
+            return ""
+
+        if isinstance(raw, str):
+            return raw
+
+        if isinstance(raw, list):
+            parts: List[str] = []
+            for item in raw:
+                if isinstance(item, str):
+                    if item.strip():
+                        parts.append(item)
+                    continue
+
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text)
+                        continue
+
+                    content = item.get("content")
+                    if isinstance(content, str) and content.strip():
+                        parts.append(content)
+                        continue
+
+            return "\n".join(parts).strip()
+
+        if isinstance(raw, dict):
+            text = raw.get("text")
+            if isinstance(text, str):
+                return text
+            content = raw.get("content")
+            if isinstance(content, str):
+                return content
+            return str(raw)
+
+        return str(raw)
+
     attempts: List[Tuple[object, str, str, str]] = [
         (initial_model, initial_provider, initial_model_name, "initial"),
     ]
@@ -1198,7 +1243,10 @@ def _invoke_with_model_fallback(
             out = invoke(payload) if callable(invoke) else (
                 candidate_model(payload) if callable(candidate_model) else str(payload)
             )
-            text = out.content if hasattr(out, "content") else str(out)
+            raw_text = out.content if hasattr(out, "content") else out
+            text = _normalize_response_text(raw_text)
+            if not text.strip():
+                raise ValueError("LLM returned empty response content")
             logger.info(
                 "LLM invoke succeeded",
                 provider=provider,

@@ -12,6 +12,7 @@ services:
     environment:
       - PROFILE_ID=${PROFILE_ID:-base}
       - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
       - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
       - INGEST_LANGUAGE=${INGEST_LANGUAGE:-de}
@@ -77,6 +78,7 @@ services:
       - LANGGRAPH_URL=http://langgraph:8000
       - PROMETHEUS_URL=http://prometheus:9090
       - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
@@ -134,6 +136,7 @@ services:
     environment:
       - PROFILE_ID=${PROFILE_ID:-base}
       - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
