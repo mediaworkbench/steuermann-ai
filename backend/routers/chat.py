@@ -19,6 +19,8 @@ from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationErr
 from backend.db import SettingsStore
 from backend.rate_limit import limiter
 from backend.single_user import get_effective_user_id, require_api_access
+from universal_agentic_framework.config import load_core_config
+from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
     track_workspace_intent_denied,
     track_profile_id_mismatch,
@@ -879,9 +881,53 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
 
 
 async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """Validate preferred model using OpenAI-compatible /v1/models. Returns (validated_model, warning)."""
+    """Validate preferred model and return canonical provider-prefixed id.
+
+    Supports OpenAI-compatible /models endpoints and Ollama /api/tags.
+    Returns (validated_model, warning).
+    """
     if not model_name:
         return None, None
+
+    def _default_provider_prefix() -> str:
+        try:
+            cfg = load_core_config()
+            default_model = cfg.llm.providers.primary.models.en
+            if default_model:
+                return parse_model_id(str(default_model)).provider
+        except Exception:
+            pass
+        return "openai"
+
+    provider_prefix = _default_provider_prefix()
+
+    known_prefixes = {
+        "openai",
+        "ollama",
+        "lm_studio",
+        "anthropic",
+        "azure",
+        "bedrock",
+        "groq",
+        "mistral",
+        "vertex_ai",
+    }
+
+    def _canonical_from_endpoint_id(raw_name: str) -> str:
+        raw_name = str(raw_name).strip()
+        if not raw_name:
+            return raw_name
+        if "/" not in raw_name:
+            return f"{provider_prefix}/{raw_name}"
+        head = raw_name.split("/", 1)[0].strip().lower()
+        if head in known_prefixes:
+            return raw_name
+        return f"{provider_prefix}/{raw_name}"
+
+    try:
+        normalized_request = normalize_model_id(model_name)
+    except Exception:
+        normalized_request = f"{provider_prefix}/{str(model_name).strip()}"
 
     def _canonical_model_aliases(available_models: list[str]) -> dict[str, str]:
         """Build alias -> canonical model map.
@@ -893,15 +939,15 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
             if not available:
                 continue
 
-            canonical = available if available.startswith("openai/") else f"openai/{available}"
+            canonical = _canonical_from_endpoint_id(available)
 
             aliases[available] = canonical
             if "/" in available:
                 rest = available.split("/", 1)[1]
                 aliases.setdefault(rest, canonical)
-                aliases.setdefault(f"openai/{rest}", f"openai/{rest}")
+                aliases.setdefault(f"{provider_prefix}/{rest}", f"{provider_prefix}/{rest}")
             else:
-                aliases.setdefault(f"openai/{available}", canonical)
+                aliases.setdefault(f"{provider_prefix}/{available}", canonical)
 
         return aliases
 
@@ -910,9 +956,9 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
         if "/" in name:
             rest = name.split("/", 1)[1]
             candidates.append(rest)
-            candidates.append(f"openai/{rest}")
+            candidates.append(f"{provider_prefix}/{rest}")
         else:
-            candidates.append(f"openai/{name}")
+            candidates.append(f"{provider_prefix}/{name}")
 
         # Preserve insertion order while removing duplicates.
         return list(dict.fromkeys(candidates))
@@ -920,29 +966,38 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
     async def _fetch_models() -> list[str]:
         async with httpx.AsyncClient(timeout=3.0) as client:
             base = str(LLM_ENDPOINT).rstrip("/")
-            resp = await client.get(f"{base}/models")
-            resp.raise_for_status()
-            data = resp.json()
-            return [m.get("id") for m in data.get("data", []) if m.get("id")]
+            try:
+                resp = await client.get(f"{base}/models")
+                resp.raise_for_status()
+                data = resp.json()
+                return [m.get("id") for m in data.get("data", []) if m.get("id")]
+            except Exception:
+                # Ollama native API fallback.
+                if provider_prefix != "ollama":
+                    raise
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+                return [m.get("name") for m in data.get("models", []) if m.get("name")]
 
     try:
         available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models)
         alias_map = _canonical_model_aliases(available_models)
-        for candidate in _request_aliases(model_name):
+        for candidate in _request_aliases(normalized_request):
             if candidate in alias_map:
                 return alias_map[candidate], None
 
-        warning = f"Preferred model '{model_name}' not found at configured LLM endpoint. Using default."
+        warning = f"Preferred model '{normalized_request}' not found at configured LLM endpoint. Using default."
         logger.warning(warning)
         return None, warning
     except CircuitBreakerOpenError as exc:
         logger.warning("Model validation circuit breaker open: %s", exc)
         # Fail open: do not block request flow when model endpoint is flaky.
-        return model_name, "Model validation temporarily bypassed due to circuit breaker."
+        return normalized_request, "Model validation temporarily bypassed due to circuit breaker."
     except Exception as e:
         logger.error(f"Failed to validate model against OpenAI-compatible endpoint: {e}")
         # Fail open - assume model is valid if we can't reach endpoint
-        return model_name, None
+        return normalized_request, None
 
 
 @router.post("/chat", response_model=ChatResponse)
