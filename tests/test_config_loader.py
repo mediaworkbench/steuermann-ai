@@ -219,6 +219,73 @@ tokens:
                 )
 
 
+def test_load_core_config_role_based_llm_shape_keeps_legacy_compat(tmp_path: Path) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_dir.joinpath("core.yaml").write_text(
+                """
+fork:
+    name: starter
+    language: en
+llm:
+    providers:
+        lmstudio:
+            api_base: http://localhost:1234/v1
+            models:
+                en: lm_studio/liquid/lfm2-24b-a2b
+            tool_calling: native
+        openrouter:
+            api_base: https://openrouter.ai/api/v1
+            api_key: test-key
+            models:
+                en: openrouter/openai/gpt-4o-mini
+            tool_calling: native
+    roles:
+        chat:
+            providers:
+                - provider_id: lmstudio
+                - provider_id: openrouter
+            config_only: false
+        embedding:
+            providers:
+                - provider_id: lmstudio
+            config_only: true
+        vision:
+            providers:
+                - provider_id: lmstudio
+            config_only: true
+        auxiliary:
+            providers:
+                - provider_id: lmstudio
+            config_only: true
+database:
+    url: sqlite:///base.db
+memory:
+    vector_store:
+        host: localhost
+        collection_prefix: base
+    embeddings:
+        model: embed
+        dimension: 384
+    retention:
+        session_memory_days: 90
+        user_memory_days: 365
+tokens:
+    default_budget: 10000
+                """,
+                encoding="utf-8",
+        )
+
+        core = load_core_config(config_dir=config_dir, env={"PROFILE_ID": "base"})
+
+        assert core.llm.roles is not None
+        assert [ref.provider_id for ref in core.llm.roles.chat.providers] == ["lmstudio", "openrouter"]
+        assert core.llm.providers.primary is not None
+        assert core.llm.providers.primary.models.en == "lm_studio/liquid/lfm2-24b-a2b"
+        assert core.llm.providers.fallback is not None
+        assert core.llm.providers.fallback.models.en == "openrouter/openai/gpt-4o-mini"
+
+
 def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:
         config_dir = tmp_path / "config"
         profiles_dir = tmp_path / "profiles"

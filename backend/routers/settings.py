@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -12,7 +13,8 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.db import SettingsStore
+from backend.db import SettingsStore, LLMCapabilityProbeStore
+from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.single_user import get_effective_user_id, require_api_access
 from backend.version import get_framework_version
 from universal_agentic_framework.config import (
@@ -22,6 +24,9 @@ from universal_agentic_framework.config import (
     load_profile_ui_config,
     load_tools_config,
 )
+from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_api_access)])
@@ -87,6 +92,48 @@ def _get_settings_store(request: Request) -> SettingsStore:
     return store
 
 
+def _get_probe_store(request: Request) -> Optional[LLMCapabilityProbeStore]:
+    """Get probe store from app state; returns None if not available."""
+    return getattr(request.app.state, "llm_capability_probe_store", None)
+
+
+def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
+    """Trigger curated reprobe when user selects a new preferred model."""
+    probe_store = _get_probe_store(request)
+    if not probe_store:
+        logger.debug("Probe store unavailable; skipping reprobe trigger")
+        return
+
+    try:
+        profile_id = get_active_profile_id()
+        runner = LLMCapabilityProbeRunner(profile_id=profile_id)
+        
+        # Run full reprobe to detect which provider the model is configured for
+        # This is simpler than trying to parse provider IDs from model names
+        results = runner.run()
+        
+        # Persist all reprobe results
+        for result in results:
+            probe_store.upsert_probe_result(result)
+        
+        logger.info(
+            "Reprobe triggered on preferred model change",
+            extra={
+                "profile_id": profile_id,
+                "new_model": new_model,
+                "reprobe_count": len(results),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Reprobe failed on model change",
+            extra={
+                "new_model": new_model,
+                "error": str(exc),
+            },
+        )
+
+
 @router.get("/settings/user/{user_id}", response_model=UserSettingsResponse)
 def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
     """Retrieve persisted user settings or return defaults."""
@@ -112,38 +159,117 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     """Persist user settings for the given user id."""
     effective_user_id = get_effective_user_id(user_id)
     store = _get_settings_store(request)
+    
+    # Get old settings to detect model changes
+    old_record = store.get_user_settings(effective_user_id)
+    old_model = old_record.get("preferred_model") if old_record else None
+    
+    preferred_model = settings.preferred_model
+    if preferred_model:
+        preferred_model = str(preferred_model).strip()
+        # Keep raw user input as-is; only normalize already provider-prefixed values.
+        if "/" in preferred_model:
+            try:
+                provider = parse_model_id(preferred_model).provider
+                known_prefixes = {
+                    "openai",
+                    "ollama",
+                    "lm_studio",
+                    "openrouter",
+                    "anthropic",
+                    "azure",
+                    "bedrock",
+                    "groq",
+                    "mistral",
+                    "vertex_ai",
+                }
+                if provider in known_prefixes:
+                    preferred_model = normalize_model_id(preferred_model)
+            except Exception:
+                # Unknown/non-provider slash patterns (e.g., org/model) are preserved.
+                pass
+
     record = store.upsert_user_settings(
         user_id=effective_user_id,
         tool_toggles=settings.tool_toggles,
         rag_config=settings.rag_config,
         analytics_preferences=settings.analytics_preferences,
-        preferred_model=settings.preferred_model,
+        preferred_model=preferred_model,
         theme=settings.theme,
         language=settings.language,
     )
+    
     # Clear settings cache for this user to force reload on next chat request
     from backend.routers.chat import _settings_cache
     if effective_user_id in _settings_cache:
         del _settings_cache[effective_user_id]
+    
+    # Trigger curated reprobe if preferred_model changed
+    if preferred_model and preferred_model != old_model:
+        _trigger_reprobe_on_model_change(request, preferred_model)
+    
     return record
 
 
 @router.get("/models")
 async def list_available_models() -> Dict[str, Any]:
-    """Fetch available LLM models from OpenAI-compatible endpoint."""
+    """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
+        provider_prefix = "openai"
+        try:
+            core = load_core_config()
+            default_model = core.llm.providers.primary.models.en
+            if default_model:
+                provider_prefix = parse_model_id(str(default_model)).provider
+        except Exception:
+            pass
+
         async with httpx.AsyncClient(timeout=5.0) as client:
             base = str(LLM_ENDPOINT).rstrip("/")
-            resp = await client.get(f"{base}/models")
-            resp.raise_for_status()
-            data = resp.json()
-            model_names = [m.get("id") for m in data.get("data", []) if m.get("id")]
+            try:
+                resp = await client.get(f"{base}/models")
+                resp.raise_for_status()
+                data = resp.json()
+                model_names = [m.get("id") for m in data.get("data", []) if m.get("id")]
+            except Exception:
+                if provider_prefix != "ollama":
+                    raise
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+                model_names = [m.get("name") for m in data.get("models", []) if m.get("name")]
+
+            known_prefixes = {
+                "openai",
+                "ollama",
+                "lm_studio",
+                "anthropic",
+                "azure",
+                "bedrock",
+                "groq",
+                "mistral",
+                "vertex_ai",
+            }
+
+            def _canonical_model_name(raw_name: str) -> str:
+                raw_name = str(raw_name).strip()
+                if not raw_name:
+                    return raw_name
+                if "/" not in raw_name:
+                    return f"{provider_prefix}/{raw_name}"
+                head = raw_name.split("/", 1)[0].strip().lower()
+                if head in known_prefixes:
+                    return raw_name
+                return f"{provider_prefix}/{raw_name}"
+
+            # Canonicalize to provider-prefixed names to keep LiteLLM routing stable.
+            canonical_names = [_canonical_model_name(n) for n in model_names]
             # Filter out embedding-only models (e.g. bge-m3)
-            model_names = [
-                n for n in model_names
+            canonical_names = [
+                n for n in canonical_names
                 if not any(skip in n.lower() for skip in ("bge-", "nomic-embed", "embed"))
             ]
-            return {"models": sorted(model_names)}
+            return {"models": sorted(canonical_names)}
     except Exception as e:
         return {"models": [], "error": str(e)}
 
@@ -234,6 +360,50 @@ async def get_system_config() -> Dict[str, Any]:
             },
             "error": str(e),
         }
+
+
+@router.post("/llm/reprobe")
+def trigger_llm_reprobe(request: Request) -> Dict[str, Any]:
+    """Manually trigger LLM capability reprobe for all configured providers."""
+    probe_store = _get_probe_store(request)
+    if not probe_store:
+        raise HTTPException(status_code=503, detail="Probe store unavailable")
+    
+    try:
+        profile_id = get_active_profile_id()
+        runner = LLMCapabilityProbeRunner(profile_id=profile_id)
+        
+        # Run full reprobe
+        results = runner.run()
+        
+        # Persist all reprobe results
+        for result in results:
+            probe_store.upsert_probe_result(result)
+        
+        logger.info(
+            "Manual LLM reprobe triggered",
+            extra={"profile_id": profile_id, "reprobe_count": len(results)},
+        )
+        
+        return {
+            "status": "ok",
+            "profile_id": profile_id,
+            "reprobe_count": len(results),
+            "results": [
+                {
+                    "provider_id": r.provider_id,
+                    "model_name": r.model_name,
+                    "status": r.status,
+                    "capability_mismatch": r.capability_mismatch,
+                    "supports_bind_tools": r.supports_bind_tools,
+                    "error_message": r.error_message,
+                }
+                for r in results
+            ],
+        }
+    except Exception as exc:
+        logger.error("Manual reprobe failed", extra={"error": str(exc)})
+        raise HTTPException(status_code=500, detail=f"Reprobe failed: {exc}") from exc
 
 
 @router.post("/ingestion/reingest-all", response_model=ReingestAllResponse)

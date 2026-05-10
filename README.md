@@ -129,6 +129,9 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **MCP server integration** — connect any MCP-compatible tool server using the official SDK with streamable HTTP transport
 - **Semantic tool routing** — queries are scored against tool descriptions using similarity matching with intent detection, so the right tools are selected without brittle keyword rules
 - **Three tool-calling modes**: `native` (model function calling), `structured` (JSON schema in prompt), and `react` (Thought → Action → Observation loop)
+- **Automatic mode downgrade** — detects if a model doesn't support native tool calling and automatically falls back to structured mode without breaking the conversation flow
+- **Multi-provider LLM support** — role-based provider chains with automatic fallback, configured via `config/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
+- **Tool-calling mode enforcement** — mode validation ensures consistency across all tool routing layers (prefilter, routing decision, and Layer 2 invocation nodes)
 - **Tool sandboxing** with permission-based access control
 - **Per-tool rate limiting** with sliding window enforcement
 - **Profile-level tool configuration** — enable, disable, or reconfigure tools per deployment profile

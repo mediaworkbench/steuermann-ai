@@ -32,6 +32,7 @@ class DatabasePool:
         # Keep schema compatible when DatabasePool is instantiated directly in tests/tools.
         try:
             _ensure_settings_table(self)
+            _ensure_llm_probe_table(self)
         except Exception:
             # Avoid making pool construction brittle; explicit init_db_pool still performs setup.
             pass
@@ -72,6 +73,7 @@ def init_db_pool() -> DatabasePool:
     )
     db_pool = DatabasePool(db_config)
     _ensure_settings_table(db_pool)
+    _ensure_llm_probe_table(db_pool)
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
     _ensure_conversation_tables(db_pool)
@@ -98,6 +100,37 @@ def _ensure_settings_table(db_pool: DatabasePool) -> None:
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(statement)
+        conn.commit()
+
+
+def _ensure_llm_probe_table(db_pool: DatabasePool) -> None:
+    statement = """
+        CREATE TABLE IF NOT EXISTS llm_capability_probes (
+            profile_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            api_base TEXT,
+            configured_tool_calling_mode TEXT NOT NULL CHECK (
+                configured_tool_calling_mode IN ('native', 'structured', 'react')
+            ),
+            supports_bind_tools BOOLEAN,
+            supports_tool_schema BOOLEAN,
+            capability_mismatch BOOLEAN NOT NULL DEFAULT FALSE,
+            status TEXT NOT NULL CHECK (status IN ('ok', 'warning', 'error')),
+            error_message TEXT,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            probed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (profile_id, provider_id, model_name)
+        );
+    """
+    index_statement = """
+        CREATE INDEX IF NOT EXISTS idx_llm_capability_probes_status
+        ON llm_capability_probes(status);
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            cur.execute(index_statement)
         conn.commit()
 
 
@@ -283,6 +316,88 @@ class SettingsStore:
         return _normalize_settings_row(row)
 
 
+class LLMCapabilityProbeStore:
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_llm_probe_table(self._db_pool)
+
+    def get_probe_result(self, profile_id: str, provider_id: str, model_name: str) -> Optional[Dict[str, Any]]:
+        statement = """
+            SELECT profile_id, provider_id, model_name, api_base, configured_tool_calling_mode,
+                   supports_bind_tools, supports_tool_schema, capability_mismatch, status,
+                   error_message, metadata, probed_at
+            FROM llm_capability_probes
+            WHERE profile_id = %s AND provider_id = %s AND model_name = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (profile_id, provider_id, model_name))
+                row = cur.fetchone()
+        if not row:
+            return None
+        return _normalize_probe_row(row)
+
+    def list_probe_results(self, profile_id: str, limit: int = 100) -> list[Dict[str, Any]]:
+        statement = """
+            SELECT profile_id, provider_id, model_name, api_base, configured_tool_calling_mode,
+                   supports_bind_tools, supports_tool_schema, capability_mismatch, status,
+                   error_message, metadata, probed_at
+            FROM llm_capability_probes
+            WHERE profile_id = %s
+            ORDER BY probed_at DESC
+            LIMIT %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (profile_id, limit))
+                rows = cur.fetchall()
+        return [_normalize_probe_row(row) for row in rows]
+
+    def upsert_probe_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        statement = """
+            INSERT INTO llm_capability_probes (
+                profile_id, provider_id, model_name, api_base, configured_tool_calling_mode,
+                supports_bind_tools, supports_tool_schema, capability_mismatch, status,
+                error_message, metadata, probed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (profile_id, provider_id, model_name) DO UPDATE SET
+                api_base = EXCLUDED.api_base,
+                configured_tool_calling_mode = EXCLUDED.configured_tool_calling_mode,
+                supports_bind_tools = EXCLUDED.supports_bind_tools,
+                supports_tool_schema = EXCLUDED.supports_tool_schema,
+                capability_mismatch = EXCLUDED.capability_mismatch,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                metadata = EXCLUDED.metadata,
+                probed_at = NOW()
+            RETURNING profile_id, provider_id, model_name, api_base, configured_tool_calling_mode,
+                      supports_bind_tools, supports_tool_schema, capability_mismatch, status,
+                      error_message, metadata, probed_at;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    statement,
+                    (
+                        result.get("profile_id"),
+                        result.get("provider_id"),
+                        result.get("model_name"),
+                        result.get("api_base"),
+                        result.get("configured_tool_calling_mode"),
+                        result.get("supports_bind_tools"),
+                        result.get("supports_tool_schema"),
+                        bool(result.get("capability_mismatch", False)),
+                        result.get("status"),
+                        result.get("error_message"),
+                        extras.Json(result.get("metadata") or {}),
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return _normalize_probe_row(row)
+
+
 def _normalize_settings_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if row is None:
         return {}
@@ -320,6 +435,38 @@ def _normalize_settings_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "notifications_enabled": row.get("notifications_enabled", True),
         "notifications_sound": row.get("notifications_sound", True),
         "updated_at": updated_at_value,
+    }
+
+
+def _normalize_probe_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if row is None:
+        return {}
+
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+
+    probed_at = row.get("probed_at")
+    if isinstance(probed_at, datetime):
+        probed_at_value = probed_at.isoformat()
+    elif probed_at is None:
+        probed_at_value = None
+    else:
+        probed_at_value = str(probed_at)
+
+    return {
+        "profile_id": row.get("profile_id"),
+        "provider_id": row.get("provider_id"),
+        "model_name": row.get("model_name"),
+        "api_base": row.get("api_base"),
+        "configured_tool_calling_mode": row.get("configured_tool_calling_mode"),
+        "supports_bind_tools": row.get("supports_bind_tools"),
+        "supports_tool_schema": row.get("supports_tool_schema"),
+        "capability_mismatch": bool(row.get("capability_mismatch", False)),
+        "status": row.get("status"),
+        "error_message": row.get("error_message"),
+        "metadata": metadata,
+        "probed_at": probed_at_value,
     }
 
 

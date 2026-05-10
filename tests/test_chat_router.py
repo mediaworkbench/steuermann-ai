@@ -168,6 +168,25 @@ class FakeWorkspaceDocumentStore:
         return None
 
 
+class FakeLLMCapabilityProbeStore:
+    def list_probe_results(self, profile_id: str, limit: int = 100) -> list[Dict[str, Any]]:
+        _ = limit
+        return [
+            {
+                "profile_id": profile_id,
+                "provider_id": "primary",
+                "model_name": "openai/liquid/lfm2-24b-a2b",
+                "configured_tool_calling_mode": "native",
+                "supports_bind_tools": False,
+                "supports_tool_schema": False,
+                "capability_mismatch": True,
+                "status": "warning",
+                "error_message": "bind_tools_failed: mock",
+                "probed_at": "2026-05-09T00:00:00+00:00",
+            }
+        ]
+
+
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("AUTH_USERNAME", "u1")
@@ -232,6 +251,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     conversation_store.create_conversation("conv-1", "u1")
     app.state.conversation_store = conversation_store
     app.state.settings_store = FakeSettingsStore()
+    app.state.llm_capability_probe_store = FakeLLMCapabilityProbeStore()
     app.state.conversation_attachment_store = FakeAttachmentStore(
         attachments=[
             {
@@ -337,6 +357,27 @@ def test_chat_rejects_attachment_ids_without_conversation_id(client) -> None:
 
     assert response.status_code == 400
     assert "conversation_id" in response.json()["detail"]
+
+
+def test_chat_forwards_llm_capability_probes(client) -> None:
+    test_client, _, fake_async_client = client
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "Summarize this",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+        },
+    )
+
+    assert response.status_code == 200
+    probes = fake_async_client.last_request_json.get("llm_capability_probes")
+    assert isinstance(probes, list)
+    assert probes
+    assert probes[0]["provider_id"] == "primary"
+    assert probes[0]["capability_mismatch"] is True
 
 
 def test_chat_uses_user_settings_language_over_request_language(client) -> None:

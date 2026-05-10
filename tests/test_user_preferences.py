@@ -5,7 +5,7 @@ Tests the full stack: database schema, API endpoints, and frontend integration.
 
 import os
 import pytest
-from backend.db import DatabasePool, SettingsStore, DatabaseConfig
+from backend.db import DatabasePool, SettingsStore, LLMCapabilityProbeStore, DatabaseConfig
 
 
 class TestUserPreferencesSchema:
@@ -305,3 +305,95 @@ class TestSettingsStore:
         assert retrieved["rag_config"]["score_threshold"] == 0.7
         assert retrieved["rag_config"]["filters"]["source"] == "textbooks"
         assert retrieved["rag_config"]["rerank"] is True
+
+
+class TestLLMCapabilityProbeStore:
+    @pytest.fixture
+    def db_pool(self):
+        config = DatabaseConfig(
+            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
+            minconn=1,
+            maxconn=5,
+        )
+        pool = DatabasePool(config)
+
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM llm_capability_probes WHERE profile_id = 'test_profile';")
+            conn.commit()
+
+        yield pool
+
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM llm_capability_probes WHERE profile_id = 'test_profile';")
+            conn.commit()
+
+        pool.close()
+
+    @pytest.fixture
+    def probe_store(self, db_pool):
+        return LLMCapabilityProbeStore(db_pool)
+
+    def test_upsert_and_get_probe_result(self, probe_store):
+        payload = {
+            "profile_id": "test_profile",
+            "provider_id": "lmstudio",
+            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "api_base": "http://host.docker.internal:1234/v1",
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": True,
+            "supports_tool_schema": True,
+            "capability_mismatch": False,
+            "status": "ok",
+            "error_message": None,
+            "metadata": {"probe_kind": "native_bind_tools"},
+        }
+
+        stored = probe_store.upsert_probe_result(payload)
+        loaded = probe_store.get_probe_result(
+            profile_id="test_profile",
+            provider_id="lmstudio",
+            model_name="openai/liquid/lfm2-24b-a2b",
+        )
+
+        assert stored["profile_id"] == "test_profile"
+        assert stored["supports_bind_tools"] is True
+        assert loaded is not None
+        assert loaded["status"] == "ok"
+        assert loaded["metadata"]["probe_kind"] == "native_bind_tools"
+
+    def test_upsert_overwrites_existing_probe_row(self, probe_store):
+        base_payload = {
+            "profile_id": "test_profile",
+            "provider_id": "lmstudio",
+            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "api_base": "http://host.docker.internal:1234/v1",
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": True,
+            "supports_tool_schema": True,
+            "capability_mismatch": False,
+            "status": "ok",
+            "error_message": None,
+            "metadata": {"attempt": 1},
+        }
+        probe_store.upsert_probe_result(base_payload)
+
+        updated = dict(base_payload)
+        updated.update(
+            {
+                "supports_bind_tools": False,
+                "supports_tool_schema": False,
+                "capability_mismatch": True,
+                "status": "warning",
+                "error_message": "bind_tools_failed: test",
+                "metadata": {"attempt": 2},
+            }
+        )
+        probe_store.upsert_probe_result(updated)
+
+        rows = probe_store.list_probe_results(profile_id="test_profile")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "warning"
+        assert rows[0]["capability_mismatch"] is True
+        assert rows[0]["metadata"]["attempt"] == 2

@@ -23,7 +23,6 @@
 
 ## [0.2] — refactor-memory-layer
 
-
 - **perf** Singleton-cache `Mem0MemoryBackend` in factory — eliminates redundant Qdrant index round-trips per request
 - **fix** Switch Mem0 LLM provider to `lmstudio` to avoid LM Studio `json_object` 400 errors; `infer=True` now works natively
 - **feat** Structured multi-message exchange passed to Mem0 `upsert` for richer inference context

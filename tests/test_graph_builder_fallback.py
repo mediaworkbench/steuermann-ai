@@ -36,6 +36,16 @@ class _WorkingModel:
         return SimpleNamespace(content=self.text)
 
 
+class _ListContentModel:
+    def invoke(self, _payload):
+        return SimpleNamespace(
+            content=[
+                {"type": "text", "text": "Hallo"},
+                {"type": "text", "text": "Welt"},
+            ]
+        )
+
+
 def _core_config() -> CoreConfig:
     return CoreConfig(
         fork=ForkSettings(name="starter", language="en"),
@@ -131,3 +141,21 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
 
     assert exc_info.value.provider == "mock"
     assert exc_info.value.model_name == "fallback-model"
+
+
+def test_invoke_with_model_fallback_normalizes_list_content_blocks():
+    config = _core_config()
+
+    text, provider, model_name, _ = _invoke_with_model_fallback(
+        config=config,
+        language="en",
+        payload="hello",
+        initial_model=_ListContentModel(),
+        initial_provider="openrouter",
+        initial_model_name="openrouter/poolside/laguna-m.1:free",
+        preferred_model=None,
+    )
+
+    assert text == "Hallo\nWelt"
+    assert provider == "openrouter"
+    assert model_name == "openrouter/poolside/laguna-m.1:free"
