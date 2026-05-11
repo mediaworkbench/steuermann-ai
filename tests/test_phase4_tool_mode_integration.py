@@ -16,9 +16,11 @@ from backend.db import SettingsStore, LLMCapabilityProbeStore, DatabasePool, Dat
 from backend.llm_capability_probe import LLMCapabilityProbeResult, LLMCapabilityProbeRunner
 from universal_agentic_framework.orchestration.graph_builder import (
     GraphState,
-    _resolve_effective_tool_calling_mode,
-    _validate_and_log_tool_calling_mode,
     build_graph,
+)
+from universal_agentic_framework.orchestration.helpers.tool_calling_mode import (
+    resolve_effective_tool_calling_mode as _resolve_effective_tool_calling_mode,
+    validate_and_log_tool_calling_mode as _validate_and_log_tool_calling_mode,
 )
 from universal_agentic_framework.config import load_core_config
 

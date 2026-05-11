@@ -17,10 +17,14 @@ from universal_agentic_framework.config.schemas import (
     VectorStoreSettings,
 )
 from universal_agentic_framework.llm.factory import LLMFactory, ModelSelection
-from universal_agentic_framework.orchestration.graph_builder import (
-    _ModelInvokeError,
-    _invoke_with_model_fallback,
-)
+from universal_agentic_framework.orchestration.helpers.model_resolution import invoke_with_model_fallback
+
+
+class _ModelInvokeError(RuntimeError):
+    def __init__(self, message: str, provider: str, model_name: str):
+        super().__init__(message)
+        self.provider = provider
+        self.model_name = model_name
 
 
 class _FailingModel:
@@ -96,7 +100,7 @@ def test_invoke_with_model_fallback_uses_next_candidate(monkeypatch):
 
     monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
 
-    text, provider, model_name, _ = _invoke_with_model_fallback(
+    text, provider, model_name, _ = invoke_with_model_fallback(
         config=config,
         language="en",
         payload="hello",
@@ -129,7 +133,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
     monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
 
     with pytest.raises(_ModelInvokeError) as exc_info:
-        _invoke_with_model_fallback(
+        invoke_with_model_fallback(
             config=config,
             language="en",
             payload="hello",
@@ -137,6 +141,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
             initial_provider="mock",
             initial_model_name="primary-model",
             preferred_model=None,
+            error_cls=_ModelInvokeError,
         )
 
     assert exc_info.value.provider == "mock"
@@ -146,7 +151,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
 def test_invoke_with_model_fallback_normalizes_list_content_blocks():
     config = _core_config()
 
-    text, provider, model_name, _ = _invoke_with_model_fallback(
+    text, provider, model_name, _ = invoke_with_model_fallback(
         config=config,
         language="en",
         payload="hello",

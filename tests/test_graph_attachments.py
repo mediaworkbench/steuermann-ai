@@ -4,6 +4,9 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 
 from universal_agentic_framework.orchestration import graph_builder
+from universal_agentic_framework.orchestration.helpers.text_processing import (
+    build_attachment_context_block as _build_attachment_context_block,
+)
 
 
 class _CapturingModel:
@@ -76,7 +79,7 @@ def _fake_config() -> SimpleNamespace:
 
 
 def test_build_attachment_context_block_labels_and_truncates() -> None:
-    block, normalized = graph_builder._build_attachment_context_block(
+    block, normalized = _build_attachment_context_block(
         [
             {
                 "id": "att-1",

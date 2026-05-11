@@ -62,7 +62,6 @@ from universal_agentic_framework.orchestration.helpers import (
     prepare_scored_tools_with_forced_execution,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
-    clear_embedding_cache,
     safe_get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
@@ -84,16 +83,6 @@ _apply_top_k_scored_tools = apply_top_k_scored_tools
 _safe_get_model = safe_get_model
 _resolve_effective_tool_calling_mode = resolve_effective_tool_calling_mode
 _validate_and_log_tool_calling_mode = validate_and_log_tool_calling_mode
-
-# Cache for tool description embeddings (tool_name -> embedding array)
-_tool_embedding_cache = {}
-
-
-def _clear_embedding_cache():
-    """Clear embedding provider caches for tests and config reload scenarios."""
-    _tool_embedding_cache.clear()
-    # Keep helper-module cache in sync as well.
-    clear_embedding_cache()
 
 
 

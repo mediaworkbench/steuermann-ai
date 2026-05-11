@@ -665,9 +665,11 @@ class TestToolEmbeddingCache:
 
     def test_cache_dict_operations(self):
         """Verify the cache dict structure used for tool embeddings."""
-        from universal_agentic_framework.orchestration.graph_builder import _tool_embedding_cache, _clear_embedding_cache
+        from universal_agentic_framework.orchestration.helpers.tool_scoring import _tool_embedding_cache
+        from universal_agentic_framework.orchestration.helpers.embedding_provider import clear_embedding_cache
 
-        _clear_embedding_cache()
+        _tool_embedding_cache.clear()
+        clear_embedding_cache()
         assert len(_tool_embedding_cache) == 0
 
         # Simulate caching a tool embedding
@@ -679,7 +681,8 @@ class TestToolEmbeddingCache:
         assert cache_key in _tool_embedding_cache
         assert np.array_equal(_tool_embedding_cache[cache_key], fake_embedding)
 
-        _clear_embedding_cache()
+        _tool_embedding_cache.clear()
+        clear_embedding_cache()
         assert len(_tool_embedding_cache) == 0
 
 

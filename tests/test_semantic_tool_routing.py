@@ -10,21 +10,32 @@ from universal_agentic_framework.orchestration.graph_builder import (
     node_route_tools,
     node_call_tools_native,
     node_generate_response,
-    _clear_embedding_cache,
-    _detect_tool_routing_intents,
-    _build_semantic_tool_kwargs,
-    _extract_calculator_expression,
-    _run_forced_tool,
-    _apply_top_k_scored_tools,
 )
+from universal_agentic_framework.orchestration.helpers.embedding_provider import (
+    clear_embedding_cache as _clear_embedding_cache,
+)
+from universal_agentic_framework.orchestration.helpers.intent_detection import (
+    detect_tool_routing_intents as _detect_tool_routing_intents,
+)
+from universal_agentic_framework.orchestration.helpers.semantic_execution import (
+    build_semantic_tool_kwargs as _build_semantic_tool_kwargs,
+    extract_calculator_expression as _extract_calculator_expression,
+    run_forced_tool as _run_forced_tool,
+)
+from universal_agentic_framework.orchestration.helpers.tool_preparation import (
+    apply_top_k_scored_tools as _apply_top_k_scored_tools,
+)
+from universal_agentic_framework.orchestration.helpers.tool_scoring import _tool_embedding_cache
 from universal_agentic_framework.tools.datetime.tool import DateTimeTool
 
 
 @pytest.fixture(autouse=True)
 def clear_embedding_cache():
     """Clear embedding model cache before each test to ensure mocks work."""
+    _tool_embedding_cache.clear()
     _clear_embedding_cache()
     yield
+    _tool_embedding_cache.clear()
     _clear_embedding_cache()
 
 

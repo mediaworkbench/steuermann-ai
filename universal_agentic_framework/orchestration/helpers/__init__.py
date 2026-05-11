@@ -31,7 +31,7 @@ from .intent_detection import detect_tool_routing_intents
 # Tool scoring
 from .tool_scoring import (
     score_tool_similarity,
-    build_semantic_tool_kwargs,
+    build_semantic_tool_kwargs as build_prefilter_tool_kwargs,
 )
 
 # Semantic execution
@@ -87,6 +87,7 @@ __all__ = [
     "detect_tool_routing_intents",
     # Tool scoring
     "score_tool_similarity",
+    "build_prefilter_tool_kwargs",
     # Semantic execution
     "extract_calculator_expression",
     "build_semantic_tool_kwargs",
