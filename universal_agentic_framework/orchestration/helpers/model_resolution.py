@@ -2,147 +2,183 @@
 
 from typing import Any, Optional, Tuple
 
+from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.llm.provider_registry import normalize_model_id
 
 
 def safe_get_model(config, language: str, preferred_model: Optional[str] = None):
-    """Resolve model ID for a language with fallback to English and primary provider.
+    """Return an LLM model; fallback to simple echo if providers fail.
 
-    Ensures that model selection follows the priority:
-    1. preferred_model (if specified and valid)
-    2. Model for the request language in primary provider
-    3. English model in primary provider (fallback)
-    4. First available model in primary provider
-
-    Returns the resolved model ID (LiteLLM-formatted string).
+    Args:
+        config: Core configuration
+        language: Language code (e.g., 'en', 'de')
+        preferred_model: Optional preferred model name to override config
     """
-    if not config:
-        raise ValueError("config is required")
-
-    if not hasattr(config, "llm"):
-        raise ValueError("config.llm not found")
-
-    providers = config.llm.providers
-
-    # primary provider (usually first in config or explicitly marked)
-    primary_provider_key = getattr(config.llm, "primary_provider", "lmstudio")
-    provider_config = getattr(providers, primary_provider_key, None)
-    if not provider_config:
-        raise ValueError(f"Primary provider '{primary_provider_key}' not configured")
-
-    # Normalize input language
-    normalized_lang = (language or "en").lower()
-    if normalized_lang not in ("en", "de", "fr", "es"):
-        normalized_lang = "en"
-
-    # Preferred model check
-    if preferred_model:
-        candidate = normalize_model_id(preferred_model)
-        return candidate
-
-    # Language-specific model
-    models = provider_config.get("models", {})
-    if normalized_lang in models:
-        model_id = models[normalized_lang]
-        return normalize_model_id(model_id)
-
-    # Fallback to English
-    if "en" in models:
-        model_id = models["en"]
-        return normalize_model_id(model_id)
-
-    # Fallback to any model in provider
-    if models:
-        model_id = next(iter(models.values()))
-        return normalize_model_id(model_id)
-
-    raise ValueError(f"No models configured for provider '{primary_provider_key}'")
+    try:
+        factory = LLMFactory(config)
+        if preferred_model:
+            selection = factory.get_model_candidates(
+                language=language,
+                preferred_model=preferred_model,
+                prefer_local=True,
+                include_default_when_preferred=False,
+            )[0]
+            return selection.model
+        return factory.get_router_model(language=language)
+    except Exception:
+        class _EchoModel:
+            def invoke(self, prompt: str):
+                class _Out:
+                    content = f"LLM: {prompt}"
+                return _Out()
+        return _EchoModel()
 
 
 def resolve_initial_model_metadata(config: Any, language: str, preferred_model: Optional[str]) -> Tuple[str, str]:
-    """Resolve model ID and provider from config.
-
-    Returns: (model_id, provider_id)
-    """
-    model_id = safe_get_model(config, language, preferred_model)
-
-    # Extract provider from model_id (format: provider/model-name)
-    if "/" in model_id:
-        provider = model_id.split("/")[0].lower()
-    else:
-        provider = "openai"  # fallback
-
-    # Normalize provider name to config key (e.g., "lm_studio" -> "lmstudio")
-    provider_aliases = {"lm_studio": "lmstudio", "open_router": "openrouter"}
-    provider_key = provider_aliases.get(provider, provider)
-
-    return model_id, provider_key
+    """Best-effort metadata for the initial selected model."""
+    provider = "unknown"
+    model_name = preferred_model or "unknown"
+    try:
+        primary = config.llm.providers.primary
+        if not preferred_model:
+            factory = LLMFactory(config)
+            model_name = factory._select_model(primary, language)
+        provider = model_name.split("/", 1)[0] if "/" in model_name else "unknown"
+    except Exception:
+        pass
+    return provider, model_name
 
 
 def invoke_with_model_fallback(
-    model_id: str,
-    provider_id: str,
-    language: str,
+    *,
     config: Any,
-    invoke_func,
-    max_retries: int = 2,
-) -> Any:
-    """Invoke with a model, falling back to alternative models on failure.
+    language: str,
+    payload: Any,
+    initial_model: object,
+    initial_provider: str,
+    initial_model_name: str,
+    preferred_model: Optional[str] = None,
+    logger: Optional[Any] = None,
+    error_cls: Optional[type] = None,
+) -> Tuple[str, str, str, object]:
+    """Invoke a model with ordered runtime fallback and return response text + metadata.
 
-    The fallback strategy prioritizes:
-    1. Preferred model (if specified)
-    2. Model for current language
-    3. English model
-    4. Any other model in primary provider
-    5. Primary provider's fallback provider (if configured)
-
-    invoke_func should accept (model_id, provider_id) and return the result
-    or raise an exception on failure.
+    This helper mirrors graph_builder behavior and supports custom error classes
+    to preserve backward compatibility for existing tests and callers.
     """
-    if not hasattr(config, "llm"):
-        raise ValueError("config.llm not found")
 
-    providers = config.llm.providers
-    primary_provider = getattr(config.llm, "primary_provider", "lmstudio")
+    def _normalize_response_text(raw: Any) -> str:
+        if raw is None:
+            return ""
 
-    attempts = 0
-    last_error = None
+        if isinstance(raw, str):
+            return raw
 
-    # Build fallback chain: try current model, then fallback provider
-    fallback_providers = [provider_id]
-    if provider_id != primary_provider:
-        fallback_providers.append(primary_provider)
+        if isinstance(raw, list):
+            parts = []
+            for item in raw:
+                if isinstance(item, str):
+                    if item.strip():
+                        parts.append(item)
+                    continue
 
-    for provider_key in fallback_providers:
-        if attempts >= max_retries:
-            break
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text)
+                        continue
 
-        provider_config = getattr(providers, provider_key, None)
-        if not provider_config:
-            continue
+                    content = item.get("content")
+                    if isinstance(content, str) and content.strip():
+                        parts.append(content)
+                        continue
 
-        models = getattr(provider_config, "models", None) or {}
-        model_candidates = [
-            (language, models.get(language)),
-            ("en", models.get("en")),
-            (None, next(iter(models.values())) if models else None),
-        ]
+            return "\n".join(parts).strip()
 
-        for lang, candidate_model_id in model_candidates:
-            if attempts >= max_retries:
-                break
-            if not candidate_model_id:
-                continue
+        if isinstance(raw, dict):
+            text = raw.get("text")
+            if isinstance(text, str):
+                return text
+            content = raw.get("content")
+            if isinstance(content, str):
+                return content
+            return str(raw)
 
-            try:
-                candidate_normalized = normalize_model_id(candidate_model_id)
-                result = invoke_func(candidate_normalized, provider_key)
-                return result
-            except Exception as e:
-                attempts += 1
-                last_error = e
-                continue
+        return str(raw)
 
-    if last_error:
-        raise last_error
-    raise RuntimeError("All model fallback attempts exhausted")
+    attempts: List[Tuple[object, str, str, str]] = [
+        (initial_model, initial_provider, initial_model_name, "initial"),
+    ]
+    seen: set[Tuple[str, str, str]] = {(initial_provider, initial_model_name, "initial")}
+    expanded_fallbacks = False
+    idx = 0
+    last_error: Optional[Exception] = None
+    last_provider = initial_provider
+    last_model_name = initial_model_name
+
+    while idx < len(attempts):
+        candidate_model, provider, model_name, source = attempts[idx]
+        idx += 1
+        try:
+            invoke = getattr(candidate_model, "invoke", None)
+            out = invoke(payload) if callable(invoke) else (
+                candidate_model(payload) if callable(candidate_model) else str(payload)
+            )
+            raw_text = out.content if hasattr(out, "content") else out
+            text = _normalize_response_text(raw_text)
+            if not text.strip():
+                raise ValueError("LLM returned empty response content")
+            if logger is not None:
+                logger.info(
+                    "LLM invoke succeeded",
+                    provider=provider,
+                    model=model_name,
+                    source=source,
+                )
+            return text, provider, model_name, candidate_model
+        except Exception as exc:
+            last_error = exc
+            last_provider = provider
+            last_model_name = model_name
+            if logger is not None:
+                logger.warning(
+                    "LLM invoke failed; trying fallback if available",
+                    provider=provider,
+                    model=model_name,
+                    source=source,
+                    error=str(exc),
+                )
+
+            if not expanded_fallbacks:
+                expanded_fallbacks = True
+                factory = LLMFactory(config)
+                try:
+                    for selection in factory.get_model_candidates(
+                        language=language,
+                        preferred_model=preferred_model,
+                        prefer_local=True,
+                        include_default_when_preferred=(preferred_model is None),
+                    ):
+                        key = (selection.provider_type, selection.model_name, selection.source)
+                        if key in seen:
+                            continue
+                        attempts.append(
+                            (
+                                selection.model,
+                                selection.provider_type,
+                                selection.model_name,
+                                selection.source,
+                            )
+                        )
+                        seen.add(key)
+                except Exception as candidate_exc:
+                    if logger is not None:
+                        logger.warning("Failed to build model fallback candidates", error=str(candidate_exc))
+
+    error_msg = "LLM invoke failed for all candidates"
+    if last_error is not None:
+        error_msg = f"{error_msg}: {last_error}"
+
+    if error_cls is not None:
+        raise error_cls(error_msg, provider=last_provider, model_name=last_model_name)
+    raise RuntimeError(error_msg)

@@ -1,24 +1,45 @@
 """Tool scoring and semantic selection helpers."""
 
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from langchain.tools import BaseTool
-from universal_agentic_framework.llm.budget import estimate_tokens
+_tool_embedding_cache: Dict[str, Any] = {}
 
 
-def score_tool_similarity(
-    user_msg_lower: str,
-    tool: BaseTool,
-    embedding_provider,
-    embedding_config_key: str,
-    intent_hints: Optional[Dict[str, Any]] = None,
-) -> float:
+def score_tool_similarity(*args, **kwargs) -> float:
     """Score tool relevance via embedding similarity + intent-boosted scoring.
 
     Combines semantic (embedding) and syntactic (keyword) signals to rank tools
     for prefiltering. Higher scores = more relevant for the query.
     """
+    # Compatibility path for graph_builder's existing call contract.
+    if "embedding_model_name" in kwargs and "tool_name" in kwargs and "query_embedding" in kwargs:
+        embedding_model_name = kwargs["embedding_model_name"]
+        tool_name = kwargs["tool_name"]
+        tool_desc = kwargs["tool_desc"]
+        embedding_provider = kwargs["embedding_provider"]
+        query_embedding = kwargs["query_embedding"]
+
+        cache_key = f"{embedding_model_name}:{tool_name}:{hash(tool_desc)}"
+        if cache_key not in _tool_embedding_cache:
+            _tool_embedding_cache[cache_key] = embedding_provider.encode(tool_desc)
+        tool_embedding = _tool_embedding_cache[cache_key]
+        return float(np.dot(query_embedding, tool_embedding) / (
+            np.linalg.norm(query_embedding) * np.linalg.norm(tool_embedding)
+        ))
+
+    # Generic helper path (original helper contract).
+    user_msg_lower = kwargs.get("user_msg_lower", args[0] if len(args) > 0 else "")
+    tool = kwargs.get("tool", args[1] if len(args) > 1 else None)
+    embedding_provider = kwargs.get("embedding_provider", args[2] if len(args) > 2 else None)
+    embedding_config_key = kwargs.get("embedding_config_key", args[3] if len(args) > 3 else "")
+    intent_hints = kwargs.get("intent_hints", args[4] if len(args) > 4 else None)
+
+    if tool is None or embedding_provider is None:
+        return 0.0
+
     intent_hints = intent_hints or {}
     base_score = embedding_provider.similarity_score(
         user_msg_lower,

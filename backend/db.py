@@ -31,8 +31,7 @@ class DatabasePool:
         )
         # Keep schema compatible when DatabasePool is instantiated directly in tests/tools.
         try:
-            _ensure_settings_table(self)
-            _ensure_llm_probe_table(self)
+            _ensure_core_tables(self)
         except Exception:
             # Avoid making pool construction brittle; explicit init_db_pool still performs setup.
             pass
@@ -72,12 +71,17 @@ def init_db_pool() -> DatabasePool:
         maxconn=pool_size,
     )
     db_pool = DatabasePool(db_config)
+    _ensure_core_tables(db_pool)
+    return db_pool
+
+
+def _ensure_core_tables(db_pool: DatabasePool) -> None:
+    """Initialize the core schema expected by tests and runtime code."""
     _ensure_settings_table(db_pool)
     _ensure_llm_probe_table(db_pool)
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
     _ensure_conversation_tables(db_pool)
-    return db_pool
 
 
 def _ensure_settings_table(db_pool: DatabasePool) -> None:
