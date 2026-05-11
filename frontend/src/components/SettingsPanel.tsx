@@ -6,7 +6,6 @@ import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
   UserSettings,
-  fetchAvailableModels,
   fetchSystemConfig,
   triggerReingestAllDocuments,
   type SystemConfig,
@@ -42,13 +41,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>(
     settings?.rag_config || { collection: "", top_k: 5 }
   );
-  const [preferredModel, setPreferredModel] = useState(settings?.preferred_model || "");
+  const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(settings?.preferred_models || {});
   const [language, setLanguage] = useState(settings?.language || "en");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [reingesting, setReingesting] = useState(false);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<LLMCapabilityItem[]>([]);
@@ -65,7 +62,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       // Use server settings, but prefill missing fields with system defaults
       const ragDefault = { collection: systemConfig?.rag_defaults.collection_name || "framework", top_k: systemConfig?.rag_defaults.top_k || 5 };
       setRagConfig(settings.rag_config && settings.rag_config.collection ? settings.rag_config : ragDefault);
-      setPreferredModel(settings.preferred_model || "");
+      setPreferredModels(settings.preferred_models || {});
       setLanguage(settings.language || "en");
     }
   }, [settings, systemConfig]);
@@ -82,21 +79,6 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       }
     }
     loadConfig();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Fetch available models from Ollama via backend
-  useEffect(() => {
-    let cancelled = false;
-    async function loadModels() {
-      setModelsLoading(true);
-      const models = await fetchAvailableModels();
-      if (!cancelled) {
-        setAvailableModels(models);
-        setModelsLoading(false);
-      }
-    }
-    loadModels();
     return () => { cancelled = true; };
   }, []);
 
@@ -132,6 +114,19 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     }
   }, []);
 
+  const getRoleBadgeClass = useCallback((role?: string) => {
+    switch (role) {
+      case "chat":
+        return "bg-indigo-100 text-indigo-800";
+      case "vision":
+        return "bg-purple-100 text-purple-800";
+      case "auxiliary":
+        return "bg-orange-100 text-orange-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  }, []);
+
   const handleCopyDiagnostics = useCallback(async () => {
     if (capabilities.length === 0 || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       toast.error(t("settingsPanel.copyDiagnosticsFailed"));
@@ -143,6 +138,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       const header = [
         "provider_id",
         "model_name",
+        "role",
         "desired_mode",
         "effective_mode",
         "configured_tool_calling_mode",
@@ -156,6 +152,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         [
           item.provider_id,
           item.model_name,
+          item.role || "",
           item.desired_mode,
           item.effective_mode,
           item.configured_tool_calling_mode || "",
@@ -204,7 +201,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       const success = await onSave({
         tool_toggles: toolToggles,
         rag_config: ragConfig,
-        preferred_model: preferredModel || null,
+        preferred_model: preferredModels.chat || null,
+        preferred_models: preferredModels,
         language,
       });
       if (success) {
@@ -218,7 +216,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     } finally {
       setSaving(false);
     }
-  }, [toolToggles, ragConfig, preferredModel, language, onSave, t]);
+  }, [toolToggles, ragConfig, preferredModels, language, onSave, t]);
 
   const handleReingestAll = useCallback(async () => {
     const confirmed = window.confirm(t("settingsPanel.confirmReingestAll"));
@@ -247,8 +245,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     return <div className="text-center py-8 text-gray-500">{t("common.loading")}</div>;
   }
 
-  const systemDefaultModel = systemConfig?.default_model || "gemma3:4b";
-  const selectedModel = preferredModel || systemDefaultModel;
+  const roleModelOptions = systemConfig?.model_roles || [];
 
   return (
     <div className="space-y-6">
@@ -360,30 +357,56 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       {/* Model Selection Section */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.modelSelection")}</h3>
-        <div className="mb-2 text-xs text-gray-600">
-          <span className="font-semibold">{t("settingsPanel.systemDefault", { value: systemConfig?.default_model || "gemma3:4b" })}</span>
-        </div>
-        {modelsLoading ? (
+        {configLoading ? (
           <p className="text-sm text-gray-500">{t("settingsPanel.loadingModels")}</p>
-        ) : availableModels.length === 0 ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.noModelsAvailable")}</p>
+        ) : roleModelOptions.length === 0 ? (
+          <p className="text-sm text-gray-500">{t("settingsPanel.noRoleModelsAvailable")}</p>
         ) : (
-          <select
-            value={selectedModel}
-            onChange={(e) =>
-              setPreferredModel(e.target.value === systemDefaultModel ? "" : e.target.value)
-            }
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {!availableModels.includes(systemDefaultModel) && (
-              <option value={systemDefaultModel}>{systemDefaultModel}</option>
-            )}
-            {availableModels.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
+          <div className="space-y-4">
+            {roleModelOptions.map((roleConfig) => {
+              const roleName = roleConfig.role;
+              const roleDefaultModel = roleConfig.default_model || "";
+              const selectedModel = preferredModels[roleName] || roleDefaultModel;
+              const roleModels = roleConfig.available_models || [];
+              const mergedRoleModels = roleModels.includes(roleDefaultModel)
+                ? roleModels
+                : [roleDefaultModel, ...roleModels].filter(Boolean);
+              return (
+                <div key={roleName} className="border border-gray-200 rounded-lg p-4">
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-800">
+                      {t("settingsPanel.roleModelLabel", { role: roleName })}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
+                    </p>
+                    {roleConfig.model_load_error && (
+                      <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
+                    )}
+                  </div>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) =>
+                      setPreferredModels((prev) => ({
+                        ...prev,
+                        [roleName]: e.target.value === roleDefaultModel ? "" : e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {mergedRoleModels.map((model) => (
+                      <option key={`${roleName}:${model}`} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -449,6 +472,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityModel")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityRole")}</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityDesired")}</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityEffective")}</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityProbeStatus")}</th>
@@ -467,6 +491,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                         <td className="px-3 py-2 text-gray-800">
                           <div className="font-medium">{item.model_name}</div>
                           <div className="text-xs text-gray-500">{item.provider_id}</div>
+                        </td>
+                        <td className="px-3 py-2">
+                          {item.role && (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRoleBadgeClass(item.role)}`}>
+                              {item.role}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-gray-700">{item.desired_mode}</td>
                         <td className="px-3 py-2">
@@ -489,7 +520,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                       </tr>
                       {expanded && (
                         <tr className="border-t border-gray-100 bg-gray-50">
-                          <td colSpan={8} className="px-3 py-3 text-xs text-gray-700">
+                          <td colSpan={9} className="px-3 py-3 text-xs text-gray-700">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               <div>
                                 <span className="font-semibold">{t("settingsPanel.detailConfiguredMode")}: </span>

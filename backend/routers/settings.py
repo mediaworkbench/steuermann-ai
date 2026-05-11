@@ -32,6 +32,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_api_access)])
 
+KNOWN_PROVIDER_PREFIXES = {
+    "openai",
+    "ollama",
+    "lm_studio",
+    "openrouter",
+    "anthropic",
+    "azure",
+    "bedrock",
+    "groq",
+    "mistral",
+    "vertex_ai",
+}
+
 
 def _resolve_primary_provider_endpoint() -> str:
     """Resolve primary chat provider endpoint strictly from active config."""
@@ -60,6 +73,7 @@ class UserSettings(BaseModel):
     rag_config: Dict[str, Any] = Field(default_factory=lambda: {"collection": "", "top_k": 5})
     analytics_preferences: Dict[str, Any] = Field(default_factory=dict)
     preferred_model: str | None = None
+    preferred_models: Dict[str, Optional[str]] = Field(default_factory=dict)
     theme: str = Field(default="auto", description="light, dark, or auto")
     language: str = Field(default="en")
 
@@ -70,6 +84,7 @@ class UserSettingsResponse(BaseModel):
     rag_config: Dict[str, Any]
     analytics_preferences: Dict[str, Any]
     preferred_model: Optional[str]
+    preferred_models: Dict[str, Optional[str]]
     theme: str
     language: str
     updated_at: Optional[str]
@@ -82,6 +97,7 @@ class SystemConfigResponse(BaseModel):
     framework_version: str
     profile: ProfileConfigResponse
     supported_languages: List[str] = Field(default_factory=list)
+    model_roles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ReingestAllResponse(BaseModel):
@@ -145,6 +161,73 @@ def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
         )
 
 
+def _normalize_preferred_model_value(raw_model: Optional[str]) -> Optional[str]:
+    if not raw_model:
+        return None
+    preferred_model = str(raw_model).strip()
+    if not preferred_model:
+        return None
+    if "/" in preferred_model:
+        try:
+            provider = parse_model_id(preferred_model).provider
+            if provider in KNOWN_PROVIDER_PREFIXES:
+                preferred_model = normalize_model_id(preferred_model)
+        except Exception:
+            # Unknown/non-provider slash patterns (e.g., org/model) are preserved.
+            pass
+    return preferred_model
+
+
+async def _fetch_provider_models(provider: Any, preferred_language: str = "en") -> List[str]:
+    provider_models = [m for m in provider.models.model_dump().values() if m]
+    default_model = (
+        getattr(provider.models, preferred_language, None)
+        or getattr(provider.models, "en", None)
+        or (provider_models[0] if provider_models else None)
+    )
+    provider_prefix = "openai"
+    if default_model:
+        try:
+            provider_prefix = parse_model_id(str(default_model)).provider
+        except Exception:
+            pass
+
+    def _canonical_model_name(raw_name: str) -> str:
+        raw_name = str(raw_name).strip()
+        if not raw_name:
+            return raw_name
+        if "/" not in raw_name:
+            return f"{provider_prefix}/{raw_name}"
+        head = raw_name.split("/", 1)[0].strip().lower()
+        if head in KNOWN_PROVIDER_PREFIXES:
+            return raw_name
+        return f"{provider_prefix}/{raw_name}"
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        base = str(getattr(provider, "api_base", "") or "").rstrip("/")
+        if not base:
+            return []
+        try:
+            resp = await client.get(f"{base}/models")
+            resp.raise_for_status()
+            data = resp.json()
+            model_names = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception:
+            if provider_prefix != "ollama":
+                raise
+            resp = await client.get(f"{base}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            model_names = [m.get("name") for m in data.get("models", []) if m.get("name")]
+
+    canonical_names = [_canonical_model_name(n) for n in model_names]
+    canonical_names = [
+        n for n in canonical_names
+        if not any(skip in n.lower() for skip in ("bge-", "nomic-embed", "embed"))
+    ]
+    return sorted(set(canonical_names))
+
+
 def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any]]) -> tuple[str, str]:
     if desired_mode != "native":
         return desired_mode, "model_config_non_native_mode"
@@ -190,6 +273,7 @@ def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
             "rag_config": {"collection": "", "top_k": 5},
             "analytics_preferences": {},
             "preferred_model": None,
+            "preferred_models": {},
             "theme": "auto",
             "language": "en",
             "updated_at": None,
@@ -207,30 +291,19 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     old_record = store.get_user_settings(effective_user_id)
     old_model = old_record.get("preferred_model") if old_record else None
     
-    preferred_model = settings.preferred_model
-    if preferred_model:
-        preferred_model = str(preferred_model).strip()
-        # Keep raw user input as-is; only normalize already provider-prefixed values.
-        if "/" in preferred_model:
-            try:
-                provider = parse_model_id(preferred_model).provider
-                known_prefixes = {
-                    "openai",
-                    "ollama",
-                    "lm_studio",
-                    "openrouter",
-                    "anthropic",
-                    "azure",
-                    "bedrock",
-                    "groq",
-                    "mistral",
-                    "vertex_ai",
-                }
-                if provider in known_prefixes:
-                    preferred_model = normalize_model_id(preferred_model)
-            except Exception:
-                # Unknown/non-provider slash patterns (e.g., org/model) are preserved.
-                pass
+    preferred_model = _normalize_preferred_model_value(settings.preferred_model)
+    preferred_models = {
+        str(role): _normalize_preferred_model_value(model_name)
+        for role, model_name in (settings.preferred_models or {}).items()
+    }
+    preferred_models = {role: model_name for role, model_name in preferred_models.items() if model_name}
+
+    # Keep legacy chat setting in sync with role-based preference map.
+    chat_preferred_model = preferred_models.get("chat")
+    if chat_preferred_model:
+        preferred_model = chat_preferred_model
+    elif preferred_model:
+        preferred_models["chat"] = preferred_model
 
     record = store.upsert_user_settings(
         user_id=effective_user_id,
@@ -238,6 +311,7 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
         rag_config=settings.rag_config,
         analytics_preferences=settings.analytics_preferences,
         preferred_model=preferred_model,
+        preferred_models=preferred_models,
         theme=settings.theme,
         language=settings.language,
     )
@@ -258,61 +332,9 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
 async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
-        provider_prefix = "openai"
-        try:
-            core = load_core_config()
-            default_model = core.llm.providers.primary.models.en
-            if default_model:
-                provider_prefix = parse_model_id(str(default_model)).provider
-        except Exception:
-            pass
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            base = _resolve_primary_provider_endpoint()
-            try:
-                resp = await client.get(f"{base}/models")
-                resp.raise_for_status()
-                data = resp.json()
-                model_names = [m.get("id") for m in data.get("data", []) if m.get("id")]
-            except Exception:
-                if provider_prefix != "ollama":
-                    raise
-                resp = await client.get(f"{base}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                model_names = [m.get("name") for m in data.get("models", []) if m.get("name")]
-
-            known_prefixes = {
-                "openai",
-                "ollama",
-                "lm_studio",
-                "anthropic",
-                "azure",
-                "bedrock",
-                "groq",
-                "mistral",
-                "vertex_ai",
-            }
-
-            def _canonical_model_name(raw_name: str) -> str:
-                raw_name = str(raw_name).strip()
-                if not raw_name:
-                    return raw_name
-                if "/" not in raw_name:
-                    return f"{provider_prefix}/{raw_name}"
-                head = raw_name.split("/", 1)[0].strip().lower()
-                if head in known_prefixes:
-                    return raw_name
-                return f"{provider_prefix}/{raw_name}"
-
-            # Canonicalize to provider-prefixed names to keep LiteLLM routing stable.
-            canonical_names = [_canonical_model_name(n) for n in model_names]
-            # Filter out embedding-only models (e.g. bge-m3)
-            canonical_names = [
-                n for n in canonical_names
-                if not any(skip in n.lower() for skip in ("bge-", "nomic-embed", "embed"))
-            ]
-            return {"models": sorted(canonical_names)}
+        core = load_core_config()
+        models = await _fetch_provider_models(core.llm.providers.primary, preferred_language=core.fork.language)
+        return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
 
@@ -343,6 +365,55 @@ async def get_system_config() -> Dict[str, Any]:
         top_k = rag_cfg.top_k if rag_cfg else 5
 
         default_model = core_config.llm.providers.primary.models.en or "gemma3:4b"
+        model_roles: List[Dict[str, Any]] = []
+        providers_obj = core_config.llm.providers
+        get_registry = getattr(providers_obj, "get_registry", None)
+        if callable(get_registry):
+            registry = get_registry()
+        else:
+            registry = {}
+            primary_provider = getattr(providers_obj, "primary", None)
+            fallback_provider = getattr(providers_obj, "fallback", None)
+            if primary_provider is not None:
+                registry["primary"] = primary_provider
+            if fallback_provider is not None:
+                registry["fallback"] = fallback_provider
+
+        roles_obj = getattr(core_config.llm, "roles", None)
+        llm_roles = roles_obj.model_dump() if roles_obj else {}
+        for role_name, role_cfg in llm_roles.items():
+            providers = role_cfg.get("providers") or []
+            if not providers:
+                continue
+            provider_id = str(providers[0].get("provider_id") or "").strip()
+            if not provider_id:
+                continue
+            provider = registry.get(provider_id)
+            if provider is None:
+                continue
+            language = core_config.fork.language
+            provider_models = [m for m in provider.models.model_dump().values() if m]
+            role_default_model = (
+                getattr(provider.models, language, None)
+                or getattr(provider.models, "en", None)
+                or (provider_models[0] if provider_models else "")
+            )
+            available_models: List[str] = []
+            model_load_error: Optional[str] = None
+            try:
+                available_models = await _fetch_provider_models(provider, preferred_language=language)
+            except Exception as role_exc:
+                model_load_error = str(role_exc)
+
+            model_roles.append(
+                {
+                    "role": role_name,
+                    "provider_id": provider_id,
+                    "default_model": role_default_model,
+                    "available_models": available_models,
+                    "model_load_error": model_load_error,
+                }
+            )
         display_name = profile_metadata.display_name if profile_metadata else "Base Profile"
         role_label = profile_ui.branding.role_label or display_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL", "Local Profile")
         app_name = profile_ui.branding.app_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME", "Single User")
@@ -365,6 +436,7 @@ async def get_system_config() -> Dict[str, Any]:
             "default_model": default_model,
             "framework_version": get_framework_version(),
             "supported_languages": supported_languages,
+            "model_roles": model_roles,
             "profile": {
                 "id": profile_id,
                 "display_name": display_name,
@@ -393,6 +465,7 @@ async def get_system_config() -> Dict[str, Any]:
             "default_model": "gemma3:4b",
             "framework_version": get_framework_version(),
             "supported_languages": ["en"],
+            "model_roles": [],
             "profile": {
                 "id": "base",
                 "display_name": "Base Profile",
@@ -451,7 +524,7 @@ def trigger_llm_reprobe(request: Request) -> Dict[str, Any]:
 
 @router.get("/llm/capabilities")
 def list_llm_capabilities(request: Request) -> Dict[str, Any]:
-    """Expose model-level desired/effective tool-calling capability view."""
+    """Expose model-level desired/effective tool-calling capability view across all roles."""
     probe_store = _get_probe_store(request)
     if not probe_store:
         raise HTTPException(status_code=503, detail="Probe store unavailable")
@@ -459,11 +532,14 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
     profile_id = get_active_profile_id()
     core = load_core_config()
     registry = core.llm.providers.get_registry()
-    role_provider_ids: List[str] = []
-    for ref in core.llm.roles.chat.providers:
-        pid = str(ref.provider_id)
-        if pid not in role_provider_ids:
-            role_provider_ids.append(pid)
+    
+    # Collect role-to-providers mapping (include all roles except embedding for tool-calling visibility)
+    role_to_providers: Dict[str, List[str]] = {}
+    for role_name in ["chat", "vision", "auxiliary"]:
+        role_cfg = getattr(core.llm.roles, role_name, None)
+        if role_cfg:
+            role_to_providers[role_name] = [str(ref.provider_id) for ref in role_cfg.providers]
+    
     probe_rows = probe_store.list_probe_results(profile_id=profile_id, limit=500)
     probe_by_key: Dict[tuple[str, str], Dict[str, Any]] = {}
     for row in probe_rows:
@@ -472,38 +548,51 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
             probe_by_key[key] = row
 
     items: List[Dict[str, Any]] = []
-    for provider_id in role_provider_ids:
-        provider = registry.get(provider_id)
-        if provider is None:
-            continue
-        model_values = [m for m in provider.models.model_dump().values() if m]
-        for raw_model_name in sorted(set(model_values)):
-            model_name = normalize_model_id(str(raw_model_name))
-            desired_mode = str(provider.get_tool_calling_mode(model_name))
-            probe_row = probe_by_key.get((provider_id, model_name))
-            effective_mode, reason = _compute_effective_mode(desired_mode, probe_row)
-            metadata = probe_row.get("metadata") if probe_row else {}
-            capabilities = metadata.get("capabilities") if isinstance(metadata, dict) else {}
+    seen: set[tuple[str, str, str]] = set()  # (provider_id, model_name, role)
 
-            items.append(
-                {
-                    "provider_id": provider_id,
-                    "model_name": model_name,
-                    "desired_mode": desired_mode,
-                    "configured_tool_calling_mode": probe_row.get("configured_tool_calling_mode") if probe_row else desired_mode,
-                    "effective_mode": effective_mode,
-                    "effective_mode_reason": reason,
-                    "probe_status": probe_row.get("status") if probe_row else "missing",
-                    "capability_mismatch": bool(probe_row.get("capability_mismatch", False)) if probe_row else False,
-                    "supports_bind_tools": probe_row.get("supports_bind_tools") if probe_row else None,
-                    "supports_tool_schema": probe_row.get("supports_tool_schema") if probe_row else None,
-                    "api_base": probe_row.get("api_base") if probe_row else None,
-                    "error_message": probe_row.get("error_message") if probe_row else None,
-                    "probed_at": probe_row.get("probed_at") if probe_row else None,
-                    "metadata": metadata if isinstance(metadata, dict) else {},
-                    "capabilities": capabilities if isinstance(capabilities, dict) else {},
-                }
-            )
+    # Iterate through roles (chat first for primary visibility, then vision, auxiliary)
+    for role_name in ["chat", "vision", "auxiliary"]:
+        role_provider_ids = role_to_providers.get(role_name, [])
+        for provider_id in role_provider_ids:
+            provider = registry.get(provider_id)
+            if provider is None:
+                continue
+            model_values = [m for m in provider.models.model_dump().values() if m]
+            for raw_model_name in sorted(set(model_values)):
+                model_name = normalize_model_id(str(raw_model_name))
+                item_key = (provider_id, model_name, role_name)
+                
+                # Skip if already added (same model in multiple roles)
+                if item_key in seen:
+                    continue
+                seen.add(item_key)
+                
+                desired_mode = str(provider.get_tool_calling_mode(model_name))
+                probe_row = probe_by_key.get((provider_id, model_name))
+                effective_mode, reason = _compute_effective_mode(desired_mode, probe_row)
+                metadata = probe_row.get("metadata") if probe_row else {}
+                capabilities = metadata.get("capabilities") if isinstance(metadata, dict) else {}
+
+                items.append(
+                    {
+                        "provider_id": provider_id,
+                        "model_name": model_name,
+                        "role": role_name,
+                        "desired_mode": desired_mode,
+                        "configured_tool_calling_mode": probe_row.get("configured_tool_calling_mode") if probe_row else desired_mode,
+                        "effective_mode": effective_mode,
+                        "effective_mode_reason": reason,
+                        "probe_status": probe_row.get("status") if probe_row else "missing",
+                        "capability_mismatch": bool(probe_row.get("capability_mismatch", False)) if probe_row else False,
+                        "supports_bind_tools": probe_row.get("supports_bind_tools") if probe_row else None,
+                        "supports_tool_schema": probe_row.get("supports_tool_schema") if probe_row else None,
+                        "api_base": probe_row.get("api_base") if probe_row else None,
+                        "error_message": probe_row.get("error_message") if probe_row else None,
+                        "probed_at": probe_row.get("probed_at") if probe_row else None,
+                        "metadata": metadata if isinstance(metadata, dict) else {},
+                        "capabilities": capabilities if isinstance(capabilities, dict) else {},
+                    }
+                )
 
     return {
         "status": "ok",

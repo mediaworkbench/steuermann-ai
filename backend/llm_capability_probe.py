@@ -59,23 +59,50 @@ class LLMCapabilityProbeRunner:
         return self._probe_target(target)
 
     def _collect_targets(self) -> list[ProbeTarget]:
+        """Collect all unique (provider_id, model_name) pairs across all roles except embedding."""
         llm_cfg = self._core_config.llm
         registry = llm_cfg.providers.get_registry()
-        role_chain = llm_cfg.roles.chat.providers
         targets: list[ProbeTarget] = []
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()  # Track (provider_id, model_name) pairs
 
-        for ref in role_chain:
-            provider_id = str(ref.provider_id)
-            if provider_id in seen:
+        # Iterate through all roles except embedding (chat, vision, auxiliary)
+        role_names = ["chat", "vision", "auxiliary"]
+        for role_name in role_names:
+            # Check if role exists in config (may not exist in all test fixtures)
+            role_cfg = getattr(llm_cfg.roles, role_name, None)
+            if role_cfg is None:
+                logger.debug(f"Role {role_name} not found in config, skipping")
                 continue
-            provider = registry.get(provider_id)
-            if provider is None:
-                logger.warning("Skipping unknown probe provider", provider_id=provider_id)
-                continue
-            model_name = self._select_model(provider, self._core_config.fork.language)
-            targets.append(ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name))
-            seen.add(provider_id)
+
+            for ref in role_cfg.providers:
+                provider_id = str(ref.provider_id)
+                provider = registry.get(provider_id)
+                if provider is None:
+                    logger.warning(f"Skipping unknown probe provider in role {role_name}", provider_id=provider_id)
+                    continue
+
+                # Collect all distinct models configured for this provider
+                model_names = self._collect_all_models(provider)
+                for model_name in model_names:
+                    pair_key = (provider_id, model_name)
+                    if pair_key in seen:
+                        continue
+                    targets.append(ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name))
+                    seen.add(pair_key)
+
+        # Log probe coverage for observability
+        if seen:
+            role_coverage = {}
+            for provider_id, model_name in seen:
+                for role_name in role_names:
+                    role_cfg = getattr(llm_cfg.roles, role_name, None)
+                    if role_cfg and any(ref.provider_id == provider_id for ref in role_cfg.providers):
+                        role_coverage.setdefault(role_name, []).append((provider_id, model_name))
+
+            logger.info(
+                f"Probe coverage: {len(targets)} models across {len(set(p for p, _ in seen))} providers",
+                role_summary={role: len(models) for role, models in role_coverage.items()},
+            )
 
         return targets
 
@@ -183,6 +210,22 @@ class LLMCapabilityProbeRunner:
                 return str(value)
 
         raise ValueError("No model configured for provider")
+
+    @staticmethod
+    def _collect_all_models(provider: Any) -> set[str]:
+        """Collect all distinct models configured for a provider across all languages."""
+        models: set[str] = set()
+        
+        if hasattr(provider.models, "model_dump"):
+            model_dict = provider.models.model_dump()
+        else:
+            model_dict = vars(provider.models)
+
+        for value in model_dict.values():
+            if value:
+                models.add(str(value))
+
+        return models
 
     @staticmethod
     def _probe_native_bind_tools(model: Any) -> None:

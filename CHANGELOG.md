@@ -21,6 +21,9 @@
 - **feat** Frontend Settings page now displays model capability status table with native/structured/react legend badges and an inline refresh action
 - **feat** Added "Copy diagnostics" action in Settings capability panel to export probe TTL and per-model capability rows as tab-delimited clipboard output
 - **feat** Capabilities table now supports per-model expandable details (configured mode, API base, bind/schema flags, mismatch flag, probe error, raw metadata)
+- **feat** Settings now supports role-based model preferences (`preferred_models`) with provider-locked selectors per configured role (chat/embedding/vision/auxiliary)
+- **feat** `/api/system-config` now includes `model_roles` entries (role, fixed provider, default model, role-scoped available models, optional model load error)
+- **fix** User settings persistence now stores `preferred_models` JSON alongside legacy `preferred_model` and keeps chat preference synchronized for runtime compatibility
 - **feat** Added configurable probe freshness env var `LLM_CAPABILITY_PROBE_TTL_SECONDS` (default `3600`) to `.env` and `.env.example`
 - **fix** Chat router now forwards latest capability probe rows per provider+model (not collapsed per provider), enabling correct model-level mode resolution
 - **docs** Updated `docs/configuration.md`, `docs/tool_development_guide.md`, and `docs/technical_architecture.md` for model-level tool-calling and probe freshness behavior

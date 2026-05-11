@@ -105,6 +105,9 @@ export type Messages = {
     systemDefault: string;
     loadingModels: string;
     noModelsAvailable: string;
+    noRoleModelsAvailable: string;
+    roleModelLabel: string;
+    roleProviderLocked: string;
     saveSettings: string;
     settingsSaved: string;
     failedToSaveSettings: string;
@@ -139,6 +142,7 @@ export type Messages = {
     detailMismatch: string;
     detailMetadata: string;
     capabilityModel: string;
+    capabilityRole: string;
     capabilityDesired: string;
     capabilityEffective: string;
     capabilityProbeStatus: string;
@@ -501,6 +505,9 @@ export const messages: Record<Locale, Messages> = {
       systemDefault: "System default: {value}",
       loadingModels: "Loading models...",
       noModelsAvailable: "No models available - is Ollama running?",
+      noRoleModelsAvailable: "No role model configuration available",
+      roleModelLabel: "{role} model",
+      roleProviderLocked: "Provider locked by profile: {provider}",
       saveSettings: "Save Settings",
       settingsSaved: "Settings saved",
       failedToSaveSettings: "Failed to save settings",
@@ -535,6 +542,7 @@ export const messages: Record<Locale, Messages> = {
       detailMismatch: "Capability mismatch",
       detailMetadata: "Raw metadata",
       capabilityModel: "Model",
+      capabilityRole: "Role",
       capabilityDesired: "Desired",
       capabilityEffective: "Effective",
       capabilityProbeStatus: "Probe Status",
@@ -896,6 +904,9 @@ export const messages: Record<Locale, Messages> = {
       systemDefault: "Systemstandard: {value}",
       loadingModels: "Modelle werden geladen...",
       noModelsAvailable: "Keine Modelle verfügbar - läuft Ollama?",
+      noRoleModelsAvailable: "Keine Rollen-Modellkonfiguration verfugbar",
+      roleModelLabel: "{role}-Modell",
+      roleProviderLocked: "Provider durch Profil festgelegt: {provider}",
       saveSettings: "Einstellungen speichern",
       settingsSaved: "Einstellungen gespeichert",
       failedToSaveSettings: "Einstellungen konnten nicht gespeichert werden",
@@ -930,6 +941,7 @@ export const messages: Record<Locale, Messages> = {
       detailMismatch: "Fahigkeitskonflikt",
       detailMetadata: "Roh-Metadaten",
       capabilityModel: "Modell",
+      capabilityRole: "Rolle",
       capabilityDesired: "Gewunscht",
       capabilityEffective: "Effektiv",
       capabilityProbeStatus: "Probe-Status",

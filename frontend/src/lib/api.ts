@@ -6,6 +6,7 @@ export interface UserSettings {
   rag_config: Record<string, unknown>;
   analytics_preferences: Record<string, unknown>;
   preferred_model: string | null;
+  preferred_models: Record<string, string | null>;
   language: string;
   updated_at: string | null;
 }
@@ -68,6 +69,13 @@ export interface SystemConfig {
   default_model: string;
   framework_version: string;
   supported_languages: string[];
+  model_roles: Array<{
+    role: string;
+    provider_id: string;
+    default_model: string;
+    available_models: string[];
+    model_load_error?: string | null;
+  }>;
   profile: {
     id: string;
     display_name: string;
@@ -98,6 +106,7 @@ export interface ReingestAllResult {
 export interface LLMCapabilityItem {
   provider_id: string;
   model_name: string;
+  role?: string;
   desired_mode: string;
   configured_tool_calling_mode?: string;
   effective_mode: string;

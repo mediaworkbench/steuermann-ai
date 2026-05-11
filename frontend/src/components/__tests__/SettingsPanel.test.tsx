@@ -47,6 +47,15 @@ describe("SettingsPanel", () => {
       default_model: "openai/test-model",
       framework_version: "0.2.3",
       supported_languages: ["en"],
+      model_roles: [
+        {
+          role: "chat",
+          provider_id: "lmstudio",
+          default_model: "openai/test-model",
+          available_models: ["openai/test-model", "openai/other-model"],
+          model_load_error: null,
+        },
+      ],
       profile: {
         id: "starter",
         display_name: "Starter",
@@ -99,6 +108,7 @@ describe("SettingsPanel", () => {
           rag_config: { collection: "framework", top_k: 5 },
           analytics_preferences: {},
           preferred_model: null,
+          preferred_models: {},
           language: "en",
           updated_at: null,
         }}
@@ -150,6 +160,7 @@ describe("SettingsPanel", () => {
           rag_config: { collection: "framework", top_k: 5 },
           analytics_preferences: {},
           preferred_model: null,
+          preferred_models: {},
           language: "en",
           updated_at: null,
         }}
@@ -204,6 +215,7 @@ describe("SettingsPanel", () => {
           rag_config: { collection: "framework", top_k: 5 },
           analytics_preferences: {},
           preferred_model: null,
+          preferred_models: {},
           language: "en",
           updated_at: null,
         }}
@@ -233,6 +245,7 @@ describe("SettingsPanel", () => {
           rag_config: { collection: "framework", top_k: 5 },
           analytics_preferences: {},
           preferred_model: null,
+          preferred_models: {},
           language: "en",
           updated_at: null,
         }}
