@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 # Set environment variables for tests before imports
-os.environ.setdefault("LLM_ENDPOINT", "http://localhost:11434")
+os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
 os.environ.setdefault("QDRANT_HOST", "localhost")
 os.environ.setdefault("WEB_SEARCH_MCP_URL", "http://localhost:9100")
 

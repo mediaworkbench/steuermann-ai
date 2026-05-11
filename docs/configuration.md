@@ -110,7 +110,7 @@ llm:
 - `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
 
-**LM Studio vs Ollama:** The docker-compose default endpoint is `http://host.docker.internal:11434` (Ollama). If you use LM Studio (port `1234`), set `LLM_ENDPOINT=http://host.docker.internal:1234/v1` in `.env`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
+**LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
 **Tool calling modes:**
 
@@ -172,11 +172,13 @@ memory:
 **Environment variables:**
 
 ```bash
-EMBEDDING_SERVER=http://host.docker.internal:8000/v1  # Default: LM Studio embeddings endpoint
-LLM_ENDPOINT=http://host.docker.internal:1234/v1       # LM Studio LLM endpoint (default docker-compose: port 11434 for Ollama)
+EMBEDDING_SERVER=http://host.docker.internal:1234/v1       # LM Studio embeddings endpoint
+LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1  # LM Studio chat endpoint
+LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1   # Ollama chat endpoint
+LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1       # OpenRouter endpoint
 ```
 
-`EMBEDDING_SERVER` and `LLM_ENDPOINT` are independent — they can point to the same LM Studio instance on different ports or to completely separate servers.
+`EMBEDDING_SERVER` and the `LLM_PROVIDERS_*_API_BASE` vars are independent — they can point to the same LM Studio instance or to separate servers. Only set the vars for providers you are actually using.
 
 ### RAG Retrieval Configuration
 
@@ -575,8 +577,10 @@ POSTGRES_DB=framework
 QDRANT_HOST=qdrant
 QDRANT_PORT=6333
 
-# LLM
-LLM_ENDPOINT=http://host.docker.internal:11434
+# LLM provider endpoints (set the ones matching your active providers)
+LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
+LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
+LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1
 ```
 
 Note on PROFILE_ID:

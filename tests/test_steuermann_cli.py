@@ -75,7 +75,7 @@ def test_setup_doctor_reports_env_presence_and_advisories(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     (tmp_path / ".env").write_text(
-        "POSTGRES_PASSWORD=secret\nLLM_ENDPOINT=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
+        "POSTGRES_PASSWORD=secret\nLLM_PROVIDERS_LMSTUDIO_API_BASE=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -95,11 +95,17 @@ def test_setup_doctor_reports_env_presence_and_advisories(
     payload = json.loads(capsys.readouterr().out)
     names = [check["name"] for check in payload["checks"]]
     assert ".env presence" in names
-    assert "LLM_ENDPOINT" in names
+    assert "LLM provider endpoints" in names
     assert "EMBEDDING_SERVER" in names
 
 
-def test_config_explain_emits_source_chain(capsys: pytest.CaptureFixture[str]) -> None:
+def test_config_explain_emits_source_chain(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROFILE_ID", "starter")
+    monkeypatch.delenv("ACTIVE_PROFILE_ID", raising=False)
+
     code = steuermann.main(
         [
             "config",

@@ -1192,7 +1192,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway" # Linux
     environment:
-      - LLM_ENDPOINT=http://host.docker.internal:1234/v1
+      - LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
 ```
 
 **Platform-specific:**

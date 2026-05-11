@@ -27,7 +27,9 @@ def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
         "POSTGRES_DB": "framework",
         "INGEST_COLLECTION": "framework",
         # LLM and Qdrant env vars
-        "LLM_ENDPOINT": "http://localhost:11434",
+        "LLM_PROVIDERS_LMSTUDIO_API_BASE": "http://localhost:1234/v1",
+        "LLM_PROVIDERS_OLLAMA_API_BASE": "http://localhost:11434/v1",
+        "LLM_PROVIDERS_OPENROUTER_API_BASE": "https://openrouter.ai/api/v1",
         "QDRANT_HOST": "localhost",
         "WEB_SEARCH_MCP_URL": "http://localhost:9100",
     }
@@ -37,9 +39,9 @@ def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
     assert core.fork.name == "starter"
     assert core.rag.collection_name == "framework"
     assert "postgresql://app:pw@localhost:5432/framework" in core.database.url
-    assert core.llm.providers.primary.models.en == "lm_studio/liquid/lfm2-24b-a2b"
+    assert core.llm.providers.primary.models.en == "openai/liquid/lfm2-24b-a2b"
     # Pydantic HttpUrl may normalize, so compare using host/port fragment.
-    assert "host.docker.internal:1234" in str(core.llm.providers.primary.api_base)
+    assert "localhost:1234" in str(core.llm.providers.primary.api_base)
     assert core.tokens.default_budget == 10000
 
 
@@ -114,7 +116,7 @@ fork:
 llm:
     providers:
         primary:
-            api_base: $LLM_ENDPOINT
+            api_base: $LLM_PROVIDERS_OLLAMA_API_BASE
             api_key: test-key
             models:
                 en: openai/base-model
@@ -159,7 +161,7 @@ tokens:
     core = load_core_config(
         config_dir=config_dir,
         profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "medical", "LLM_ENDPOINT": "http://localhost:11434"},
+        env={"PROFILE_ID": "medical", "LLM_PROVIDERS_OLLAMA_API_BASE": "http://localhost:11434/v1"},
     )
 
     assert core.fork.language == "de"

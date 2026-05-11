@@ -12,16 +12,16 @@ fork:
 llm:
   providers:
     lmstudio:
-      api_base: "http://host.docker.internal:1234/v1"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
       models:
-        en: "lmstudio/liquid/lfm2-24b-a2b"
-        de: "lmstudio/liquid/lfm2-24b-a2b"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
       tool_calling: "native"
     ollama:
-      api_base: "http://host.docker.internal:11434/v1"
+      api_base: $LLM_PROVIDERS_OLLAMA_API_BASE
       models:
         en: "ollama/llama-3.1-8b"
         de: "ollama/llama-3.1-8b"
@@ -30,7 +30,7 @@ llm:
       timeout: 300
       tool_calling: "native"
     openrouter:
-      api_base: "https://openrouter.ai/api/v1"
+      api_base: $LLM_PROVIDERS_OPENROUTER_API_BASE
       api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
       models:
         en: "openrouter/openai/gpt-4o-mini"
