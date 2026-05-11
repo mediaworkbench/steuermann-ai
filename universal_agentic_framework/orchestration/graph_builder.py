@@ -48,15 +48,9 @@ from universal_agentic_framework.orchestration.checkpointing import build_checkp
 
 # Import extracted helpers
 from universal_agentic_framework.orchestration.helpers import (
-    build_country_alias_map,
-    infer_country_iso2,
-    region_for_country,
     extract_exact_reply_directive,
-    normalize_tool_payload,
-    error_tool_payload,
     record_tool_success,
     record_tool_error,
-    truncate_text_by_tokens,
     build_attachment_context_block,
     build_workspace_document_context_block,
     detect_tool_routing_intents,
@@ -78,34 +72,16 @@ from universal_agentic_framework.orchestration.helpers import (
 
 logger = get_logger(__name__)
 
-# Module-level cache for embedding provider to avoid reloading on each invocation.
-_embedding_provider_cache: Optional[EmbeddingProvider] = None
-_embedding_provider_config_key: Optional[str] = None
-
 # Backward-compatibility aliases for internal function calls
-_build_country_alias_map = build_country_alias_map
-_infer_country_iso2 = infer_country_iso2
-_region_for_country = region_for_country
 _extract_exact_reply_directive = extract_exact_reply_directive
-_normalize_tool_payload = normalize_tool_payload
-_error_tool_payload = error_tool_payload
-_record_tool_success = record_tool_success
-_record_tool_error = record_tool_error
-_truncate_text_by_tokens = truncate_text_by_tokens
 _build_attachment_context_block = build_attachment_context_block
-_build_workspace_document_context_block = build_workspace_document_context_block
 _detect_tool_routing_intents = detect_tool_routing_intents
 _score_tool_similarity = score_tool_similarity
 _build_semantic_tool_kwargs = build_semantic_tool_kwargs
 _extract_calculator_expression = extract_calculator_expression
 _run_forced_tool = run_forced_tool
-_execute_semantic_scored_tools = execute_semantic_scored_tools
-_prepare_scored_tools_with_forced_execution = prepare_scored_tools_with_forced_execution
 _apply_top_k_scored_tools = apply_top_k_scored_tools
-_get_routing_embedding_provider = get_routing_embedding_provider
 _safe_get_model = safe_get_model
-_resolve_initial_model_metadata = resolve_initial_model_metadata
-_invoke_with_model_fallback_helper = invoke_with_model_fallback
 _resolve_effective_tool_calling_mode = resolve_effective_tool_calling_mode
 _validate_and_log_tool_calling_mode = validate_and_log_tool_calling_mode
 
@@ -115,9 +91,6 @@ _tool_embedding_cache = {}
 
 def _clear_embedding_cache():
     """Clear embedding provider caches for tests and config reload scenarios."""
-    global _embedding_provider_cache, _embedding_provider_config_key, _tool_embedding_cache
-    _embedding_provider_cache = None
-    _embedding_provider_config_key = None
     _tool_embedding_cache.clear()
     # Keep helper-module cache in sync as well.
     clear_embedding_cache()
@@ -165,31 +138,11 @@ class GraphState(TypedDict, total=False):
 
 def _get_routing_embedding_provider(config: Any) -> Tuple[EmbeddingProvider, str]:
     """Return cached embedding provider and model name used for tool routing."""
-    embedding_model_name = (
-        getattr(getattr(config, "tool_routing", None), "embedding_model", None)
-        or config.memory.embeddings.model
+    return get_routing_embedding_provider(
+        config,
+        logger=logger,
+        build_provider_func=build_embedding_provider,
     )
-    embedding_dimension = config.memory.embeddings.dimension
-    embedding_provider_type = config.memory.embeddings.provider
-    embedding_remote_endpoint = config.memory.embeddings.remote_endpoint
-
-    global _embedding_provider_cache, _embedding_provider_config_key
-    config_key = f"{embedding_model_name}:{embedding_provider_type}:{embedding_remote_endpoint}"
-
-    if _embedding_provider_cache is None or _embedding_provider_config_key != config_key:
-        logger.info(
-            f"Loading embedding provider (first time): {embedding_model_name}",
-            provider_type=embedding_provider_type,
-        )
-        _embedding_provider_cache = build_embedding_provider(
-            model_name=embedding_model_name,
-            dimension=embedding_dimension,
-            provider_type=embedding_provider_type,
-            remote_endpoint=embedding_remote_endpoint,
-        )
-        _embedding_provider_config_key = config_key
-
-    return _embedding_provider_cache, embedding_model_name
 
 
 class _ModelInvokeError(RuntimeError):
@@ -210,7 +163,7 @@ def _invoke_with_model_fallback(
     preferred_model: Optional[str] = None,
 ) -> Tuple[str, str, str, object]:
     """Thin wrapper over helper implementation preserving local error type."""
-    return _invoke_with_model_fallback_helper(
+    return invoke_with_model_fallback(
         config=config,
         language=language,
         payload=payload,
@@ -555,7 +508,7 @@ def node_route_tools(state: GraphState) -> GraphState:
                     query_embedding=kwargs.get("query_embedding", query_embedding),
                 )
 
-            scored_tools = _prepare_scored_tools_with_forced_execution(
+            scored_tools = prepare_scored_tools_with_forced_execution(
                 loaded_tools=loaded_tools,
                 config=config,
                 user_msg=user_msg,
@@ -602,7 +555,7 @@ def node_route_tools(state: GraphState) -> GraphState:
                     )
                     scored_tools = []
 
-            _execute_semantic_scored_tools(
+            execute_semantic_scored_tools(
                 scored_tools=scored_tools,
                 similarity_threshold=similarity_threshold,
                 executed_forced=executed_forced,
@@ -721,7 +674,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                                 request_url=url_in_query,
                                 save_to_rag=wants_save_to_rag,
                             )
-                            _record_tool_success(
+                            record_tool_success(
                                 tool_name="extract_webpage_mcp",
                                 result=fallback_result,
                                 reason="native URL fallback (no model tool call)",
@@ -735,7 +688,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                                 result_length=len(str(fallback_result)),
                             )
                         except Exception as fallback_err:
-                            _record_tool_error(
+                            record_tool_error(
                                 tool_name="extract_webpage_mcp",
                                 error=fallback_err,
                                 tool_results=tool_results,
@@ -804,7 +757,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                             )
                             result = tool_obj._run(request_url=url_in_query)
 
-                        _record_tool_success(
+                        record_tool_success(
                             tool_name=tool_name,
                             result=result,
                             reason=f"native tool call (attempt {attempt})",
@@ -814,7 +767,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         )
                         logger.info("Tool executed (native)", tool=tool_name, result_length=len(str(result)))
                     except Exception as exec_err:
-                        _record_tool_error(
+                        record_tool_error(
                             tool_name=tool_name,
                             error=exec_err,
                             tool_results=tool_results,
@@ -1000,7 +953,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
                 try:
                     result = tool_obj._run(**tool_args)
-                    _record_tool_success(
+                    record_tool_success(
                         tool_name=tool_name,
                         result=result,
                         reason=f"structured tool call (attempt {attempt})",
@@ -1010,7 +963,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                     )
                     logger.info("Tool executed (structured)", tool=tool_name, result_length=len(str(result)))
                 except Exception as exec_err:
-                    _record_tool_error(
+                    record_tool_error(
                         tool_name=tool_name,
                         error=exec_err,
                         tool_results=tool_results,
@@ -1148,7 +1101,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
                 try:
                     result = tool_obj._run(**tool_args)
-                    _record_tool_success(
+                    record_tool_success(
                         tool_name=tool_name,
                         result=result,
                         reason=f"react tool call (iteration {iteration})",
@@ -1159,7 +1112,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                     observation = str(result)
                     logger.info("Tool executed (react)", tool=tool_name, iteration=iteration)
                 except Exception as exec_err:
-                    _record_tool_error(
+                    record_tool_error(
                         tool_name=tool_name,
                         error=exec_err,
                         tool_results=tool_results,
@@ -1423,7 +1376,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     )
 
     model = _safe_get_model(config, lang, preferred_model=preferred_model)
-    provider, model_name = _resolve_initial_model_metadata(config, lang, preferred_model)
+    provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
     # Hybrid budget enforcement: global + per-turn hard limits; per-node optional hard guardrail.
     budget_ctx = get_budget_context(state, config.tokens)
@@ -1598,7 +1551,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     # Add resolved workspace documents as explicitly labeled reference context.
     workspace_documents = state.get("workspace_documents") or []
-    workspace_block, normalized_workspace_context = _build_workspace_document_context_block(workspace_documents)
+    workspace_block, normalized_workspace_context = build_workspace_document_context_block(workspace_documents)
     if workspace_block:
         system_prompt += f"\n\n{workspace_block}"
         state["workspace_document_context"] = normalized_workspace_context
@@ -2150,7 +2103,7 @@ def node_summarize(state: GraphState) -> GraphState:
     logger.info("Summarizing conversation", fork_name=fork_name)
 
     model = _safe_get_model(config, lang, preferred_model=preferred_model)
-    provider, model_name = _resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
+    provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
     # Build a window of the last 3 user+assistant exchanges for richer fact extraction.
     _msgs = state.get("messages", [])

@@ -1,6 +1,6 @@
 """Embedding provider management for tool routing."""
 
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 
 # Module-level cache for embedding provider (to avoid reinitialization)
@@ -8,7 +8,11 @@ _embedding_provider_cache: Optional[Any] = None
 _embedding_provider_config_key: Optional[str] = None
 
 
-def get_routing_embedding_provider(config: Any, logger: Any = None) -> Tuple[Any, str]:
+def get_routing_embedding_provider(
+    config: Any,
+    logger: Any = None,
+    build_provider_func: Optional[Callable[..., Any]] = None,
+) -> Tuple[Any, str]:
     """Return cached embedding provider and model name used for tool routing.
     
     The provider is cached to avoid re-instantiation on every graph step.
@@ -24,6 +28,7 @@ def get_routing_embedding_provider(config: Any, logger: Any = None) -> Tuple[Any
     from universal_agentic_framework.embeddings import build_embedding_provider
     
     global _embedding_provider_cache, _embedding_provider_config_key
+    provider_builder = build_provider_func or build_embedding_provider
     
     embedding_model_name = (
         getattr(getattr(config, "tool_routing", None), "embedding_model", None)
@@ -41,7 +46,7 @@ def get_routing_embedding_provider(config: Any, logger: Any = None) -> Tuple[Any
                 f"Loading embedding provider (first time): {embedding_model_name}",
                 provider_type=embedding_provider_type,
             )
-        _embedding_provider_cache = build_embedding_provider(
+        _embedding_provider_cache = provider_builder(
             model_name=embedding_model_name,
             dimension=embedding_dimension,
             provider_type=embedding_provider_type,
