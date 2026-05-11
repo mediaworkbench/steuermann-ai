@@ -7,21 +7,21 @@ fork:
 llm:
   providers:
     lmstudio:
-      api_base: $LLM_ENDPOINT
+      api_base: "http://host.docker.internal:1234/v1"
       models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
+        en: "lmstudio/liquid/lfm2-24b-a2b"
+        de: "lmstudio/liquid/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
       tool_calling: "native"
     ollama:
-      api_base: $LLM_ENDPOINT
+      api_base: "http://host.docker.internal:11434/v1"
       models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
+        en: "ollama/llama-3.1-8b"
+        de: "ollama/llama-3.1-8b"
       temperature: 0.3
-      max_tokens: 32000
+      max_tokens: 8192
       timeout: 300
       tool_calling: "native"
     openrouter:

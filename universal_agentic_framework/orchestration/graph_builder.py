@@ -47,12 +47,66 @@ from universal_agentic_framework.orchestration.crew_nodes import (
 )
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 
+# Import extracted helpers
+from universal_agentic_framework.orchestration.helpers import (
+    build_country_alias_map,
+    infer_country_iso2,
+    region_for_country,
+    extract_exact_reply_directive,
+    normalize_tool_payload,
+    error_tool_payload,
+    record_tool_success,
+    record_tool_error,
+    truncate_text_by_tokens,
+    build_attachment_context_block,
+    build_workspace_document_context_block,
+    detect_tool_routing_intents,
+    score_tool_similarity,
+    extract_calculator_expression,
+    build_semantic_tool_kwargs,
+    run_forced_tool,
+    execute_semantic_scored_tools,
+    prepare_scored_tools_with_forced_execution,
+    apply_top_k_scored_tools,
+    get_routing_embedding_provider,
+    clear_embedding_cache,
+    safe_get_model,
+    resolve_initial_model_metadata,
+    invoke_with_model_fallback,
+    resolve_effective_tool_calling_mode,
+    validate_and_log_tool_calling_mode,
+)
+
 logger = get_logger(__name__)
 
-# Module-level cache for embedding provider to avoid reloading on each invocation
-# This significantly speeds up the first request and all subsequent requests
-_embedding_provider_cache: Optional[EmbeddingProvider] = None
-_embedding_provider_config_key: Optional[str] = None
+# Backward-compatibility aliases for internal function calls
+_build_country_alias_map = build_country_alias_map
+_infer_country_iso2 = infer_country_iso2
+_region_for_country = region_for_country
+_extract_exact_reply_directive = extract_exact_reply_directive
+_normalize_tool_payload = normalize_tool_payload
+_error_tool_payload = error_tool_payload
+_record_tool_success = record_tool_success
+_record_tool_error = record_tool_error
+_truncate_text_by_tokens = truncate_text_by_tokens
+_build_attachment_context_block = build_attachment_context_block
+_build_workspace_document_context_block = build_workspace_document_context_block
+_detect_tool_routing_intents = detect_tool_routing_intents
+_score_tool_similarity = score_tool_similarity
+_build_semantic_tool_kwargs_exec = build_semantic_tool_kwargs
+_extract_calculator_expression = extract_calculator_expression
+_run_forced_tool = run_forced_tool
+_execute_semantic_scored_tools = execute_semantic_scored_tools
+_prepare_scored_tools_with_forced_execution = prepare_scored_tools_with_forced_execution
+_apply_top_k_scored_tools = apply_top_k_scored_tools
+_get_routing_embedding_provider = get_routing_embedding_provider
+_clear_embedding_cache = clear_embedding_cache
+_safe_get_model = safe_get_model
+_resolve_initial_model_metadata = resolve_initial_model_metadata
+_invoke_with_model_fallback = invoke_with_model_fallback
+_resolve_effective_tool_calling_mode = resolve_effective_tool_calling_mode
+_validate_and_log_tool_calling_mode = validate_and_log_tool_calling_mode
+
 # Cache for tool description embeddings (tool_name -> embedding array)
 _tool_embedding_cache = {}
 
