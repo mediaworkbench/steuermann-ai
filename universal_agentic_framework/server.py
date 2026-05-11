@@ -162,6 +162,9 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "fork_name": fork_name,
             "profile_id": profile_id,
             "user_settings": request.get("user_settings", {}),  # Include user settings from request
+            # Preserve adapter-provided probe snapshots so Layer 1 can resolve
+            # tool-calling mode with probe-aware downgrade logic.
+            "llm_capability_probes": request.get("llm_capability_probes", []),
             "attachments": request.get("attachments", []),
             "workspace_documents": request.get("workspace_documents", []),
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),

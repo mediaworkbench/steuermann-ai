@@ -109,7 +109,9 @@ def invoke_with_model_fallback(
     attempts: List[Tuple[object, str, str, str]] = [
         (initial_model, initial_provider, initial_model_name, "initial"),
     ]
-    seen: set[Tuple[str, str, str]] = {(initial_provider, initial_model_name, "initial")}
+    # Deduplicate by effective provider/model identity; source labels may differ
+    # for the same concrete candidate (e.g., initial vs primary_preferred).
+    seen: set[Tuple[str, str]] = {(initial_provider, initial_model_name)}
     expanded_fallbacks = False
     idx = 0
     last_error: Optional[Exception] = None
@@ -157,9 +159,11 @@ def invoke_with_model_fallback(
                         language=language,
                         preferred_model=preferred_model,
                         prefer_local=True,
-                        include_default_when_preferred=(preferred_model is None),
+                        # If a preferred model fails, include configured defaults
+                        # so we can reliably fall back to provider-native models.
+                        include_default_when_preferred=True,
                     ):
-                        key = (selection.provider_type, selection.model_name, selection.source)
+                        key = (selection.provider_type, selection.model_name)
                         if key in seen:
                             continue
                         attempts.append(

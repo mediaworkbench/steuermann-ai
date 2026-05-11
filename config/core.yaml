@@ -9,8 +9,8 @@ llm:
     lmstudio:
       api_base: "http://host.docker.internal:1234/v1"
       models:
-        en: "lmstudio/liquid/lfm2-24b-a2b"
-        de: "lmstudio/liquid/lfm2-24b-a2b"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
