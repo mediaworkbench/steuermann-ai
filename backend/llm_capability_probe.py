@@ -80,9 +80,31 @@ class LLMCapabilityProbeRunner:
         return targets
 
     def _probe_target(self, target: ProbeTarget) -> LLMCapabilityProbeResult:
-        tool_mode = str(getattr(target.provider, "tool_calling", "structured"))
+        getter = getattr(target.provider, "get_tool_calling_mode", None)
+        if callable(getter):
+            tool_mode = str(getter(target.model_name))
+        else:
+            tool_mode = str(getattr(target.provider, "tool_calling", "structured"))
         api_base_raw = getattr(target.provider, "api_base", None)
         api_base = str(api_base_raw) if api_base_raw else None
+        metadata = {
+            "probe_kind": "native_bind_tools" if tool_mode == "native" else "non_native_mode",
+            "capabilities": {
+                "max_output_tokens": getattr(target.provider, "max_tokens", None),
+                "supports_streaming": None,
+                "supports_json_mode": None,
+            },
+            "confidence": {
+                "max_output_tokens": "medium",
+                "supports_streaming": "low",
+                "supports_json_mode": "low",
+            },
+            "origin": {
+                "max_output_tokens": "config",
+                "supports_streaming": "unknown",
+                "supports_json_mode": "unknown",
+            },
+        }
 
         if tool_mode != "native":
             return LLMCapabilityProbeResult(
@@ -95,7 +117,7 @@ class LLMCapabilityProbeRunner:
                 supports_tool_schema=None,
                 capability_mismatch=False,
                 status="ok",
-                metadata={"probe_kind": "non_native_mode"},
+                metadata=metadata,
             )
 
         try:
@@ -112,7 +134,7 @@ class LLMCapabilityProbeRunner:
                 capability_mismatch=True,
                 status="error",
                 error_message=f"model_init_failed: {exc}",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
 
         try:
@@ -127,7 +149,7 @@ class LLMCapabilityProbeRunner:
                 supports_tool_schema=True,
                 capability_mismatch=False,
                 status="ok",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
         except Exception as exc:
             return LLMCapabilityProbeResult(
@@ -141,7 +163,7 @@ class LLMCapabilityProbeRunner:
                 capability_mismatch=True,
                 status="warning",
                 error_message=f"bind_tools_failed: {exc}",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
 
     @staticmethod

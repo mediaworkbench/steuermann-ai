@@ -86,10 +86,11 @@ llm:
       models:
         en: "ollama/llama-3.1-8b" # LiteLLM model string: provider/model-name
         de: "ollama/llama-3.1-8b-german"
+      model_tool_calling:
+        ollama/llama-3.1-8b: "native" # Per-model mode: native|structured|react
       temperature: 0.7 # 0.0-2.0, higher = more creative
       max_tokens: 4096 # Max tokens per request
       timeout: 300 # Timeout in seconds
-      tool_calling: "native" # Options: native, structured, react
 
     fallback: # Fallback provider (optional)
       api_base: "https://api.openai.com/v1"
@@ -97,6 +98,8 @@ llm:
       models:
         en: "openai/gpt-4o"
         de: "openai/gpt-4o"
+      model_tool_calling:
+        openai/gpt-4o: "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
@@ -296,7 +299,7 @@ tool_routing:
 Tool selection uses a three-tier architecture:
 
 1. **Layer 1 — Semantic Pre-filter** (always runs): Embeds user query, scores all tools via cosine similarity, applies intent boosting, returns top-K candidates. Does NOT execute tools.
-2. **Layer 2 — Model-Driven Tool Calling**: The LLM receives candidate tools and decides which (if any) to call. Mode depends on provider `tool_calling` setting (native/structured/react).
+2. **Layer 2 — Model-Driven Tool Calling**: The LLM receives candidate tools and decides which (if any) to call. Mode is resolved per model from `model_tool_calling` and then validated against fresh probe results (probe can downgrade native to structured).
 3. **Layer 3 — Output Validation + Retry**: Validates tool call arguments against schema, re-prompts on parse failure up to `max_retries` times.
 
 **Filtering gates (Layer 1):**

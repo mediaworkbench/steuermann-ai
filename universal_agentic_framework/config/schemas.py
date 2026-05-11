@@ -35,7 +35,7 @@ class ProviderSettings(BaseModel):
     temperature: Optional[confloat(ge=0.0, le=2.0)] = 0.7
     max_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
-    tool_calling: Literal["native", "structured", "react"] = "structured"
+    model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
     # LiteLLM router-friendly metadata.
     order: Optional[conint(ge=1)] = None
     weight: Optional[conint(ge=1)] = None
@@ -59,7 +59,18 @@ class ProviderSettings(BaseModel):
                 continue
             model_value = normalize_model_id(str(model))
             setattr(self.models, language, model_value)
+        if self.model_tool_calling:
+            normalized_modes: Dict[str, Literal["native", "structured", "react"]] = {}
+            for model_name, mode in self.model_tool_calling.items():
+                normalized_modes[normalize_model_id(str(model_name))] = mode
+            self.model_tool_calling = normalized_modes
         return self
+
+    def get_tool_calling_mode(self, model_name: Optional[str]) -> Literal["native", "structured", "react"]:
+        if not model_name:
+            return "structured"
+        normalized = normalize_model_id(str(model_name))
+        return self.model_tool_calling.get(normalized, "structured")
 
 
 class LLMProviders(BaseModel):

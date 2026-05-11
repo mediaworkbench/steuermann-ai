@@ -227,13 +227,15 @@ Tools are selected through a **three-tier architecture** that combines semantic 
 
 ### Layer 2: Model-Driven Tool Calling
 
-The LLM receives candidate tools and decides which to call. Mode is configured per provider via `tool_calling` in `config/core.yaml`:
+The LLM receives candidate tools and decides which to call. Mode is configured per model via `model_tool_calling` in `config/core.yaml`:
 
 | Mode | How it works | Best for |
 | ------ | ------------- | ---------- |
 | `native` | Tools bound via `bind_tools()`, LLM produces `tool_calls` | Models with proven function calling (GPT-4, LFM2) |
 | `structured` | Tool JSON schemas injected into system prompt, LLM outputs JSON | Any model — safe default |
 | `react` | ReAct loop (Thought → Action → Observation), max iterations | Weaker models that can't follow JSON schemas |
+
+Runtime safety rule: native mode requires a fresh successful probe; stale/missing/mismatch probe results force structured mode.
 
 ### Layer 3: Output Validation + Retry
 

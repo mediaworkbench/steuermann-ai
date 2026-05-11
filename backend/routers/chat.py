@@ -879,7 +879,7 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
 def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
     """Load latest persisted probe results grouped by provider.
 
-    Returns most recent row per provider_id for the active profile.
+    Returns most recent rows for provider+model pairs for the active profile.
     """
     probe_store = getattr(request.app.state, "llm_capability_probe_store", None)
     if probe_store is None:
@@ -892,14 +892,16 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
         logger.warning("Failed to load LLM capability probes", extra={"error": str(exc)})
         return []
 
-    latest_by_provider: dict[str, dict[str, Any]] = {}
+    latest_by_model: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         provider_id = str(row.get("provider_id") or "").strip()
-        if not provider_id or provider_id in latest_by_provider:
+        model_name = str(row.get("model_name") or "").strip()
+        key = (provider_id, model_name)
+        if not provider_id or not model_name or key in latest_by_model:
             continue
-        latest_by_provider[provider_id] = {
+        latest_by_model[key] = {
             "provider_id": provider_id,
-            "model_name": row.get("model_name"),
+            "model_name": model_name,
             "configured_tool_calling_mode": row.get("configured_tool_calling_mode"),
             "supports_bind_tools": row.get("supports_bind_tools"),
             "supports_tool_schema": row.get("supports_tool_schema"),
@@ -909,7 +911,7 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
             "probed_at": row.get("probed_at"),
         }
 
-    return list(latest_by_provider.values())
+    return list(latest_by_model.values())
 
 
 async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:

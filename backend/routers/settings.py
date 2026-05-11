@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -142,6 +143,38 @@ def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
                 "error": str(exc),
             },
         )
+
+
+def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any]]) -> tuple[str, str]:
+    if desired_mode != "native":
+        return desired_mode, "model_config_non_native_mode"
+
+    if not probe_row:
+        return "structured", "probe_missing_forced_structured"
+
+    ttl_seconds = int(os.getenv("LLM_CAPABILITY_PROBE_TTL_SECONDS", "3600"))
+    probed_at_raw = str(probe_row.get("probed_at") or "").strip()
+    if not probed_at_raw:
+        return "structured", "probe_missing_timestamp_forced_structured"
+    try:
+        dt = datetime.fromisoformat(probed_at_raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - dt).total_seconds()
+        if age_seconds > ttl_seconds:
+            return "structured", "probe_stale_forced_structured"
+    except Exception:
+        return "structured", "probe_invalid_timestamp_forced_structured"
+
+    mismatch = bool(probe_row.get("capability_mismatch", False))
+    bind_failed = probe_row.get("supports_bind_tools") is False
+    schema_failed = probe_row.get("supports_tool_schema") is False
+    status = str(probe_row.get("status") or "").lower()
+
+    if mismatch or bind_failed or schema_failed or status in {"warning", "error"}:
+        return "structured", "probe_capability_mismatch_downgrade"
+
+    return "native", "probe_confirmed_native"
 
 
 @router.get("/settings/user/{user_id}", response_model=UserSettingsResponse)
@@ -414,6 +447,66 @@ def trigger_llm_reprobe(request: Request) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("Manual reprobe failed", extra={"error": str(exc)})
         raise HTTPException(status_code=500, detail=f"Reprobe failed: {exc}") from exc
+
+
+@router.get("/llm/capabilities")
+def list_llm_capabilities(request: Request) -> Dict[str, Any]:
+    """Expose model-level desired/effective tool-calling capability view."""
+    probe_store = _get_probe_store(request)
+    if not probe_store:
+        raise HTTPException(status_code=503, detail="Probe store unavailable")
+
+    profile_id = get_active_profile_id()
+    core = load_core_config()
+    registry = core.llm.providers.get_registry()
+    role_provider_ids: List[str] = []
+    for ref in core.llm.roles.chat.providers:
+        pid = str(ref.provider_id)
+        if pid not in role_provider_ids:
+            role_provider_ids.append(pid)
+    probe_rows = probe_store.list_probe_results(profile_id=profile_id, limit=500)
+    probe_by_key: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in probe_rows:
+        key = (str(row.get("provider_id") or ""), normalize_model_id(str(row.get("model_name") or "")))
+        if key[0] and key[1] and key not in probe_by_key:
+            probe_by_key[key] = row
+
+    items: List[Dict[str, Any]] = []
+    for provider_id in role_provider_ids:
+        provider = registry.get(provider_id)
+        if provider is None:
+            continue
+        model_values = [m for m in provider.models.model_dump().values() if m]
+        for raw_model_name in sorted(set(model_values)):
+            model_name = normalize_model_id(str(raw_model_name))
+            desired_mode = str(provider.get_tool_calling_mode(model_name))
+            probe_row = probe_by_key.get((provider_id, model_name))
+            effective_mode, reason = _compute_effective_mode(desired_mode, probe_row)
+            metadata = probe_row.get("metadata") if probe_row else {}
+            capabilities = metadata.get("capabilities") if isinstance(metadata, dict) else {}
+
+            items.append(
+                {
+                    "provider_id": provider_id,
+                    "model_name": model_name,
+                    "desired_mode": desired_mode,
+                    "effective_mode": effective_mode,
+                    "effective_mode_reason": reason,
+                    "probe_status": probe_row.get("status") if probe_row else "missing",
+                    "capability_mismatch": bool(probe_row.get("capability_mismatch", False)) if probe_row else False,
+                    "supports_bind_tools": probe_row.get("supports_bind_tools") if probe_row else None,
+                    "supports_tool_schema": probe_row.get("supports_tool_schema") if probe_row else None,
+                    "probed_at": probe_row.get("probed_at") if probe_row else None,
+                    "capabilities": capabilities if isinstance(capabilities, dict) else {},
+                }
+            )
+
+    return {
+        "status": "ok",
+        "profile_id": profile_id,
+        "probe_ttl_seconds": int(os.getenv("LLM_CAPABILITY_PROBE_TTL_SECONDS", "3600")),
+        "items": items,
+    }
 
 
 @router.post("/ingestion/reingest-all", response_model=ReingestAllResponse)

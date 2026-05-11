@@ -623,7 +623,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - Full OpenAI-compatible tool-calling via `tools` parameter in `/v1/chat/completions`
 - "Native" parser support: Qwen, Llama-3.1/3.2, Mistral (model must have chat template + LM Studio parser)
 - "Default" parser: All other models (including LFM2) — LM Studio injects a system prompt and parses generically
-- If a model's default parsing is unreliable, switch to `tool_calling: "structured"` in config
+- If a model's default parsing is unreliable, switch that model to `model_tool_calling: structured` in config
 
 ### **8.4 LiteLLM Integration** *(completed 2026-04-30)*
 

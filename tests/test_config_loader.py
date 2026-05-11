@@ -235,13 +235,15 @@ llm:
             api_base: http://localhost:1234/v1
             models:
                 en: lm_studio/liquid/lfm2-24b-a2b
-            tool_calling: native
+            model_tool_calling:
+                openai/liquid/lfm2-24b-a2b: native
         openrouter:
             api_base: https://openrouter.ai/api/v1
             api_key: test-key
             models:
                 en: openrouter/openai/gpt-4o-mini
-            tool_calling: native
+            model_tool_calling:
+                openrouter/openai/gpt-4o-mini: native
     roles:
         chat:
             providers:

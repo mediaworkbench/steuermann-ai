@@ -1,6 +1,10 @@
 """Tool-calling mode validation and resolution helpers."""
 
+import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
+
+from universal_agentic_framework.llm.provider_registry import normalize_model_id
 
 from universal_agentic_framework.monitoring.logging import get_logger
 
@@ -35,7 +39,6 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
         provider = getattr(config.llm.providers, "primary", None)
 
     if provider is not None:
-        configured_mode = str(getattr(provider, "tool_calling", "structured"))
         models = getattr(provider, "models", None)
         if isinstance(models, dict):
             selected_model_name = models.get(language)
@@ -56,29 +59,48 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
                         selected_model_name = model_value
                         break
 
+        if selected_model_name:
+            configured_mode = str(provider.get_tool_calling_mode(selected_model_name))
+
     if configured_mode != "native":
-        return configured_mode, "configured_non_native_mode"
+        return configured_mode, "model_config_non_native_mode"
 
     probe_rows = state.get("llm_capability_probes") or []
     if not probe_rows:
-        return configured_mode, "configured_native_no_probe"
+        return "structured", "probe_missing_forced_structured"
 
     matching_rows = [
         row for row in probe_rows
         if str(row.get("provider_id") or "") == provider_id
     ]
     if selected_model_name:
+        normalized_selected = normalize_model_id(str(selected_model_name))
         model_specific = [
             row for row in matching_rows
-            if str(row.get("model_name") or "") == str(selected_model_name)
+            if normalize_model_id(str(row.get("model_name") or "")) == normalized_selected
         ]
         if model_specific:
             matching_rows = model_specific
 
     if not matching_rows:
-        return configured_mode, "configured_native_probe_provider_not_found"
+        return "structured", "probe_model_not_found_forced_structured"
 
     probe = matching_rows[0]
+
+    ttl_seconds = int(os.getenv("LLM_CAPABILITY_PROBE_TTL_SECONDS", "3600"))
+    probed_at_raw = str(probe.get("probed_at") or "").strip()
+    if not probed_at_raw:
+        return "structured", "probe_missing_timestamp_forced_structured"
+    try:
+        dt = datetime.fromisoformat(probed_at_raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - dt).total_seconds()
+        if age_seconds > ttl_seconds:
+            return "structured", "probe_stale_forced_structured"
+    except Exception:
+        return "structured", "probe_invalid_timestamp_forced_structured"
+
     mismatch = bool(probe.get("capability_mismatch", False))
     bind_failed = probe.get("supports_bind_tools") is False
     schema_failed = probe.get("supports_tool_schema") is False
@@ -87,7 +109,7 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
     if mismatch or bind_failed or schema_failed or status in {"warning", "error"}:
         return "structured", "probe_capability_mismatch_downgrade"
 
-    return configured_mode, "configured_native_probe_ok"
+    return configured_mode, "probe_confirmed_native"
 
 
 def validate_and_log_tool_calling_mode(

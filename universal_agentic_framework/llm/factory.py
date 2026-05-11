@@ -29,7 +29,9 @@ def build_litellm_chat(provider: ProviderSettings, model_name: str):
         raise RuntimeError("ChatLiteLLM not available") from exc
 
     model_kwargs = {}
-    if provider.tool_calling != "native":
+    getter = getattr(provider, "get_tool_calling_mode", None)
+    tool_mode = getter(model_name) if callable(getter) else getattr(provider, "tool_calling", "structured")
+    if tool_mode != "native":
         model_kwargs["tool_choice"] = "none"
 
     chat_kwargs = {
@@ -226,7 +228,9 @@ class LLMFactory:
         )
 
         model_kwargs = {}
-        if primary.tool_calling != "native":
+        getter = getattr(primary, "get_tool_calling_mode", None)
+        tool_mode = getter(primary_model) if callable(getter) else getattr(primary, "tool_calling", "structured")
+        if tool_mode != "native":
             model_kwargs["tool_choice"] = "none"
         return ChatLiteLLMRouter(
             router=router,
