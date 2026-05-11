@@ -105,7 +105,7 @@ def test_node_generate_response_injects_attachment_context(monkeypatch) -> None:
     model = _CapturingModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
@@ -142,7 +142,7 @@ def test_node_generate_response_retries_if_model_refuses_attachments(monkeypatch
     model = _RefusalThenAnswerModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
@@ -176,7 +176,7 @@ def test_node_generate_response_retries_on_inaccessible_extraction_phrase(monkey
     model = _InaccessibleThenAnswerModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)

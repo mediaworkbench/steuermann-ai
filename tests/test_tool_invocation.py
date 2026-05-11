@@ -26,7 +26,7 @@ def test_llm_invokes_datetime_tool(mock_embedding_provider):
     mock_embedding_provider.return_value = embedder
     
     # Mock LLM to return a simple response
-    with patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model") as mock_model_factory:
+    with patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model") as mock_model_factory:
         # LLM response (tool results injected into context, no tool calling needed)
         response = Mock()
         response.content = "You were born 51 years ago if born on 1974-05-24."

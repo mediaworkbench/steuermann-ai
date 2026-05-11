@@ -71,22 +71,6 @@ from universal_agentic_framework.orchestration.helpers import (
 
 logger = get_logger(__name__)
 
-# Backward-compatibility aliases for internal function calls
-_extract_exact_reply_directive = extract_exact_reply_directive
-_build_attachment_context_block = build_attachment_context_block
-_detect_tool_routing_intents = detect_tool_routing_intents
-_score_tool_similarity = score_tool_similarity
-_build_semantic_tool_kwargs = build_semantic_tool_kwargs
-_extract_calculator_expression = extract_calculator_expression
-_run_forced_tool = run_forced_tool
-_apply_top_k_scored_tools = apply_top_k_scored_tools
-_safe_get_model = safe_get_model
-_resolve_effective_tool_calling_mode = resolve_effective_tool_calling_mode
-_validate_and_log_tool_calling_mode = validate_and_log_tool_calling_mode
-
-
-
-
 class GraphState(TypedDict, total=False):
     messages: List[Dict[str, Any]]
     attachments: List[Dict[str, Any]]  # Uploaded conversation attachments from adapter
@@ -174,9 +158,9 @@ def node_load_tools(state: GraphState) -> GraphState:
     fork_language = getattr(core_config.fork, "language", "en")
     # Use conversation language from state; fall back to fork_language from config
     conversation_language = state.get("language") or fork_language
-    
+
     logger.info("Loading tools from registry", fork_name=fork_name, language=conversation_language)
-    
+
     with track_node_execution(fork_name, "load_tools"):
         try:
             from universal_agentic_framework.config import get_profile_dir
@@ -190,30 +174,29 @@ def node_load_tools(state: GraphState) -> GraphState:
                 extra_tools_dir=profile_tools_dir,
             )
             tools = registry.discover_and_load()
-            
+
             # Filter tools based on user settings (tool_toggles)
             user_settings = state.get("user_settings", {})
             tool_toggles = user_settings.get("tool_toggles", {})
-            
+
             if tool_toggles:
-                # Filter: keep only tools that are explicitly enabled OR not mentioned in toggles
                 filtered_tools = [
                     t for t in tools
-                    if tool_toggles.get(t.name, True)  # Default to enabled if not in toggles
+                    if tool_toggles.get(t.name, True)
                 ]
                 logger.info(
                     "Tools filtered by user settings",
-                   original_count=len(tools),
+                    original_count=len(tools),
                     filtered_count=len(filtered_tools),
-                    disabled_tools=[t.name for t in tools if not tool_toggles.get(t.name, True)]
+                    disabled_tools=[t.name for t in tools if not tool_toggles.get(t.name, True)],
                 )
                 tools = filtered_tools
-            
+
             state["loaded_tools"] = tools
             logger.info(
                 "Tools loaded",
                 tools_count=len(tools),
-                tool_names=[t.name for t in tools]
+                tool_names=[t.name for t in tools],
             )
             return state
         except Exception as e:
@@ -289,7 +272,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             )
 
             # Detect intents for score boosting
-            intents = _detect_tool_routing_intents(
+            intents = detect_tool_routing_intents(
                 user_msg=user_msg, language=routing_language
             )
 
@@ -307,7 +290,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 if not tool_desc:
                     continue
 
-                similarity = _score_tool_similarity(
+                similarity = score_tool_similarity(
                     embedding_model_name=embedding_model_name,
                     tool_name=tool_name,
                     tool_desc=tool_desc,
@@ -351,7 +334,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 scored_tools.append((tool, similarity))
 
             # Apply top-K
-            scored_tools = _apply_top_k_scored_tools(scored_tools, top_k)
+            scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
 
             min_top_score = getattr(
                 getattr(config, "tool_routing", None), "min_top_score", 0.7
@@ -394,7 +377,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 if score >= similarity_threshold
             ]
 
-            tool_calling_mode, tool_calling_mode_reason = _resolve_effective_tool_calling_mode(config, state)
+            tool_calling_mode, tool_calling_mode_reason = resolve_effective_tool_calling_mode(config, state)
 
             state["candidate_tools"] = candidates
             state["tool_calling_mode"] = tool_calling_mode
@@ -464,7 +447,7 @@ def node_route_tools(state: GraphState) -> GraphState:
             timezone = getattr(getattr(config, "fork", None), "timezone", None)
             routing_language = state.get("language") or getattr(config.fork, "language", "en")
 
-            intents = _detect_tool_routing_intents(
+            intents = detect_tool_routing_intents(
                 user_msg=user_msg,
                 language=routing_language,
             )
@@ -489,7 +472,7 @@ def node_route_tools(state: GraphState) -> GraphState:
             executed_forced = set()
             routing_metadata = {}  # Track why each tool was selected
             def _score_tool_adapter(**kwargs):
-                return _score_tool_similarity(
+                return score_tool_similarity(
                     embedding_model_name=kwargs.get("embedding_model_name", embedding_model_name),
                     tool_name=kwargs.get("tool_name", "unknown"),
                     tool_desc=kwargs.get("tool_desc", ""),
@@ -521,7 +504,7 @@ def node_route_tools(state: GraphState) -> GraphState:
                 score_tool_func=_score_tool_adapter,
             )
 
-            scored_tools = _apply_top_k_scored_tools(scored_tools, top_k)
+            scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
 
             # Score-spread gate: when all tools score similarly the query is
             # not tool-specific (e.g. casual greetings).  Only apply the gate
@@ -595,7 +578,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
         return state
 
     # Validate that this node should be executing (mode enforcement)
-    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+    is_valid, validation_reason = validate_and_log_tool_calling_mode(
         state, "native", "call_tools_native", fork_name
     )
     if not is_valid:
@@ -612,7 +595,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     if not user_msg:
         return state
 
-    native_intents = _detect_tool_routing_intents(user_msg, state.get("language", "en"))
+    native_intents = detect_tool_routing_intents(user_msg, state.get("language", "en"))
     url_in_query = native_intents.get("url_in_query")
     wants_save_to_rag = bool(native_intents.get("wants_save_to_rag"))
 
@@ -629,7 +612,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = _safe_get_model(config, lang, preferred_model=preferred_model)
+            model = safe_get_model(config, lang, preferred_model=preferred_model)
 
             # Extract BaseTool instances and bind to model
             tools = [c["tool"] for c in candidates]
@@ -804,7 +787,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
         return state
 
     # Validate that this node should be executing (mode enforcement)
-    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+    is_valid, validation_reason = validate_and_log_tool_calling_mode(
         state, "structured", "call_tools_structured", fork_name
     )
     if not is_valid:
@@ -835,7 +818,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = _safe_get_model(config, lang, preferred_model=preferred_model)
+            model = safe_get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -988,7 +971,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
         return state
 
     # Validate that this node should be executing (mode enforcement)
-    is_valid, validation_reason = _validate_and_log_tool_calling_mode(
+    is_valid, validation_reason = validate_and_log_tool_calling_mode(
         state, "react", "call_tools_react", fork_name
     )
     if not is_valid:
@@ -1019,7 +1002,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = _safe_get_model(config, lang, preferred_model=preferred_model)
+            model = safe_get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -1364,7 +1347,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         preferred_model=preferred_model or "default"
     )
 
-    model = _safe_get_model(config, lang, preferred_model=preferred_model)
+    model = safe_get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
     # Hybrid budget enforcement: global + per-turn hard limits; per-node optional hard guardrail.
@@ -1519,7 +1502,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     # Add user-provided uploaded attachments as explicitly labeled reference context.
     attachments = state.get("attachments") or []
-    attachment_block, normalized_attachment_context = _build_attachment_context_block(attachments)
+    attachment_block, normalized_attachment_context = build_attachment_context_block(attachments)
     if attachment_block:
         system_prompt += f"\n\n{attachment_block}"
         state["attachment_context"] = normalized_attachment_context
@@ -2039,7 +2022,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             response_text = _filter_urls(response_text)
 
         # Honor strict literal-response directives when explicitly requested.
-        exact_reply = _extract_exact_reply_directive(user_msg)
+        exact_reply = extract_exact_reply_directive(user_msg)
         if exact_reply and response_text != exact_reply:
             logger.info(
                 "Enforcing exact reply directive",
@@ -2091,7 +2074,7 @@ def node_summarize(state: GraphState) -> GraphState:
     
     logger.info("Summarizing conversation", fork_name=fork_name)
 
-    model = _safe_get_model(config, lang, preferred_model=preferred_model)
+    model = safe_get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
     # Build a window of the last 3 user+assistant exchanges for richer fact extraction.

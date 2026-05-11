@@ -432,7 +432,7 @@ class TestSemanticToolRouting:
         assert "tool_results" in result
         assert "tool_execution_results" in result
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_injects_tool_results_and_knowledge(self, mock_config, mock_model_factory):
         """Response node should inject both tool results and knowledge context."""
@@ -461,7 +461,7 @@ class TestSemanticToolRouting:
         assert "Doc text" in system_prompt
         assert result["messages"][-1]["content"] == "model output"
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_skips_tool_section_when_empty(self, mock_config, mock_model_factory):
         """Response node should not add tool section if no tool results are present."""
@@ -488,7 +488,7 @@ class TestSemanticToolRouting:
         assert "=== WISSENSDATENBANK ===" in system_prompt
         assert "Doc text" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_keeps_low_priority_memory_when_web_tool_results_present(self, mock_config, mock_model_factory):
         """Past memory should be retained as background while tool results remain primary."""
@@ -518,7 +518,7 @@ class TestSemanticToolRouting:
         assert "Old unrelated memory about The Shamen" in system_prompt
         assert "=== CONTEXT PRIORITY ===" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_when_extract_succeeded_but_model_claims_access_error(self, mock_config, mock_model_factory):
         """Response node should correct contradictory access-error claims after successful extraction."""
@@ -554,7 +554,7 @@ class TestSemanticToolRouting:
         assert result["messages"][-1]["content"] == "The headline is: Die Wahrheit ist eine Waffe."
         assert len(fake_model.invocations) >= 2
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_for_german_access_refusal_after_successful_extract(self, mock_config, mock_model_factory):
         """German refusal wording should trigger correction retry when extraction succeeded."""
@@ -662,7 +662,7 @@ class TestRoutingIntentDetection:
         assert intents["enhanced_web_query"] == "rosuvastatin"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_injects_request_url_when_missing(mock_config, mock_model_factory):
     """Native mode should inject request_url from user message when model omits URL args."""
@@ -704,7 +704,7 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
@@ -741,7 +741,7 @@ def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
     assert "web_search_mcp" in candidate_names
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
@@ -779,7 +779,7 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
     assert result["tool_calling_mode_reason"] == "probe_capability_mismatch_downgrade"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_keeps_native_mode_when_probe_is_ok(
@@ -817,7 +817,7 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     assert result["tool_calling_mode_reason"] == "configured_native_probe_ok"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, mock_model_factory):
     """Native mode should still execute extract tool for URL prompts when model emits no tool calls."""
@@ -852,7 +852,7 @@ def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, m
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted via fallback"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_config, mock_model_factory):
     """Native mode should retry extract with inferred URL when first call returns protocol-missing error."""

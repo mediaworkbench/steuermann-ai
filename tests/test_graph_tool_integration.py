@@ -70,7 +70,7 @@ class DummyModel:
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -155,7 +155,7 @@ def test_graph_injects_tool_and_knowledge_context(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -228,7 +228,7 @@ def test_rag_request_uses_config(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -273,7 +273,7 @@ def test_rag_disabled_via_features(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -357,7 +357,7 @@ def test_rag_keyword_fallback_search(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -429,7 +429,7 @@ def test_response_url_stripping_guardrail(
     assert "example.com" in final_response or "source omitted" in final_response
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
