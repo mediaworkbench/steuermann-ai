@@ -95,6 +95,31 @@ export interface ReingestAllResult {
   output_tail: string;
 }
 
+export interface LLMCapabilityItem {
+  provider_id: string;
+  model_name: string;
+  desired_mode: string;
+  configured_tool_calling_mode?: string;
+  effective_mode: string;
+  effective_mode_reason: string;
+  probe_status: string;
+  capability_mismatch: boolean;
+  supports_bind_tools: boolean | null;
+  supports_tool_schema: boolean | null;
+  api_base?: string | null;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+  probed_at: string | null;
+  capabilities: Record<string, unknown>;
+}
+
+export interface LLMCapabilitiesResponse {
+  status: string;
+  profile_id: string;
+  probe_ttl_seconds: number;
+  items: LLMCapabilityItem[];
+}
+
 export async function fetchSystemConfig(): Promise<SystemConfig | null> {
   try {
     const response = await fetch(`${API_BASE}/api/system-config`);
@@ -129,6 +154,20 @@ export async function triggerReingestAllDocuments(): Promise<ReingestAllResult> 
   }
 
   return payload as ReingestAllResult;
+}
+
+export async function fetchLLMCapabilities(): Promise<LLMCapabilitiesResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/llm/capabilities`);
+    if (!response.ok) {
+      console.error(`Failed to fetch LLM capabilities: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as LLMCapabilitiesResponse;
+  } catch (error) {
+    console.error("Error fetching LLM capabilities:", error);
+    return null;
+  }
 }
 
 export async function fetchMetrics() {

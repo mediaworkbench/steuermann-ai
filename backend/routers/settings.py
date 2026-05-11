@@ -490,13 +490,17 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
                     "provider_id": provider_id,
                     "model_name": model_name,
                     "desired_mode": desired_mode,
+                    "configured_tool_calling_mode": probe_row.get("configured_tool_calling_mode") if probe_row else desired_mode,
                     "effective_mode": effective_mode,
                     "effective_mode_reason": reason,
                     "probe_status": probe_row.get("status") if probe_row else "missing",
                     "capability_mismatch": bool(probe_row.get("capability_mismatch", False)) if probe_row else False,
                     "supports_bind_tools": probe_row.get("supports_bind_tools") if probe_row else None,
                     "supports_tool_schema": probe_row.get("supports_tool_schema") if probe_row else None,
+                    "api_base": probe_row.get("api_base") if probe_row else None,
+                    "error_message": probe_row.get("error_message") if probe_row else None,
                     "probed_at": probe_row.get("probed_at") if probe_row else None,
+                    "metadata": metadata if isinstance(metadata, dict) else {},
                     "capabilities": capabilities if isinstance(capabilities, dict) else {},
                 }
             )

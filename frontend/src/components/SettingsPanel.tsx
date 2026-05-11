@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
+  LLMCapabilityItem,
+  fetchLLMCapabilities,
   UserSettings,
   fetchAvailableModels,
   fetchSystemConfig,
@@ -49,6 +51,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   const [modelsLoading, setModelsLoading] = useState(true);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
+  const [capabilities, setCapabilities] = useState<LLMCapabilityItem[]>([]);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
+  const [probeTtlSeconds, setProbeTtlSeconds] = useState<number | null>(null);
+  const [copyingDiagnostics, setCopyingDiagnostics] = useState(false);
+  const [expandedCapabilityRows, setExpandedCapabilityRows] = useState<Record<string, boolean>>({});
 
   // Sync local state when settings arrive from the server
   useEffect(() => {
@@ -90,6 +98,89 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     }
     loadModels();
     return () => { cancelled = true; };
+  }, []);
+
+  const loadCapabilities = useCallback(async () => {
+    setCapabilitiesLoading(true);
+    setCapabilitiesError(null);
+    const data = await fetchLLMCapabilities();
+    if (!data) {
+      setCapabilities([]);
+      setCapabilitiesError(t("settingsPanel.capabilitiesLoadFailed"));
+      setCapabilitiesLoading(false);
+      return;
+    }
+    setCapabilities(data.items || []);
+    setProbeTtlSeconds(data.probe_ttl_seconds);
+    setCapabilitiesLoading(false);
+  }, [t]);
+
+  useEffect(() => {
+    void loadCapabilities();
+  }, [loadCapabilities]);
+
+  const getEffectiveModeBadgeClass = useCallback((mode: string) => {
+    switch (mode) {
+      case "native":
+        return "bg-green-100 text-green-800";
+      case "structured":
+        return "bg-amber-100 text-amber-800";
+      case "react":
+        return "bg-blue-100 text-blue-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  }, []);
+
+  const handleCopyDiagnostics = useCallback(async () => {
+    if (capabilities.length === 0 || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      toast.error(t("settingsPanel.copyDiagnosticsFailed"));
+      return;
+    }
+
+    setCopyingDiagnostics(true);
+    try {
+      const header = [
+        "provider_id",
+        "model_name",
+        "desired_mode",
+        "effective_mode",
+        "configured_tool_calling_mode",
+        "probe_status",
+        "effective_mode_reason",
+        "api_base",
+        "error_message",
+        "probed_at",
+      ].join("\t");
+      const rows = capabilities.map((item) =>
+        [
+          item.provider_id,
+          item.model_name,
+          item.desired_mode,
+          item.effective_mode,
+          item.configured_tool_calling_mode || "",
+          item.probe_status,
+          item.effective_mode_reason,
+          item.api_base || "",
+          item.error_message || "",
+          item.probed_at || "",
+        ].join("\t")
+      );
+      const ttlLine = `probe_ttl_seconds\t${probeTtlSeconds ?? ""}`;
+      await navigator.clipboard.writeText([ttlLine, header, ...rows].join("\n"));
+      toast.success(t("settingsPanel.copyDiagnosticsSuccess"));
+    } catch {
+      toast.error(t("settingsPanel.copyDiagnosticsFailed"));
+    } finally {
+      setCopyingDiagnostics(false);
+    }
+  }, [capabilities, probeTtlSeconds, t]);
+
+  const toggleCapabilityRow = useCallback((key: string) => {
+    setExpandedCapabilityRows((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
   }, []);
 
   const handleToolToggle = useCallback((toolId: string) => {
@@ -305,6 +396,142 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         >
           {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
         </button>
+      </div>
+
+      {/* Model Capability Status */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">{t("settingsPanel.capabilitiesTitle")}</h3>
+            <p className="text-sm text-gray-600">
+              {t("settingsPanel.capabilitiesSubtitle")}
+              {probeTtlSeconds !== null && (
+                <span>{t("settingsPanel.capabilitiesTtl", { value: probeTtlSeconds })}</span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyDiagnostics}
+              disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
+              className="px-3 py-2 text-sm bg-indigo-100 hover:bg-indigo-200 disabled:bg-gray-100 text-indigo-800 disabled:text-gray-500 rounded-lg transition-colors"
+            >
+              {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadCapabilities()}
+              disabled={capabilitiesLoading}
+              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 text-gray-700 rounded-lg transition-colors"
+            >
+              {t("common.refresh")}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span className="text-xs font-semibold text-gray-600">{t("settingsPanel.legendTitle")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800">{t("settingsPanel.legendNative")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800">{t("settingsPanel.legendStructured")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-blue-100 text-blue-800">{t("settingsPanel.legendReact")}</span>
+        </div>
+
+        {capabilitiesLoading ? (
+          <p className="text-sm text-gray-500">{t("settingsPanel.capabilitiesLoading")}</p>
+        ) : capabilitiesError ? (
+          <p className="text-sm text-red-600">{capabilitiesError}</p>
+        ) : capabilities.length === 0 ? (
+          <p className="text-sm text-gray-500">{t("settingsPanel.capabilitiesEmpty")}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full border border-gray-200 rounded-lg text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityModel")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityDesired")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityEffective")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityProbeStatus")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityReason")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityProbedAt")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityDetails")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {capabilities.map((item) => {
+                  const rowKey = `${item.provider_id}:${item.model_name}`;
+                  const expanded = !!expandedCapabilityRows[rowKey];
+                  return (
+                    <Fragment key={rowKey}>
+                      <tr className="border-t border-gray-200">
+                        <td className="px-3 py-2 text-gray-800">
+                          <div className="font-medium">{item.model_name}</div>
+                          <div className="text-xs text-gray-500">{item.provider_id}</div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{item.desired_mode}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getEffectiveModeBadgeClass(item.effective_mode)}`}>
+                            {item.effective_mode}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{item.probe_status}</td>
+                        <td className="px-3 py-2 text-gray-700">{item.effective_mode_reason}</td>
+                        <td className="px-3 py-2 text-gray-700">{item.probed_at ? formatDateTime(item.probed_at) : t("metrics.na")}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          <button
+                            type="button"
+                            onClick={() => toggleCapabilityRow(rowKey)}
+                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded"
+                          >
+                            {expanded ? t("settingsPanel.hideDetails") : t("settingsPanel.showDetails")}
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr className="border-t border-gray-100 bg-gray-50">
+                          <td colSpan={8} className="px-3 py-3 text-xs text-gray-700">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailConfiguredMode")}: </span>
+                                <span>{item.configured_tool_calling_mode || t("metrics.na")}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailApiBase")}: </span>
+                                <span>{item.api_base || t("metrics.na")}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailError")}: </span>
+                                <span>{item.error_message || t("metrics.na")}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailBindTools")}: </span>
+                                <span>{item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailToolSchema")}: </span>
+                                <span>{item.supports_tool_schema === null ? t("metrics.na") : String(item.supports_tool_schema)}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailMismatch")}: </span>
+                                <span>{String(item.capability_mismatch)}</span>
+                              </div>
+                            </div>
+                            <div className="mt-2">
+                              <div className="font-semibold mb-1">{t("settingsPanel.detailMetadata")}</div>
+                              <pre className="overflow-x-auto p-2 bg-white border border-gray-200 rounded">
+                                {JSON.stringify(item.metadata || {}, null, 2)}
+                              </pre>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {saveMessage && (

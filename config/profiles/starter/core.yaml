@@ -35,10 +35,10 @@ llm:
       api_base: $LLM_PROVIDERS_OPENROUTER_API_BASE
       api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
       models:
-        en: "openrouter/openai/gpt-4o-mini"
-        de: "openrouter/openai/gpt-4o-mini"
+        en: ""
+        de: ""
       model_tool_calling:
-        openrouter/openai/gpt-4o-mini: "native"
+        : "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300

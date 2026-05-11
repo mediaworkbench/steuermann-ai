@@ -199,3 +199,70 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
     response = client.post("/api/ingestion/reingest-all")
     assert response.status_code == 400
     assert "Ingestion source path does not exist" in response.json()["detail"]
+
+
+def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PROFILE_ID", "starter")
+
+    class _Provider:
+        def __init__(self):
+            self.models = SimpleNamespace(model_dump=lambda: {"en": "openai/test-model"})
+
+        def get_tool_calling_mode(self, _model_name: str) -> str:
+            return "native"
+
+    class _Registry:
+        def get(self, provider_id: str):
+            return _Provider() if provider_id == "primary" else None
+
+    core_config = SimpleNamespace(
+        llm=SimpleNamespace(
+            providers=SimpleNamespace(get_registry=lambda: _Registry()),
+            roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="primary")])),
+        )
+    )
+
+    probe_rows = [
+        {
+            "provider_id": "primary",
+            "model_name": "openai/test-model",
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": False,
+            "supports_tool_schema": False,
+            "capability_mismatch": True,
+            "status": "warning",
+            "error_message": "bind_tools_failed: test-error",
+            "api_base": "http://host.docker.internal:1234/v1",
+            "probed_at": "2026-05-11T12:34:56+00:00",
+            "metadata": {"capabilities": {"supports_json_mode": False}, "probe_kind": "native_bind_tools"},
+        }
+    ]
+
+    monkeypatch.setattr("backend.routers.settings.get_active_profile_id", lambda: "starter")
+    monkeypatch.setattr("backend.routers.settings.load_core_config", lambda: core_config)
+
+    app = FastAPI()
+    app.state.llm_capability_probe_store = SimpleNamespace(
+        list_probe_results=lambda profile_id, limit=500: probe_rows
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.get("/api/llm/capabilities")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["profile_id"] == "starter"
+    assert len(payload["items"]) == 1
+
+    item = payload["items"][0]
+    assert item["provider_id"] == "primary"
+    assert item["model_name"] == "openai/test-model"
+    assert item["configured_tool_calling_mode"] == "native"
+    assert item["api_base"] == "http://host.docker.internal:1234/v1"
+    assert item["error_message"] == "bind_tools_failed: test-error"
+    assert item["metadata"]["probe_kind"] == "native_bind_tools"
+    assert item["capabilities"]["supports_json_mode"] is False
