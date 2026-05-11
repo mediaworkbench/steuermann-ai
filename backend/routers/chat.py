@@ -34,7 +34,6 @@ from universal_agentic_framework.tools.file_ops.tool import WorkspaceFileOpsTool
 
 logger = logging.getLogger(__name__)
 LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434")
 PROFILE_ID = os.getenv("PROFILE_ID", "starter")
 ACTIVE_PROFILE_ID = os.getenv("ACTIVE_PROFILE_ID", PROFILE_ID)
 
@@ -86,6 +85,39 @@ _WORKSPACE_SAVE_INTENT_PATTERNS = [
     re.compile(r"\b(im\s+workspace\s+speichern|im\s+workspace\s+ueberschreiben|im\s+workspace\s+überschreiben)\b", re.IGNORECASE),
     re.compile(r"\b(speicher|speichern|ueberschreibe|überschreibe|aktualisiere)\b.*\b(workspace|dokument|datei)\b", re.IGNORECASE),
 ]
+
+
+def _resolve_provider_endpoint(provider_prefix: str) -> str:
+    """Resolve endpoint strictly from active provider config."""
+    try:
+        core = load_core_config()
+        registry = core.llm.providers.get_registry()
+
+        provider_prefix = (provider_prefix or "").strip().lower()
+        candidate_provider_ids: list[str]
+
+        if provider_prefix == "ollama":
+            candidate_provider_ids = ["ollama"]
+        elif provider_prefix == "openrouter":
+            candidate_provider_ids = ["openrouter"]
+        elif provider_prefix in {"openai", "lm_studio", "lmstudio"}:
+            candidate_provider_ids = ["lmstudio", "openai"]
+        else:
+            candidate_provider_ids = [provider_prefix]
+
+        for provider_id in candidate_provider_ids:
+            provider = registry.get(provider_id)
+            if provider and getattr(provider, "api_base", None):
+                return str(provider.api_base).rstrip("/")
+
+        # If no explicit provider match, try the role-primary provider endpoint.
+        primary = getattr(core.llm.providers, "primary", None)
+        if primary and getattr(primary, "api_base", None):
+            return str(primary.api_base).rstrip("/")
+    except Exception as exc:
+        raise ValueError(f"Failed to resolve provider endpoint from config: {exc}") from exc
+
+    raise ValueError(f"No api_base configured for provider prefix '{provider_prefix}'")
 
 
 class ChatRequest(BaseModel):
@@ -968,7 +1000,7 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
 
     async def _fetch_models() -> list[str]:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            base = str(LLM_ENDPOINT).rstrip("/")
+            base = _resolve_provider_endpoint(provider_prefix)
             try:
                 resp = await client.get(f"{base}/models")
                 resp.raise_for_status()

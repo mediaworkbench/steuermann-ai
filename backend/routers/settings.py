@@ -31,8 +31,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_api_access)])
 
-# OpenAI-compatible endpoint: works with LM Studio and Ollama (/v1)
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434")
+
+def _resolve_primary_provider_endpoint() -> str:
+    """Resolve primary chat provider endpoint strictly from active config."""
+    try:
+        core = load_core_config()
+        primary = getattr(core.llm.providers, "primary", None)
+        if primary and getattr(primary, "api_base", None):
+            return str(primary.api_base).rstrip("/")
+    except Exception as exc:
+        raise ValueError(f"Failed to resolve primary provider endpoint from config: {exc}") from exc
+
+    raise ValueError("No api_base configured for primary chat provider")
 
 
 class ProfileConfigResponse(BaseModel):
@@ -225,7 +235,7 @@ async def list_available_models() -> Dict[str, Any]:
             pass
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            base = str(LLM_ENDPOINT).rstrip("/")
+            base = _resolve_primary_provider_endpoint()
             try:
                 resp = await client.get(f"{base}/models")
                 resp.raise_for_status()

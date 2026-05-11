@@ -993,12 +993,22 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Set POSTGRES_PASSWORD in .env or environment" if not postgres_password else "Present",
     )
 
-    llm_endpoint = env.get("LLM_ENDPOINT")
+    llm_provider_vars = {
+        "LLM_PROVIDERS_LMSTUDIO_API_BASE": env.get("LLM_PROVIDERS_LMSTUDIO_API_BASE"),
+        "LLM_PROVIDERS_OLLAMA_API_BASE": env.get("LLM_PROVIDERS_OLLAMA_API_BASE"),
+        "LLM_PROVIDERS_OPENROUTER_API_BASE": env.get("LLM_PROVIDERS_OPENROUTER_API_BASE"),
+    }
+    configured_providers = {k: v for k, v in llm_provider_vars.items() if v}
     add_check(
-        "LLM_ENDPOINT",
-        bool(llm_endpoint),
+        "LLM provider endpoints",
+        bool(configured_providers),
         False,
-        "Set LLM_ENDPOINT for local validation and runtime config resolution" if not llm_endpoint else llm_endpoint,
+        (
+            "Set at least one of LLM_PROVIDERS_LMSTUDIO_API_BASE, LLM_PROVIDERS_OLLAMA_API_BASE, "
+            "LLM_PROVIDERS_OPENROUTER_API_BASE"
+        )
+        if not configured_providers
+        else ", ".join(f"{k}={v}" for k, v in configured_providers.items()),
     )
 
     embedding_server = env.get("EMBEDDING_SERVER")
@@ -1040,19 +1050,21 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
     if args.probe_endpoints:
         import httpx
 
-        endpoint = env.get("LLM_ENDPOINT", "")
-        ok = bool(endpoint)
-        details = "LLM_ENDPOINT missing"
-        if endpoint:
-            try:
-                with httpx.Client(timeout=3.0) as client:
-                    response = client.get(endpoint)
-                ok = response.status_code < 500
-                details = f"HTTP {response.status_code}"
-            except Exception as exc:
-                ok = False
-                details = str(exc)
-        add_check("LLM endpoint probe", ok, False, details)
+        if not configured_providers:
+            add_check("LLM endpoint probe", False, False, "No LLM provider endpoints configured")
+        else:
+            for var_name, endpoint in configured_providers.items():
+                probe_ok = False
+                probe_details = f"{var_name} missing"
+                try:
+                    with httpx.Client(timeout=3.0) as client:
+                        response = client.get(endpoint)
+                    probe_ok = response.status_code < 500
+                    probe_details = f"HTTP {response.status_code}"
+                except Exception as exc:
+                    probe_ok = False
+                    probe_details = str(exc)
+                add_check(f"LLM endpoint probe ({var_name})", probe_ok, False, probe_details)
 
     has_blocking_fail = any(c["status"] == "fail" and c["blocking"] for c in checks)
     payload = {
