@@ -77,7 +77,7 @@ memory:
 
 rag:
   enabled: true
-  collection_name: $INGEST_COLLECTION
+  collection_name: framework
   top_k: 5
   score_threshold: 0.6
   with_payload:
@@ -89,7 +89,6 @@ rag:
   timeout_seconds: 30
 
 ingestion:
-  collection_name: $INGEST_COLLECTION
   source_path: $RAG_DATA_PATH
   language: "de"
   language_threshold: 0.8

@@ -33,7 +33,6 @@ def test_load_core_config_env_substitution() -> None:
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432",
         "POSTGRES_DB": "framework",
-        "INGEST_COLLECTION": "framework",
         "RAG_DATA_PATH": "./data/rag-data",
         "LLM_PROVIDERS_LMSTUDIO_API_BASE": "http://localhost:1234/v1",
         "LLM_PROVIDERS_OLLAMA_API_BASE": "http://localhost:11434/v1",
@@ -51,7 +50,6 @@ def test_load_core_config_env_substitution() -> None:
     assert core.database.url == "postgresql://app:pw@localhost:5432/framework"
     assert core.rag is not None
     assert core.rag.collection_name == "framework"
-    assert core.ingestion.collection_name == "framework"
     assert core.ingestion.source_path == "./data/rag-data"
     assert core.llm.roles.chat.providers[0].provider_id == "lmstudio"
     assert registry["lmstudio"].models.en == "openai/liquid/lfm2-24b-a2b"
@@ -202,8 +200,7 @@ tokens:
 rag:
   enabled: true
   collection_name: medical-rag
-ingestion:
-  collection_name: medical-rag
+ingestion: {}
 prompts:
   response_system:
     en: Profile prompt
@@ -219,7 +216,8 @@ prompts:
 
     assert core.fork.language == "de"
     assert core.tokens.default_budget == 20000
-    assert core.ingestion.collection_name == "medical-rag"
+    assert core.rag is not None
+    assert core.rag.collection_name == "medical-rag"
     assert core.database.url == "sqlite:///base.db"
 
 

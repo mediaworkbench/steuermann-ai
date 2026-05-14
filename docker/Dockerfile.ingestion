@@ -51,9 +51,7 @@ RUN chown -R ingestion:ingestion /app
 USER ingestion
 
 # Default environment (can be overridden by compose)
-ENV INGEST_COLLECTION=framework \
-    INGEST_LANGUAGE=en \
-    HF_HOME=/app/.cache/huggingface
+ENV HF_HOME=/app/.cache/huggingface
 
 # Healthcheck: verify Qdrant connectivity
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

@@ -16,6 +16,8 @@ The runtime configuration model is:
 
 The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
 
+`PROFILE_ID` is required at runtime. `base` is no longer a runnable profile id; it only refers to repository-level defaults.
+
 Configuration files remain directly editable. The `steuermann` CLI is a validation, diagnostics, and scaffolding companion; it does not replace manual YAML or `.env` editing.
 
 ---
@@ -78,31 +80,59 @@ language_enforcement: "Respond in English unless the user explicitly asks otherw
 
 ### LLM Configuration
 
+Runtime LLM configuration lives in the active profile overlay: `config/profiles/<profile_id>/core.yaml`. Repository-level `config/core.yaml` is limited to deployment-global settings such as database, memory, and checkpointing.
+
 ```yaml
+# config/profiles/starter/core.yaml
 llm:
   providers:
-    primary: # Primary LLM provider
-      api_base: "http://host.docker.internal:11434" # Provider endpoint
+    lmstudio:
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      api_key: "lm-studio"
       models:
-        en: "ollama/llama-3.1-8b" # LiteLLM model string: provider/model-name
-        de: "ollama/llama-3.1-8b-german"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
       model_tool_calling:
-        ollama/llama-3.1-8b: "native" # Per-model mode: native|structured|react
+        openai/liquid/lfm2-24b-a2b: "native"
       temperature: 0.7 # 0.0-2.0, higher = more creative
       max_tokens: 4096 # Max tokens per request
       timeout: 300 # Timeout in seconds
 
-    fallback: # Fallback provider (optional)
-      api_base: "https://api.openai.com/v1"
-      api_key: "${OPENAI_API_KEY}"
+    openrouter:
+      api_base: "${LLM_PROVIDERS_OPENROUTER_API_BASE}"
+      api_key: "${OPENROUTER_API_KEY}"
       models:
-        en: "openai/gpt-4o"
-        de: "openai/gpt-4o"
+        en: "openrouter/openai/gpt-4o-mini"
+        de: "openrouter/openai/gpt-4o-mini"
       model_tool_calling:
-        openai/gpt-4o: "native"
+        openrouter/openai/gpt-4o-mini: "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
+
+  roles:
+    chat:
+      providers:
+        - provider_id: lmstudio
+        - provider_id: openrouter
+    embedding:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    vision:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    auxiliary:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+
+  router:
+    routing_strategy: simple-shuffle
+    num_retries: 3
+    retry_after: 1
+    default_max_parallel_requests: 4
 ```
 
 **Model strings use LiteLLM's `provider/model-name` format:**
@@ -112,6 +142,8 @@ llm:
 - `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
 - `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
+
+**Provider registry and roles:** `llm.providers` is a named registry. Runtime consumers resolve models through role chains like `llm.roles.chat.providers`, not through legacy `primary` / `fallback` aliases. LiteLLM router behavior is configured by `llm.router` in the same profile overlay.
 
 **LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
@@ -202,7 +234,7 @@ rag:
 
 **Notes:**
 
-- `collection_name` should match `INGEST_COLLECTION` (see [docs/ingestion.md](docs/ingestion.md)).
+- `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
 - `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 

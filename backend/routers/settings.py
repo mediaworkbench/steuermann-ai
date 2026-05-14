@@ -18,6 +18,7 @@ from backend.db import SettingsStore, LLMCapabilityProbeStore
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.single_user import get_effective_user_id, require_api_access
 from backend.version import get_framework_version
+from universal_agentic_framework.cli.ingest import resolve_runtime_ingestion_defaults
 from universal_agentic_framework.config import (
     get_active_profile_id,
     load_core_config,
@@ -359,8 +360,8 @@ async def get_system_config() -> Dict[str, Any]:
 
         rag_cfg = core_config.rag
         collection_name = _resolve_env_placeholder(
-            rag_cfg.collection_name if rag_cfg else "$INGEST_COLLECTION",
-            default="framework",
+            rag_cfg.collection_name if rag_cfg else None,
+            default="",
         )
         top_k = rag_cfg.top_k if rag_cfg else 5
 
@@ -595,10 +596,15 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
 @router.post("/ingestion/reingest-all", response_model=ReingestAllResponse)
 def trigger_reingest_all_documents() -> Dict[str, Any]:
     """Clear and re-index all documents from the configured ingestion source path."""
-    source = os.getenv("RAG_DATA_PATH", "/data/rag-data")
-    collection = os.getenv("INGEST_COLLECTION", "framework")
-    language = os.getenv("INGEST_LANGUAGE", "en")
-    timeout_seconds = int(os.getenv("INGEST_REINGEST_TIMEOUT_SECONDS", "1800"))
+    try:
+        defaults = resolve_runtime_ingestion_defaults()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to resolve ingestion config: {exc}") from exc
+
+    source = defaults.source_path
+    collection = defaults.collection_name
+    language = defaults.language
+    timeout_seconds = defaults.reingest_timeout_seconds
 
     source_path = Path(source)
     if not source_path.exists():
@@ -606,7 +612,7 @@ def trigger_reingest_all_documents() -> Dict[str, Any]:
             status_code=400,
             detail=(
                 f"Ingestion source path does not exist: {source}. "
-                "Set RAG_DATA_PATH to a readable document directory."
+                "Set core.ingestion.source_path to a readable document directory."
             ),
         )
 

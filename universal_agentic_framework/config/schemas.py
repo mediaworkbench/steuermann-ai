@@ -254,7 +254,6 @@ class CheckpointingSettings(BaseModel):
 
 
 class IngestionSettings(BaseModel):
-    collection_name: str
     source_path: Optional[str] = None
     language: str = "en"
     language_threshold: confloat(ge=0.0, le=1.0) = 0.8

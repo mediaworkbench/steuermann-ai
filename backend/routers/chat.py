@@ -109,11 +109,6 @@ def _resolve_provider_endpoint(provider_prefix: str) -> str:
             provider = registry.get(provider_id)
             if provider and getattr(provider, "api_base", None):
                 return str(provider.api_base).rstrip("/")
-
-        # If no explicit provider match, try the role-primary provider endpoint.
-        primary = getattr(core.llm.providers, "primary", None)
-        if primary and getattr(primary, "api_base", None):
-            return str(primary.api_base).rstrip("/")
     except Exception as exc:
         raise ValueError(f"Failed to resolve provider endpoint from config: {exc}") from exc
 

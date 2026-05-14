@@ -1035,20 +1035,14 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         profile_details,
     )
 
-    ingest_collection = env.get("INGEST_COLLECTION")
     try:
         core = load_core_config(env=env)
         rag_collection = core.rag.collection_name
-        aligned = not ingest_collection or ingest_collection == rag_collection
         add_check(
-            "INGEST_COLLECTION alignment",
-            aligned,
+            "RAG collection",
+            bool(rag_collection),
             False,
-            (
-                "INGEST_COLLECTION differs from core.rag.collection_name"
-                if not aligned
-                else f"Aligned collection: {rag_collection}"
-            ),
+            f"Configured collection: {rag_collection}",
         )
     except Exception as exc:
         add_check("Core config load", False, True, f"Failed to load core config: {exc}")

@@ -1,6 +1,7 @@
 """Command-line interface for document ingestion."""
 
 import argparse
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import sys
@@ -18,6 +19,26 @@ from universal_agentic_framework.monitoring.logging import get_logger, configure
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class RuntimeIngestionDefaults:
+    source_path: str
+    collection_name: str
+    language: str
+    language_threshold: float
+    embedding_batch_size: int
+    upsert_batch_size: int
+    file_concurrency: int
+    incremental_mode: bool
+    phase_timing: bool
+    reingest_timeout_seconds: int
+    embedding_provider_type: str
+    embedding_remote_endpoint: str | None
+    embedding_model: str
+    embedding_dimension: int
+    qdrant_host: str
+    qdrant_port: int
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -32,6 +53,73 @@ def _resolve_env_placeholder(value: Any, default: str | None = None) -> Any:
     if value in (None, ""):
         return default
     return value
+
+
+def resolve_runtime_ingestion_defaults() -> RuntimeIngestionDefaults:
+    from universal_agentic_framework.config import load_core_config
+
+    core_config = load_core_config()
+    ingestion_config = core_config.ingestion
+    rag_config = core_config.rag
+
+    source_path = _resolve_env_placeholder(ingestion_config.source_path)
+    if not source_path:
+        raise ValueError("core.ingestion.source_path must be set in the active profile")
+
+    collection_name = rag_config.collection_name if rag_config and rag_config.collection_name else None
+    if not collection_name:
+        raise ValueError("core.rag.collection_name must be set in the active profile")
+
+    return RuntimeIngestionDefaults(
+        source_path=str(source_path),
+        collection_name=str(collection_name),
+        language=ingestion_config.language,
+        language_threshold=float(ingestion_config.language_threshold),
+        embedding_batch_size=int(ingestion_config.embedding_batch_size),
+        upsert_batch_size=int(ingestion_config.upsert_batch_size),
+        file_concurrency=int(ingestion_config.file_concurrency),
+        incremental_mode=bool(ingestion_config.incremental_mode),
+        phase_timing=bool(ingestion_config.phase_timing),
+        reingest_timeout_seconds=int(ingestion_config.reingest_timeout_seconds),
+        embedding_provider_type=core_config.memory.embeddings.provider,
+        embedding_remote_endpoint=_resolve_env_placeholder(
+            core_config.memory.embeddings.remote_endpoint,
+            os.getenv("EMBEDDING_SERVER"),
+        ),
+        embedding_model=core_config.memory.embeddings.model,
+        embedding_dimension=int(core_config.memory.embeddings.dimension),
+        qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
+        qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
+    )
+
+
+def _build_runtime_ingestion_config(
+    *,
+    source_override: str | None,
+    collection_override: str | None,
+    language_override: str | None,
+    collection_description: str,
+) -> IngestionConfig:
+    defaults = resolve_runtime_ingestion_defaults()
+    return IngestionConfig(
+        source_path=Path(source_override or defaults.source_path),
+        file_patterns=["**/*.pdf", "**/*.docx", "**/*.md", "**/*.markdown", "**/*.txt"],
+        collection_name=collection_override or defaults.collection_name,
+        collection_description=collection_description,
+        target_language=language_override or defaults.language,
+        language_threshold=defaults.language_threshold,
+        file_concurrency=defaults.file_concurrency,
+        upsert_batch_size=defaults.upsert_batch_size,
+        enable_incremental=defaults.incremental_mode,
+        enable_phase_timing=defaults.phase_timing,
+        embedding_model=defaults.embedding_model,
+        embedding_dimension=defaults.embedding_dimension,
+        embedding_batch_size=defaults.embedding_batch_size,
+        embedding_provider_type=defaults.embedding_provider_type,
+        embedding_remote_endpoint=defaults.embedding_remote_endpoint,
+        qdrant_host=defaults.qdrant_host,
+        qdrant_port=defaults.qdrant_port,
+    )
 
 
 class DocumentEventHandler(FileSystemEventHandler):
@@ -226,51 +314,11 @@ def cmd_ingest(args):
         
         service = create_service_from_config(config_dict)
     else:
-        # Load core configuration for embedding provider settings
-        from universal_agentic_framework.config import load_core_config
-        
-        try:
-            core_config = load_core_config()
-            embedding_provider_type = core_config.memory.embeddings.provider
-            embedding_remote_endpoint = _resolve_env_placeholder(
-                core_config.memory.embeddings.remote_endpoint,
-                os.getenv("EMBEDDING_SERVER"),
-            )
-            embedding_model = core_config.memory.embeddings.model
-            embedding_dimension = core_config.memory.embeddings.dimension
-            embedding_batch_size = core_config.memory.embeddings.batch_size or 32
-        except Exception as e:
-            logger.warning(
-                "Failed to load core config, using defaults",
-                error=str(e)
-            )
-            embedding_provider_type = "remote"
-            embedding_remote_endpoint = os.getenv("EMBEDDING_SERVER")
-            embedding_model = "text-embedding-granite-embedding-278m-multilingual"
-            embedding_dimension = 768
-            embedding_batch_size = int(os.getenv("INGEST_EMBEDDING_BATCH_SIZE", "32"))
-
-        file_concurrency = int(os.getenv("INGEST_FILE_CONCURRENCY", "1"))
-        upsert_batch_size = int(os.getenv("INGEST_UPSERT_BATCH_SIZE", "128"))
-        enable_incremental = _env_bool("INGEST_INCREMENTAL", True)
-        enable_phase_timing = _env_bool("INGEST_PHASE_TIMING", True)
-        
-        # Create minimal config from args
-        config = IngestionConfig(
-            source_path=Path(args.source),
-            file_patterns=["**/*.pdf", "**/*.docx", "**/*.md", "**/*.txt"],
-            collection_name=args.collection or "default",
+        config = _build_runtime_ingestion_config(
+            source_override=args.source,
+            collection_override=args.collection,
+            language_override=args.language,
             collection_description="Manual ingestion collection",
-            target_language=args.language or "en",
-            file_concurrency=file_concurrency,
-            upsert_batch_size=upsert_batch_size,
-            enable_incremental=enable_incremental,
-            enable_phase_timing=enable_phase_timing,
-            embedding_model=embedding_model,
-            embedding_dimension=embedding_dimension,
-            embedding_batch_size=embedding_batch_size,
-            embedding_provider_type=embedding_provider_type,
-            embedding_remote_endpoint=embedding_remote_endpoint,
         )
         service = IngestionService(config)
     
@@ -314,56 +362,11 @@ def cmd_watch(args):
             config_dict.setdefault("source", {})["path"] = args.source
         service = create_service_from_config(config_dict)
     else:
-        # Load core configuration for embedding provider settings
-        from universal_agentic_framework.config import load_core_config
-        
-        try:
-            core_config = load_core_config()
-            embedding_provider_type = core_config.memory.embeddings.provider
-            embedding_remote_endpoint = _resolve_env_placeholder(
-                core_config.memory.embeddings.remote_endpoint,
-                os.getenv("EMBEDDING_SERVER"),
-            )
-            embedding_model = core_config.memory.embeddings.model
-            embedding_dimension = core_config.memory.embeddings.dimension
-            embedding_batch_size = core_config.memory.embeddings.batch_size or 32
-        except Exception as e:
-            logger.warning(
-                "Failed to load core config, using defaults",
-                error=str(e)
-            )
-            embedding_provider_type = "remote"
-            embedding_remote_endpoint = os.getenv("EMBEDDING_SERVER")
-            embedding_model = "text-embedding-granite-embedding-278m-multilingual"
-            embedding_dimension = 768
-            embedding_batch_size = int(os.getenv("INGEST_EMBEDDING_BATCH_SIZE", "32"))
-        
-        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        language_threshold = float(os.getenv("INGEST_LANGUAGE_THRESHOLD", "0.8"))
-        file_concurrency = int(os.getenv("INGEST_FILE_CONCURRENCY", "1"))
-        upsert_batch_size = int(os.getenv("INGEST_UPSERT_BATCH_SIZE", "128"))
-        enable_incremental = _env_bool("INGEST_INCREMENTAL", True)
-        enable_phase_timing = _env_bool("INGEST_PHASE_TIMING", True)
-        
-        config = IngestionConfig(
-            source_path=Path(args.source),
-            file_patterns=["**/*.pdf", "**/*.docx", "**/*.md", "**/*.markdown", "**/*.txt"],
-            collection_name=args.collection or "default",
+        config = _build_runtime_ingestion_config(
+            source_override=args.source,
+            collection_override=args.collection,
+            language_override=args.language,
             collection_description="Watch mode collection",
-            target_language=args.language or "en",
-            language_threshold=language_threshold,
-            file_concurrency=file_concurrency,
-            upsert_batch_size=upsert_batch_size,
-            enable_incremental=enable_incremental,
-            enable_phase_timing=enable_phase_timing,
-            embedding_model=embedding_model,
-            embedding_dimension=embedding_dimension,
-            embedding_batch_size=embedding_batch_size,
-            embedding_provider_type=embedding_provider_type,
-            embedding_remote_endpoint=embedding_remote_endpoint,
-            qdrant_host=qdrant_host,
-            qdrant_port=qdrant_port,
         )
         service = IngestionService(config)
     
@@ -469,56 +472,11 @@ def cmd_reindex(args):
             config_dict.setdefault("source", {})["path"] = args.source
         service = create_service_from_config(config_dict)
     else:
-        # Load core configuration for embedding provider settings
-        from universal_agentic_framework.config import load_core_config
-
-        try:
-            core_config = load_core_config()
-            embedding_provider_type = core_config.memory.embeddings.provider
-            embedding_remote_endpoint = _resolve_env_placeholder(
-                core_config.memory.embeddings.remote_endpoint,
-                os.getenv("EMBEDDING_SERVER"),
-            )
-            embedding_model = core_config.memory.embeddings.model
-            embedding_dimension = core_config.memory.embeddings.dimension
-            embedding_batch_size = core_config.memory.embeddings.batch_size or 32
-        except Exception as e:
-            logger.warning(
-                "Failed to load core config, using defaults",
-                error=str(e)
-            )
-            embedding_provider_type = "remote"
-            embedding_remote_endpoint = os.getenv("EMBEDDING_SERVER")
-            embedding_model = "text-embedding-granite-embedding-278m-multilingual"
-            embedding_dimension = 768
-            embedding_batch_size = int(os.getenv("INGEST_EMBEDDING_BATCH_SIZE", "32"))
-
-        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        language_threshold = float(os.getenv("INGEST_LANGUAGE_THRESHOLD", "0.8"))
-        file_concurrency = int(os.getenv("INGEST_FILE_CONCURRENCY", "1"))
-        upsert_batch_size = int(os.getenv("INGEST_UPSERT_BATCH_SIZE", "128"))
-        enable_incremental = _env_bool("INGEST_INCREMENTAL", True)
-        enable_phase_timing = _env_bool("INGEST_PHASE_TIMING", True)
-        
-        config = IngestionConfig(
-            source_path=Path(args.source),
-            file_patterns=["**/*.pdf", "**/*.docx", "**/*.md", "**/*.markdown", "**/*.txt"],
-            collection_name=args.collection or "default",
+        config = _build_runtime_ingestion_config(
+            source_override=args.source,
+            collection_override=args.collection,
+            language_override=args.language,
             collection_description="Reindex collection",
-            target_language=args.language or "en",
-            language_threshold=language_threshold,
-            file_concurrency=file_concurrency,
-            upsert_batch_size=upsert_batch_size,
-            enable_incremental=enable_incremental,
-            enable_phase_timing=enable_phase_timing,
-            embedding_model=embedding_model,
-            embedding_dimension=embedding_dimension,
-            embedding_batch_size=embedding_batch_size,
-            embedding_provider_type=embedding_provider_type,
-            embedding_remote_endpoint=embedding_remote_endpoint,
-            qdrant_host=qdrant_host,
-            qdrant_port=qdrant_port,
         )
         service = IngestionService(config)
     
@@ -550,33 +508,33 @@ def cmd_reindex(args):
 def add_ingest_subcommands(subparsers: argparse._SubParsersAction) -> None:
     """Register ingestion subcommands under an argparse subparser group."""
     ingest_parser = subparsers.add_parser("ingest", help="Ingest documents")
-    ingest_parser.add_argument("--source", required=True, help="Source directory or file")
+    ingest_parser.add_argument("--source", help="Source directory or file (defaults to core.ingestion.source_path)")
     ingest_parser.add_argument("--config", help="Path to configuration YAML file")
-    ingest_parser.add_argument("--collection", help="Collection name (if not in config)")
-    ingest_parser.add_argument("--language", help="Target language (if not in config)")
+    ingest_parser.add_argument("--collection", help="Collection name override")
+    ingest_parser.add_argument("--language", help="Target language override")
     ingest_parser.add_argument("--validate-only", action="store_true", help="Only validate, don't ingest")
     ingest_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     ingest_parser.set_defaults(func=cmd_ingest)
 
     watch_parser = subparsers.add_parser("watch", help="Watch directory for new files")
-    watch_parser.add_argument("--source", required=True, help="Source directory to watch")
+    watch_parser.add_argument("--source", help="Source directory to watch (defaults to core.ingestion.source_path)")
     watch_parser.add_argument("--config", help="Path to configuration YAML file")
-    watch_parser.add_argument("--collection", help="Collection name (if not in config)")
-    watch_parser.add_argument("--language", help="Target language (if not in config)")
+    watch_parser.add_argument("--collection", help="Collection name override")
+    watch_parser.add_argument("--language", help="Target language override")
     watch_parser.set_defaults(func=cmd_watch)
 
     validate_parser = subparsers.add_parser("validate", help="Validate documents only")
-    validate_parser.add_argument("--source", required=True, help="Source directory or file")
+    validate_parser.add_argument("--source", help="Source directory or file (defaults to core.ingestion.source_path)")
     validate_parser.add_argument("--config", help="Path to configuration YAML file")
-    validate_parser.add_argument("--language", help="Target language")
+    validate_parser.add_argument("--language", help="Target language override")
     validate_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     validate_parser.set_defaults(func=cmd_validate)
 
     reindex_parser = subparsers.add_parser("reindex", help="Clear and reindex collection")
-    reindex_parser.add_argument("--source", required=True, help="Source directory")
+    reindex_parser.add_argument("--source", help="Source directory (defaults to core.ingestion.source_path)")
     reindex_parser.add_argument("--config", help="Path to configuration YAML file")
-    reindex_parser.add_argument("--collection", help="Collection name (if not in config)")
-    reindex_parser.add_argument("--language", help="Target language (if not in config)")
+    reindex_parser.add_argument("--collection", help="Collection name override")
+    reindex_parser.add_argument("--language", help="Target language override")
     reindex_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     reindex_parser.set_defaults(func=cmd_reindex)
 

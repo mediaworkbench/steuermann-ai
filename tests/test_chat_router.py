@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import pytest
@@ -174,7 +175,7 @@ class FakeLLMCapabilityProbeStore:
         return [
             {
                 "profile_id": profile_id,
-                "provider_id": "primary",
+                "provider_id": "lmstudio",
                 "model_name": "openai/liquid/lfm2-24b-a2b",
                 "configured_tool_calling_mode": "native",
                 "supports_bind_tools": False,
@@ -376,8 +377,41 @@ def test_chat_forwards_llm_capability_probes(client) -> None:
     probes = fake_async_client.last_request_json.get("llm_capability_probes")
     assert isinstance(probes, list)
     assert probes
-    assert probes[0]["provider_id"] == "primary"
+    assert probes[0]["provider_id"] == "lmstudio"
     assert probes[0]["capability_mismatch"] is True
+
+
+def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    core_config = SimpleNamespace(
+        llm=SimpleNamespace(
+            providers=SimpleNamespace(
+                get_registry=lambda: {
+                    "lmstudio": SimpleNamespace(api_base="http://localhost:1234/v1"),
+                }
+            )
+        )
+    )
+
+    monkeypatch.setattr(chat_module, "load_core_config", lambda: core_config)
+
+    assert chat_module._resolve_provider_endpoint("openai") == "http://localhost:1234/v1"
+
+
+def test_resolve_provider_endpoint_does_not_fallback_to_legacy_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    core_config = SimpleNamespace(
+        llm=SimpleNamespace(
+            providers=SimpleNamespace(
+                get_registry=lambda: {
+                    "other": SimpleNamespace(api_base="http://localhost:9999/v1"),
+                }
+            )
+        )
+    )
+
+    monkeypatch.setattr(chat_module, "load_core_config", lambda: core_config)
+
+    with pytest.raises(ValueError, match="No api_base configured for provider prefix 'openai'"):
+        chat_module._resolve_provider_endpoint("openai")
 
 
 def test_chat_uses_user_settings_language_over_request_language(client) -> None:
@@ -616,6 +650,7 @@ async def test_validate_preferred_model_accepts_provider_prefixed_when_endpoint_
 
     monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
     monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+    monkeypatch.setattr(chat_module, "_resolve_provider_endpoint", lambda _provider_prefix: "http://localhost:1234/v1")
 
     validated, warning = await chat_module._validate_preferred_model("openai/liquid/lfm2-24b-a2b")
     assert warning is None
@@ -659,6 +694,7 @@ async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatc
 
     monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
     monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+    monkeypatch.setattr(chat_module, "_resolve_provider_endpoint", lambda _provider_prefix: "http://localhost:1234/v1")
 
     validated, warning = await chat_module._validate_preferred_model("liquid/lfm2-24b-a2b")
     assert warning is None

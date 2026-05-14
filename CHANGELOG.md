@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4] — active-profile-provider-cutover
+
+- **break** Ingestion runtime settings now resolve from the active profile only; `.env`/Compose keep only deployment wiring, and `rag.collection_name` is now the single collection owner
+- **break** Runtime provider/model ownership moved fully to `config/profiles/<profile_id>/core.yaml`; `PROFILE_ID` is now required and `base` is no longer a runnable profile id
+- **break** Legacy `providers.primary` / `providers.fallback` assumptions removed from runtime consumers and test fixtures; role-based provider chains are now the only supported contract
+- **feat** `LLMFactory.get_router_model()` now forwards profile-owned LiteLLM router policy from `llm.router` (retry, routing strategy, default parallelism)
+- **fix** `backend/routers/chat.py` provider endpoint resolution now uses only the active profile's named provider registry; the final fallback to legacy `providers.primary` was removed
+- **fix** `backend/routers/settings.py`, tool-calling mode resolution, crews, memory backend construction, and model-resolution helpers now resolve providers via roles instead of legacy aliases
+- **docs** Updated `README.md`, `docs/configuration.md`, `docs/technical_architecture.md`, `docs/status.md`, and `.github/ARCHITECTURE.md` for active-profile-only provider/model configuration
+- **test** Completed remaining legacy test cleanup and added direct chat endpoint resolution coverage; targeted regression slices now pass under the role-based config contract
+
 ## [0.2.3] — provider-endpoint-consolidation
 
 - **break** `LLM_ENDPOINT` removed entirely; replaced by per-provider env vars `LLM_PROVIDERS_LMSTUDIO_API_BASE`, `LLM_PROVIDERS_OLLAMA_API_BASE`, `LLM_PROVIDERS_OPENROUTER_API_BASE` — update `.env` accordingly

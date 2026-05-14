@@ -202,9 +202,15 @@ def test_reingest_all_documents_success(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AUTH_USERNAME", "u1")
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
-    monkeypatch.setenv("RAG_DATA_PATH", str(tmp_path))
-    monkeypatch.setenv("INGEST_COLLECTION", "framework")
-    monkeypatch.setenv("INGEST_LANGUAGE", "de")
+    monkeypatch.setattr(
+        "backend.routers.settings.resolve_runtime_ingestion_defaults",
+        lambda: SimpleNamespace(
+            source_path=str(tmp_path),
+            collection_name="framework",
+            language="de",
+            reingest_timeout_seconds=1800,
+        ),
+    )
 
     def _mock_run(*args, **kwargs):
         return CompletedProcess(
@@ -236,7 +242,15 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
     monkeypatch.setenv("AUTH_USERNAME", "u1")
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
     missing_path = tmp_path / "does-not-exist"
-    monkeypatch.setenv("RAG_DATA_PATH", str(missing_path))
+    monkeypatch.setattr(
+        "backend.routers.settings.resolve_runtime_ingestion_defaults",
+        lambda: SimpleNamespace(
+            source_path=str(missing_path),
+            collection_name="framework",
+            language="de",
+            reingest_timeout_seconds=1800,
+        ),
+    )
 
     app = FastAPI()
     app.include_router(router)
@@ -262,18 +276,18 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
 
     class _Registry:
         def get(self, provider_id: str):
-            return _Provider() if provider_id == "primary" else None
+            return _Provider() if provider_id == "lmstudio" else None
 
     core_config = SimpleNamespace(
         llm=SimpleNamespace(
             providers=SimpleNamespace(get_registry=lambda: _Registry()),
-            roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="primary")])),
+      roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")])),
         )
     )
 
     probe_rows = [
         {
-            "provider_id": "primary",
+        "provider_id": "lmstudio",
             "model_name": "openai/test-model",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": False,
@@ -305,7 +319,7 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
     assert len(payload["items"]) == 1
 
     item = payload["items"][0]
-    assert item["provider_id"] == "primary"
+    assert item["provider_id"] == "lmstudio"
     assert item["model_name"] == "openai/test-model"
     assert item["configured_tool_calling_mode"] == "native"
     assert item["api_base"] == "http://host.docker.internal:1234/v1"

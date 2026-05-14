@@ -46,8 +46,8 @@ def sample_probe_results() -> List[Dict[str, Any]]:
     return [
         {
             "profile_id": "test",
-            "provider_id": "primary",  # Use "primary" (default provider_id)
-            "model_name": "llama-3.1-8b",
+            "provider_id": "lmstudio",
+            "model_name": "openai/llama-3.1-8b",
             "api_base": "http://localhost:1234",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": False,
@@ -95,7 +95,7 @@ class TestModeValidation:
     def test_native_node_validation_pass(self, sample_state):
         """Verify native node passes validation when mode is native."""
         sample_state["tool_calling_mode"] = "native"
-        sample_state["tool_calling_mode_reason"] = "configured_native_probe_ok"
+        sample_state["tool_calling_mode_reason"] = "probe_confirmed_native"
         
         is_valid, reason = _validate_and_log_tool_calling_mode(
             sample_state, "native", "call_tools_native", "test-fork"
@@ -155,7 +155,7 @@ class TestModeValidation:
     def test_structured_node_validation_fail_wrong_mode(self, sample_state):
         """Verify structured node fails validation when mode is native."""
         sample_state["tool_calling_mode"] = "native"
-        sample_state["tool_calling_mode_reason"] = "configured_native_probe_ok"
+        sample_state["tool_calling_mode_reason"] = "probe_confirmed_native"
         
         is_valid, reason = _validate_and_log_tool_calling_mode(
             sample_state, "structured", "call_tools_structured", "test-fork"
@@ -179,8 +179,9 @@ class TestModeValidation:
 class TestModeRoutingDecision:
     """Test that routing decisions correctly map mode to node."""
 
-    def test_all_tool_calling_nodes_exist_in_graph(self):
+    def test_all_tool_calling_nodes_exist_in_graph(self, monkeypatch: pytest.MonkeyPatch):
         """Verify routing sends native mode to native node."""
+        monkeypatch.setenv("PROFILE_ID", "starter")
         graph = build_graph()
         
         # The routing function is defined within build_graph
@@ -287,10 +288,10 @@ class TestModeReasonTracking:
         """Verify different reason types are documented in code."""
         expected_reasons = {
             "probe_capability_mismatch_downgrade",
-            "configured_native_probe_ok",
-            "configured_non_native_mode",
-            "configured_native_no_probe",
-            "configured_native_probe_provider_not_found",
+            "probe_confirmed_native",
+            "model_config_non_native_mode",
+            "probe_missing_forced_structured",
+            "probe_model_not_found_forced_structured",
         }
         
         # These are defined in _resolve_effective_tool_calling_mode
