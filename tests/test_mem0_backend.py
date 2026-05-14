@@ -27,6 +27,7 @@ class _FakeMemory:
         self.last_get_all_filters: Optional[Dict[str, Any]] = None
         self.last_delete_all_filters: Optional[Dict[str, Any]] = None
         self.last_add_infer: Optional[bool] = None
+        self.last_add_payload: Any = None
 
     def add(
         self,
@@ -37,6 +38,7 @@ class _FakeMemory:
         infer: bool = True,
     ) -> dict:
         self.last_add_infer = infer
+        self.last_add_payload = text
         if isinstance(text, list):
             # Mem0 canonical call path: list of chat-style messages.
             text_value = "\n".join(
@@ -179,6 +181,27 @@ def test_upsert_returns_memory_record():
     assert rec.metadata.get("memory_id") is not None
     assert rec.metadata["tag"] == "x"
     assert backend._memory.last_add_infer is True
+
+
+def test_upsert_normalizes_message_payload_content_shapes():
+    backend = _make_backend()
+
+    backend.upsert(
+        "u1",
+        "fallback text",
+        messages=[
+            {"role": "user", "content": [{"text": "alpha"}, "beta"]},
+            {"role": "assistant", "content": {"text": "gamma"}},
+            {"role": "user", "content": None},
+            "ignored-non-dict",
+        ],
+    )
+
+    assert backend._memory.last_add_payload == [
+        {"role": "user", "content": "alpha\nbeta"},
+        {"role": "assistant", "content": "gamma"},
+        {"role": "user", "content": ""},
+    ]
 
 
 def test_load_with_query_applies_importance_scoring():

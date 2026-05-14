@@ -29,7 +29,7 @@ export async function fetchUserSettings(userId: string): Promise<UserSettings | 
 
 export async function updateUserSettings(
   userId: string,
-  settings: Omit<UserSettings, "user_id" | "updated_at">
+  settings: Partial<Omit<UserSettings, "user_id" | "updated_at">>
 ): Promise<UserSettings | null> {
   try {
     const response = await fetch(`${API_BASE}/api/settings/user/${userId}`, {

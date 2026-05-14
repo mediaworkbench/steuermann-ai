@@ -36,16 +36,7 @@ export function useSettings(userId: string): UseSettingsReturn {
   const saveSettings = useCallback(
     async (updates: Partial<Omit<UserSettings, "user_id" | "updated_at">>): Promise<boolean> => {
       try {
-        const settingsToSave: Omit<UserSettings, "user_id" | "updated_at"> = {
-          tool_toggles: updates.tool_toggles ?? settings?.tool_toggles ?? {},
-          rag_config: updates.rag_config ?? settings?.rag_config ?? {collection: "", top_k: 5},
-          analytics_preferences: updates.analytics_preferences ?? settings?.analytics_preferences ?? {},
-          preferred_model: updates.preferred_model ?? settings?.preferred_model ?? null,
-          preferred_models: updates.preferred_models ?? settings?.preferred_models ?? {},
-          language: updates.language ?? settings?.language ?? "en",
-        };
-        
-        const updated = await updateUserSettings(userId, settingsToSave);
+        const updated = await updateUserSettings(userId, updates);
         if (updated) {
           setSettings(updated);
           return true;

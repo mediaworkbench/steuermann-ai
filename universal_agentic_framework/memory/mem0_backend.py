@@ -143,6 +143,37 @@ class Mem0MemoryBackend(MemoryBackend):
             return [item for item in response if isinstance(item, dict)]
         return []
 
+    def _stringify_message_content(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    item_text = item.get("text") or item.get("content") or item.get("value") or ""
+                    if item_text:
+                        parts.append(str(item_text))
+                elif item is not None:
+                    parts.append(str(item))
+            return "\n".join(part for part in parts if part).strip()
+        if isinstance(content, dict):
+            return str(content.get("text") or content.get("content") or content.get("value") or "")
+        return str(content)
+
+    def _normalize_message_payload(self, messages: Optional[List[Dict[str, Any]]], text: str) -> List[Dict[str, str]]:
+        normalized: List[Dict[str, str]] = []
+        for item in messages or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "user").strip() or "user"
+            content = self._stringify_message_content(item.get("content"))
+            normalized.append({"role": role, "content": content})
+        if normalized:
+            return normalized
+        return [{"role": "user", "content": text}]
+
     def _merge_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(metadata)
 
@@ -350,7 +381,7 @@ class Mem0MemoryBackend(MemoryBackend):
 
         # Use structured exchange messages when provided (richer context for Mem0 inference),
         # otherwise wrap the summary text as a single user message.
-        message_payload = messages if messages else [{"role": "user", "content": text}]
+        message_payload = self._normalize_message_payload(messages, text)
 
         add_response = None
         try:

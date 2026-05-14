@@ -871,6 +871,32 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     return settings
 
 
+def _clear_invalid_chat_model_preference(
+    user_id: str,
+    settings_store: SettingsStore,
+    user_settings: Dict[str, Any],
+) -> None:
+    """Remove a stale chat-model override after endpoint validation rejects it."""
+    preferred_models = dict(user_settings.get("preferred_models") or {})
+    preferred_models.pop("chat", None)
+
+    updated_settings = settings_store.upsert_user_settings(
+        user_id=user_id,
+        tool_toggles=user_settings.get("tool_toggles") or {},
+        rag_config=user_settings.get("rag_config") or {"collection": "", "top_k": 5},
+        analytics_preferences=user_settings.get("analytics_preferences") or {},
+        preferred_model=None,
+        preferred_models=preferred_models,
+        theme=user_settings.get("theme") or "auto",
+        display_sidebar_visible=bool(user_settings.get("display_sidebar_visible", True)),
+        display_compact_mode=bool(user_settings.get("display_compact_mode", False)),
+        language=user_settings.get("language") or "en",
+        notifications_enabled=bool(user_settings.get("notifications_enabled", True)),
+        notifications_sound=bool(user_settings.get("notifications_sound", True)),
+    )
+    _settings_cache[user_id] = (updated_settings, time.time())
+
+
 def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
     """Load latest persisted probe results grouped by provider.
 
@@ -1063,6 +1089,11 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             validated_model, warning = await _validate_preferred_model(user_settings["preferred_model"])
             if warning:
                 model_warning = warning
+            if warning and validated_model is None:
+                try:
+                    _clear_invalid_chat_model_preference(effective_user_id, settings_store, user_settings)
+                except Exception as exc:
+                    logger.warning("Failed to clear invalid preferred model override: %s", exc)
             # Update settings with validated model (or None if invalid)
             user_settings["preferred_model"] = validated_model
     

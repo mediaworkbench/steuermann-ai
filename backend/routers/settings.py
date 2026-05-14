@@ -291,11 +291,26 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     # Get old settings to detect model changes
     old_record = store.get_user_settings(effective_user_id)
     old_model = old_record.get("preferred_model") if old_record else None
+
+    fields_set = set(getattr(settings, "model_fields_set", set()))
+
+    def _resolved_value(field_name: str, fallback: Any) -> Any:
+        if field_name in fields_set:
+            return getattr(settings, field_name)
+        if old_record is not None:
+            return old_record.get(field_name, fallback)
+        return fallback
     
-    preferred_model = _normalize_preferred_model_value(settings.preferred_model)
+    tool_toggles = _resolved_value("tool_toggles", {})
+    rag_config = _resolved_value("rag_config", {"collection": "", "top_k": 5})
+    analytics_preferences = _resolved_value("analytics_preferences", {})
+    theme = _resolved_value("theme", "auto")
+    language = _resolved_value("language", "en")
+
+    preferred_model = _normalize_preferred_model_value(_resolved_value("preferred_model", None))
     preferred_models = {
         str(role): _normalize_preferred_model_value(model_name)
-        for role, model_name in (settings.preferred_models or {}).items()
+        for role, model_name in (_resolved_value("preferred_models", {}) or {}).items()
     }
     preferred_models = {role: model_name for role, model_name in preferred_models.items() if model_name}
 
@@ -308,13 +323,13 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
 
     record = store.upsert_user_settings(
         user_id=effective_user_id,
-        tool_toggles=settings.tool_toggles,
-        rag_config=settings.rag_config,
-        analytics_preferences=settings.analytics_preferences,
+        tool_toggles=tool_toggles,
+        rag_config=rag_config,
+        analytics_preferences=analytics_preferences,
         preferred_model=preferred_model,
         preferred_models=preferred_models,
-        theme=settings.theme,
-        language=settings.language,
+        theme=theme,
+        language=language,
     )
     
     # Clear settings cache for this user to force reload on next chat request

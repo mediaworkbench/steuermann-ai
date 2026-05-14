@@ -1,14 +1,30 @@
 """Tool-calling mode validation and resolution helpers."""
 
+from functools import lru_cache
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 
+from universal_agentic_framework.config import get_active_profile_id
 from universal_agentic_framework.llm.provider_registry import normalize_model_id
 
 from universal_agentic_framework.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_probe_store() -> Any:
+    try:
+        from backend.db import LLMCapabilityProbeStore, init_db_pool
+
+        return LLMCapabilityProbeStore(init_db_pool())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Probe store unavailable for runtime tool-calling feedback",
+            error=str(exc),
+        )
+        return None
 
 
 def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> Tuple[str, str]:
@@ -143,3 +159,81 @@ def validate_and_log_tool_calling_mode(
     if is_valid:
         return True, f"{actual_mode}_mode_valid"
     return False, f"mode_mismatch_expected_{expected_mode}_got_{actual_mode}"
+
+
+def record_runtime_native_tool_leak(
+    config: Any,
+    state: Dict[str, Any],
+    model_name: str,
+) -> bool:
+    """Persist runtime evidence that native tool calling leaked raw control tokens.
+
+    This converts a runtime-only warning into probe data that future requests can
+    use to force structured mode for the affected provider/model combination.
+    """
+    normalized_model_name = normalize_model_id(str(model_name or "").strip())
+    if not normalized_model_name:
+        return False
+
+    try:
+        role_cfg = config.llm.roles.chat
+        provider_id = str(role_cfg.providers[0].provider_id)
+        provider = config.llm.get_role_provider("chat")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to resolve chat provider for runtime tool-calling feedback",
+            error=str(exc),
+            model_name=normalized_model_name,
+        )
+        return False
+
+    store = _get_probe_store()
+    if store is None:
+        return False
+
+    profile_id = str(state.get("profile_id") or get_active_profile_id())
+    api_base_raw = getattr(provider, "api_base", None)
+    api_base = str(api_base_raw) if api_base_raw else None
+
+    persisted = store.upsert_probe_result(
+        {
+            "profile_id": profile_id,
+            "provider_id": provider_id,
+            "model_name": normalized_model_name,
+            "api_base": api_base,
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": False,
+            "supports_tool_schema": False,
+            "capability_mismatch": True,
+            "status": "warning",
+            "error_message": "runtime_control_token_leak",
+            "metadata": {
+                "probe_kind": "runtime_native_response_feedback",
+                "runtime_failure": "control_token_leak",
+            },
+        }
+    )
+
+    probe_rows = list(state.get("llm_capability_probes") or [])
+    updated = False
+    for index, row in enumerate(probe_rows):
+        row_provider = str(row.get("provider_id") or "")
+        row_model = normalize_model_id(str(row.get("model_name") or ""))
+        if row_provider == provider_id and row_model == normalized_model_name:
+            probe_rows[index] = dict(persisted)
+            updated = True
+            break
+    if not updated:
+        probe_rows.insert(0, dict(persisted))
+
+    state["llm_capability_probes"] = probe_rows
+    state["tool_calling_mode"] = "structured"
+    state["tool_calling_mode_reason"] = "runtime_native_response_leak_forced_structured"
+
+    logger.warning(
+        "Persisted runtime native tool-calling leak as structured-mode downgrade feedback",
+        profile_id=profile_id,
+        provider_id=provider_id,
+        model_name=normalized_model_name,
+    )
+    return True

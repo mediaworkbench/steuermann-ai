@@ -701,6 +701,72 @@ async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatc
     assert validated == "openai/liquid/lfm2-24b-a2b"
 
 
+def test_chat_clears_invalid_persisted_chat_model_override(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    test_client, _, fake_async_client = client
+
+    class _InvalidPreferredModelStore:
+        def __init__(self) -> None:
+            self.upsert_calls: list[Dict[str, Any]] = []
+
+        def get_user_settings(self, user_id: str) -> Dict[str, Any] | None:
+            _ = user_id
+            return {
+                "tool_toggles": {},
+                "rag_config": {"collection": "", "top_k": 5},
+                "analytics_preferences": {},
+                "preferred_model": "user2-model",
+                "preferred_models": {
+                    "chat": "user2-model",
+                    "embedding": "openai/text-embedding-granite-embedding-278m-multilingual",
+                },
+                "theme": "auto",
+                "language": "en",
+            }
+
+        def upsert_user_settings(self, **kwargs) -> Dict[str, Any]:
+            self.upsert_calls.append(kwargs)
+            return {
+                "user_id": kwargs["user_id"],
+                "tool_toggles": kwargs["tool_toggles"],
+                "rag_config": kwargs["rag_config"],
+                "analytics_preferences": kwargs["analytics_preferences"],
+                "preferred_model": kwargs["preferred_model"],
+                "preferred_models": kwargs["preferred_models"],
+                "theme": kwargs["theme"],
+                "language": kwargs["language"],
+                "updated_at": None,
+            }
+
+    async def _invalid_model(*_args, **_kwargs):
+        return None, "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+
+    invalid_store = _InvalidPreferredModelStore()
+    test_client.app.state.settings_store = invalid_store
+    chat_module._settings_cache.clear()
+    monkeypatch.setattr(chat_module, "_validate_preferred_model", _invalid_model)
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "Use the default model please",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(invalid_store.upsert_calls) == 1
+    assert invalid_store.upsert_calls[0]["preferred_model"] is None
+    assert invalid_store.upsert_calls[0]["preferred_models"] == {
+        "embedding": "openai/text-embedding-granite-embedding-278m-multilingual"
+    }
+    assert fake_async_client.last_request_json["user_settings"]["preferred_model"] is None
+    assert response.json()["metadata"]["model_warning"] == (
+        "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+    )
+
+
 def test_chat_infers_workspace_document_by_bare_filename_from_message(client) -> None:
     test_client, _, fake_async_client = client
 

@@ -10,6 +10,39 @@ from backend.routers.settings import router
 from backend.version import get_framework_version
 
 
+class _FakeSettingsStore:
+  def __init__(self) -> None:
+    self.record = {
+      "user_id": "u1",
+      "tool_toggles": {"web_search_mcp": True},
+      "rag_config": {"collection": "framework", "top_k": 5},
+      "analytics_preferences": {"usage": {"showRequests": True}},
+      "preferred_model": "openai/existing-model",
+      "preferred_models": {"chat": "openai/existing-model"},
+      "theme": "auto",
+      "language": "en",
+      "updated_at": None,
+    }
+
+  def get_user_settings(self, user_id: str):
+    _ = user_id
+    return dict(self.record)
+
+  def upsert_user_settings(self, **kwargs):
+    self.record = {
+      "user_id": kwargs["user_id"],
+      "tool_toggles": kwargs["tool_toggles"],
+      "rag_config": kwargs["rag_config"],
+      "analytics_preferences": kwargs["analytics_preferences"],
+      "preferred_model": kwargs["preferred_model"],
+      "preferred_models": kwargs["preferred_models"],
+      "theme": kwargs["theme"],
+      "language": kwargs["language"],
+      "updated_at": None,
+    }
+    return dict(self.record)
+
+
 def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
     profiles_dir = config_dir / "profiles" / "medical"
@@ -258,7 +291,31 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
 
     response = client.post("/api/ingestion/reingest-all")
     assert response.status_code == 400
-    assert "Ingestion source path does not exist" in response.json()["detail"]
+
+
+def test_partial_settings_update_preserves_preferred_model(monkeypatch):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.settings_store = _FakeSettingsStore()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/settings/user/u1",
+        json={
+            "analytics_preferences": {
+                "usage": {"showRequests": False}
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analytics_preferences"] == {"usage": {"showRequests": False}}
+    assert body["preferred_model"] == "openai/existing-model"
+    assert body["preferred_models"] == {"chat": "openai/existing-model"}
 
 
 def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):

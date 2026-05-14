@@ -64,6 +64,7 @@ from .model_resolution import (
 # Tool-calling mode
 from .tool_calling_mode import (
     resolve_effective_tool_calling_mode,
+    record_runtime_native_tool_leak,
     validate_and_log_tool_calling_mode,
 )
 
@@ -105,5 +106,6 @@ __all__ = [
     "invoke_with_model_fallback",
     # Tool-calling mode
     "resolve_effective_tool_calling_mode",
+    "record_runtime_native_tool_leak",
     "validate_and_log_tool_calling_mode",
 ]

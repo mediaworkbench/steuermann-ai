@@ -66,6 +66,7 @@ from universal_agentic_framework.orchestration.helpers import (
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
     resolve_effective_tool_calling_mode,
+    record_runtime_native_tool_leak,
     validate_and_log_tool_calling_mode,
 )
 
@@ -1553,7 +1554,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             "\n\n=== CONTEXT PRIORITY ===\n"
             "Use current-turn TOOL RESULTS as the primary source of truth. "
             "Use PAST CONTEXT only as secondary background. "
-            "If there is any conflict, follow TOOL RESULTS.\n"
+            "If there is any conflict, follow TOOL RESULTS. "
+            "Do not mention model training data, knowledge-cutoff dates, or stale prior knowledge when TOOL RESULTS provide current information.\n"
             "=== END CONTEXT PRIORITY ===\n"
         )
         logger.info("Tool results injected into context", tools_count=len(tool_results))
@@ -1770,6 +1772,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                     logger.warning(
                         "Control tokens leaked in native tool-calling mode — possible LM Studio parsing issue",
                     )
+                    record_runtime_native_tool_leak(config, state, model_name)
                 else:
                     logger.info("Sanitized control tokens from LLM response")
 
@@ -1782,7 +1785,8 @@ def node_generate_response(state: GraphState) -> GraphState:
                 _synth_default = {
                     "en": (
                         "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
-                        "Do NOT list raw result items. Write a fluent summary that directly answers the user's question."
+                        "Do NOT list raw result items. Write a fluent summary that directly answers the user's question. "
+                        "Treat current-turn tool results as current facts. Do not mention training cutoffs, outdated knowledge limits, or inability to browse."
                         + (
                             " Cite sources using numbered references like [1], [2] etc. matching the SOURCES list below."
                             if _retry_has_citable_sources
@@ -1792,7 +1796,8 @@ def node_generate_response(state: GraphState) -> GraphState:
                     "de": (
                         "Fasse die obigen Tool-Ergebnisse und die Wissensdatenbank zu einer zusammenhaengenden, "
                         "gut strukturierten Antwort zusammen. Liste KEINE rohen Ergebnis-Eintraege auf. "
-                        "Schreibe eine fluessige Zusammenfassung, die die Frage des Benutzers direkt beantwortet."
+                        "Schreibe eine fluessige Zusammenfassung, die die Frage des Benutzers direkt beantwortet. "
+                        "Behandle aktuelle Tool-Ergebnisse als aktuelle Fakten. Erwaehne keine Wissensgrenzen, Trainingsdaten-Grenzen oder fehlende Browsing-Faehigkeit."
                         + (
                             " Zitiere Quellen mit nummerierten Referenzen wie [1], [2] usw. passend zur SOURCES-Liste unten."
                             if _retry_has_citable_sources
@@ -1806,7 +1811,8 @@ def node_generate_response(state: GraphState) -> GraphState:
                 # Build a focused data-only prompt — no tool catalog at all
                 retry_parts = [
                     "You are a helpful AI assistant. Do NOT emit tool calls or control tokens. "
-                    "Return ONLY plain natural-language text.\n"
+                    "Return ONLY plain natural-language text. "
+                    "Use current-turn tool results as the source of truth and do not mention training cutoffs or browsing limitations.\n"
                 ]
                 if knowledge_context:
                     retry_parts.append(f"=== KNOWLEDGE BASE ===\n{context_text}\n=== END KNOWLEDGE BASE ===\n")

@@ -10,6 +10,7 @@ resolution tests and focus on validation/enforcement at each tool calling node.
 """
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
+from types import SimpleNamespace
 from typing import Dict, Any, List
 
 from backend.db import SettingsStore, LLMCapabilityProbeStore, DatabasePool, DatabaseConfig
@@ -19,6 +20,7 @@ from universal_agentic_framework.orchestration.graph_builder import (
     build_graph,
 )
 from universal_agentic_framework.orchestration.helpers.tool_calling_mode import (
+    record_runtime_native_tool_leak as _record_runtime_native_tool_leak,
     resolve_effective_tool_calling_mode as _resolve_effective_tool_calling_mode,
     validate_and_log_tool_calling_mode as _validate_and_log_tool_calling_mode,
 )
@@ -297,6 +299,73 @@ class TestModeReasonTracking:
         # These are defined in _resolve_effective_tool_calling_mode
         # This test documents what reasons are possible
         assert len(expected_reasons) > 0
+
+    def test_runtime_native_tool_leak_persists_structured_downgrade_feedback(self):
+        config = SimpleNamespace(
+            llm=SimpleNamespace(
+                roles=SimpleNamespace(
+                    chat=SimpleNamespace(
+                        providers=[SimpleNamespace(provider_id="lmstudio")]
+                    )
+                ),
+                get_role_provider=lambda role_name: SimpleNamespace(api_base="http://localhost:1234/v1"),
+            )
+        )
+        state = {
+            "profile_id": "starter",
+            "tool_calling_mode": "native",
+            "tool_calling_mode_reason": "probe_confirmed_native",
+            "llm_capability_probes": [
+                {
+                    "profile_id": "starter",
+                    "provider_id": "lmstudio",
+                    "model_name": "openai/liquid/lfm2-24b-a2b",
+                    "configured_tool_calling_mode": "native",
+                    "supports_bind_tools": True,
+                    "supports_tool_schema": True,
+                    "capability_mismatch": False,
+                    "status": "ok",
+                    "metadata": {},
+                    "probed_at": "2026-05-14T00:00:00Z",
+                }
+            ],
+        }
+        persisted = {
+            "profile_id": "starter",
+            "provider_id": "lmstudio",
+            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "api_base": "http://localhost:1234/v1",
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": False,
+            "supports_tool_schema": False,
+            "capability_mismatch": True,
+            "status": "warning",
+            "error_message": "runtime_control_token_leak",
+            "metadata": {
+                "probe_kind": "runtime_native_response_feedback",
+                "runtime_failure": "control_token_leak",
+            },
+            "probed_at": "2026-05-14T10:20:00Z",
+        }
+        mock_store = MagicMock()
+        mock_store.upsert_probe_result.return_value = persisted
+
+        with patch(
+            "universal_agentic_framework.orchestration.helpers.tool_calling_mode._get_probe_store",
+            return_value=mock_store,
+        ):
+            changed = _record_runtime_native_tool_leak(
+                config,
+                state,
+                "openai/liquid/lfm2-24b-a2b",
+            )
+
+        assert changed is True
+        assert state["tool_calling_mode"] == "structured"
+        assert state["tool_calling_mode_reason"] == "runtime_native_response_leak_forced_structured"
+        assert state["llm_capability_probes"][0]["capability_mismatch"] is True
+        assert state["llm_capability_probes"][0]["status"] == "warning"
+        mock_store.upsert_probe_result.assert_called_once()
 
 
 class TestModeValidationEdgeCases:
