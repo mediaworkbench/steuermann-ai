@@ -39,11 +39,18 @@ def resolve_initial_model_metadata(config: Any, language: str, preferred_model: 
     provider = "unknown"
     model_name = preferred_model or "unknown"
     try:
-        primary = config.llm.providers.primary
-        if not preferred_model:
-            factory = LLMFactory(config)
-            model_name = factory._select_model(primary, language)
-        provider = model_name.split("/", 1)[0] if "/" in model_name else "unknown"
+        factory = LLMFactory(config)
+        if preferred_model:
+            selection = factory.get_model_candidates(
+                language=language,
+                preferred_model=preferred_model,
+                prefer_local=True,
+                include_default_when_preferred=False,
+            )[0]
+        else:
+            selection = factory.get_model_selection(language=language, prefer_local=True)
+        provider = selection.provider_type
+        model_name = selection.model_name
     except Exception:
         pass
     return provider, model_name

@@ -17,7 +17,7 @@ from universal_agentic_framework.llm.budget import (
     require_tokens,
 )
 from universal_agentic_framework.llm.factory import LLMFactory
-from universal_agentic_framework.config import load_core_config, load_tools_config, load_features_config
+from universal_agentic_framework.config import get_active_profile_id, load_core_config, load_tools_config, load_features_config
 from universal_agentic_framework.memory.nodes import load_memory_node, update_memory_node
 from universal_agentic_framework.memory.factory import build_memory_backend
 from universal_agentic_framework.tools import ToolRegistry
@@ -154,7 +154,7 @@ def node_load_tools(state: GraphState) -> GraphState:
     tools_config = load_tools_config()
     core_config = load_core_config()
     fork_name = getattr(core_config.fork, "name", "default-fork")
-    profile_id = state.get("profile_id") or "base"
+    profile_id = state.get("profile_id") or get_active_profile_id()
     fork_language = getattr(core_config.fork, "language", "en")
     # Use conversation language from state; fall back to fork_language from config
     conversation_language = state.get("language") or fork_language
@@ -166,7 +166,7 @@ def node_load_tools(state: GraphState) -> GraphState:
             from universal_agentic_framework.config import get_profile_dir
 
             profile_dir = get_profile_dir(profile_id=profile_id, require_exists=False)
-            profile_tools_dir = profile_dir / "tools" if profile_dir else None
+            profile_tools_dir = profile_dir / "tools"
 
             registry = ToolRegistry(
                 config=tools_config,

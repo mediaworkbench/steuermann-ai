@@ -7,12 +7,16 @@ from universal_agentic_framework.config.schemas import (
     DatabaseSettings,
     EmbeddingSettings,
     ForkSettings,
+    IngestionSettings,
+    LLMRoleSettings,
+    LLMRoles,
     LLMProviders,
     LLMSettings,
     MemorySettings,
     ProviderModelMap,
     ProviderSettings,
     RetentionSettings,
+    RoleProviderRef,
     TokensSettings,
     VectorStoreSettings,
 )
@@ -55,7 +59,7 @@ def _core_config() -> CoreConfig:
         fork=ForkSettings(name="starter", language="en"),
         llm=LLMSettings(
             providers=LLMProviders(
-                primary=ProviderSettings(
+                lmstudio=ProviderSettings(
                     api_base=None,
                     api_key=None,
                     models=ProviderModelMap(en="openai/primary-model"),
@@ -63,7 +67,7 @@ def _core_config() -> CoreConfig:
                     max_tokens=256,
                     timeout=30,
                 ),
-                fallback=ProviderSettings(
+                openrouter=ProviderSettings(
                     api_base=None,
                     api_key=None,
                     models=ProviderModelMap(en="openai/fallback-model"),
@@ -71,7 +75,19 @@ def _core_config() -> CoreConfig:
                     max_tokens=256,
                     timeout=30,
                 ),
-            )
+            ),
+            roles=LLMRoles(
+                chat=LLMRoleSettings(
+                    providers=[
+                        RoleProviderRef(provider_id="lmstudio"),
+                        RoleProviderRef(provider_id="openrouter"),
+                    ],
+                    config_only=False,
+                ),
+                embedding=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+                vision=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+                auxiliary=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+            ),
         ),
         database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
         memory=MemorySettings(
@@ -80,6 +96,7 @@ def _core_config() -> CoreConfig:
             retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
         ),
         tokens=TokensSettings(default_budget=10000, per_node_budgets={}),
+        ingestion=IngestionSettings(collection_name="starter-rag"),
     )
 
 

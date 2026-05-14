@@ -30,6 +30,7 @@ _PROFILE_CORE_ALLOWED_PREFIXES = {
     "fork.timezone",
     "fork.supported_languages",
     "llm",
+    "ingestion",
     "prompts",
     "tool_routing",
     "rag",
@@ -47,11 +48,13 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 
 def get_active_profile_id(env: Optional[Mapping[str, str]] = None) -> str:
     env_map = env or os.environ
-    profile_id = str(env_map.get("PROFILE_ID", "base") or "base").strip()
+    profile_id = str(env_map.get("PROFILE_ID", "") or "").strip()
     if not profile_id:
-        return "base"
+        raise ValueError("PROFILE_ID must be set to an active profile id")
     if not _PROFILE_ID_RE.match(profile_id):
         raise ValueError(f"Invalid PROFILE_ID '{profile_id}'")
+    if profile_id == "base":
+        raise ValueError("PROFILE_ID='base' is no longer a valid runtime profile")
     return profile_id
 
 
@@ -63,8 +66,6 @@ def get_profile_dir(
     require_exists: bool = False,
 ) -> Optional[Path]:
     resolved_profile_id = profile_id or get_active_profile_id(env)
-    if resolved_profile_id == "base":
-        return None
     profiles_root = Path(profiles_dir)
     if profiles_root == _DEFAULT_PROFILES_DIR and not profiles_root.exists() and _LEGACY_PROFILES_DIR.exists():
         profiles_root = _LEGACY_PROFILES_DIR
@@ -220,21 +221,19 @@ def _load_config(
     override_data = _load_yaml(config_dir / filename)
     data = _merge_config_data(filename, data, override_data)
 
-    profile_dir = get_profile_dir(profiles_dir, profile_id=profile_id, env=env_map, require_exists=profile_id != "base")
-    if profile_dir:
-        profile_data = _load_yaml(profile_dir / filename)
-        if filename == "core.yaml":
-            _validate_profile_core_overlay(profile_data, profile_id)
-        elif filename == "features.yaml":
-            _validate_profile_features_overlay(profile_data, profile_id)
-        data = _merge_config_data(filename, data, profile_data)
+    profile_dir = get_profile_dir(profiles_dir, profile_id=profile_id, env=env_map, require_exists=True)
+    assert profile_dir is not None
+    profile_data = _load_yaml(profile_dir / filename)
+    if filename == "core.yaml":
+        _validate_profile_core_overlay(profile_data, profile_id)
+    elif filename == "features.yaml":
+        _validate_profile_features_overlay(profile_data, profile_id)
+    data = _merge_config_data(filename, data, profile_data)
 
     # Load per-language prompt files for core config
     if filename == "core.yaml":
         base_prompts = _load_prompt_files(config_dir / "prompts")
-        profile_prompts: Dict[str, Dict[str, str]] = {}
-        if profile_dir:
-            profile_prompts = _load_prompt_files(profile_dir / "prompts")
+        profile_prompts = _load_prompt_files(profile_dir / "prompts")
         merged_prompts = _merge_prompt_languages(base_prompts, profile_prompts)
         if merged_prompts:
             prompts_section = data.setdefault("prompts", {})
@@ -251,8 +250,6 @@ def load_profile_metadata(
 ) -> Optional[ProfileMetadata]:
     env_map = env or os.environ
     resolved_profile_id = profile_id or get_active_profile_id(env_map)
-    if resolved_profile_id == "base":
-        return None
 
     profile_dir = get_profile_dir(profiles_dir, profile_id=resolved_profile_id, env=env_map, require_exists=True)
     assert profile_dir is not None
@@ -277,9 +274,6 @@ def load_profile_ui_config(
 ) -> ProfileUIConfig:
     env_map = env or os.environ
     resolved_profile_id = profile_id or get_active_profile_id(env_map)
-    if resolved_profile_id == "base":
-        return ProfileUIConfig()
-
     profile_dir = get_profile_dir(profiles_dir, profile_id=resolved_profile_id, env=env_map, require_exists=True)
     assert profile_dir is not None
     return ProfileUIConfig.model_validate(_load_yaml(profile_dir / "ui.yaml"))

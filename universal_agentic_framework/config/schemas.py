@@ -1,7 +1,7 @@
 """Pydantic schemas for framework configuration."""
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, HttpUrl, PositiveInt, conint, confloat, ConfigDict, field_validator, model_validator
 
@@ -74,10 +74,6 @@ class ProviderSettings(BaseModel):
 
 
 class LLMProviders(BaseModel):
-    # Legacy compatibility fields.
-    primary: Optional[ProviderSettings] = None
-    fallback: Optional[ProviderSettings] = None
-    # New role-based config allows arbitrary provider IDs under llm.providers.
     model_config = ConfigDict(extra="allow")
 
     @model_validator(mode="after")
@@ -93,10 +89,6 @@ class LLMProviders(BaseModel):
 
     def get_registry(self) -> Dict[str, ProviderSettings]:
         registry: Dict[str, ProviderSettings] = {}
-        if self.primary:
-            registry["primary"] = self.primary
-        if self.fallback:
-            registry["fallback"] = self.fallback
         if self.model_extra:
             for provider_id, provider in self.model_extra.items():
                 if isinstance(provider, ProviderSettings):
@@ -120,35 +112,42 @@ class LLMRoles(BaseModel):
     auxiliary: LLMRoleSettings
 
 
+class LLMRouterRoutingGroupSettings(BaseModel):
+    group_name: str = Field(..., min_length=1)
+    models: List[str] = Field(default_factory=list)
+    routing_strategy: Optional[str] = None
+    routing_strategy_args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMRouterSettings(BaseModel):
+    routing_strategy: str = "simple-shuffle"
+    num_retries: PositiveInt = 3
+    retry_after: PositiveInt = 1
+    allowed_fails: Optional[PositiveInt] = None
+    cooldown_time: Optional[PositiveInt] = None
+    disable_cooldowns: bool = False
+    enable_pre_call_checks: bool = False
+    default_max_parallel_requests: Optional[PositiveInt] = None
+    set_verbose: bool = False
+    debug_level: Optional[str] = None
+    fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    default_fallbacks: List[str] = Field(default_factory=list)
+    context_window_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    content_policy_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    routing_groups: List[LLMRouterRoutingGroupSettings] = Field(default_factory=list)
+
+
 class LLMSettings(BaseModel):
     providers: LLMProviders
-    roles: Optional[LLMRoles] = None
+    roles: LLMRoles
+    router: LLMRouterSettings = Field(default_factory=LLMRouterSettings)
 
     @model_validator(mode="after")
-    def _normalize_roles_and_legacy_compat(self) -> "LLMSettings":
+    def _validate_roles(self) -> "LLMSettings":
         registry = self.providers.get_registry()
         if not registry:
             raise ValueError("llm.providers must contain at least one configured provider")
 
-        # Build default role mapping from legacy primary/fallback config.
-        if self.roles is None:
-            chain: List[RoleProviderRef] = []
-            if self.providers.primary:
-                chain.append(RoleProviderRef(provider_id="primary"))
-            if self.providers.fallback:
-                chain.append(RoleProviderRef(provider_id="fallback"))
-            if not chain:
-                first_provider_id = next(iter(registry.keys()))
-                chain = [RoleProviderRef(provider_id=first_provider_id)]
-
-            self.roles = LLMRoles(
-                chat=LLMRoleSettings(providers=chain, config_only=False),
-                embedding=LLMRoleSettings(providers=[chain[0]], config_only=True),
-                vision=LLMRoleSettings(providers=[chain[0]], config_only=True),
-                auxiliary=LLMRoleSettings(providers=[chain[0]], config_only=True),
-            )
-
-        # Ensure role references point to existing provider IDs.
         for role_name in ("chat", "embedding", "vision", "auxiliary"):
             role_cfg = getattr(self.roles, role_name)
             if not role_cfg.providers:
@@ -158,12 +157,24 @@ class LLMSettings(BaseModel):
                     raise ValueError(
                         f"llm.roles.{role_name}.providers references unknown provider_id '{ref.provider_id}'"
                     )
-
-        # Backwards-compatible access for runtime surfaces still using primary/fallback.
-        chat_chain = self.roles.chat.providers
-        self.providers.primary = registry[chat_chain[0].provider_id]
-        self.providers.fallback = registry[chat_chain[1].provider_id] if len(chat_chain) > 1 else None
         return self
+
+    def get_provider(self, provider_id: str) -> ProviderSettings:
+        registry = self.providers.get_registry()
+        try:
+            return registry[provider_id]
+        except KeyError as exc:
+            raise KeyError(f"Unknown provider_id '{provider_id}'") from exc
+
+    def get_role_provider_chain(self, role_name: str) -> List[tuple[str, ProviderSettings]]:
+        role = getattr(self.roles, role_name)
+        return [(ref.provider_id, self.get_provider(ref.provider_id)) for ref in role.providers]
+
+    def get_role_provider(self, role_name: str) -> ProviderSettings:
+        chain = self.get_role_provider_chain(role_name)
+        if not chain:
+            raise ValueError(f"llm.roles.{role_name}.providers must not be empty")
+        return chain[0][1]
 
 
 class DatabaseSettings(BaseModel):
@@ -242,6 +253,19 @@ class CheckpointingSettings(BaseModel):
     postgres_dsn: Optional[str] = None
 
 
+class IngestionSettings(BaseModel):
+    collection_name: str
+    source_path: Optional[str] = None
+    language: str = "en"
+    language_threshold: confloat(ge=0.0, le=1.0) = 0.8
+    embedding_batch_size: PositiveInt = 32
+    upsert_batch_size: PositiveInt = 128
+    file_concurrency: PositiveInt = 1
+    incremental_mode: bool = True
+    phase_timing: bool = True
+    reingest_timeout_seconds: PositiveInt = 1800
+
+
 class LanguagePrompts(BaseModel):
     """Prompt templates for a single language."""
 
@@ -284,6 +308,7 @@ class CoreConfig(BaseModel):
     database: DatabaseSettings
     memory: MemorySettings
     tokens: TokensSettings
+    ingestion: IngestionSettings
     checkpointing: Optional[CheckpointingSettings] = None
     prompts: Optional[PromptsSettings] = None
     tool_routing: Optional[ToolRoutingSettings] = None
@@ -304,6 +329,8 @@ class ProfileMetadata(BaseModel):
 class ProfileBrandingSettings(BaseModel):
     app_name: Optional[str] = None
     role_label: Optional[str] = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
     logo_text: Optional[str] = None
 
 

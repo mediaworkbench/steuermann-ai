@@ -221,11 +221,31 @@ class LLMFactory:
                 }
             )
 
-        router = Router(
-            model_list=model_list,
-            num_retries=3,
-            retry_after=1,
-        )
+        router_config = self.config.llm.router
+        router_kwargs = {
+            "model_list": model_list,
+            "routing_strategy": router_config.routing_strategy,
+            "num_retries": router_config.num_retries,
+            "retry_after": router_config.retry_after,
+            "disable_cooldowns": router_config.disable_cooldowns,
+            "enable_pre_call_checks": router_config.enable_pre_call_checks,
+            "set_verbose": router_config.set_verbose,
+        }
+        if router_config.allowed_fails is not None:
+            router_kwargs["allowed_fails"] = router_config.allowed_fails
+        if router_config.cooldown_time is not None:
+            router_kwargs["cooldown_time"] = router_config.cooldown_time
+        if router_config.debug_level is not None:
+            router_kwargs["debug_level"] = router_config.debug_level
+        if router_config.fallbacks:
+            router_kwargs["fallbacks"] = router_config.fallbacks
+        if router_config.default_fallbacks:
+            router_kwargs["default_fallbacks"] = router_config.default_fallbacks
+        if router_config.context_window_fallbacks:
+            router_kwargs["context_window_fallbacks"] = router_config.context_window_fallbacks
+        if router_config.content_policy_fallbacks:
+            router_kwargs["content_policy_fallbacks"] = router_config.content_policy_fallbacks
+        router = Router(**router_kwargs)
 
         model_kwargs = {}
         getter = getattr(primary, "get_tool_calling_mode", None)
@@ -242,6 +262,7 @@ class LLMFactory:
 
     def _to_router_params(self, provider: ProviderSettings, model_name: str) -> dict:
         params: dict = {"model": model_name}
+        router_defaults = self.config.llm.router
         if provider.api_base:
             params["api_base"] = str(provider.api_base)
         if provider.api_key:
@@ -260,6 +281,8 @@ class LLMFactory:
             params["tpm"] = provider.tpm
         if provider.max_parallel_requests is not None:
             params["max_parallel_requests"] = provider.max_parallel_requests
+        elif router_defaults.default_max_parallel_requests is not None:
+            params["max_parallel_requests"] = router_defaults.default_max_parallel_requests
         if provider.region_name:
             params["region_name"] = provider.region_name
         return params

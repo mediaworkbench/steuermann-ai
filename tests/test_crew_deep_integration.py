@@ -111,11 +111,12 @@ def _mock_configs(monkeypatch):
     fake_core = MagicMock()
     fake_core.fork.name = "test-fork"
     fake_core.fork.language = "en"
-    fake_core.llm.providers.primary.type = "mock"
-    fake_core.llm.providers.primary.models.en = "mock-model"
-    fake_core.llm.providers.primary.temperature = 0.7
-    fake_core.llm.providers.primary.max_tokens = 1000
-    fake_core.llm.providers.fallback = None
+    chat_provider = MagicMock()
+    chat_provider.type = "mock"
+    chat_provider.models.en = "mock-model"
+    chat_provider.temperature = 0.7
+    chat_provider.max_tokens = 1000
+    fake_core.llm.get_role_provider.return_value = chat_provider
 
     fake_agents = MagicMock()
     fake_crew_def = MagicMock()

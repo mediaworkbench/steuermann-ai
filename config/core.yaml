@@ -1,61 +1,5 @@
 fork:
   name: $PROFILE_ID
-  language: "de"
-  locale: "de_DE"
-  timezone: "Europe/Berlin"
-
-llm:
-  providers:
-    lmstudio:
-      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
-      model_tool_calling:
-        openai/liquid/lfm2-24b-a2b: "native"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-    ollama:
-      api_base: $LLM_PROVIDERS_OLLAMA_API_BASE
-      models:
-        en: "ollama/llama-3.1-8b"
-        de: "ollama/llama-3.1-8b"
-      model_tool_calling:
-        ollama/llama-3.1-8b: "native"
-      temperature: 0.3
-      max_tokens: 8192
-      timeout: 300
-    openrouter:
-      api_base: $LLM_PROVIDERS_OPENROUTER_API_BASE
-      api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
-      models:
-        en: "openrouter/openai/gpt-4o-mini"
-        de: "openrouter/openai/gpt-4o-mini"
-      model_tool_calling:
-        openrouter/openai/gpt-4o-mini: "native"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-  roles:
-    chat:
-      providers:
-        - provider_id: "lmstudio"
-        - provider_id: "ollama"
-        - provider_id: "openrouter"
-      config_only: false
-    embedding:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
-    vision:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
-    auxiliary:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
 
 database:
   url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
@@ -82,44 +26,8 @@ memory:
     custom_instructions: null
     llm_provider: "lmstudio"
 
-rag:
-  enabled: true
-  collection_name: $INGEST_COLLECTION
-  top_k: 5
-  score_threshold: 0.6
-  with_payload:
-    - text
-    - file_path
-    - detected_language
-    - language_confidence
-  with_vectors: false
-  timeout_seconds: 30
-
-tokens:
-  default_budget: 10000
-  conversation_budget: null
-  per_turn_budget: null
-  per_turn_budget_ratio: 0.4
-  response_reserve_ratio: 0.15
-  enforce_per_node_hard_limit: true
-  per_node_budgets: {}
-
 checkpointing:
   enabled: true
   backend: "sqlite"
   sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
-
-# Prompt templates are loaded from config/prompts/{lang}.yaml files.
-# Profile overlays can add config/profiles/<profile>/prompts/{lang}.yaml.
-# Environment variable overrides (PROMPT_SYSTEM_*, PROMPT_SYNTHESIS_*, PROMPT_LANG_*)
-# take highest precedence at runtime.
-
-tool_routing:
-  similarity_threshold: 0.55
-  embedding_model: "text-embedding-granite-embedding-278m-multilingual"
-  top_k: 5
-  intent_boost: 0.2
-  max_retries: 2
-  min_top_score: 0.7
-  min_spread: 0.10

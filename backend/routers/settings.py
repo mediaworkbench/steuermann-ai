@@ -50,7 +50,7 @@ def _resolve_primary_provider_endpoint() -> str:
     """Resolve primary chat provider endpoint strictly from active config."""
     try:
         core = load_core_config()
-        primary = getattr(core.llm.providers, "primary", None)
+        primary = core.llm.get_role_provider("chat")
         if primary and getattr(primary, "api_base", None):
             return str(primary.api_base).rstrip("/")
     except Exception as exc:
@@ -333,7 +333,7 @@ async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
         core = load_core_config()
-        models = await _fetch_provider_models(core.llm.providers.primary, preferred_language=core.fork.language)
+        models = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.fork.language)
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
@@ -364,20 +364,10 @@ async def get_system_config() -> Dict[str, Any]:
         )
         top_k = rag_cfg.top_k if rag_cfg else 5
 
-        default_model = core_config.llm.providers.primary.models.en or "gemma3:4b"
+        chat_provider = core_config.llm.get_role_provider("chat")
+        default_model = getattr(chat_provider.models, core_config.fork.language, None) or chat_provider.models.en or "gemma3:4b"
         model_roles: List[Dict[str, Any]] = []
-        providers_obj = core_config.llm.providers
-        get_registry = getattr(providers_obj, "get_registry", None)
-        if callable(get_registry):
-            registry = get_registry()
-        else:
-            registry = {}
-            primary_provider = getattr(providers_obj, "primary", None)
-            fallback_provider = getattr(providers_obj, "fallback", None)
-            if primary_provider is not None:
-                registry["primary"] = primary_provider
-            if fallback_provider is not None:
-                registry["fallback"] = fallback_provider
+        registry = core_config.llm.providers.get_registry()
 
         roles_obj = getattr(core_config.llm, "roles", None)
         llm_roles = roles_obj.model_dump() if roles_obj else {}

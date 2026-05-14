@@ -2,6 +2,7 @@
 
 import pytest
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
@@ -105,6 +106,17 @@ def set_mock_config(
 ):
     """Helper to configure core settings for tool routing tests."""
 
+    provider = SimpleNamespace(
+        type="ollama",
+        models=SimpleNamespace(
+            en="ollama/llama",
+            model_dump=lambda: {language: "ollama/llama"},
+        ),
+        tool_calling="structured",
+        get_tool_calling_mode=lambda _model_name: provider.tool_calling,
+    )
+    providers = SimpleNamespace(get_registry=lambda: {"ollama": provider})
+
     config = SimpleNamespace(
         fork=SimpleNamespace(name=fork_name, timezone=timezone, language=language),
         memory=SimpleNamespace(
@@ -124,9 +136,9 @@ def set_mock_config(
         ),
         tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
         llm=SimpleNamespace(
-            providers=SimpleNamespace(
-                primary=SimpleNamespace(type="ollama", models={language: "llama"})
-            )
+            providers=providers,
+            roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="ollama")])),
+            get_role_provider=lambda _role: provider,
         ),
     )
 
@@ -750,7 +762,7 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
     mock_score_similarity,
 ):
     set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
-    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+    mock_config.return_value.llm.get_role_provider("chat").tool_calling = "native"
 
     fake_provider = Mock()
     fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
@@ -763,12 +775,13 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
         "language": "en",
         "llm_capability_probes": [
             {
-                "provider_id": "primary",
-                "model_name": "llama",
+                "provider_id": "ollama",
+                "model_name": "ollama/llama",
                 "supports_bind_tools": False,
                 "supports_tool_schema": False,
                 "capability_mismatch": True,
                 "status": "warning",
+                "probed_at": datetime.now(timezone.utc).isoformat(),
             }
         ],
     }
@@ -788,7 +801,7 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     mock_score_similarity,
 ):
     set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
-    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+    mock_config.return_value.llm.get_role_provider("chat").tool_calling = "native"
 
     fake_provider = Mock()
     fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
@@ -801,12 +814,13 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
         "language": "en",
         "llm_capability_probes": [
             {
-                "provider_id": "primary",
-                "model_name": "llama",
+                "provider_id": "ollama",
+                "model_name": "ollama/llama",
                 "supports_bind_tools": True,
                 "supports_tool_schema": True,
                 "capability_mismatch": False,
                 "status": "ok",
+                "probed_at": datetime.now(timezone.utc).isoformat(),
             }
         ],
     }
@@ -814,7 +828,7 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     result = node_prefilter_tools(state)
 
     assert result["tool_calling_mode"] == "native"
-    assert result["tool_calling_mode_reason"] == "configured_native_probe_ok"
+    assert result["tool_calling_mode_reason"] == "probe_confirmed_native"
 
 
 @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")

@@ -18,25 +18,18 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
     (bind_tools/tool schema failure), force structured mode.
     """
     language = state.get("language") or getattr(config.fork, "language", "en")
-    provider_id = "primary"
+    provider_id = ""
     configured_mode = "structured"
     selected_model_name = None
 
-    provider = None
     try:
-        role_cfg = getattr(getattr(config.llm, "roles", None), "chat", None)
-        role_providers = getattr(role_cfg, "providers", None)
+        role_cfg = config.llm.roles.chat
+        role_providers = role_cfg.providers
         if role_providers:
             provider_id = str(role_providers[0].provider_id)
-            providers = config.llm.providers
-            registry_getter = getattr(providers, "get_registry", None)
-            if callable(registry_getter):
-                provider = registry_getter().get(provider_id)
+        provider = config.llm.get_role_provider("chat")
     except Exception:
         provider = None
-
-    if provider is None:
-        provider = getattr(config.llm.providers, "primary", None)
 
     if provider is not None:
         models = getattr(provider, "models", None)

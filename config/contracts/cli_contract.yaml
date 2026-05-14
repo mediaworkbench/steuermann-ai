@@ -36,6 +36,7 @@ profile_safety:
     - fork.timezone
     - fork.supported_languages
     - llm
+    - ingestion
     - prompts
     - tool_routing
     - rag

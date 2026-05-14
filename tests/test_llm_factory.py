@@ -1,4 +1,21 @@
-from universal_agentic_framework.config.schemas import CoreConfig, LLMSettings, LLMProviders, ProviderModelMap, ProviderSettings, ForkSettings, DatabaseSettings, MemorySettings, VectorStoreSettings, EmbeddingSettings, RetentionSettings, TokensSettings
+from universal_agentic_framework.config.schemas import (
+    CoreConfig,
+    DatabaseSettings,
+    EmbeddingSettings,
+    ForkSettings,
+    IngestionSettings,
+    LLMRoleSettings,
+    LLMRoles,
+    LLMSettings,
+    LLMProviders,
+    ProviderModelMap,
+    ProviderSettings,
+    RetentionSettings,
+    RoleProviderRef,
+    TokensSettings,
+    VectorStoreSettings,
+    MemorySettings,
+)
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 
@@ -12,27 +29,38 @@ class DummyModel:
 
 
 def _core_config(primary_model: str = "local-model", fallback_model: str = "remote-model") -> CoreConfig:
+    providers = {
+        "lmstudio": ProviderSettings(
+            api_base=None,
+            api_key=None,
+            models=ProviderModelMap(en=primary_model),
+            temperature=0.1,
+            max_tokens=256,
+            timeout=30,
+        ),
+    }
+    chat_refs = [RoleProviderRef(provider_id="lmstudio")]
+    if fallback_model is not None:
+        providers["openrouter"] = ProviderSettings(
+            api_base=None,
+            api_key=None,
+            models=ProviderModelMap(en=fallback_model),
+            temperature=0.2,
+            max_tokens=512,
+            timeout=30,
+        )
+        chat_refs.append(RoleProviderRef(provider_id="openrouter"))
+
     return CoreConfig(
         fork=ForkSettings(name="starter", language="en"),
         llm=LLMSettings(
-            providers=LLMProviders(
-                primary=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en=primary_model),
-                    temperature=0.1,
-                    max_tokens=256,
-                    timeout=30,
-                ),
-                fallback=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en=fallback_model),
-                    temperature=0.2,
-                    max_tokens=512,
-                    timeout=30,
-                ),
-            )
+            providers=LLMProviders(**providers),
+            roles=LLMRoles(
+                chat=LLMRoleSettings(providers=chat_refs, config_only=False),
+                embedding=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+                vision=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+                auxiliary=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+            ),
         ),
         database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
         memory=MemorySettings(
@@ -41,6 +69,7 @@ def _core_config(primary_model: str = "local-model", fallback_model: str = "remo
             retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
         ),
         tokens=TokensSettings(default_budget=10000, per_node_budgets={}),
+        ingestion=IngestionSettings(collection_name="starter-rag"),
     )
 
 
@@ -174,8 +203,6 @@ def test_get_router_model_primary_only_no_fallback_crash():
     from langchain_litellm import ChatLiteLLMRouter
 
     config = _core_config(primary_model="openai/primary-model", fallback_model=None)
-    # Manually clear the fallback provider
-    config.llm.providers.fallback = None
 
     factory = LLMFactory(config=config)
     router_model = factory.get_router_model(language="en")
@@ -197,6 +224,24 @@ def test_get_router_model_has_both_providers_when_fallback_configured():
     model_names = [m["model_name"] for m in router_model.router.model_list]
     assert "primary" in model_names
     assert "fallback" in model_names
+
+
+def test_get_router_model_uses_profile_router_settings():
+    factory = LLMFactory(config=_core_config(
+        primary_model="openai/primary-model",
+        fallback_model="openai/fallback-model",
+    ))
+    factory.config.llm.router.num_retries = 7
+    factory.config.llm.router.retry_after = 4
+    factory.config.llm.router.routing_strategy = "latency-based-routing"
+    factory.config.llm.router.default_max_parallel_requests = 9
+
+    router_model = factory.get_router_model(language="en")
+
+    assert router_model.router.num_retries == 7
+    assert router_model.router.retry_after == 4
+    assert router_model.router.routing_strategy == "latency-based-routing"
+    assert router_model.router.model_list[0]["litellm_params"]["max_parallel_requests"] == 9
 
 
 def test_no_legacy_llm_provider_imports():

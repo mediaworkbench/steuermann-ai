@@ -12,7 +12,7 @@ from backend.version import get_framework_version
 
 def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles" / "medical"
+    profiles_dir = config_dir / "profiles" / "medical"
     config_dir.mkdir(parents=True)
     profiles_dir.mkdir(parents=True)
 
@@ -21,12 +21,6 @@ def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
 fork:
   name: starter
   language: en
-llm:
-  providers:
-    primary:
-      api_key: test-key
-      models:
-        en: openai/base-model
 database:
   url: sqlite:///base.db
 memory:
@@ -39,11 +33,42 @@ memory:
   retention:
     session_memory_days: 90
     user_memory_days: 365
+checkpointing:
+  enabled: false
+        """,
+        encoding="utf-8",
+    )
+    profiles_dir.joinpath("core.yaml").write_text(
+        """
+llm:
+  providers:
+    lmstudio:
+      api_key: test-key
+      models:
+        en: openai/base-model
+  roles:
+    chat:
+      providers:
+        - provider_id: lmstudio
+    embedding:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    vision:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    auxiliary:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
 rag:
   collection_name: framework
   top_k: 5
 tokens:
   default_budget: 10000
+ingestion:
+  collection_name: framework
         """,
         encoding="utf-8",
     )
@@ -119,15 +144,42 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     app.include_router(router)
     client = TestClient(app)
 
-    # Fallback 1: derive from prompt language files when supported_languages is absent.
+    class _ProviderRegistry(dict):
+        def get_registry(self):
+            return self
+
+    def _core_config(prompt_languages):
+        provider = SimpleNamespace(models=SimpleNamespace(en="base-model", model_dump=lambda: {"en": "base-model"}))
+        providers = _ProviderRegistry({"lmstudio": provider})
+        roles = SimpleNamespace(
+            chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
+            embedding=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
+            vision=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
+            auxiliary=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
+            model_dump=lambda: {
+                "chat": {"providers": [{"provider_id": "lmstudio"}]},
+                "embedding": {"providers": [{"provider_id": "lmstudio"}]},
+                "vision": {"providers": [{"provider_id": "lmstudio"}]},
+                "auxiliary": {"providers": [{"provider_id": "lmstudio"}]},
+            },
+        )
+
+        llm = SimpleNamespace(
+            providers=providers,
+            roles=roles,
+            get_role_provider=lambda _role: provider,
+        )
+
+        return SimpleNamespace(
+            rag=SimpleNamespace(collection_name="framework", top_k=5),
+            llm=llm,
+            fork=SimpleNamespace(language="en", supported_languages=[]),
+            prompts=SimpleNamespace(languages=prompt_languages),
+        )
+
     monkeypatch.setattr(
         "backend.routers.settings.load_core_config",
-        lambda: SimpleNamespace(
-            rag=SimpleNamespace(collection_name="framework", top_k=5),
-            llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(models=SimpleNamespace(en="base-model")))),
-            fork=SimpleNamespace(language="en", supported_languages=[]),
-            prompts=SimpleNamespace(languages={"de": object(), "en": object()}),
-        ),
+        lambda: _core_config({"de": object(), "en": object()}),
     )
     response = client.get("/api/system-config")
     assert response.status_code == 200
@@ -135,15 +187,9 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     assert body["framework_version"] == get_framework_version()
     assert body["supported_languages"] == ["de", "en"]
 
-    # Fallback 2: derive from fork.language when no prompt files are available.
     monkeypatch.setattr(
         "backend.routers.settings.load_core_config",
-        lambda: SimpleNamespace(
-            rag=SimpleNamespace(collection_name="framework", top_k=5),
-            llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(models=SimpleNamespace(en="base-model")))),
-            fork=SimpleNamespace(language="en", supported_languages=[]),
-            prompts=SimpleNamespace(languages={}),
-        ),
+        lambda: _core_config({}),
     )
     response = client.get("/api/system-config")
     assert response.status_code == 200

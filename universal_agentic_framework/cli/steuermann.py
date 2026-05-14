@@ -1019,14 +1019,20 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Set EMBEDDING_SERVER for embedding-backed memory and ingestion" if not embedding_server else embedding_server,
     )
 
-    profile_id = get_active_profile_id(env)
-    profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=False)
-    profile_ok = profile_id == "base" or (profile_dir is not None and profile_dir.exists())
+    try:
+        profile_id = get_active_profile_id(env)
+        profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=False)
+        profile_ok = profile_dir.exists()
+        profile_details = "Profile directory missing" if not profile_ok else f"Resolved profile: {profile_id}"
+    except Exception as exc:
+        profile_id = None
+        profile_ok = False
+        profile_details = str(exc)
     add_check(
         "PROFILE_ID",
         profile_ok,
         True,
-        "Profile directory missing" if not profile_ok else f"Resolved profile: {profile_id}",
+        profile_details,
     )
 
     ingest_collection = env.get("INGEST_COLLECTION")

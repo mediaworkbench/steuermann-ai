@@ -74,8 +74,9 @@ def test_setup_doctor_reports_env_presence_and_advisories(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _create_profile_dir(tmp_path)
     (tmp_path / ".env").write_text(
-        "POSTGRES_PASSWORD=secret\nLLM_PROVIDERS_LMSTUDIO_API_BASE=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
+        "POSTGRES_PASSWORD=secret\nPROFILE_ID=starter\nLLM_PROVIDERS_LMSTUDIO_API_BASE=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)

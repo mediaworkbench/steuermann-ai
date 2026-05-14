@@ -19,7 +19,7 @@ _backend_cache: Dict[Tuple, MemoryBackend] = {}
 def _cache_key(config: CoreConfig) -> Tuple:
     vs = config.memory.vector_store
     emb = config.memory.embeddings
-    llm = config.llm.providers.primary
+    llm = config.llm.get_role_provider("auxiliary")
     mem0 = config.memory.mem0
     return (
         vs.type,
@@ -53,7 +53,7 @@ def build_memory_backend(
     emb = config.memory.embeddings
 
     if vs.type.lower() == "mem0":
-        llm_primary = config.llm.providers.primary
+        llm_provider = config.llm.get_role_provider("auxiliary")
         mem0_settings = config.memory.mem0
 
         # Bypass cache when test overrides are present.
@@ -69,11 +69,11 @@ def build_memory_backend(
             embedding_model=emb.model,
             dimension=emb.dimension,
             embedding_remote_endpoint=emb.remote_endpoint,
-            llm_model=str(llm_primary.models.model_dump().get(config.fork.language) or llm_primary.models.en or "openai/gpt-4o-mini"),
-            llm_api_base=str(llm_primary.api_base) if llm_primary.api_base else None,
-            llm_temperature=float(llm_primary.temperature or 0.0),
-            llm_max_tokens=int(llm_primary.max_tokens) if llm_primary.max_tokens else None,
-            llm_api_key=llm_primary.api_key,
+            llm_model=str(llm_provider.models.model_dump().get(config.fork.language) or llm_provider.models.en or "openai/gpt-4o-mini"),
+            llm_api_base=str(llm_provider.api_base) if llm_provider.api_base else None,
+            llm_temperature=float(llm_provider.temperature or 0.0),
+            llm_max_tokens=int(llm_provider.max_tokens) if llm_provider.max_tokens else None,
+            llm_api_key=llm_provider.api_key,
             search_limit=mem0_settings.search_limit,
             custom_instructions=mem0_settings.custom_instructions,
             llm_provider=mem0_settings.llm_provider,

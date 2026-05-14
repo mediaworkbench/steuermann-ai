@@ -2,10 +2,14 @@ from universal_agentic_framework.memory.factory import build_memory_backend
 from universal_agentic_framework.memory import Mem0MemoryBackend, InMemoryMemoryManager
 from universal_agentic_framework.config.schemas import (
     CoreConfig,
+    IngestionSettings,
     ForkSettings,
+    LLMRoleSettings,
+    LLMRoles,
     LLMSettings,
     LLMProviders,
     ProviderSettings,
+    RoleProviderRef,
     DatabaseSettings,
     MemorySettings,
     VectorStoreSettings,
@@ -42,13 +46,21 @@ class _FakeEmbedder:
 
 
 def _minimal_llm_settings() -> LLMSettings:
-    primary = ProviderSettings(
+    provider = ProviderSettings(
         api_base=None,
         api_key=None,
         models={"en": "ollama/llama-3.1-8b"},
         temperature=0.3,
     )
-    return LLMSettings(providers=LLMProviders(primary=primary))
+    return LLMSettings(
+        providers=LLMProviders(ollama=provider),
+        roles=LLMRoles(
+            chat=LLMRoleSettings(providers=[RoleProviderRef(provider_id="ollama")], config_only=False),
+            embedding=LLMRoleSettings(providers=[RoleProviderRef(provider_id="ollama")], config_only=True),
+            vision=LLMRoleSettings(providers=[RoleProviderRef(provider_id="ollama")], config_only=True),
+            auxiliary=LLMRoleSettings(providers=[RoleProviderRef(provider_id="ollama")], config_only=True),
+        ),
+    )
 
 
 def _base_config(vs_type: str) -> CoreConfig:
@@ -62,6 +74,7 @@ def _base_config(vs_type: str) -> CoreConfig:
             retention=RetentionSettings(),
         ),
         tokens=TokensSettings(default_budget=1000, per_node_budgets={}),
+        ingestion=IngestionSettings(collection_name="test"),
     )
 
 

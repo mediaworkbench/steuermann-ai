@@ -17,7 +17,7 @@ llm:
         en: "openai/liquid/lfm2-24b-a2b"
         de: "openai/liquid/lfm2-24b-a2b"
       model_tool_calling:
-        openai/liquid/lfm2-24b-a2b: "structured"
+        openai/liquid/lfm2-24b-a2b: "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
@@ -35,10 +35,10 @@ llm:
       api_base: $LLM_PROVIDERS_OPENROUTER_API_BASE
       api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
       models:
-        en: ""
-        de: ""
+        en: "openrouter/poolside/laguna-m.1:free"
+        de: "openrouter/poolside/laguna-m.1:free"
       model_tool_calling:
-        : "native"
+        openrouter/poolside/laguna-m.1:free: "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
@@ -61,6 +61,14 @@ llm:
       providers:
         - provider_id: "lmstudio"
       config_only: true
+  router:
+    routing_strategy: "simple-shuffle"
+    num_retries: 3
+    retry_after: 1
+    enable_pre_call_checks: true
+    default_max_parallel_requests: 4
+    default_fallbacks:
+      - "openrouter"
 
 memory:
   retention:
@@ -80,8 +88,25 @@ rag:
   with_vectors: false
   timeout_seconds: 30
 
+ingestion:
+  collection_name: $INGEST_COLLECTION
+  source_path: $RAG_DATA_PATH
+  language: "de"
+  language_threshold: 0.8
+  embedding_batch_size: 32
+  upsert_batch_size: 128
+  file_concurrency: 1
+  incremental_mode: true
+  phase_timing: true
+  reingest_timeout_seconds: 1800
+
 tokens:
   default_budget: 10000
+  conversation_budget: null
+  per_turn_budget: null
+  per_turn_budget_ratio: 0.4
+  response_reserve_ratio: 0.15
+  enforce_per_node_hard_limit: true
   per_node_budgets: {}
 
 # Prompt templates loaded from config/profiles/starter/prompts/{lang}.yaml.
