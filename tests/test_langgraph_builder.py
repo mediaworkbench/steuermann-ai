@@ -35,7 +35,7 @@ def patch_factories(monkeypatch):
     def _fake_build_backend(config, client=None, embedder=None):
         return InMemoryMemoryManager()
 
-    monkeypatch.setattr("universal_agentic_framework.memory.factory.build_memory_backend", _fake_build_backend)
+    monkeypatch.setattr("universal_agentic_framework.orchestration.graph_builder.build_memory_backend", _fake_build_backend)
 
 
 def test_langgraph_pipeline_runs_and_updates_memory():

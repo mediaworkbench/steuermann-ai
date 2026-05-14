@@ -179,6 +179,15 @@ def _normalize_preferred_model_value(raw_model: Optional[str]) -> Optional[str]:
     return preferred_model
 
 
+async def _validate_chat_preference(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not model_name:
+        return None, None
+
+    from backend.routers.chat import _validate_preferred_model
+
+    return await _validate_preferred_model(model_name)
+
+
 async def _fetch_provider_models(provider: Any, preferred_language: str = "en") -> List[str]:
     provider_models = [m for m in provider.models.model_dump().values() if m]
     default_model = (
@@ -283,7 +292,7 @@ def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
 
 
 @router.post("/settings/user/{user_id}", response_model=UserSettingsResponse)
-def update_user_settings(user_id: str, settings: UserSettings, request: Request) -> Dict[str, Any]:
+async def update_user_settings(user_id: str, settings: UserSettings, request: Request) -> Dict[str, Any]:
     """Persist user settings for the given user id."""
     effective_user_id = get_effective_user_id(user_id)
     store = _get_settings_store(request)
@@ -307,10 +316,22 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
     theme = _resolved_value("theme", "auto")
     language = _resolved_value("language", "en")
 
+    has_preferred_model_update = "preferred_model" in fields_set
+    has_preferred_models_update = "preferred_models" in fields_set
+
     preferred_model = _normalize_preferred_model_value(_resolved_value("preferred_model", None))
+
+    raw_preferred_models = _resolved_value("preferred_models", {}) or {}
+    if not has_preferred_models_update and has_preferred_model_update:
+        raw_preferred_models = {
+            role: model_name
+            for role, model_name in raw_preferred_models.items()
+            if str(role) != "chat"
+        }
+
     preferred_models = {
         str(role): _normalize_preferred_model_value(model_name)
-        for role, model_name in (_resolved_value("preferred_models", {}) or {}).items()
+        for role, model_name in raw_preferred_models.items()
     }
     preferred_models = {role: model_name for role, model_name in preferred_models.items() if model_name}
 
@@ -320,6 +341,28 @@ def update_user_settings(user_id: str, settings: UserSettings, request: Request)
         preferred_model = chat_preferred_model
     elif preferred_model:
         preferred_models["chat"] = preferred_model
+
+    should_validate_chat_preference = has_preferred_model_update or (
+        has_preferred_models_update and "chat" in raw_preferred_models
+    )
+
+    if should_validate_chat_preference and preferred_model:
+        validated_model, validation_warning = await _validate_chat_preference(preferred_model)
+        if (
+            validation_warning
+            and validated_model is None
+            and "not found at configured llm endpoint" in validation_warning.lower()
+        ):
+            logger.warning(
+                "Dropping invalid preferred model during settings update",
+                extra={
+                    "user_id": effective_user_id,
+                    "preferred_model": preferred_model,
+                    "warning": validation_warning,
+                },
+            )
+            preferred_model = None
+            preferred_models.pop("chat", None)
 
     record = store.upsert_user_settings(
         user_id=effective_user_id,

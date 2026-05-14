@@ -15,9 +15,16 @@ from universal_agentic_framework.tools.datetime.tool import DateTimeTool
 
 
 @pytest.mark.integration
+@patch("universal_agentic_framework.orchestration.graph_builder.build_memory_backend")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-def test_llm_invokes_datetime_tool(mock_embedding_provider):
+def test_llm_invokes_datetime_tool(mock_embedding_provider, mock_memory_backend):
     """Test semantic tool routing with datetime tool (model-agnostic approach)."""
+    # Mock memory backend to avoid external Qdrant/Mem0 dependency
+    mock_mem = Mock()
+    mock_mem.load.return_value = []
+    mock_mem.upsert.return_value = None
+    mock_memory_backend.return_value = mock_mem
+
     graph = build_graph()
 
     # Mock embedder to avoid external embedding endpoint dependency

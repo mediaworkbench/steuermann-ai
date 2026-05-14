@@ -318,6 +318,35 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     assert body["preferred_models"] == {"chat": "openai/existing-model"}
 
 
+def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.settings_store = _FakeSettingsStore()
+    client = TestClient(app)
+
+    async def _invalid_model(_model_name):
+        return None, "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+
+    monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _invalid_model)
+
+    response = client.post(
+        "/api/settings/user/u1",
+        json={
+            "preferred_model": "user2-model",
+            "theme": "auto",
+            "language": "en",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preferred_model"] is None
+    assert body["preferred_models"] == {}
+
+
 def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AUTH_USERNAME", "u1")

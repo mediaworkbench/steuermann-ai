@@ -9,6 +9,37 @@ from unittest.mock import MagicMock, Mock, patch
 
 from universal_agentic_framework.orchestration.graph_builder import build_graph
 from universal_agentic_framework.tools.datetime.tool import DateTimeTool
+from universal_agentic_framework.memory import InMemoryMemoryManager
+
+
+@pytest.fixture(autouse=True)
+def _mock_external_services(monkeypatch):
+    """Prevent all integration tests from hitting real Qdrant/LLM endpoints."""
+    import numpy as np
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    # Memory backend — avoid real Qdrant/Mem0 connection
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.build_memory_backend",
+        lambda *_, **__: InMemoryMemoryManager(),
+    )
+
+    # Embedding provider — avoid real embedding server
+    mock_embedder = Mock()
+    mock_embedder.encode.side_effect = lambda _: np.array([0.5] * 768)
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.build_embedding_provider",
+        lambda *_, **__: mock_embedder,
+    )
+
+    # LLM — avoid real LLM endpoint
+    mock_llm = Mock()
+    mock_llm.invoke.return_value = SimpleNamespace(content="test response")
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.safe_get_model",
+        lambda *_, **__: mock_llm,
+    )
 
 
 @pytest.mark.integration
