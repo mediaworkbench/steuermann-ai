@@ -36,6 +36,7 @@ _PROFILE_CORE_ALLOWED_PREFIXES = {
     "rag",
     "tokens",
     "memory.embeddings",
+    "memory.mem0",
     "memory.retention",
 }
 

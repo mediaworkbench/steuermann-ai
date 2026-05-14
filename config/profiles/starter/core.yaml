@@ -48,6 +48,8 @@ llm:
 memory:
   embeddings:
     dimension: 768
+  mem0:
+    infer_enabled: false
   retention:
     session_memory_days: 90
     user_memory_days: 365

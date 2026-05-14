@@ -24,6 +24,11 @@ class Mem0MemoryBackend(MemoryBackend):
     while delegating storage/search operations to Mem0.
     """
 
+    # Keep Mem0 extraction prompts bounded for local models with smaller context windows.
+    _INFER_MAX_TOTAL_CHARS = 2800
+    _INFER_MAX_MESSAGE_CHARS = 900
+    _TRUNCATION_SUFFIX = "\n[truncated]"
+
     def __init__(
         self,
         *,
@@ -39,6 +44,7 @@ class Mem0MemoryBackend(MemoryBackend):
         llm_max_tokens: Optional[int],
         llm_api_key: Optional[str],
         llm_provider: str = "openai",
+        infer_enabled: bool = True,
         search_limit: int = 10,
         custom_instructions: Optional[str] = None,
         enable_importance_scoring: bool = True,
@@ -48,6 +54,7 @@ class Mem0MemoryBackend(MemoryBackend):
     ) -> None:
         self.collection_name = f"{collection_prefix}_memory"
         self.search_limit = max(1, int(search_limit))
+        self.infer_enabled = bool(infer_enabled)
         self._client_override = client
         self._embedder_override = embedder
 
@@ -177,6 +184,41 @@ class Mem0MemoryBackend(MemoryBackend):
         if normalized:
             return normalized
         return [{"role": "user", "content": text}]
+
+    def _truncate_for_infer(self, content: str, limit: int) -> str:
+        if len(content) <= limit:
+            return content
+        clip = max(0, limit - len(self._TRUNCATION_SUFFIX))
+        return (content[:clip]).rstrip() + self._TRUNCATION_SUFFIX
+
+    def _build_infer_payload(self, messages: List[Dict[str, str]], summary_text: str) -> List[Dict[str, str]]:
+        """Compact conversational payload to stay within local model context constraints."""
+        trimmed: List[Dict[str, str]] = []
+        remaining = self._INFER_MAX_TOTAL_CHARS
+
+        # Preserve recency by walking backwards and prepending accepted items.
+        for item in reversed(messages):
+            role = str(item.get("role") or "user")
+            content = str(item.get("content") or "")
+            if not content:
+                continue
+
+            if remaining <= 0:
+                break
+
+            per_message_limit = min(self._INFER_MAX_MESSAGE_CHARS, remaining)
+            clipped = self._truncate_for_infer(content, per_message_limit)
+            if not clipped:
+                continue
+
+            trimmed.insert(0, {"role": role, "content": clipped})
+            remaining -= len(clipped)
+
+        if trimmed:
+            return trimmed
+
+        # Always provide at least the summary text when message payload is empty/fully trimmed.
+        return [{"role": "user", "content": self._truncate_for_infer(summary_text, self._INFER_MAX_MESSAGE_CHARS)}]
 
     def _merge_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(metadata)
@@ -386,29 +428,33 @@ class Mem0MemoryBackend(MemoryBackend):
         # Use structured exchange messages when provided (richer context for Mem0 inference),
         # otherwise wrap the summary text as a single user message.
         message_payload = self._normalize_message_payload(messages, text)
+        infer_payload = self._build_infer_payload(message_payload, text)
 
         add_response = None
-        try:
-            # infer=True: Mem0's LLM extracts, deduplicates and merges facts automatically.
-            add_response = self._memory.add(
-                message_payload,
-                user_id=user_id,
-                metadata=payload,
-                infer=True,
-            )
-        except (json.JSONDecodeError, ValueError, KeyError) as exc:
-            logger.warning(
-                "mem0_infer_failed",
-                error=str(exc),
-                user_id=user_id,
-                exc_info=True,
-            )
-        except Exception as exc:
-            _err = str(exc).lower()
-            if any(kw in _err for kw in ("json", "parse", "decode", "extract", "format", "invalid")):
-                logger.warning("mem0_infer_failed", error=str(exc), user_id=user_id)
-            else:
-                raise
+        if self.infer_enabled:
+            try:
+                # infer=True: Mem0's LLM extracts, deduplicates and merges facts automatically.
+                add_response = self._memory.add(
+                    infer_payload,
+                    user_id=user_id,
+                    metadata=payload,
+                    infer=True,
+                )
+            except (json.JSONDecodeError, ValueError, KeyError) as exc:
+                logger.warning(
+                    "mem0_infer_failed",
+                    error=str(exc),
+                    user_id=user_id,
+                    exc_info=True,
+                )
+            except Exception as exc:
+                _err = str(exc).lower()
+                if any(kw in _err for kw in ("json", "parse", "decode", "extract", "format", "invalid")):
+                    logger.warning("mem0_infer_failed", error=str(exc), user_id=user_id)
+                else:
+                    raise
+        else:
+            logger.info("mem0_infer_disabled_storing_verbatim", user_id=user_id)
 
         # Detect silent inference failure: Mem0 swallows LLM errors internally (e.g. when
         # the local model rejects `response_format=json_object`) and returns an empty result
@@ -426,11 +472,18 @@ class Mem0MemoryBackend(MemoryBackend):
 
         if _is_empty_response(add_response):
             # Graceful degradation: store summary text verbatim without inference.
-            logger.warning(
-                "mem0_infer_fallback_verbatim",
-                user_id=user_id,
-                reason="empty_or_failed_inference",
-            )
+            if self.infer_enabled:
+                logger.warning(
+                    "mem0_infer_fallback_verbatim",
+                    user_id=user_id,
+                    reason="empty_or_failed_inference",
+                )
+            else:
+                logger.info(
+                    "mem0_infer_fallback_verbatim",
+                    user_id=user_id,
+                    reason="infer_disabled",
+                )
             verbatim_payload = [{"role": "user", "content": text}]
             try:
                 add_response = self._memory.add(verbatim_payload, user_id=user_id, metadata=payload, infer=False)

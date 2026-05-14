@@ -225,11 +225,55 @@ def test_upsert_normalizes_message_payload_content_shapes():
         ],
     )
 
-    assert backend._memory.last_add_payload == [
-        {"role": "user", "content": "alpha\nbeta"},
-        {"role": "assistant", "content": "gamma"},
-        {"role": "user", "content": ""},
-    ]
+    payload = backend._memory.last_add_payload
+    assert isinstance(payload, list)
+    assert payload[0] == {"role": "user", "content": "alpha\nbeta"}
+    assert payload[1] == {"role": "assistant", "content": "gamma"}
+
+
+def test_upsert_compacts_infer_payload_for_long_messages():
+    backend = _make_backend()
+
+    very_long_user = "u" * 4000
+    very_long_assistant = "a" * 4000
+
+    backend.upsert(
+        "u1",
+        "short summary",
+        messages=[
+            {"role": "user", "content": very_long_user},
+            {"role": "assistant", "content": very_long_assistant},
+        ],
+    )
+
+    payload = backend._memory.last_add_payload
+    assert isinstance(payload, list)
+    assert payload
+
+    total_chars = sum(len(str(item.get("content") or "")) for item in payload if isinstance(item, dict))
+    assert total_chars <= backend._INFER_MAX_TOTAL_CHARS
+
+    # At least one payload entry should indicate truncation for oversized content.
+    assert any(
+        str(item.get("content") or "").endswith("[truncated]")
+        for item in payload
+        if isinstance(item, dict)
+    )
+
+
+def test_upsert_with_infer_disabled_writes_verbatim_payload():
+    backend = _make_backend(infer_enabled=False)
+
+    backend.upsert(
+        "u1",
+        "important summary text",
+        messages=[
+            {"role": "user", "content": "very detailed message that would otherwise go through infer"},
+        ],
+    )
+
+    assert backend._memory.last_add_infer is False
+    assert backend._memory.last_add_payload == [{"role": "user", "content": "important summary text"}]
 
 
 def test_load_with_query_applies_importance_scoring():

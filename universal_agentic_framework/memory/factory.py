@@ -81,6 +81,7 @@ def build_memory_backend(
             search_limit=mem0_settings.search_limit,
             custom_instructions=mem0_settings.custom_instructions,
             llm_provider=mem0_settings.llm_provider,
+            infer_enabled=mem0_settings.infer_enabled,
             client=client,
             embedder=embedder,
         )
