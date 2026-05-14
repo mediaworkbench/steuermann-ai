@@ -108,6 +108,7 @@ def set_mock_config(
 
     provider = SimpleNamespace(
         type="ollama",
+        api_base="http://localhost:11434/v1",
         models=SimpleNamespace(
             en="ollama/llama",
             model_dump=lambda: {language: "ollama/llama"},
@@ -115,16 +116,12 @@ def set_mock_config(
         tool_calling="structured",
         get_tool_calling_mode=lambda _model_name: provider.tool_calling,
     )
-    providers = SimpleNamespace(get_registry=lambda: {"ollama": provider})
 
     config = SimpleNamespace(
         fork=SimpleNamespace(name=fork_name, timezone=timezone, language=language),
         memory=SimpleNamespace(
             embeddings=SimpleNamespace(
-                model="text-embedding-granite-embedding-278m-multilingual",
                 dimension=768,
-                provider="local",
-                remote_endpoint=None,
             )
         ),
         tool_routing=SimpleNamespace(
@@ -136,9 +133,16 @@ def set_mock_config(
         ),
         tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
         llm=SimpleNamespace(
-            providers=providers,
-            roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="ollama")])),
+            roles=SimpleNamespace(
+                chat=SimpleNamespace(provider_id="ollama", model="ollama/llama", api_base="http://localhost:11434/v1")
+            ),
             get_role_provider=lambda _role: provider,
+            get_role_model_name=lambda _role, _lang: "ollama/llama",
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("ollama", provider, "ollama/llama")
+            ] if role_name in {"chat", "vision", "auxiliary"} else [],
+            get_embedding_provider_type=lambda: "remote",
+            get_embedding_remote_endpoint=lambda: "http://localhost:11434/v1",
         ),
     )
 

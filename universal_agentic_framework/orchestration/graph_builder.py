@@ -1190,10 +1190,10 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
             import httpx
             
             # Generate query embedding
-            embedding_model_name = config.memory.embeddings.model
+            embedding_model_name = config.llm.get_role_model_name("embedding", config.fork.language)
             embedding_dimension = config.memory.embeddings.dimension
-            embedding_provider_type = config.memory.embeddings.provider
-            embedding_remote_endpoint = config.memory.embeddings.remote_endpoint
+            embedding_provider_type = config.llm.get_embedding_provider_type()
+            embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
 
             logger.info(
                 "RAG: Creating embedder",

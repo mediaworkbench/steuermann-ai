@@ -32,11 +32,11 @@ def get_routing_embedding_provider(
     
     embedding_model_name = (
         getattr(getattr(config, "tool_routing", None), "embedding_model", None)
-        or config.memory.embeddings.model
+        or config.llm.get_role_model_name("embedding", getattr(config.fork, "language", "en"))
     )
     embedding_dimension = config.memory.embeddings.dimension
-    embedding_provider_type = config.memory.embeddings.provider
-    embedding_remote_endpoint = config.memory.embeddings.remote_endpoint
+    embedding_provider_type = config.llm.get_embedding_provider_type()
+    embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
 
     config_key = f"{embedding_model_name}:{embedding_provider_type}:{embedding_remote_endpoint}"
 

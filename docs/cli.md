@@ -180,6 +180,7 @@ On failure after writing, the original file is automatically restored from backu
 | `tool_routing` | Tool routing thresholds and model |
 | `rag` | RAG collection, chunk, and retrieval settings |
 | `tokens` | Token budget settings |
+| `memory.embeddings` | Embedding model/provider endpoint overrides |
 | `memory.retention` | Memory retention periods |
 
 All other keys are considered deployment-global and will be rejected.

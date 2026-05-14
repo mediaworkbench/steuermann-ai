@@ -39,37 +39,44 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
     selected_model_name = None
 
     try:
-        role_cfg = config.llm.roles.chat
-        role_providers = role_cfg.providers
-        if role_providers:
-            provider_id = str(role_providers[0].provider_id)
-        provider = config.llm.get_role_provider("chat")
+        role_chain = config.llm.get_role_provider_chain_with_models("chat", language)
+        if role_chain:
+            provider_id = str(role_chain[0][0])
+            provider = role_chain[0][1]
+            selected_model_name = role_chain[0][2]
+        else:
+            provider = None
     except Exception:
         provider = None
 
     if provider is not None:
-        models = getattr(provider, "models", None)
-        if isinstance(models, dict):
-            selected_model_name = models.get(language)
-            if not selected_model_name:
-                for model_value in models.values():
-                    if model_value:
-                        selected_model_name = model_value
-                        break
-        else:
-            selected_model_name = getattr(models, language, None)
-            if not selected_model_name and models is not None:
-                if hasattr(models, "model_dump"):
-                    model_values = list(models.model_dump().values())
-                else:
-                    model_values = list(vars(models).values())
-                for model_value in model_values:
-                    if model_value:
-                        selected_model_name = model_value
-                        break
+        if not selected_model_name:
+            models = getattr(provider, "models", None)
+            if isinstance(models, dict):
+                selected_model_name = models.get(language)
+                if not selected_model_name:
+                    for model_value in models.values():
+                        if model_value:
+                            selected_model_name = model_value
+                            break
+            else:
+                selected_model_name = getattr(models, language, None)
+                if not selected_model_name and models is not None:
+                    if hasattr(models, "model_dump"):
+                        model_values = list(models.model_dump().values())
+                    else:
+                        model_values = list(vars(models).values())
+                    for model_value in model_values:
+                        if model_value:
+                            selected_model_name = model_value
+                            break
 
         if selected_model_name:
-            configured_mode = str(provider.get_tool_calling_mode(selected_model_name))
+            getter = getattr(provider, "get_tool_calling_mode", None)
+            if callable(getter):
+                configured_mode = str(getter(selected_model_name))
+            else:
+                configured_mode = str(getattr(provider, "tool_calling", "structured"))
 
     if configured_mode != "native":
         return configured_mode, "model_config_non_native_mode"
@@ -176,9 +183,11 @@ def record_runtime_native_tool_leak(
         return False
 
     try:
-        role_cfg = config.llm.roles.chat
-        provider_id = str(role_cfg.providers[0].provider_id)
-        provider = config.llm.get_role_provider("chat")
+        language = state.get("language") or getattr(config.fork, "language", "en")
+        role_chain = config.llm.get_role_provider_chain_with_models("chat", language)
+        if not role_chain:
+            raise ValueError("empty chat provider chain")
+        provider_id, provider, _ = role_chain[0]
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "Failed to resolve chat provider for runtime tool-calling feedback",

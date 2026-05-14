@@ -27,34 +27,21 @@ def mock_core_config_with_roles():
     )
     ollama_provider.get_tool_calling_mode = MagicMock(return_value="native")
     
-    # Setup registry
-    registry = {
-        "lmstudio": lmstudio_provider,
-        "ollama": ollama_provider,
-    }
-    
-    # Setup roles - all except embedding
-    from types import SimpleNamespace as Namespace
-    chat_role = Namespace(providers=[
-        Namespace(provider_id="lmstudio"),
-        Namespace(provider_id="ollama"),
-    ])
-    
-    vision_role = Namespace(providers=[
-        Namespace(provider_id="lmstudio"),
-    ])
-    
-    auxiliary_role = Namespace(providers=[
-        Namespace(provider_id="lmstudio"),
-    ])
-    
-    # Embedding is intentionally NOT included
-    config.llm.roles.chat = chat_role
-    config.llm.roles.vision = vision_role
-    config.llm.roles.auxiliary = auxiliary_role
-    # config.llm.roles.embedding is not set to verify it's skipped
-    
-    config.llm.providers.get_registry = MagicMock(return_value=registry)
+    config.llm.get_role_provider_chain_with_models = MagicMock(
+        side_effect=lambda role_name, _lang: {
+            "chat": [
+                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+                ("ollama", ollama_provider, "ollama/llama-3.1-8b"),
+            ],
+            "vision": [
+                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+            ],
+            "auxiliary": [
+                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+            ],
+        }.get(role_name, [])
+    )
+    config.llm.roles = SimpleNamespace(chat=object(), vision=object(), auxiliary=object())
     config.fork.language = "en"
     
     return config
@@ -83,12 +70,8 @@ def test_probe_runner_covers_all_roles_except_embedding(mock_core_config_with_ro
 
 def test_probe_runner_skips_embedding_role(mock_core_config_with_roles):
     """Verify embedding role is not included in probe coverage."""
-    # Add embedding role to config
-    from types import SimpleNamespace as Namespace
-    embedding_role = Namespace(providers=[
-        Namespace(provider_id="lmstudio"),
-    ])
-    mock_core_config_with_roles.llm.roles.embedding = embedding_role
+    # Add embedding role marker to config; probe runner should still ignore it.
+    mock_core_config_with_roles.llm.roles.embedding = object()
     
     runner = LLMCapabilityProbeRunner(
         core_config=mock_core_config_with_roles,
@@ -137,15 +120,14 @@ def test_probe_runner_handles_multi_language_models():
     )
     lmstudio_provider.get_tool_calling_mode = MagicMock(return_value="structured")
     
-    registry = {"lmstudio": lmstudio_provider}
-    
-    from types import SimpleNamespace as Namespace
-    chat_role = Namespace(providers=[Namespace(provider_id="lmstudio")])
-    vision_role = Namespace(providers=[Namespace(provider_id="lmstudio")])
-    
-    config.llm.roles.chat = chat_role
-    config.llm.roles.vision = vision_role
-    config.llm.providers.get_registry = MagicMock(return_value=registry)
+    config.llm.get_role_provider_chain_with_models = MagicMock(
+        side_effect=lambda role_name, _lang: {
+            "chat": [("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b")],
+            "vision": [("lmstudio", lmstudio_provider, "openai/liquid/lfm2-40b-de")],
+            "auxiliary": [],
+        }.get(role_name, [])
+    )
+    config.llm.roles = SimpleNamespace(chat=object(), vision=object(), auxiliary=object())
     config.fork.language = "en"
     
     runner = LLMCapabilityProbeRunner(core_config=config, profile_id="test-profile")
@@ -159,3 +141,27 @@ def test_probe_runner_handles_multi_language_models():
     models = {t.model_name for t in targets}
     assert "openai/liquid/lfm2-24b-a2b" in models
     assert "openai/liquid/lfm2-40b-de" in models
+
+
+def test_probe_runner_includes_role_level_model_override():
+    """Verify role provider ref model override is included in probe targets."""
+    config = MagicMock()
+
+    provider = MagicMock()
+    provider.models = SimpleNamespace(en="openai/provider-default")
+    provider.get_tool_calling_mode = MagicMock(return_value="structured")
+
+    config.llm.get_role_provider_chain_with_models = MagicMock(
+        side_effect=lambda role_name, _lang: {
+            "chat": [("lmstudio", provider, "openai/role-specific")],
+            "vision": [],
+            "auxiliary": [],
+        }.get(role_name, [])
+    )
+    config.llm.roles = SimpleNamespace(chat=object(), vision=object(), auxiliary=object())
+
+    runner = LLMCapabilityProbeRunner(core_config=config, profile_id="test-profile")
+    targets = runner._collect_targets()
+
+    models = {t.model_name for t in targets}
+    assert "openai/role-specific" in models

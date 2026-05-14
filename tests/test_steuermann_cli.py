@@ -499,7 +499,7 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
-            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.retention"],
+            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
             "disallowed_feature_flags": ["authentication"],  # missing ingestion_service, monitoring
         },
     }
@@ -551,6 +551,7 @@ def test_config_contract_check_detects_bundle_compatibility_drift(
                 "tool_routing",
                 "rag",
                 "tokens",
+                "memory.embeddings",
                 "memory.retention",
             ],
             "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
@@ -608,6 +609,7 @@ def test_config_contract_check_detects_mutator_surface_drift(
                 "tool_routing",
                 "rag",
                 "tokens",
+                "memory.embeddings",
                 "memory.retention",
             ],
             "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
@@ -927,6 +929,7 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                         "tool_routing",
                         "rag",
                         "tokens",
+                        "memory.embeddings",
                         "memory.retention",
                     ],
                     "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],

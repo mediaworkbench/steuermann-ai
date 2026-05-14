@@ -175,7 +175,7 @@ class BaseCrew(ABC):
             raise RuntimeError("crewai package not available") from exc
 
         primary = self.core_config.llm.get_role_provider("chat")
-        model_name: str = self.llm_factory._select_model(primary, self.language)
+        model_name: str = self.core_config.llm.get_role_model_name("chat", self.language)
 
         kwargs = {
             "model": model_name,

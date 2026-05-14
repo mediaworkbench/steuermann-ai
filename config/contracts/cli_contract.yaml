@@ -41,6 +41,7 @@ profile_safety:
     - tool_routing
     - rag
     - tokens
+    - memory.embeddings
     - memory.retention
   disallowed_feature_flags:
     - authentication

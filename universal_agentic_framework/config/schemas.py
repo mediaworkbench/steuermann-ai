@@ -29,7 +29,7 @@ class ProviderModelMap(BaseModel):
 
 
 class ProviderSettings(BaseModel):
-    api_base: Optional[HttpUrl] = None
+    api_base: Optional[str] = None
     api_key: Optional[str] = None
     models: ProviderModelMap
     temperature: Optional[confloat(ge=0.0, le=2.0)] = 0.7
@@ -98,11 +98,34 @@ class LLMProviders(BaseModel):
 
 class RoleProviderRef(BaseModel):
     provider_id: str
+    model: Optional[str] = None
+    models: Optional[ProviderModelMap] = None
+
+    @model_validator(mode="after")
+    def _normalize_models(self) -> "RoleProviderRef":
+        if self.model:
+            self.model = normalize_model_id(str(self.model))
+        if self.models:
+            for language, model_name in self.models.model_dump().items():
+                if not model_name:
+                    continue
+                setattr(self.models, language, normalize_model_id(str(model_name)))
+        return self
 
 
 class LLMRoleSettings(BaseModel):
-    providers: List[RoleProviderRef] = Field(default_factory=list)
-    config_only: bool = False
+    provider_id: str
+    api_base: str
+    api_key: Optional[str] = None
+    model: str
+    temperature: Optional[confloat(ge=0.0, le=2.0)] = None
+    max_tokens: Optional[PositiveInt] = None
+    timeout: Optional[PositiveInt] = None
+
+    @model_validator(mode="after")
+    def _normalize_models(self) -> "LLMRoleSettings":
+        self.model = normalize_model_id(str(self.model))
+        return self
 
 
 class LLMRoles(BaseModel):
@@ -138,25 +161,30 @@ class LLMRouterSettings(BaseModel):
 
 
 class LLMSettings(BaseModel):
-    providers: LLMProviders
+    providers: LLMProviders = Field(default_factory=LLMProviders)
     roles: LLMRoles
     router: LLMRouterSettings = Field(default_factory=LLMRouterSettings)
 
     @model_validator(mode="after")
     def _validate_roles(self) -> "LLMSettings":
-        registry = self.providers.get_registry()
-        if not registry:
-            raise ValueError("llm.providers must contain at least one configured provider")
-
+        role_entries: Dict[str, LLMRoleSettings] = {}
         for role_name in ("chat", "embedding", "vision", "auxiliary"):
             role_cfg = getattr(self.roles, role_name)
-            if not role_cfg.providers:
-                raise ValueError(f"llm.roles.{role_name}.providers must not be empty")
-            for ref in role_cfg.providers:
-                if ref.provider_id not in registry:
-                    raise ValueError(
-                        f"llm.roles.{role_name}.providers references unknown provider_id '{ref.provider_id}'"
-                    )
+            role_entries[role_name] = role_cfg
+
+        # Build runtime provider registry directly from roles.
+        provider_payload: Dict[str, Dict[str, Any]] = {}
+        for role_name, role_cfg in role_entries.items():
+            provider_payload[f"{role_name}:{role_cfg.provider_id}"] = {
+                "api_base": role_cfg.api_base,
+                "api_key": role_cfg.api_key,
+                "models": {"en": role_cfg.model},
+                "temperature": role_cfg.temperature if role_cfg.temperature is not None else 0.7,
+                "max_tokens": role_cfg.max_tokens,
+                "timeout": role_cfg.timeout,
+            }
+
+        self.providers = LLMProviders.model_validate(provider_payload)
         return self
 
     def get_provider(self, provider_id: str) -> ProviderSettings:
@@ -167,14 +195,59 @@ class LLMSettings(BaseModel):
             raise KeyError(f"Unknown provider_id '{provider_id}'") from exc
 
     def get_role_provider_chain(self, role_name: str) -> List[tuple[str, ProviderSettings]]:
-        role = getattr(self.roles, role_name)
-        return [(ref.provider_id, self.get_provider(ref.provider_id)) for ref in role.providers]
+        chain = self.get_role_provider_chain_with_models(role_name, language="en")
+        return [(provider_id, provider) for provider_id, provider, _model_name in chain]
 
     def get_role_provider(self, role_name: str) -> ProviderSettings:
-        chain = self.get_role_provider_chain(role_name)
+        chain = self.get_role_provider_chain_with_models(role_name, language="en")
         if not chain:
-            raise ValueError(f"llm.roles.{role_name}.providers must not be empty")
+            raise ValueError(f"llm.roles.{role_name} has no resolvable provider chain")
         return chain[0][1]
+
+    @staticmethod
+    def _select_model_from_map(model_map: ProviderModelMap, language: str) -> Optional[str]:
+        model = getattr(model_map, language, None)
+        if model:
+            return str(model)
+        for value in model_map.model_dump().values():
+            if value:
+                return str(value)
+        return None
+
+    def get_role_model_name(self, role_name: str, language: str, provider_index: int = 0) -> str:
+        role = getattr(self.roles, role_name)
+        if provider_index != 0:
+            raise IndexError(f"provider_index {provider_index} out of range for role '{role_name}'")
+        return str(role.model)
+
+    def get_role_provider_chain_with_models(
+        self,
+        role_name: str,
+        language: str,
+    ) -> List[tuple[str, ProviderSettings, str]]:
+        role = getattr(self.roles, role_name)
+        provider = ProviderSettings.model_validate(
+            {
+                "api_base": role.api_base,
+                "api_key": role.api_key,
+                "models": {"en": role.model, language: role.model},
+                "temperature": role.temperature if role.temperature is not None else 0.7,
+                "max_tokens": role.max_tokens,
+                "timeout": role.timeout,
+            }
+        )
+        return [(str(role.provider_id), provider, str(role.model))]
+
+    def get_embedding_provider_type(self) -> str:
+        """Embedding transport type used by the embedding provider factory."""
+        return "remote"
+
+    def get_embedding_remote_endpoint(self) -> Optional[str]:
+        """Resolve embedding endpoint directly from the embedding role config."""
+        endpoint = getattr(self.roles.embedding, "api_base", None)
+        if endpoint is None:
+            return None
+        return str(endpoint)
 
 
 class DatabaseSettings(BaseModel):
@@ -191,7 +264,7 @@ class VectorStoreSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    model: str
+    model: Optional[str] = None
     dimension: PositiveInt
     batch_size: Optional[PositiveInt] = 32
     provider: Literal["remote"] = "remote"

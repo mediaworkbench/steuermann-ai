@@ -382,13 +382,13 @@ def test_chat_forwards_llm_capability_probes(client) -> None:
 
 
 def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = SimpleNamespace(api_base="http://localhost:1234/v1")
     core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
-            providers=SimpleNamespace(
-                get_registry=lambda: {
-                    "lmstudio": SimpleNamespace(api_base="http://localhost:1234/v1"),
-                }
-            )
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("lmstudio", provider, "openai/test-model")
+            ] if role_name == "chat" else []
         )
     )
 
@@ -398,13 +398,13 @@ def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pyt
 
 
 def test_resolve_provider_endpoint_does_not_fallback_to_legacy_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = SimpleNamespace(api_base="http://localhost:9999/v1")
     core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
-            providers=SimpleNamespace(
-                get_registry=lambda: {
-                    "other": SimpleNamespace(api_base="http://localhost:9999/v1"),
-                }
-            )
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("other", provider, "ollama/test-model")
+            ] if role_name == "chat" else []
         )
     )
 

@@ -44,7 +44,7 @@ class QdrantCacheVectorBackend:
         collection_prefix: str = "cache",
         host: str = "localhost",
         port: int = 6333,
-        embedding_model: str = "text-embedding-granite-embedding-278m-multilingual",
+        embedding_model: str = "",
         dimension: int = 768,
         similarity_threshold: float = 0.85,
         fork_name: str = "default",

@@ -301,14 +301,13 @@ class TestModeReasonTracking:
         assert len(expected_reasons) > 0
 
     def test_runtime_native_tool_leak_persists_structured_downgrade_feedback(self):
+        provider = SimpleNamespace(api_base="http://localhost:1234/v1")
         config = SimpleNamespace(
+            fork=SimpleNamespace(language="en"),
             llm=SimpleNamespace(
-                roles=SimpleNamespace(
-                    chat=SimpleNamespace(
-                        providers=[SimpleNamespace(provider_id="lmstudio")]
-                    )
-                ),
-                get_role_provider=lambda role_name: SimpleNamespace(api_base="http://localhost:1234/v1"),
+                get_role_provider_chain_with_models=lambda role_name, _lang: [
+                    ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")
+                ] if role_name == "chat" else [],
             )
         )
         state = {

@@ -102,14 +102,12 @@ class LLMFactory:
             source=source,
         )
 
-    def _chat_provider_chain(self) -> List[Tuple[str, ProviderSettings]]:
-        registry = self.config.llm.providers.get_registry()
-        role_refs = self.config.llm.roles.chat.providers
-        chain: List[Tuple[str, ProviderSettings]] = []
-        for ref in role_refs:
-            provider = registry.get(ref.provider_id)
-            if provider:
-                chain.append((ref.provider_id, provider))
+    def _chat_provider_chain(self, language: str) -> List[Tuple[str, ProviderSettings, str]]:
+        chain: List[Tuple[str, ProviderSettings, str]] = []
+        try:
+            chain = self.config.llm.get_role_provider_chain_with_models("chat", language)
+        except Exception:
+            chain = []
         if not chain:
             raise RuntimeError("No providers configured for chat role")
         return chain
@@ -139,18 +137,18 @@ class LLMFactory:
         - preferred on fallback (if provided)
         - default fallback
         """
-        provider_chain = self._chat_provider_chain()
+        provider_chain = self._chat_provider_chain(language)
         if not prefer_local and len(provider_chain) > 1:
             provider_chain = provider_chain[1:]
         candidates: list[ModelSelection] = []
         errors = []
         seen: set[tuple[str, str, str]] = set()
 
-        def try_add(provider: Optional[ProviderSettings], source: str, model_override: Optional[str] = None):
+        def try_add(provider: Optional[ProviderSettings], default_model: Optional[str], source: str, model_override: Optional[str] = None):
             if not provider:
                 return
             try:
-                model_name = model_override or self._select_model(provider, language)
+                model_name = model_override or default_model or self._select_model(provider, language)
                 key = (self._provider_from_model(model_name), model_name, source)
                 if key in seen:
                     return
@@ -160,12 +158,12 @@ class LLMFactory:
             except Exception as exc:  # pragma: no cover - fallback path
                 errors.append(exc)
 
-        for index, (_provider_id, provider) in enumerate(provider_chain):
+        for index, (_provider_id, provider, default_model_name) in enumerate(provider_chain):
             label = self._source_label_for(_provider_id, index)
             if preferred_model:
-                try_add(provider, f"{label}_preferred", preferred_model)
+                try_add(provider, default_model_name, f"{label}_preferred", preferred_model)
             if (not preferred_model) or include_default_when_preferred:
-                try_add(provider, f"{label}_default")
+                try_add(provider, default_model_name, f"{label}_default")
 
         if not candidates and errors:
             raise RuntimeError(f"All providers failed: {errors}")
@@ -200,10 +198,10 @@ class LLMFactory:
         except Exception as exc:  # pragma: no cover
             raise RuntimeError("LiteLLM router dependencies not available") from exc
 
-        provider_chain = self._chat_provider_chain()
-        primary_provider_id, primary = provider_chain[0]
+        provider_chain = self._chat_provider_chain(language)
+        primary_provider_id, primary, primary_default_model = provider_chain[0]
         primary_label = self._source_label_for(primary_provider_id, 0)
-        primary_model = preferred_model or self._select_model(primary, language)
+        primary_model = preferred_model or primary_default_model
         model_list = [
             {
                 "model_name": primary_label,
@@ -211,9 +209,9 @@ class LLMFactory:
             }
         ]
 
-        for index, (provider_id, provider) in enumerate(provider_chain[1:], start=1):
+        for index, (provider_id, provider, default_model_name) in enumerate(provider_chain[1:], start=1):
             fallback_label = self._source_label_for(provider_id, index)
-            fallback_model = preferred_model or self._select_model(provider, language)
+            fallback_model = preferred_model or default_model_name
             model_list.append(
                 {
                     "model_name": fallback_label,
@@ -292,9 +290,9 @@ class LLMFactory:
     ) -> Tuple[object, ProviderSettings]:
         """Return (model, provider_settings) so callers can inspect tool_calling mode."""
         selection = self.get_model_selection(language=language, prefer_local=prefer_local)
-        provider_chain = self._chat_provider_chain()
+        provider_chain = self._chat_provider_chain(language)
         source_prefix = selection.source.split("_", 1)[0]
-        for index, (_provider_id, provider) in enumerate(provider_chain):
+        for index, (_provider_id, provider, _model_name) in enumerate(provider_chain):
             label = self._source_label_for(_provider_id, index)
             if label == source_prefix:
                 return selection.model, provider

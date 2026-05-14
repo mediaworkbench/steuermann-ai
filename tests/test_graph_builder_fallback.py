@@ -10,13 +10,9 @@ from universal_agentic_framework.config.schemas import (
     IngestionSettings,
     LLMRoleSettings,
     LLMRoles,
-    LLMProviders,
     LLMSettings,
     MemorySettings,
-    ProviderModelMap,
-    ProviderSettings,
     RetentionSettings,
-    RoleProviderRef,
     TokensSettings,
     VectorStoreSettings,
 )
@@ -58,41 +54,36 @@ def _core_config() -> CoreConfig:
     return CoreConfig(
         fork=ForkSettings(name="starter", language="en"),
         llm=LLMSettings(
-            providers=LLMProviders(
-                lmstudio=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en="openai/primary-model"),
-                    temperature=0.1,
-                    max_tokens=256,
-                    timeout=30,
-                ),
-                openrouter=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en="openai/fallback-model"),
-                    temperature=0.1,
-                    max_tokens=256,
-                    timeout=30,
-                ),
-            ),
             roles=LLMRoles(
                 chat=LLMRoleSettings(
-                    providers=[
-                        RoleProviderRef(provider_id="lmstudio"),
-                        RoleProviderRef(provider_id="openrouter"),
-                    ],
-                    config_only=False,
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
+                    temperature=0.1,
+                    max_tokens=256,
+                    timeout=30,
                 ),
-                embedding=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
-                vision=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
-                auxiliary=LLMRoleSettings(providers=[RoleProviderRef(provider_id="lmstudio")], config_only=True),
+                embedding=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/text-embedding-granite-embedding-278m-multilingual",
+                ),
+                vision=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
+                ),
+                auxiliary=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
+                ),
             ),
         ),
         database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
         memory=MemorySettings(
             vector_store=VectorStoreSettings(type="mem0", host="qdrant", port=6333, collection_prefix="starter"),
-            embeddings=EmbeddingSettings(model="model", dimension=384, batch_size=32),
+            embeddings=EmbeddingSettings(dimension=384, batch_size=32),
             retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
         ),
         tokens=TokensSettings(default_budget=10000, per_node_budgets={}),

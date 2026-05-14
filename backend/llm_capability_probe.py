@@ -61,7 +61,6 @@ class LLMCapabilityProbeRunner:
     def _collect_targets(self) -> list[ProbeTarget]:
         """Collect all unique (provider_id, model_name) pairs across all roles except embedding."""
         llm_cfg = self._core_config.llm
-        registry = llm_cfg.providers.get_registry()
         targets: list[ProbeTarget] = []
         seen: set[tuple[str, str]] = set()  # Track (provider_id, model_name) pairs
 
@@ -74,21 +73,21 @@ class LLMCapabilityProbeRunner:
                 logger.debug(f"Role {role_name} not found in config, skipping")
                 continue
 
-            for ref in role_cfg.providers:
-                provider_id = str(ref.provider_id)
-                provider = registry.get(provider_id)
-                if provider is None:
-                    logger.warning(f"Skipping unknown probe provider in role {role_name}", provider_id=provider_id)
-                    continue
+            try:
+                role_chain = llm_cfg.get_role_provider_chain_with_models(role_name, self._core_config.fork.language)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping role during probe target collection",
+                    extra={"role": role_name, "error": str(exc)},
+                )
+                continue
 
-                # Collect all distinct models configured for this provider
-                model_names = self._collect_all_models(provider)
-                for model_name in model_names:
-                    pair_key = (provider_id, model_name)
-                    if pair_key in seen:
-                        continue
-                    targets.append(ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name))
-                    seen.add(pair_key)
+            for provider_id, provider, model_name in role_chain:
+                pair_key = (str(provider_id), str(model_name))
+                if pair_key in seen:
+                    continue
+                targets.append(ProbeTarget(provider_id=str(provider_id), provider=provider, model_name=str(model_name)))
+                seen.add(pair_key)
 
         # Log probe coverage for observability
         if seen:
@@ -96,7 +95,7 @@ class LLMCapabilityProbeRunner:
             for provider_id, model_name in seen:
                 for role_name in role_names:
                     role_cfg = getattr(llm_cfg.roles, role_name, None)
-                    if role_cfg and any(ref.provider_id == provider_id for ref in role_cfg.providers):
+                    if role_cfg and str(getattr(role_cfg, "provider_id", "")) == provider_id:
                         role_coverage.setdefault(role_name, []).append((provider_id, model_name))
 
             logger.info(

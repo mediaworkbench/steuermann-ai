@@ -10,67 +10,44 @@ fork:
     - "en"
 
 llm:
-  providers:
-    lmstudio:
+  roles:
+    chat:
+      provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      models:
-        en: "openai/google/gemma-4-e4b"
-        de: "openai/google/gemma-4-e4b"
-      model_tool_calling:
-        openai/google/gemma-4-e4b: "native"
+      model: "openai/google/gemma-4-e4b"
       temperature: 0.3
       max_tokens: 2048
       timeout: 600
-    ollama:
-      api_base: $LLM_PROVIDERS_OLLAMA_API_BASE
-      models:
-        en: "ollama/llama-3.1-8b"
-        de: "ollama/llama-3.1-8b"
-      model_tool_calling:
-        ollama/llama-3.1-8b: "native"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-    openrouter:
-      api_base: $LLM_PROVIDERS_OPENROUTER_API_BASE
-      api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
-      models:
-        en: "openrouter/poolside/laguna-m.1:free"
-        de: "openrouter/poolside/laguna-m.1:free"
-      model_tool_calling:
-        openrouter/poolside/laguna-m.1:free: "native"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-  roles:
-    chat:
-      providers:
-        - provider_id: "lmstudio"
-        - provider_id: "ollama"
-        - provider_id: "openrouter"
-      config_only: false
     embedding:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      temperature: 0.0
+      timeout: 300
     vision:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 600
     auxiliary:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 600
   router:
     routing_strategy: "simple-shuffle"
     num_retries: 3
     retry_after: 1
     enable_pre_call_checks: true
     default_max_parallel_requests: 4
-    default_fallbacks:
-      - "openrouter"
 
 memory:
+  embeddings:
+    dimension: 768
   retention:
     session_memory_days: 90
     user_memory_days: 365
@@ -112,7 +89,6 @@ tokens:
 
 tool_routing:
   similarity_threshold: 0.55
-  embedding_model: "text-embedding-granite-embedding-278m-multilingual"
   top_k: 5
   intent_boost: 0.2
   max_retries: 2

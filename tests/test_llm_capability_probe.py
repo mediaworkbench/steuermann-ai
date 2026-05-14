@@ -25,8 +25,10 @@ class _FakeFactory:
 def _make_core_config(provider):
     return SimpleNamespace(
         llm=SimpleNamespace(
-            providers=_FakeProviders({"lmstudio": provider}),
-            roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")])),
+            roles=SimpleNamespace(chat=object(), vision=object(), auxiliary=object()),
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")
+            ] if role_name in {"chat", "vision", "auxiliary"} else [],
         ),
         fork=SimpleNamespace(language="en"),
     )

@@ -81,12 +81,12 @@ def resolve_runtime_ingestion_defaults() -> RuntimeIngestionDefaults:
         incremental_mode=bool(ingestion_config.incremental_mode),
         phase_timing=bool(ingestion_config.phase_timing),
         reingest_timeout_seconds=int(ingestion_config.reingest_timeout_seconds),
-        embedding_provider_type=core_config.memory.embeddings.provider,
+        embedding_provider_type=core_config.llm.get_embedding_provider_type(),
         embedding_remote_endpoint=_resolve_env_placeholder(
-            core_config.memory.embeddings.remote_endpoint,
+            core_config.llm.get_embedding_remote_endpoint(),
             os.getenv("EMBEDDING_SERVER"),
         ),
-        embedding_model=core_config.memory.embeddings.model,
+        embedding_model=core_config.llm.get_role_model_name("embedding", core_config.fork.language),
         embedding_dimension=int(core_config.memory.embeddings.dimension),
         qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
         qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
@@ -267,7 +267,9 @@ def create_service_from_config(config_dict: Dict[str, Any]) -> IngestionService:
     
     # Get embedding config
     embedding_config = config_dict.get("embedding", {})
-    embedding_model = embedding_config.get("model", "text-embedding-granite-embedding-278m-multilingual")
+    embedding_model = embedding_config.get("model")
+    if not embedding_model:
+        raise ValueError("embedding.model must be set in ingestion configuration")
     embedding_dimension = embedding_config.get("dimension", 768)
     embedding_provider_type = embedding_config.get("provider", "local")
     embedding_remote_endpoint = embedding_config.get("remote_endpoint", None)

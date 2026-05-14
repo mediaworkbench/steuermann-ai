@@ -337,7 +337,7 @@ class CacheManager:
         similarity_threshold: float = 0.85,
         enable_compression: bool = False,
         compression_threshold_kb: int = 1,
-        embedding_model: str = "text-embedding-granite-embedding-278m-multilingual",
+        embedding_model: str = "",
         embedding_dimension: int = 768,
         embedding_provider_type: str = "remote",
         embedding_remote_endpoint: Optional[str] = None,

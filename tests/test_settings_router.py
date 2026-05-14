@@ -61,7 +61,6 @@ memory:
     host: localhost
     collection_prefix: base
   embeddings:
-    model: embed
     dimension: 384
   retention:
     session_memory_days: 90
@@ -74,27 +73,23 @@ checkpointing:
     profiles_dir.joinpath("core.yaml").write_text(
         """
 llm:
-  providers:
-    lmstudio:
-      api_key: test-key
-      models:
-        en: openai/base-model
   roles:
     chat:
-      providers:
-        - provider_id: lmstudio
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
     embedding:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-embedding
     vision:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
     auxiliary:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
 rag:
   collection_name: framework
   top_k: 5
@@ -183,24 +178,18 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
 
     def _core_config(prompt_languages):
         provider = SimpleNamespace(models=SimpleNamespace(en="base-model", model_dump=lambda: {"en": "base-model"}))
-        providers = _ProviderRegistry({"lmstudio": provider})
         roles = SimpleNamespace(
-            chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
-            embedding=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
-            vision=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
-            auxiliary=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")]),
-            model_dump=lambda: {
-                "chat": {"providers": [{"provider_id": "lmstudio"}]},
-                "embedding": {"providers": [{"provider_id": "lmstudio"}]},
-                "vision": {"providers": [{"provider_id": "lmstudio"}]},
-                "auxiliary": {"providers": [{"provider_id": "lmstudio"}]},
-            },
+        chat=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        embedding=SimpleNamespace(provider_id="lmstudio", model="openai/base-embedding", api_base="http://localhost:1234/v1"),
+        vision=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        auxiliary=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
         )
 
         llm = SimpleNamespace(
-            providers=providers,
             roles=roles,
             get_role_provider=lambda _role: provider,
+        get_role_model_name=lambda _role, _lang: "openai/base-model" if _role != "embedding" else "openai/base-embedding",
+        get_role_provider_chain_with_models=lambda role_name, _lang: [("lmstudio", provider, "openai/base-model" if role_name != "embedding" else "openai/base-embedding")],
         )
 
         return SimpleNamespace(
@@ -360,14 +349,12 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
         def get_tool_calling_mode(self, _model_name: str) -> str:
             return "native"
 
-    class _Registry:
-        def get(self, provider_id: str):
-            return _Provider() if provider_id == "lmstudio" else None
-
     core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
-            providers=SimpleNamespace(get_registry=lambda: _Registry()),
-      roles=SimpleNamespace(chat=SimpleNamespace(providers=[SimpleNamespace(provider_id="lmstudio")])),
+        get_role_provider_chain_with_models=lambda role_name, _lang: [
+          ("lmstudio", _Provider(), "openai/test-model")
+        ] if role_name in {"chat", "vision", "auxiliary"} else [],
         )
     )
 
@@ -402,9 +389,9 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["profile_id"] == "starter"
-    assert len(payload["items"]) == 1
+    assert len(payload["items"]) == 3
 
-    item = payload["items"][0]
+    item = next(i for i in payload["items"] if i["role"] == "chat")
     assert item["provider_id"] == "lmstudio"
     assert item["model_name"] == "openai/test-model"
     assert item["configured_tool_calling_mode"] == "native"

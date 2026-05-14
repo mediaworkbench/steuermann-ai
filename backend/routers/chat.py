@@ -91,24 +91,23 @@ def _resolve_provider_endpoint(provider_prefix: str) -> str:
     """Resolve endpoint strictly from active provider config."""
     try:
         core = load_core_config()
-        registry = core.llm.providers.get_registry()
-
         provider_prefix = (provider_prefix or "").strip().lower()
-        candidate_provider_ids: list[str]
 
-        if provider_prefix == "ollama":
-            candidate_provider_ids = ["ollama"]
-        elif provider_prefix == "openrouter":
-            candidate_provider_ids = ["openrouter"]
-        elif provider_prefix in {"openai", "lm_studio", "lmstudio"}:
-            candidate_provider_ids = ["lmstudio", "openai"]
-        else:
-            candidate_provider_ids = [provider_prefix]
+        for role_name in ("chat", "vision", "auxiliary", "embedding"):
+            try:
+                role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.fork.language)
+            except Exception:
+                continue
+            for _provider_id, provider, model_name in role_chain:
+                try:
+                    model_provider_prefix = parse_model_id(str(model_name)).provider
+                except Exception:
+                    continue
+                if model_provider_prefix != provider_prefix:
+                    continue
+                if getattr(provider, "api_base", None):
+                    return str(provider.api_base).rstrip("/")
 
-        for provider_id in candidate_provider_ids:
-            provider = registry.get(provider_id)
-            if provider and getattr(provider, "api_base", None):
-                return str(provider.api_base).rstrip("/")
     except Exception as exc:
         raise ValueError(f"Failed to resolve provider endpoint from config: {exc}") from exc
 

@@ -100,7 +100,8 @@ def client_with_mocks(probe_store, settings_store):
     
     with patch("backend.routers.settings.LLMCapabilityProbeRunner", return_value=fake_runner):
         with patch("backend.routers.settings.get_active_profile_id", return_value="starter"):
-            yield TestClient(app), fake_runner
+            with patch("backend.routers.settings._validate_chat_preference", new=AsyncMock(side_effect=lambda model: (model, None))):
+                yield TestClient(app), fake_runner
 
 
 class TestReprobeTriggersOnSettingsChange:

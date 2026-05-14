@@ -44,16 +44,15 @@ def test_load_core_config_env_substitution() -> None:
     }
 
     core = load_core_config(env=env)
-    registry = core.llm.providers.get_registry()
 
     assert core.fork.name == "starter"
     assert core.database.url == "postgresql://app:pw@localhost:5432/framework"
     assert core.rag is not None
     assert core.rag.collection_name == "framework"
     assert core.ingestion.source_path == "./data/rag-data"
-    assert core.llm.roles.chat.providers[0].provider_id == "lmstudio"
-    assert registry["lmstudio"].models.en is not None  # model name is profile-specific
-    assert "localhost:1234" in str(registry["lmstudio"].api_base)
+    assert core.llm.roles.chat.provider_id == "lmstudio"
+    assert core.llm.roles.chat.model is not None
+    assert "localhost:1234" in str(core.llm.roles.chat.api_base)
 
 
 def test_load_agents_config_defaults(tmp_path: Path) -> None:
@@ -157,7 +156,6 @@ memory:
     host: localhost
     collection_prefix: base
   embeddings:
-    model: embed
     dimension: 384
   retention:
     session_memory_days: 90
@@ -172,29 +170,23 @@ fork:
   language: de
   locale: de_DE
 llm:
-  providers:
-    lmstudio:
-      api_base: http://localhost:11434/v1
-      models:
-        en: openai/base-model
-        de: openai/base-model-de
   roles:
     chat:
-      providers:
-        - provider_id: lmstudio
-      config_only: false
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
     embedding:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-embedding
     vision:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
     auxiliary:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
 tokens:
   default_budget: 20000
 rag:
@@ -218,6 +210,7 @@ prompts:
     assert core.tokens.default_budget == 20000
     assert core.rag is not None
     assert core.rag.collection_name == "medical-rag"
+    assert core.llm.roles.embedding.model == "openai/base-embedding"
     assert core.database.url == "sqlite:///base.db"
 
 
@@ -238,7 +231,6 @@ memory:
     host: localhost
     collection_prefix: base
   embeddings:
-    model: embed
     dimension: 384
   retention:
     session_memory_days: 90
@@ -279,7 +271,6 @@ memory:
     host: localhost
     collection_prefix: base
   embeddings:
-    model: embed
     dimension: 384
   retention:
     session_memory_days: 90
@@ -293,34 +284,23 @@ memory:
 fork:
   language: en
 llm:
-  providers:
-    lmstudio:
-      api_base: http://localhost:1234/v1
-      models:
-        en: openai/liquid/lfm2-24b-a2b
-    openrouter:
-      api_base: https://openrouter.ai/api/v1
-      api_key: test-key
-      models:
-        en: openrouter/openai/gpt-4o-mini
   roles:
     chat:
-      providers:
-        - provider_id: lmstudio
-        - provider_id: openrouter
-      config_only: false
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
     embedding:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/text-embedding-granite-embedding-278m-multilingual
     vision:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
     auxiliary:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
 tokens:
   default_budget: 10000
 ingestion:
@@ -334,13 +314,8 @@ ingestion:
         profiles_dir=profiles_dir,
         env={"PROFILE_ID": "starter"},
     )
-    registry = core.llm.providers.get_registry()
-
-    assert [ref.provider_id for ref in core.llm.roles.chat.providers] == ["lmstudio", "openrouter"]
-    assert registry["lmstudio"].models.en == "openai/liquid/lfm2-24b-a2b"
-    assert registry["openrouter"].models.en == "openrouter/openai/gpt-4o-mini"
-    with pytest.raises(AttributeError):
-        _ = core.llm.providers.primary
+    assert core.llm.roles.chat.provider_id == "lmstudio"
+    assert core.llm.roles.chat.model == "openai/liquid/lfm2-24b-a2b"
 
 
 def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:

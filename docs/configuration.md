@@ -118,10 +118,14 @@ llm:
     embedding:
       providers:
         - provider_id: lmstudio
+          model: "openai/text-embedding-granite-embedding-278m-multilingual"
       config_only: true
     vision:
       providers:
         - provider_id: lmstudio
+          models:
+            en: "openai/gpt-4.1-mini"
+            de: "openai/gpt-4.1-mini"
       config_only: true
     auxiliary:
       providers:
@@ -144,6 +148,13 @@ llm:
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
 
 **Provider registry and roles:** `llm.providers` is a named registry. Runtime consumers resolve models through role chains like `llm.roles.chat.providers`, not through legacy `primary` / `fallback` aliases. LiteLLM router behavior is configured by `llm.router` in the same profile overlay.
+
+Each `llm.roles.<role>.providers[]` entry can optionally override the provider default model with either:
+
+- `model`: one explicit model for that role/provider pair
+- `models`: language-specific role models (`en`, `de`, etc.)
+
+If omitted, runtime falls back to `llm.providers.<provider>.models`.
 
 **LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
@@ -197,6 +208,7 @@ memory:
 - `provider: "remote"` uses an OpenAI-compatible embeddings endpoint (for example LM Studio).
 - Keep `dimension` synchronized with the selected model, otherwise Qdrant collection compatibility issues occur.
 - If migrating dimensions (for example `384 -> 768`), recreate existing vector collections.
+- Profile overlays may override `memory.embeddings.*` in `config/profiles/<profile_id>/core.yaml`, so embedding model selection can be profile-specific.
 
 **Memory feedback ratings (importance scoring):**
 
