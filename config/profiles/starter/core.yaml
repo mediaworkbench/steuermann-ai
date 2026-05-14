@@ -14,13 +14,13 @@ llm:
     lmstudio:
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
       models:
-        en: "openai/qwen/qwen3.6-27b"
-        de: "openai/qwen/qwen3.6-27b"
+        en: "openai/google/gemma-4-e4b"
+        de: "openai/google/gemma-4-e4b"
       model_tool_calling:
-        openai/qwen/qwen3.6-27b: "native"
+        openai/google/gemma-4-e4b: "native"
       temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
+      max_tokens: 2048
+      timeout: 600
     ollama:
       api_base: $LLM_PROVIDERS_OLLAMA_API_BASE
       models:
