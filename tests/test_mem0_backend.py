@@ -173,6 +173,34 @@ def test_isinstance_memory_rating_backend():
     assert isinstance(backend, MemoryRatingBackend)
 
 
+def test_mem0_embedder_model_is_normalized(monkeypatch):
+    captured: Dict[str, Any] = {}
+
+    class _CaptureMemory:
+        @staticmethod
+        def from_config(config):
+            captured["config"] = config
+            return _FakeMemory()
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "mem0", types.SimpleNamespace(Memory=_CaptureMemory))
+
+    Mem0MemoryBackend(
+        **{
+            **_COMMON_KWARGS,
+            "embedding_model": "openai/text-embedding-granite-embedding-278m-multilingual",
+            "embedding_remote_endpoint": "http://host.docker.internal:1234/v1",
+            "client": None,
+        }
+    )
+
+    assert captured["config"]["embedder"]["config"]["model"] == (
+        "text-embedding-granite-embedding-278m-multilingual"
+    )
+
+
 def test_upsert_returns_memory_record():
     backend = _make_backend()
     rec = backend.upsert("u1", "alpha beta gamma", metadata={"tag": "x"})

@@ -10,6 +10,7 @@ from universal_agentic_framework.orchestration.graph_builder import (
     node_prefilter_tools,
     node_route_tools,
     node_call_tools_native,
+    node_call_tools_structured,
     node_generate_response,
 )
 from universal_agentic_framework.orchestration.helpers.embedding_provider import (
@@ -77,6 +78,50 @@ class SequencedDummyModel:
         if self.outputs:
             return SimpleNamespace(content=self.outputs.pop(0))
         return SimpleNamespace(content="")
+
+
+class ListContentStructuredModel:
+    """Return structured JSON tool call embedded in list content blocks."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content=[
+                {"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'},
+            ]
+        )
+
+
+class DictContentStructuredModel:
+    """Return structured JSON tool call in dict-shaped content."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content={"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'}
+        )
+
+
+class MixedContentStructuredModel:
+    """Return mixed blocks where only one block contains valid JSON call text."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content=[
+                {"type": "reasoning", "content": [{"summary": "planning"}]},
+                {"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'},
+            ]
+        )
 
 
 class DummyNativeModel:
@@ -913,6 +958,78 @@ def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_conf
     assert len(seen_calls) == 2
     assert seen_calls[1]["request_url"] == "https://www.mediaworkbench.com"
     assert result["tool_results"]["extract_webpage_mcp"] == "retry success content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_list_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should parse JSON tool call from list-based content blocks."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = ListContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_dict_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should parse JSON tool call from dict-shaped content."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = DictContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_mixed_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should tolerate mixed content blocks and still parse JSON call."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = MixedContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
 
 
 class TestSemanticKwargsBuilder:

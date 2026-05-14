@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Set
 
 import structlog
 
+from universal_agentic_framework.embeddings import normalize_embedding_model_name
+
 from .backend import MemoryBackend, MemoryRecord
 from .importance import MemoryImportanceScorer
 from .linking import MemoryCoOccurrenceTracker
@@ -60,6 +62,8 @@ class Mem0MemoryBackend(MemoryBackend):
         self._owner_cache: Dict[str, str] = {}
         self._rating_overrides: Dict[str, int] = {}
 
+        normalized_embedding_model = normalize_embedding_model_name(embedding_model)
+
         config: Dict[str, Any] = {
             "vector_store": {
                 "provider": "qdrant",
@@ -73,7 +77,7 @@ class Mem0MemoryBackend(MemoryBackend):
             "embedder": {
                 "provider": "openai",
                 "config": {
-                    "model": embedding_model,
+                    "model": normalized_embedding_model,
                 },
             },
         }

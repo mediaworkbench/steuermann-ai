@@ -864,9 +864,38 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             tool_execution_results: Dict[str, Dict[str, Any]] = state.get("tool_execution_results", {})
             routing_metadata: Dict[str, str] = state.get("routing_metadata", {})
 
+            def _normalize_structured_response_text(raw_content: Any) -> str:
+                """Normalize model content into plain text for structured JSON parsing."""
+
+                def _extract_parts(value: Any) -> List[str]:
+                    if value is None:
+                        return []
+                    if isinstance(value, str):
+                        return [value]
+                    if isinstance(value, list):
+                        parts: List[str] = []
+                        for item in value:
+                            parts.extend(_extract_parts(item))
+                        return parts
+                    if isinstance(value, dict):
+                        # Common content-block shape: {"type": "text", "text": "..."}
+                        text_value = value.get("text")
+                        if text_value is not None:
+                            return _extract_parts(text_value)
+                        # Some providers may wrap nested content arrays/objects.
+                        nested_value = value.get("content")
+                        if nested_value is not None:
+                            return _extract_parts(nested_value)
+                        return []
+                    return [str(value)]
+
+                return "\n".join(part for part in _extract_parts(raw_content) if part)
+
             for attempt in range(max_retries + 1):
                 response = model.invoke(messages)
-                response_text = response.content if hasattr(response, "content") else str(response)
+                response_text = _normalize_structured_response_text(
+                    response.content if hasattr(response, "content") else response
+                )
 
                 # Try to parse JSON tool call from response
                 tool_call = None

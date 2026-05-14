@@ -2,7 +2,10 @@
 
 import pytest
 from universal_agentic_framework.config import load_core_config
-from universal_agentic_framework.embeddings import build_embedding_provider
+from universal_agentic_framework.embeddings import (
+    build_embedding_provider,
+    normalize_embedding_model_name,
+)
 
 
 class TestEmbeddingConfigLoading:
@@ -141,3 +144,20 @@ class TestEmbeddingConfigOverrides:
             # Expected to fail without real LM Studio endpoint
             # This is OK - we're just testing the configuration loads
             assert "Failed" in str(e) or "Connection" in str(e)
+
+    def test_embedding_model_name_normalization_strips_openai_prefix(self):
+        """Embedding model IDs should be normalized for /embeddings endpoints."""
+        assert normalize_embedding_model_name(
+            "openai/text-embedding-granite-embedding-278m-multilingual"
+        ) == "text-embedding-granite-embedding-278m-multilingual"
+
+    def test_remote_provider_stores_normalized_model_name(self):
+        """Remote provider should strip LiteLLM-style prefixes for embedding calls."""
+        provider = build_embedding_provider(
+            model_name="openai/text-embedding-granite-embedding-278m-multilingual",
+            dimension=768,
+            provider_type="remote",
+            remote_endpoint="$EMBEDDING_SERVER/v1",
+        )
+
+        assert provider.model_name == "text-embedding-granite-embedding-278m-multilingual"
