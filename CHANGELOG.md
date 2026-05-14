@@ -7,9 +7,10 @@
 - **break** Legacy `providers.primary` / `providers.fallback` assumptions removed from runtime consumers and test fixtures; role-based provider chains are now the only supported contract
 - **feat** `LLMFactory.get_router_model()` now forwards profile-owned LiteLLM router policy from `llm.router` (retry, routing strategy, default parallelism)
 - **fix** `backend/routers/chat.py` provider endpoint resolution now uses only the active profile's named provider registry; the final fallback to legacy `providers.primary` was removed
-- **fix** `backend/routers/settings.py`, tool-calling mode resolution, crews, memory backend construction, and model-resolution helpers now resolve providers via roles instead of legacy aliases
-- **docs** Updated `README.md`, `docs/configuration.md`, `docs/technical_architecture.md`, `docs/status.md`, and `.github/ARCHITECTURE.md` for active-profile-only provider/model configuration
-- **test** Completed remaining legacy test cleanup and added direct chat endpoint resolution coverage; targeted regression slices now pass under the role-based config contract
+- **fix** `backend/routers/settings.py`, ingestion CLI/runtime defaults, tool-calling mode resolution, crews, memory backend construction, and model-resolution helpers now resolve behavior from the active profile and named provider roles instead of legacy aliases or env-owned ingestion knobs
+- **fix** `.env` and `.env.example` now quote space-containing values so they can be sourced cleanly by POSIX shells and `zsh`
+- **docs** Updated `README.md`, `docs/configuration.md`, `docs/ingestion.md`, `docs/technical_architecture.md`, `docs/status.md`, and `.github/ARCHITECTURE.md` for active-profile-only provider/model/ingestion configuration
+- **test** Completed remaining legacy test cleanup, added direct chat endpoint resolution coverage, and validated the final cutover with focused regressions plus live stack smoke checks
 
 ## [0.2.3] — provider-endpoint-consolidation
 
