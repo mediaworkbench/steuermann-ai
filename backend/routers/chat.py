@@ -34,7 +34,6 @@ from universal_agentic_framework.tools.file_ops.tool import WorkspaceFileOpsTool
 
 logger = logging.getLogger(__name__)
 LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434")
 PROFILE_ID = os.getenv("PROFILE_ID", "starter")
 ACTIVE_PROFILE_ID = os.getenv("ACTIVE_PROFILE_ID", PROFILE_ID)
 
@@ -86,6 +85,33 @@ _WORKSPACE_SAVE_INTENT_PATTERNS = [
     re.compile(r"\b(im\s+workspace\s+speichern|im\s+workspace\s+ueberschreiben|im\s+workspace\s+überschreiben)\b", re.IGNORECASE),
     re.compile(r"\b(speicher|speichern|ueberschreibe|überschreibe|aktualisiere)\b.*\b(workspace|dokument|datei)\b", re.IGNORECASE),
 ]
+
+
+def _resolve_provider_endpoint(provider_prefix: str) -> str:
+    """Resolve endpoint strictly from active provider config."""
+    try:
+        core = load_core_config()
+        provider_prefix = (provider_prefix or "").strip().lower()
+
+        for role_name in ("chat", "vision", "auxiliary", "embedding"):
+            try:
+                role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.fork.language)
+            except Exception:
+                continue
+            for _provider_id, provider, model_name in role_chain:
+                try:
+                    model_provider_prefix = parse_model_id(str(model_name)).provider
+                except Exception:
+                    continue
+                if model_provider_prefix != provider_prefix:
+                    continue
+                if getattr(provider, "api_base", None):
+                    return str(provider.api_base).rstrip("/")
+
+    except Exception as exc:
+        raise ValueError(f"Failed to resolve provider endpoint from config: {exc}") from exc
+
+    raise ValueError(f"No api_base configured for provider prefix '{provider_prefix}'")
 
 
 class ChatRequest(BaseModel):
@@ -844,10 +870,36 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     return settings
 
 
+def _clear_invalid_chat_model_preference(
+    user_id: str,
+    settings_store: SettingsStore,
+    user_settings: Dict[str, Any],
+) -> None:
+    """Remove a stale chat-model override after endpoint validation rejects it."""
+    preferred_models = dict(user_settings.get("preferred_models") or {})
+    preferred_models.pop("chat", None)
+
+    updated_settings = settings_store.upsert_user_settings(
+        user_id=user_id,
+        tool_toggles=user_settings.get("tool_toggles") or {},
+        rag_config=user_settings.get("rag_config") or {"collection": "", "top_k": 5},
+        analytics_preferences=user_settings.get("analytics_preferences") or {},
+        preferred_model=None,
+        preferred_models=preferred_models,
+        theme=user_settings.get("theme") or "auto",
+        display_sidebar_visible=bool(user_settings.get("display_sidebar_visible", True)),
+        display_compact_mode=bool(user_settings.get("display_compact_mode", False)),
+        language=user_settings.get("language") or "en",
+        notifications_enabled=bool(user_settings.get("notifications_enabled", True)),
+        notifications_sound=bool(user_settings.get("notifications_sound", True)),
+    )
+    _settings_cache[user_id] = (updated_settings, time.time())
+
+
 def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
     """Load latest persisted probe results grouped by provider.
 
-    Returns most recent row per provider_id for the active profile.
+    Returns most recent rows for provider+model pairs for the active profile.
     """
     probe_store = getattr(request.app.state, "llm_capability_probe_store", None)
     if probe_store is None:
@@ -860,14 +912,16 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
         logger.warning("Failed to load LLM capability probes", extra={"error": str(exc)})
         return []
 
-    latest_by_provider: dict[str, dict[str, Any]] = {}
+    latest_by_model: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         provider_id = str(row.get("provider_id") or "").strip()
-        if not provider_id or provider_id in latest_by_provider:
+        model_name = str(row.get("model_name") or "").strip()
+        key = (provider_id, model_name)
+        if not provider_id or not model_name or key in latest_by_model:
             continue
-        latest_by_provider[provider_id] = {
+        latest_by_model[key] = {
             "provider_id": provider_id,
-            "model_name": row.get("model_name"),
+            "model_name": model_name,
             "configured_tool_calling_mode": row.get("configured_tool_calling_mode"),
             "supports_bind_tools": row.get("supports_bind_tools"),
             "supports_tool_schema": row.get("supports_tool_schema"),
@@ -877,7 +931,7 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
             "probed_at": row.get("probed_at"),
         }
 
-    return list(latest_by_provider.values())
+    return list(latest_by_model.values())
 
 
 async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -968,7 +1022,7 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
 
     async def _fetch_models() -> list[str]:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            base = str(LLM_ENDPOINT).rstrip("/")
+            base = _resolve_provider_endpoint(provider_prefix)
             try:
                 resp = await client.get(f"{base}/models")
                 resp.raise_for_status()
@@ -1034,6 +1088,11 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             validated_model, warning = await _validate_preferred_model(user_settings["preferred_model"])
             if warning:
                 model_warning = warning
+            if warning and validated_model is None:
+                try:
+                    _clear_invalid_chat_model_preference(effective_user_id, settings_store, user_settings)
+                except Exception as exc:
+                    logger.warning("Failed to clear invalid preferred model override: %s", exc)
             # Update settings with validated model (or None if invalid)
             user_settings["preferred_model"] = validated_model
     
@@ -1090,7 +1149,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         headers: Dict[str, str] = {}
 
         async def _invoke_langgraph() -> dict[str, Any]:
-            async with httpx.AsyncClient(timeout=360.0) as client:
+            async with httpx.AsyncClient(timeout=900.0) as client:
                 response = await client.post(f"{LANGGRAPH_URL}/invoke", json=state, headers=headers)
                 response.raise_for_status()
                 return response.json()

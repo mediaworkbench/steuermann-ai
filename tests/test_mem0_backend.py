@@ -27,6 +27,7 @@ class _FakeMemory:
         self.last_get_all_filters: Optional[Dict[str, Any]] = None
         self.last_delete_all_filters: Optional[Dict[str, Any]] = None
         self.last_add_infer: Optional[bool] = None
+        self.last_add_payload: Any = None
 
     def add(
         self,
@@ -37,6 +38,7 @@ class _FakeMemory:
         infer: bool = True,
     ) -> dict:
         self.last_add_infer = infer
+        self.last_add_payload = text
         if isinstance(text, list):
             # Mem0 canonical call path: list of chat-style messages.
             text_value = "\n".join(
@@ -171,6 +173,34 @@ def test_isinstance_memory_rating_backend():
     assert isinstance(backend, MemoryRatingBackend)
 
 
+def test_mem0_embedder_model_is_normalized(monkeypatch):
+    captured: Dict[str, Any] = {}
+
+    class _CaptureMemory:
+        @staticmethod
+        def from_config(config):
+            captured["config"] = config
+            return _FakeMemory()
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "mem0", types.SimpleNamespace(Memory=_CaptureMemory))
+
+    Mem0MemoryBackend(
+        **{
+            **_COMMON_KWARGS,
+            "embedding_model": "openai/text-embedding-granite-embedding-278m-multilingual",
+            "embedding_remote_endpoint": "http://host.docker.internal:1234/v1",
+            "client": None,
+        }
+    )
+
+    assert captured["config"]["embedder"]["config"]["model"] == (
+        "text-embedding-granite-embedding-278m-multilingual"
+    )
+
+
 def test_upsert_returns_memory_record():
     backend = _make_backend()
     rec = backend.upsert("u1", "alpha beta gamma", metadata={"tag": "x"})
@@ -179,6 +209,71 @@ def test_upsert_returns_memory_record():
     assert rec.metadata.get("memory_id") is not None
     assert rec.metadata["tag"] == "x"
     assert backend._memory.last_add_infer is True
+
+
+def test_upsert_normalizes_message_payload_content_shapes():
+    backend = _make_backend()
+
+    backend.upsert(
+        "u1",
+        "fallback text",
+        messages=[
+            {"role": "user", "content": [{"text": "alpha"}, "beta"]},
+            {"role": "assistant", "content": {"text": "gamma"}},
+            {"role": "user", "content": None},
+            "ignored-non-dict",
+        ],
+    )
+
+    payload = backend._memory.last_add_payload
+    assert isinstance(payload, list)
+    assert payload[0] == {"role": "user", "content": "alpha\nbeta"}
+    assert payload[1] == {"role": "assistant", "content": "gamma"}
+
+
+def test_upsert_compacts_infer_payload_for_long_messages():
+    backend = _make_backend()
+
+    very_long_user = "u" * 4000
+    very_long_assistant = "a" * 4000
+
+    backend.upsert(
+        "u1",
+        "short summary",
+        messages=[
+            {"role": "user", "content": very_long_user},
+            {"role": "assistant", "content": very_long_assistant},
+        ],
+    )
+
+    payload = backend._memory.last_add_payload
+    assert isinstance(payload, list)
+    assert payload
+
+    total_chars = sum(len(str(item.get("content") or "")) for item in payload if isinstance(item, dict))
+    assert total_chars <= backend._INFER_MAX_TOTAL_CHARS
+
+    # At least one payload entry should indicate truncation for oversized content.
+    assert any(
+        str(item.get("content") or "").endswith("[truncated]")
+        for item in payload
+        if isinstance(item, dict)
+    )
+
+
+def test_upsert_with_infer_disabled_writes_verbatim_payload():
+    backend = _make_backend(infer_enabled=False)
+
+    backend.upsert(
+        "u1",
+        "important summary text",
+        messages=[
+            {"role": "user", "content": "very detailed message that would otherwise go through infer"},
+        ],
+    )
+
+    assert backend._memory.last_add_infer is False
+    assert backend._memory.last_add_payload == [{"role": "user", "content": "important summary text"}]
 
 
 def test_load_with_query_applies_importance_scoring():

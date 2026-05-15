@@ -1,7 +1,7 @@
 """Pydantic schemas for framework configuration."""
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, HttpUrl, PositiveInt, conint, confloat, ConfigDict, field_validator, model_validator
 
@@ -29,13 +29,13 @@ class ProviderModelMap(BaseModel):
 
 
 class ProviderSettings(BaseModel):
-    api_base: Optional[HttpUrl] = None
+    api_base: Optional[str] = None
     api_key: Optional[str] = None
     models: ProviderModelMap
     temperature: Optional[confloat(ge=0.0, le=2.0)] = 0.7
     max_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
-    tool_calling: Literal["native", "structured", "react"] = "structured"
+    model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
     # LiteLLM router-friendly metadata.
     order: Optional[conint(ge=1)] = None
     weight: Optional[conint(ge=1)] = None
@@ -59,14 +59,21 @@ class ProviderSettings(BaseModel):
                 continue
             model_value = normalize_model_id(str(model))
             setattr(self.models, language, model_value)
+        if self.model_tool_calling:
+            normalized_modes: Dict[str, Literal["native", "structured", "react"]] = {}
+            for model_name, mode in self.model_tool_calling.items():
+                normalized_modes[normalize_model_id(str(model_name))] = mode
+            self.model_tool_calling = normalized_modes
         return self
+
+    def get_tool_calling_mode(self, model_name: Optional[str]) -> Literal["native", "structured", "react"]:
+        if not model_name:
+            return "structured"
+        normalized = normalize_model_id(str(model_name))
+        return self.model_tool_calling.get(normalized, "structured")
 
 
 class LLMProviders(BaseModel):
-    # Legacy compatibility fields.
-    primary: Optional[ProviderSettings] = None
-    fallback: Optional[ProviderSettings] = None
-    # New role-based config allows arbitrary provider IDs under llm.providers.
     model_config = ConfigDict(extra="allow")
 
     @model_validator(mode="after")
@@ -82,10 +89,6 @@ class LLMProviders(BaseModel):
 
     def get_registry(self) -> Dict[str, ProviderSettings]:
         registry: Dict[str, ProviderSettings] = {}
-        if self.primary:
-            registry["primary"] = self.primary
-        if self.fallback:
-            registry["fallback"] = self.fallback
         if self.model_extra:
             for provider_id, provider in self.model_extra.items():
                 if isinstance(provider, ProviderSettings):
@@ -95,11 +98,34 @@ class LLMProviders(BaseModel):
 
 class RoleProviderRef(BaseModel):
     provider_id: str
+    model: Optional[str] = None
+    models: Optional[ProviderModelMap] = None
+
+    @model_validator(mode="after")
+    def _normalize_models(self) -> "RoleProviderRef":
+        if self.model:
+            self.model = normalize_model_id(str(self.model))
+        if self.models:
+            for language, model_name in self.models.model_dump().items():
+                if not model_name:
+                    continue
+                setattr(self.models, language, normalize_model_id(str(model_name)))
+        return self
 
 
 class LLMRoleSettings(BaseModel):
-    providers: List[RoleProviderRef] = Field(default_factory=list)
-    config_only: bool = False
+    provider_id: str
+    api_base: str
+    api_key: Optional[str] = None
+    model: str
+    temperature: Optional[confloat(ge=0.0, le=2.0)] = None
+    max_tokens: Optional[PositiveInt] = None
+    timeout: Optional[PositiveInt] = None
+
+    @model_validator(mode="after")
+    def _normalize_models(self) -> "LLMRoleSettings":
+        self.model = normalize_model_id(str(self.model))
+        return self
 
 
 class LLMRoles(BaseModel):
@@ -109,50 +135,119 @@ class LLMRoles(BaseModel):
     auxiliary: LLMRoleSettings
 
 
+class LLMRouterRoutingGroupSettings(BaseModel):
+    group_name: str = Field(..., min_length=1)
+    models: List[str] = Field(default_factory=list)
+    routing_strategy: Optional[str] = None
+    routing_strategy_args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMRouterSettings(BaseModel):
+    routing_strategy: str = "simple-shuffle"
+    num_retries: PositiveInt = 3
+    retry_after: PositiveInt = 1
+    allowed_fails: Optional[PositiveInt] = None
+    cooldown_time: Optional[PositiveInt] = None
+    disable_cooldowns: bool = False
+    enable_pre_call_checks: bool = False
+    default_max_parallel_requests: Optional[PositiveInt] = None
+    set_verbose: bool = False
+    debug_level: Optional[str] = None
+    fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    default_fallbacks: List[str] = Field(default_factory=list)
+    context_window_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    content_policy_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
+    routing_groups: List[LLMRouterRoutingGroupSettings] = Field(default_factory=list)
+
+
 class LLMSettings(BaseModel):
-    providers: LLMProviders
-    roles: Optional[LLMRoles] = None
+    providers: LLMProviders = Field(default_factory=LLMProviders)
+    roles: LLMRoles
+    router: LLMRouterSettings = Field(default_factory=LLMRouterSettings)
 
     @model_validator(mode="after")
-    def _normalize_roles_and_legacy_compat(self) -> "LLMSettings":
-        registry = self.providers.get_registry()
-        if not registry:
-            raise ValueError("llm.providers must contain at least one configured provider")
-
-        # Build default role mapping from legacy primary/fallback config.
-        if self.roles is None:
-            chain: List[RoleProviderRef] = []
-            if self.providers.primary:
-                chain.append(RoleProviderRef(provider_id="primary"))
-            if self.providers.fallback:
-                chain.append(RoleProviderRef(provider_id="fallback"))
-            if not chain:
-                first_provider_id = next(iter(registry.keys()))
-                chain = [RoleProviderRef(provider_id=first_provider_id)]
-
-            self.roles = LLMRoles(
-                chat=LLMRoleSettings(providers=chain, config_only=False),
-                embedding=LLMRoleSettings(providers=[chain[0]], config_only=True),
-                vision=LLMRoleSettings(providers=[chain[0]], config_only=True),
-                auxiliary=LLMRoleSettings(providers=[chain[0]], config_only=True),
-            )
-
-        # Ensure role references point to existing provider IDs.
+    def _validate_roles(self) -> "LLMSettings":
+        role_entries: Dict[str, LLMRoleSettings] = {}
         for role_name in ("chat", "embedding", "vision", "auxiliary"):
             role_cfg = getattr(self.roles, role_name)
-            if not role_cfg.providers:
-                raise ValueError(f"llm.roles.{role_name}.providers must not be empty")
-            for ref in role_cfg.providers:
-                if ref.provider_id not in registry:
-                    raise ValueError(
-                        f"llm.roles.{role_name}.providers references unknown provider_id '{ref.provider_id}'"
-                    )
+            role_entries[role_name] = role_cfg
 
-        # Backwards-compatible access for runtime surfaces still using primary/fallback.
-        chat_chain = self.roles.chat.providers
-        self.providers.primary = registry[chat_chain[0].provider_id]
-        self.providers.fallback = registry[chat_chain[1].provider_id] if len(chat_chain) > 1 else None
+        # Build runtime provider registry directly from roles.
+        provider_payload: Dict[str, Dict[str, Any]] = {}
+        for role_name, role_cfg in role_entries.items():
+            provider_payload[f"{role_name}:{role_cfg.provider_id}"] = {
+                "api_base": role_cfg.api_base,
+                "api_key": role_cfg.api_key,
+                "models": {"en": role_cfg.model},
+                "temperature": role_cfg.temperature if role_cfg.temperature is not None else 0.7,
+                "max_tokens": role_cfg.max_tokens,
+                "timeout": role_cfg.timeout,
+            }
+
+        self.providers = LLMProviders.model_validate(provider_payload)
         return self
+
+    def get_provider(self, provider_id: str) -> ProviderSettings:
+        registry = self.providers.get_registry()
+        try:
+            return registry[provider_id]
+        except KeyError as exc:
+            raise KeyError(f"Unknown provider_id '{provider_id}'") from exc
+
+    def get_role_provider_chain(self, role_name: str) -> List[tuple[str, ProviderSettings]]:
+        chain = self.get_role_provider_chain_with_models(role_name, language="en")
+        return [(provider_id, provider) for provider_id, provider, _model_name in chain]
+
+    def get_role_provider(self, role_name: str) -> ProviderSettings:
+        chain = self.get_role_provider_chain_with_models(role_name, language="en")
+        if not chain:
+            raise ValueError(f"llm.roles.{role_name} has no resolvable provider chain")
+        return chain[0][1]
+
+    @staticmethod
+    def _select_model_from_map(model_map: ProviderModelMap, language: str) -> Optional[str]:
+        model = getattr(model_map, language, None)
+        if model:
+            return str(model)
+        for value in model_map.model_dump().values():
+            if value:
+                return str(value)
+        return None
+
+    def get_role_model_name(self, role_name: str, language: str, provider_index: int = 0) -> str:
+        role = getattr(self.roles, role_name)
+        if provider_index != 0:
+            raise IndexError(f"provider_index {provider_index} out of range for role '{role_name}'")
+        return str(role.model)
+
+    def get_role_provider_chain_with_models(
+        self,
+        role_name: str,
+        language: str,
+    ) -> List[tuple[str, ProviderSettings, str]]:
+        role = getattr(self.roles, role_name)
+        provider = ProviderSettings.model_validate(
+            {
+                "api_base": role.api_base,
+                "api_key": role.api_key,
+                "models": {"en": role.model, language: role.model},
+                "temperature": role.temperature if role.temperature is not None else 0.7,
+                "max_tokens": role.max_tokens,
+                "timeout": role.timeout,
+            }
+        )
+        return [(str(role.provider_id), provider, str(role.model))]
+
+    def get_embedding_provider_type(self) -> str:
+        """Embedding transport type used by the embedding provider factory."""
+        return "remote"
+
+    def get_embedding_remote_endpoint(self) -> Optional[str]:
+        """Resolve embedding endpoint directly from the embedding role config."""
+        endpoint = getattr(self.roles.embedding, "api_base", None)
+        if endpoint is None:
+            return None
+        return str(endpoint)
 
 
 class DatabaseSettings(BaseModel):
@@ -169,7 +264,7 @@ class VectorStoreSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    model: str
+    model: Optional[str] = None
     dimension: PositiveInt
     batch_size: Optional[PositiveInt] = 32
     provider: Literal["remote"] = "remote"
@@ -185,6 +280,7 @@ class Mem0Settings(BaseModel):
     search_limit: PositiveInt = 10
     custom_instructions: Optional[str] = None
     llm_provider: str = "openai"  # "lmstudio" for LM Studio servers (uses json_schema response format)
+    infer_enabled: bool = True
 
 
 class MemorySettings(BaseModel):
@@ -231,6 +327,18 @@ class CheckpointingSettings(BaseModel):
     postgres_dsn: Optional[str] = None
 
 
+class IngestionSettings(BaseModel):
+    source_path: Optional[str] = None
+    language: str = "en"
+    language_threshold: confloat(ge=0.0, le=1.0) = 0.8
+    embedding_batch_size: PositiveInt = 32
+    upsert_batch_size: PositiveInt = 128
+    file_concurrency: PositiveInt = 1
+    incremental_mode: bool = True
+    phase_timing: bool = True
+    reingest_timeout_seconds: PositiveInt = 1800
+
+
 class LanguagePrompts(BaseModel):
     """Prompt templates for a single language."""
 
@@ -273,6 +381,7 @@ class CoreConfig(BaseModel):
     database: DatabaseSettings
     memory: MemorySettings
     tokens: TokensSettings
+    ingestion: IngestionSettings
     checkpointing: Optional[CheckpointingSettings] = None
     prompts: Optional[PromptsSettings] = None
     tool_routing: Optional[ToolRoutingSettings] = None
@@ -293,6 +402,8 @@ class ProfileMetadata(BaseModel):
 class ProfileBrandingSettings(BaseModel):
     app_name: Optional[str] = None
     role_label: Optional[str] = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
     logo_text: Optional[str] = None
 
 

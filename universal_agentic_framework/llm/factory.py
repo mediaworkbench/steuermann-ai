@@ -29,7 +29,9 @@ def build_litellm_chat(provider: ProviderSettings, model_name: str):
         raise RuntimeError("ChatLiteLLM not available") from exc
 
     model_kwargs = {}
-    if provider.tool_calling != "native":
+    getter = getattr(provider, "get_tool_calling_mode", None)
+    tool_mode = getter(model_name) if callable(getter) else getattr(provider, "tool_calling", "structured")
+    if tool_mode != "native":
         model_kwargs["tool_choice"] = "none"
 
     chat_kwargs = {
@@ -100,14 +102,12 @@ class LLMFactory:
             source=source,
         )
 
-    def _chat_provider_chain(self) -> List[Tuple[str, ProviderSettings]]:
-        registry = self.config.llm.providers.get_registry()
-        role_refs = self.config.llm.roles.chat.providers
-        chain: List[Tuple[str, ProviderSettings]] = []
-        for ref in role_refs:
-            provider = registry.get(ref.provider_id)
-            if provider:
-                chain.append((ref.provider_id, provider))
+    def _chat_provider_chain(self, language: str) -> List[Tuple[str, ProviderSettings, str]]:
+        chain: List[Tuple[str, ProviderSettings, str]] = []
+        try:
+            chain = self.config.llm.get_role_provider_chain_with_models("chat", language)
+        except Exception:
+            chain = []
         if not chain:
             raise RuntimeError("No providers configured for chat role")
         return chain
@@ -137,18 +137,18 @@ class LLMFactory:
         - preferred on fallback (if provided)
         - default fallback
         """
-        provider_chain = self._chat_provider_chain()
+        provider_chain = self._chat_provider_chain(language)
         if not prefer_local and len(provider_chain) > 1:
             provider_chain = provider_chain[1:]
         candidates: list[ModelSelection] = []
         errors = []
         seen: set[tuple[str, str, str]] = set()
 
-        def try_add(provider: Optional[ProviderSettings], source: str, model_override: Optional[str] = None):
+        def try_add(provider: Optional[ProviderSettings], default_model: Optional[str], source: str, model_override: Optional[str] = None):
             if not provider:
                 return
             try:
-                model_name = model_override or self._select_model(provider, language)
+                model_name = model_override or default_model or self._select_model(provider, language)
                 key = (self._provider_from_model(model_name), model_name, source)
                 if key in seen:
                     return
@@ -158,12 +158,12 @@ class LLMFactory:
             except Exception as exc:  # pragma: no cover - fallback path
                 errors.append(exc)
 
-        for index, (_provider_id, provider) in enumerate(provider_chain):
+        for index, (_provider_id, provider, default_model_name) in enumerate(provider_chain):
             label = self._source_label_for(_provider_id, index)
             if preferred_model:
-                try_add(provider, f"{label}_preferred", preferred_model)
+                try_add(provider, default_model_name, f"{label}_preferred", preferred_model)
             if (not preferred_model) or include_default_when_preferred:
-                try_add(provider, f"{label}_default")
+                try_add(provider, default_model_name, f"{label}_default")
 
         if not candidates and errors:
             raise RuntimeError(f"All providers failed: {errors}")
@@ -198,10 +198,10 @@ class LLMFactory:
         except Exception as exc:  # pragma: no cover
             raise RuntimeError("LiteLLM router dependencies not available") from exc
 
-        provider_chain = self._chat_provider_chain()
-        primary_provider_id, primary = provider_chain[0]
+        provider_chain = self._chat_provider_chain(language)
+        primary_provider_id, primary, primary_default_model = provider_chain[0]
         primary_label = self._source_label_for(primary_provider_id, 0)
-        primary_model = preferred_model or self._select_model(primary, language)
+        primary_model = preferred_model or primary_default_model
         model_list = [
             {
                 "model_name": primary_label,
@@ -209,9 +209,9 @@ class LLMFactory:
             }
         ]
 
-        for index, (provider_id, provider) in enumerate(provider_chain[1:], start=1):
+        for index, (provider_id, provider, default_model_name) in enumerate(provider_chain[1:], start=1):
             fallback_label = self._source_label_for(provider_id, index)
-            fallback_model = preferred_model or self._select_model(provider, language)
+            fallback_model = preferred_model or default_model_name
             model_list.append(
                 {
                     "model_name": fallback_label,
@@ -219,14 +219,36 @@ class LLMFactory:
                 }
             )
 
-        router = Router(
-            model_list=model_list,
-            num_retries=3,
-            retry_after=1,
-        )
+        router_config = self.config.llm.router
+        router_kwargs = {
+            "model_list": model_list,
+            "routing_strategy": router_config.routing_strategy,
+            "num_retries": router_config.num_retries,
+            "retry_after": router_config.retry_after,
+            "disable_cooldowns": router_config.disable_cooldowns,
+            "enable_pre_call_checks": router_config.enable_pre_call_checks,
+            "set_verbose": router_config.set_verbose,
+        }
+        if router_config.allowed_fails is not None:
+            router_kwargs["allowed_fails"] = router_config.allowed_fails
+        if router_config.cooldown_time is not None:
+            router_kwargs["cooldown_time"] = router_config.cooldown_time
+        if router_config.debug_level is not None:
+            router_kwargs["debug_level"] = router_config.debug_level
+        if router_config.fallbacks:
+            router_kwargs["fallbacks"] = router_config.fallbacks
+        if router_config.default_fallbacks:
+            router_kwargs["default_fallbacks"] = router_config.default_fallbacks
+        if router_config.context_window_fallbacks:
+            router_kwargs["context_window_fallbacks"] = router_config.context_window_fallbacks
+        if router_config.content_policy_fallbacks:
+            router_kwargs["content_policy_fallbacks"] = router_config.content_policy_fallbacks
+        router = Router(**router_kwargs)
 
         model_kwargs = {}
-        if primary.tool_calling != "native":
+        getter = getattr(primary, "get_tool_calling_mode", None)
+        tool_mode = getter(primary_model) if callable(getter) else getattr(primary, "tool_calling", "structured")
+        if tool_mode != "native":
             model_kwargs["tool_choice"] = "none"
         return ChatLiteLLMRouter(
             router=router,
@@ -238,6 +260,7 @@ class LLMFactory:
 
     def _to_router_params(self, provider: ProviderSettings, model_name: str) -> dict:
         params: dict = {"model": model_name}
+        router_defaults = self.config.llm.router
         if provider.api_base:
             params["api_base"] = str(provider.api_base)
         if provider.api_key:
@@ -256,6 +279,8 @@ class LLMFactory:
             params["tpm"] = provider.tpm
         if provider.max_parallel_requests is not None:
             params["max_parallel_requests"] = provider.max_parallel_requests
+        elif router_defaults.default_max_parallel_requests is not None:
+            params["max_parallel_requests"] = router_defaults.default_max_parallel_requests
         if provider.region_name:
             params["region_name"] = provider.region_name
         return params
@@ -265,9 +290,9 @@ class LLMFactory:
     ) -> Tuple[object, ProviderSettings]:
         """Return (model, provider_settings) so callers can inspect tool_calling mode."""
         selection = self.get_model_selection(language=language, prefer_local=prefer_local)
-        provider_chain = self._chat_provider_chain()
+        provider_chain = self._chat_provider_chain(language)
         source_prefix = selection.source.split("_", 1)[0]
-        for index, (_provider_id, provider) in enumerate(provider_chain):
+        for index, (_provider_id, provider, _model_name) in enumerate(provider_chain):
             label = self._source_label_for(_provider_id, index)
             if label == source_prefix:
                 return selection.model, provider

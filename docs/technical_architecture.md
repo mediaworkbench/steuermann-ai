@@ -435,6 +435,8 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 
 Memory is loaded explicitly at graph start and written only by dedicated memory nodes — never automatic. The `load_memory_node` queries via the `Mem0MemoryBackend` adapter for user facts/preferences/history. The `update_memory_node` distills new conversation into long-term memory via LLM summarization and persists via Mem0.
 
+Mem0 extraction behavior is profile-configurable through `memory.mem0.infer_enabled`. When enabled, Mem0 performs extraction/deduplication before persistence; when disabled, the pipeline stores summary text via verbatim fallback. Extraction model selection follows `llm.roles.auxiliary`.
+
 Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
 
 ### **6.3 Context Priority Rules (Response Assembly)**
@@ -492,50 +494,77 @@ def build_router(primary_model: str, fallback_model: str | None) -> ChatLiteLLMR
     return ChatLiteLLMRouter(router=router)
 ```
 
-**Legacy providers removed**: `langchain-openai` and `langchain-ollama` are no longer dependencies. All provider configuration is done via LiteLLM model strings in `config/core.yaml`.
+**Legacy providers removed**: `langchain-openai` and `langchain-ollama` are no longer dependencies. Runtime provider and model configuration is owned by the active profile overlay in `config/profiles/<profile_id>/core.yaml`.
 
 ### **7.2 Language-Specific Model Selection**
 
 ```yaml
-# config/core.yaml
+# config/profiles/starter/core.yaml
 llm:
   providers:
-    primary:
-      api_base: "http://host.docker.internal:1234/v1"  # LM Studio on host
-      api_key: "lm-studio"                              # required by LiteLLM, value ignored by LM Studio
+    lmstudio:
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      api_key: "lm-studio"
       models:
-        de: "openai/liquid/lfm2-24b-a2b"   # LiteLLM model string: openai/<lm-studio-raw-id>
+        de: "openai/liquid/lfm2-24b-a2b"
         en: "openai/liquid/lfm2-24b-a2b"
       temperature: 0.7
       max_tokens: 4096
 
-    fallback:
-      api_base: "https://api.openai.com/v1"
-      api_key: "${OPENAI_API_KEY}"
+    openrouter:
+      api_base: "${LLM_PROVIDERS_OPENROUTER_API_BASE}"
+      api_key: "${OPENROUTER_API_KEY}"
       models:
-        de: "openai/gpt-4o"
-        en: "openai/gpt-4o"
+        de: "openrouter/openai/gpt-4o-mini"
+        en: "openrouter/openai/gpt-4o-mini"
       temperature: 0.3
+
+  roles:
+    chat:
+      providers:
+        - provider_id: lmstudio
+        - provider_id: openrouter
+    embedding:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    vision:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+    auxiliary:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+
+  router:
+    routing_strategy: simple-shuffle
+    num_retries: 3
+    retry_after: 1
 ```
 
 **LM Studio model ID convention:** LM Studio's `/v1/models` returns raw IDs like `liquid/lfm2-24b-a2b`. LiteLLM requires the `openai/` provider prefix. Always configure models as `openai/<lm-studio-raw-id>` (e.g. `openai/liquid/lfm2-24b-a2b`). Bare or wrongly-prefixed IDs will cause `BadRequestError: LLM Provider NOT provided`.
 
-**Runtime Selection** — `LLMFactory.get_router_model(language)` builds a `ChatLiteLLMRouter` where the primary model is tried first and the fallback is used on failure:
+**Runtime Selection** — `LLMFactory.get_router_model(language)` builds a `ChatLiteLLMRouter` from the `chat` role provider chain and forwards retry/routing policy from `llm.router`:
 
 ```python
 from langchain_litellm import ChatLiteLLMRouter
 from litellm import Router
 
 def get_router_model(self, language: str) -> ChatLiteLLMRouter:
-    primary_model = self.config.llm.providers.primary.models.get(language)
-    fallback_model = (
-        self.config.llm.providers.fallback.models.get(language)
-        if self.config.llm.providers.fallback else None
+    model_list = []
+    for index, ref in enumerate(self.config.llm.roles.chat.providers):
+        provider = self.config.llm.get_provider(ref.provider_id)
+        model_name = provider.models.get(language) or provider.models.get("en")
+        label = "primary" if index == 0 else "fallback"
+        model_list.append({"model_name": label, "litellm_params": {"model": model_name}})
+
+    router = Router(
+        model_list=model_list,
+        routing_strategy=self.config.llm.router.routing_strategy,
+        num_retries=self.config.llm.router.num_retries,
+        retry_after=self.config.llm.router.retry_after,
     )
-    model_list = [{"model_name": "primary", "litellm_params": {"model": primary_model}}]
-    if fallback_model:
-        model_list.append({"model_name": "fallback", "litellm_params": {"model": fallback_model}})
-    router = Router(model_list=model_list, num_retries=3, retry_after=1)
     return ChatLiteLLMRouter(router=router)
 ```
 
@@ -623,7 +652,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - Full OpenAI-compatible tool-calling via `tools` parameter in `/v1/chat/completions`
 - "Native" parser support: Qwen, Llama-3.1/3.2, Mistral (model must have chat template + LM Studio parser)
 - "Default" parser: All other models (including LFM2) — LM Studio injects a system prompt and parses generically
-- If a model's default parsing is unreliable, switch to `tool_calling: "structured"` in config
+- If a model's default parsing is unreliable, switch that model to `model_tool_calling: structured` in config
 
 ### **8.4 LiteLLM Integration** *(completed 2026-04-30)*
 
@@ -665,7 +694,7 @@ Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, pe
 - Runs in watch mode by default: on startup it performs an initial sweep of the mounted source path and ingests any existing documents before watching for new files.
 - Periodic fallback check every 30 seconds catches files missed by watchdog.
 - Auto-deletes chunks when source files are removed from watched folder.
-- Target language is read from `INGEST_LANGUAGE` (default `de` in this repo).
+- Target language is read from `config/profiles/<profile_id>/core.yaml` via `core.ingestion.language` (default `de` in this repo).
 - All languages accepted; chunks tagged with detected language metadata.
 
 ```text
@@ -1042,7 +1071,8 @@ Configuration uses hierarchical loading: **Base → Profile Overlay → Environm
 
 **Key files:**
 
-- `config/core.yaml` — LLM providers, memory, database, token budgets
+- `config/core.yaml` — deployment-global defaults (database, memory, checkpointing)
+- `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, router policy, RAG, token budgets, ingestion
 - `config/agents.yaml` — CrewAI crew definitions
 - `config/tools.yaml` — Tool enable/disable and overrides
 - `config/features.yaml` — Feature flags with dependency validation
@@ -1192,7 +1222,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway" # Linux
     environment:
-      - LLM_ENDPOINT=http://host.docker.internal:1234/v1
+      - LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
 ```
 
 **Platform-specific:**
@@ -1332,11 +1362,11 @@ Use a repository-first upgrade flow:
 
 Focus on these surfaces after an upgrade:
 
-- Configuration keys in `config/core.yaml`, `config/features.yaml`, `config/tools.yaml`, and `config/agents.yaml`
+- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, `config/tools.yaml`, and `config/agents.yaml`
 - Prompt override file layout under `config/prompts/` and `config/profiles/<profile_id>/prompts/`
 - Profile metadata surfaced through the FastAPI and chat metadata contracts
 - Monitoring dashboards and metrics label expectations
-- Ingestion and retrieval alignment for `INGEST_COLLECTION`, embeddings, and chunking settings
+- Ingestion and retrieval alignment for `rag.collection_name`, embeddings, and chunking settings
 
 ### **18.3 Breaking-Change Discipline**
 

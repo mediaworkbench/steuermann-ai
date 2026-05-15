@@ -74,8 +74,9 @@ def test_setup_doctor_reports_env_presence_and_advisories(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _create_profile_dir(tmp_path)
     (tmp_path / ".env").write_text(
-        "POSTGRES_PASSWORD=secret\nLLM_ENDPOINT=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
+        "POSTGRES_PASSWORD=secret\nPROFILE_ID=starter\nLLM_PROVIDERS_LMSTUDIO_API_BASE=http://localhost:1234/v1\nEMBEDDING_SERVER=http://localhost:1234/v1\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -95,11 +96,17 @@ def test_setup_doctor_reports_env_presence_and_advisories(
     payload = json.loads(capsys.readouterr().out)
     names = [check["name"] for check in payload["checks"]]
     assert ".env presence" in names
-    assert "LLM_ENDPOINT" in names
+    assert "LLM provider endpoints" in names
     assert "EMBEDDING_SERVER" in names
 
 
-def test_config_explain_emits_source_chain(capsys: pytest.CaptureFixture[str]) -> None:
+def test_config_explain_emits_source_chain(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROFILE_ID", "starter")
+    monkeypatch.delenv("ACTIVE_PROFILE_ID", raising=False)
+
     code = steuermann.main(
         [
             "config",
@@ -492,7 +499,7 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
-            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.retention"],
+            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
             "disallowed_feature_flags": ["authentication"],  # missing ingestion_service, monitoring
         },
     }
@@ -544,6 +551,7 @@ def test_config_contract_check_detects_bundle_compatibility_drift(
                 "tool_routing",
                 "rag",
                 "tokens",
+                "memory.embeddings",
                 "memory.retention",
             ],
             "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
@@ -601,6 +609,7 @@ def test_config_contract_check_detects_mutator_surface_drift(
                 "tool_routing",
                 "rag",
                 "tokens",
+                "memory.embeddings",
                 "memory.retention",
             ],
             "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],
@@ -920,6 +929,7 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                         "tool_routing",
                         "rag",
                         "tokens",
+                        "memory.embeddings",
                         "memory.retention",
                     ],
                     "disallowed_feature_flags": ["authentication", "ingestion_service", "monitoring"],

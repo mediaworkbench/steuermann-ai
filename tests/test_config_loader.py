@@ -12,12 +12,20 @@ from universal_agentic_framework.config import (
 )
 
 
-def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
-    # copy sample core.yaml into temp dir
-    config_dir = tmp_path
-    sample = Path("config/core.yaml").read_text()
-    config_dir.joinpath("core.yaml").write_text(sample)
+def _create_profile_dir(profiles_dir: Path, profile_id: str) -> Path:
+    profile_dir = profiles_dir / profile_id
+    profile_dir.mkdir(parents=True)
+    return profile_dir
 
+
+def _write_profile_metadata(profile_dir: Path, profile_id: str, display_name: str = "Medical Assistant") -> None:
+    profile_dir.joinpath("profile.yaml").write_text(
+        f"profile_id: {profile_id}\ndisplay_name: {display_name}\n",
+        encoding="utf-8",
+    )
+
+
+def test_load_core_config_env_substitution() -> None:
     env = {
         "PROFILE_ID": "starter",
         "POSTGRES_USER": "app",
@@ -25,42 +33,64 @@ def test_load_core_config_env_substitution(tmp_path: Path, monkeypatch):
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432",
         "POSTGRES_DB": "framework",
-        "INGEST_COLLECTION": "framework",
-        # LLM and Qdrant env vars
-        "LLM_ENDPOINT": "http://localhost:11434",
+        "RAG_DATA_PATH": "./data/rag-data",
+        "LLM_PROVIDERS_LMSTUDIO_API_BASE": "http://localhost:1234/v1",
+        "LLM_PROVIDERS_OLLAMA_API_BASE": "http://localhost:11434/v1",
+        "LLM_PROVIDERS_OPENROUTER_API_BASE": "https://openrouter.ai/api/v1",
+        "LLM_PROVIDERS_OPENROUTER_API_KEY": "test-key",
         "QDRANT_HOST": "localhost",
-        "WEB_SEARCH_MCP_URL": "http://localhost:9100",
+        "EMBEDDING_SERVER": "http://localhost:8000/v1",
+        "CHECKPOINTER_POSTGRES_DSN": "postgresql://app:pw@localhost:5432/framework",
     }
 
-    core = load_core_config(config_dir=config_dir, base_dir=None, env=env)
+    core = load_core_config(env=env)
 
     assert core.fork.name == "starter"
+    assert core.database.url == "postgresql://app:pw@localhost:5432/framework"
+    assert core.rag is not None
     assert core.rag.collection_name == "framework"
-    assert "postgresql://app:pw@localhost:5432/framework" in core.database.url
-    assert core.llm.providers.primary.models.en == "openai/liquid/lfm2-24b-a2b"
-    # Pydantic HttpUrl adds trailing slash, so compare with 'in'
-    assert "localhost:11434" in str(core.llm.providers.primary.api_base)
-    assert core.tokens.default_budget == 10000
+    assert core.ingestion.source_path == "./data/rag-data"
+    assert core.llm.roles.chat.provider_id == "lmstudio"
+    assert core.llm.roles.chat.model is not None
+    assert "localhost:1234" in str(core.llm.roles.chat.api_base)
 
 
-def test_load_agents_config_defaults(tmp_path: Path):
-    config_dir = tmp_path
-    config_dir.joinpath("agents.yaml").write_text("crews: {}\n")
+def test_load_agents_config_defaults(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    config_dir.mkdir()
+    config_dir.joinpath("agents.yaml").write_text("crews: {}\n", encoding="utf-8")
+    _create_profile_dir(profiles_dir, "starter")
 
-    agents = load_agents_config(config_dir=config_dir, env={"PROFILE_ID": "base"})
+    agents = load_agents_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "starter"},
+    )
+
     assert agents.crews == {}
 
 
-def test_load_tools_config_defaults(tmp_path: Path):
-    config_dir = tmp_path
-    config_dir.joinpath("tools.yaml").write_text("tools: []\n")
+def test_load_tools_config_defaults(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    config_dir.mkdir()
+    config_dir.joinpath("tools.yaml").write_text("tools: []\n", encoding="utf-8")
+    _create_profile_dir(profiles_dir, "starter")
 
-    tools = load_tools_config(config_dir=config_dir, env={"PROFILE_ID": "base"})
+    tools = load_tools_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "starter"},
+    )
+
     assert tools.tools == []
 
 
-def test_load_features_config_defaults(tmp_path: Path):
-    config_dir = tmp_path
+def test_load_features_config_defaults(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    config_dir.mkdir()
     config_dir.joinpath("features.yaml").write_text(
         """
         multi_agent_crews: true
@@ -69,262 +99,261 @@ def test_load_features_config_defaults(tmp_path: Path):
         ui_tool_visualization: true
         ui_token_counter: false
         ui_export_chat: true
-        """
+        """,
+        encoding="utf-8",
+    )
+    _create_profile_dir(profiles_dir, "starter")
+
+    features = load_features_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "starter"},
     )
 
-    features = load_features_config(config_dir=config_dir, env={"PROFILE_ID": "base"})
     assert features.multi_agent_crews is True
     assert features.ingestion_service is True
     assert features.ui_export_chat is True
 
 
-def test_get_active_profile_id_defaults_to_base(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("PROFILE_ID", raising=False)
-        assert get_active_profile_id() == "base"
+def test_get_active_profile_id_requires_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROFILE_ID", raising=False)
+
+    with pytest.raises(ValueError, match="PROFILE_ID must be set"):
+        get_active_profile_id()
+
+
+def test_get_active_profile_id_rejects_base() -> None:
+    with pytest.raises(ValueError, match="no longer a valid runtime profile"):
+        get_active_profile_id({"PROFILE_ID": "base"})
 
 
 def test_load_profile_metadata_valid_profile(tmp_path: Path) -> None:
-        profiles_dir = tmp_path / "profiles"
-        profile_dir = profiles_dir / "medical"
-        profile_dir.mkdir(parents=True)
-        profile_dir.joinpath("profile.yaml").write_text(
-                "profile_id: medical\ndisplay_name: Medical Assistant\n",
-                encoding="utf-8",
-        )
+    profiles_dir = tmp_path / "profiles"
+    profile_dir = _create_profile_dir(profiles_dir, "medical")
+    _write_profile_metadata(profile_dir, "medical")
 
-        metadata = load_profile_metadata(profiles_dir=profiles_dir, profile_id="medical")
+    metadata = load_profile_metadata(profiles_dir=profiles_dir, profile_id="medical")
 
-        assert metadata is not None
-        assert metadata.profile_id == "medical"
-        assert metadata.display_name == "Medical Assistant"
+    assert metadata is not None
+    assert metadata.profile_id == "medical"
+    assert metadata.display_name == "Medical Assistant"
 
 
-def test_load_core_config_applies_profile_overlay_for_allowed_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_core_config_applies_profile_overlay_for_allowed_fields(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     profiles_dir = tmp_path / "profiles"
-    profile_dir = profiles_dir / "medical"
+    profile_dir = _create_profile_dir(profiles_dir, "medical")
     config_dir.mkdir()
-    profile_dir.mkdir(parents=True)
 
     config_dir.joinpath("core.yaml").write_text(
         """
 fork:
-    name: $PROFILE_ID
-    language: en
-llm:
-    providers:
-        primary:
-            api_base: $LLM_ENDPOINT
-            api_key: test-key
-            models:
-                en: openai/base-model
+  name: $PROFILE_ID
 database:
-    url: sqlite:///base.db
+  url: sqlite:///base.db
 memory:
-    vector_store:
-        host: localhost
-        collection_prefix: base
-    embeddings:
-        model: embed
-        dimension: 384
-    retention:
-        session_memory_days: 90
-        user_memory_days: 365
-tokens:
-    default_budget: 10000
-prompts:
-    response_system:
-        en: Base prompt
+  vector_store:
+    host: localhost
+    collection_prefix: base
+  embeddings:
+    dimension: 384
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
         """,
         encoding="utf-8",
     )
-    profile_dir.joinpath("profile.yaml").write_text(
-        "profile_id: medical\ndisplay_name: Medical Assistant\n",
-        encoding="utf-8",
-    )
+    _write_profile_metadata(profile_dir, "medical")
     profile_dir.joinpath("core.yaml").write_text(
         """
 fork:
-    language: de
-prompts:
-    response_system:
-        en: Profile prompt
+  language: de
+  locale: de_DE
+llm:
+  roles:
+    chat:
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
+    embedding:
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-embedding
+    vision:
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
+    auxiliary:
+      provider_id: lmstudio
+      api_base: http://localhost:11434/v1
+      model: openai/base-model
 tokens:
-    default_budget: 20000
+  default_budget: 20000
+rag:
+  enabled: true
+  collection_name: medical-rag
+ingestion: {}
+prompts:
+  response_system:
+    en: Profile prompt
         """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("PROFILE_ID", "medical")
 
     core = load_core_config(
         config_dir=config_dir,
         profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "medical", "LLM_ENDPOINT": "http://localhost:11434"},
+        env={"PROFILE_ID": "medical"},
     )
 
     assert core.fork.language == "de"
-    assert core.prompts.response_system["en"] == "Profile prompt"
     assert core.tokens.default_budget == 20000
+    assert core.rag is not None
+    assert core.rag.collection_name == "medical-rag"
+    assert core.llm.roles.embedding.model == "openai/base-embedding"
     assert core.database.url == "sqlite:///base.db"
 
 
 def test_load_core_config_rejects_disallowed_profile_override(tmp_path: Path) -> None:
-        config_dir = tmp_path / "config"
-        profiles_dir = tmp_path / "profiles"
-        profile_dir = profiles_dir / "medical"
-        config_dir.mkdir()
-        profile_dir.mkdir(parents=True)
-        config_dir.joinpath("core.yaml").write_text(
-                """
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    profile_dir = _create_profile_dir(profiles_dir, "medical")
+    config_dir.mkdir()
+
+    config_dir.joinpath("core.yaml").write_text(
+        """
 fork:
-    name: starter
-    language: en
-llm:
-    providers:
-        primary:
-            api_key: profile-key
-            models:
-                en: openai/base-model
+  name: $PROFILE_ID
 database:
-    url: sqlite:///base.db
+  url: sqlite:///base.db
 memory:
-    vector_store:
-        host: localhost
-        collection_prefix: base
-    embeddings:
-        model: embed
-        dimension: 384
-    retention:
-        session_memory_days: 90
-        user_memory_days: 365
+  vector_store:
+    host: localhost
+    collection_prefix: base
+  embeddings:
+    dimension: 384
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
 tokens:
-    default_budget: 10000
-                """,
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("profile.yaml").write_text(
-                "profile_id: medical\ndisplay_name: Medical Assistant\n",
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("core.yaml").write_text(
-                "database:\n  url: sqlite:///override.db\n",
-                encoding="utf-8",
+  default_budget: 10000
+        """,
+        encoding="utf-8",
+    )
+    _write_profile_metadata(profile_dir, "medical")
+    profile_dir.joinpath("core.yaml").write_text(
+        "database:\n  url: sqlite:///override.db\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="deployment-global core setting"):
+        load_core_config(
+            config_dir=config_dir,
+            profiles_dir=profiles_dir,
+            env={"PROFILE_ID": "medical"},
         )
 
-        with pytest.raises(ValueError, match="deployment-global core setting"):
-                load_core_config(
-                        config_dir=config_dir,
-                        profiles_dir=profiles_dir,
-                        env={"PROFILE_ID": "medical"},
-                )
 
+def test_load_core_config_exposes_provider_registry_without_legacy_aliases(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    profile_dir = _create_profile_dir(profiles_dir, "starter")
+    config_dir.mkdir()
 
-def test_load_core_config_role_based_llm_shape_keeps_legacy_compat(tmp_path: Path) -> None:
-        config_dir = tmp_path / "config"
-        config_dir.mkdir()
-        config_dir.joinpath("core.yaml").write_text(
-                """
+    config_dir.joinpath("core.yaml").write_text(
+        """
 fork:
-    name: starter
-    language: en
-llm:
-    providers:
-        lmstudio:
-            api_base: http://localhost:1234/v1
-            models:
-                en: lm_studio/liquid/lfm2-24b-a2b
-            tool_calling: native
-        openrouter:
-            api_base: https://openrouter.ai/api/v1
-            api_key: test-key
-            models:
-                en: openrouter/openai/gpt-4o-mini
-            tool_calling: native
-    roles:
-        chat:
-            providers:
-                - provider_id: lmstudio
-                - provider_id: openrouter
-            config_only: false
-        embedding:
-            providers:
-                - provider_id: lmstudio
-            config_only: true
-        vision:
-            providers:
-                - provider_id: lmstudio
-            config_only: true
-        auxiliary:
-            providers:
-                - provider_id: lmstudio
-            config_only: true
+  name: $PROFILE_ID
 database:
-    url: sqlite:///base.db
+  url: sqlite:///base.db
 memory:
-    vector_store:
-        host: localhost
-        collection_prefix: base
-    embeddings:
-        model: embed
-        dimension: 384
-    retention:
-        session_memory_days: 90
-        user_memory_days: 365
+  vector_store:
+    host: localhost
+    collection_prefix: base
+  embeddings:
+    dimension: 384
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
+        """,
+        encoding="utf-8",
+    )
+    _write_profile_metadata(profile_dir, "starter", display_name="Starter")
+    profile_dir.joinpath("core.yaml").write_text(
+        """
+fork:
+  language: en
+llm:
+  roles:
+    chat:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
+    embedding:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/text-embedding-granite-embedding-278m-multilingual
+    vision:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
+    auxiliary:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/liquid/lfm2-24b-a2b
 tokens:
-    default_budget: 10000
-                """,
-                encoding="utf-8",
-        )
+  default_budget: 10000
+ingestion:
+  collection_name: starter-rag
+        """,
+        encoding="utf-8",
+    )
 
-        core = load_core_config(config_dir=config_dir, env={"PROFILE_ID": "base"})
-
-        assert core.llm.roles is not None
-        assert [ref.provider_id for ref in core.llm.roles.chat.providers] == ["lmstudio", "openrouter"]
-        assert core.llm.providers.primary is not None
-        assert core.llm.providers.primary.models.en == "lm_studio/liquid/lfm2-24b-a2b"
-        assert core.llm.providers.fallback is not None
-        assert core.llm.providers.fallback.models.en == "openrouter/openai/gpt-4o-mini"
+    core = load_core_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "starter"},
+    )
+    assert core.llm.roles.chat.provider_id == "lmstudio"
+    assert core.llm.roles.chat.model == "openai/liquid/lfm2-24b-a2b"
 
 
 def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:
-        config_dir = tmp_path / "config"
-        profiles_dir = tmp_path / "profiles"
-        profile_dir = profiles_dir / "medical"
-        config_dir.mkdir()
-        profile_dir.mkdir(parents=True)
-        config_dir.joinpath("tools.yaml").write_text(
-                "loading_mode: explicit\n"
-                "tools:\n"
-                "  - name: web_search_mcp\n"
-                "    path: base/path\n"
-                "    enabled: true\n"
-                "    config:\n"
-                "      server_url: http://base\n"
-                "      default_tool: search\n",
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("profile.yaml").write_text(
-                "profile_id: medical\ndisplay_name: Medical Assistant\n",
-                encoding="utf-8",
-        )
-        profile_dir.joinpath("tools.yaml").write_text(
-                "tools:\n"
-                "  - name: web_search_mcp\n"
-                "    config:\n"
-                "      default_tool: fetch_content\n"
-                "  - name: patient_lookup\n"
-                "    path: profiles/medical/tools/patient_lookup\n"
-                "    enabled: true\n",
-                encoding="utf-8",
-        )
+    config_dir = tmp_path / "config"
+    profiles_dir = tmp_path / "profiles"
+    profile_dir = _create_profile_dir(profiles_dir, "medical")
+    config_dir.mkdir()
 
-        tools = load_tools_config(
-                config_dir=config_dir,
-                profiles_dir=profiles_dir,
-                env={"PROFILE_ID": "medical"},
-        )
+    config_dir.joinpath("tools.yaml").write_text(
+        "loading_mode: explicit\n"
+        "tools:\n"
+        "  - name: web_search_mcp\n"
+        "    path: base/path\n"
+        "    enabled: true\n"
+        "    config:\n"
+        "      server_url: http://base\n"
+        "      default_tool: search\n",
+        encoding="utf-8",
+    )
+    _write_profile_metadata(profile_dir, "medical")
+    profile_dir.joinpath("tools.yaml").write_text(
+        "tools:\n"
+        "  - name: web_search_mcp\n"
+        "    config:\n"
+        "      default_tool: fetch_content\n"
+        "  - name: patient_lookup\n"
+        "    path: profiles/medical/tools/patient_lookup\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
 
-        assert tools.tools[0].name == "web_search_mcp"
-        assert tools.tools[0].model_dump()["config"]["server_url"] == "http://base"
-        assert tools.tools[0].model_dump()["config"]["default_tool"] == "fetch_content"
-        assert tools.tools[1].name == "patient_lookup"
+    tools = load_tools_config(
+        config_dir=config_dir,
+        profiles_dir=profiles_dir,
+        env={"PROFILE_ID": "medical"},
+    )
+
+    assert tools.tools[0].name == "web_search_mcp"
+    assert tools.tools[0].model_dump()["config"]["server_url"] == "http://base"
+    assert tools.tools[0].model_dump()["config"]["default_tool"] == "fetch_content"
+    assert tools.tools[1].name == "patient_lookup"

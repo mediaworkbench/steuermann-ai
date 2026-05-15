@@ -36,10 +36,13 @@ profile_safety:
     - fork.timezone
     - fork.supported_languages
     - llm
+    - ingestion
     - prompts
     - tool_routing
     - rag
     - tokens
+    - memory.embeddings
+    - memory.mem0
     - memory.retention
   disallowed_feature_flags:
     - authentication

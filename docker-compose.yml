@@ -11,11 +11,11 @@ services:
         - APP_GID=${APP_GID:-1000}
     environment:
       - PROFILE_ID=${PROFILE_ID:-base}
-      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_LMSTUDIO_API_BASE=${LLM_PROVIDERS_LMSTUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_PROVIDERS_OLLAMA_API_BASE=${LLM_PROVIDERS_OLLAMA_API_BASE:-http://host.docker.internal:11434/v1}
+      - LLM_PROVIDERS_OPENROUTER_API_BASE=${LLM_PROVIDERS_OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
       - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
-      - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
-      - INGEST_LANGUAGE=${INGEST_LANGUAGE:-de}
       - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_USER=${POSTGRES_USER:-framework}
@@ -29,7 +29,7 @@ services:
       - CHECKPOINTER_DB_PATH=${CHECKPOINTER_DB_PATH:-/data/checkpoints/langgraph_checkpoints.sqlite}
       - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
-      - WEB_SEARCH_MCP_URL=http://duckduckgo-mcp:8000/mcp
+      - WEB_SEARCH_MCP_URL=${WEB_SEARCH_MCP_URL:-http://duckduckgo-mcp:8000/mcp}
       - PROMPT_SYSTEM_EN=${PROMPT_SYSTEM_EN:-}
       - PROMPT_SYSTEM_DE=${PROMPT_SYSTEM_DE:-}
       - PROMPT_TOOLING_MODE=${PROMPT_TOOLING_MODE:-}
@@ -77,7 +77,9 @@ services:
       - CHAT_WORKSPACE_RETENTION_HOURS=${CHAT_WORKSPACE_RETENTION_HOURS:-24}
       - LANGGRAPH_URL=http://langgraph:8000
       - PROMETHEUS_URL=http://prometheus:9090
-      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_LMSTUDIO_API_BASE=${LLM_PROVIDERS_LMSTUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_PROVIDERS_OLLAMA_API_BASE=${LLM_PROVIDERS_OLLAMA_API_BASE:-http://host.docker.internal:11434/v1}
+      - LLM_PROVIDERS_OPENROUTER_API_BASE=${LLM_PROVIDERS_OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
       - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
@@ -135,20 +137,15 @@ services:
       dockerfile: docker/Dockerfile.ingestion
     environment:
       - PROFILE_ID=${PROFILE_ID:-base}
-      - LLM_ENDPOINT=${LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LLM_PROVIDERS_LMSTUDIO_API_BASE=${LLM_PROVIDERS_LMSTUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_PROVIDERS_OLLAMA_API_BASE=${LLM_PROVIDERS_OLLAMA_API_BASE:-http://host.docker.internal:11434/v1}
+      - LLM_PROVIDERS_OPENROUTER_API_BASE=${LLM_PROVIDERS_OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
       - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
-      - INGEST_COLLECTION=${INGEST_COLLECTION:-framework}
-      - INGEST_LANGUAGE=${INGEST_LANGUAGE:-de}
-      - INGEST_LANGUAGE_THRESHOLD=${INGEST_LANGUAGE_THRESHOLD:-0.8}
-      - INGEST_EMBEDDING_BATCH_SIZE=${INGEST_EMBEDDING_BATCH_SIZE:-32}
-      - INGEST_UPSERT_BATCH_SIZE=${INGEST_UPSERT_BATCH_SIZE:-128}
-      - INGEST_FILE_CONCURRENCY=${INGEST_FILE_CONCURRENCY:-2}
-      - INGEST_INCREMENTAL=${INGEST_INCREMENTAL:-true}
-      - INGEST_PHASE_TIMING=${INGEST_PHASE_TIMING:-true}
+      - RAG_DATA_PATH=/data/ingest
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
-    command: ["watch", "--source", "/data/ingest", "--collection", "${INGEST_COLLECTION}", "--language", "${INGEST_LANGUAGE}"]
+    command: ["watch"]
     volumes:
       - ./config:/app/config:ro
       - ${RAG_DATA_PATH:-./data/rag-data}:/data/ingest:ro

@@ -174,9 +174,8 @@ class BaseCrew(ABC):
         except ImportError as exc:
             raise RuntimeError("crewai package not available") from exc
 
-        providers = self.core_config.llm.providers
-        primary = providers.primary
-        model_name: str = self.llm_factory._select_model(primary, self.language)
+        primary = self.core_config.llm.get_role_provider("chat")
+        model_name: str = self.core_config.llm.get_role_model_name("chat", self.language)
 
         kwargs = {
             "model": model_name,

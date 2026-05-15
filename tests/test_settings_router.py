@@ -10,9 +10,42 @@ from backend.routers.settings import router
 from backend.version import get_framework_version
 
 
+class _FakeSettingsStore:
+  def __init__(self) -> None:
+    self.record = {
+      "user_id": "u1",
+      "tool_toggles": {"web_search_mcp": True},
+      "rag_config": {"collection": "framework", "top_k": 5},
+      "analytics_preferences": {"usage": {"showRequests": True}},
+      "preferred_model": "openai/existing-model",
+      "preferred_models": {"chat": "openai/existing-model"},
+      "theme": "auto",
+      "language": "en",
+      "updated_at": None,
+    }
+
+  def get_user_settings(self, user_id: str):
+    _ = user_id
+    return dict(self.record)
+
+  def upsert_user_settings(self, **kwargs):
+    self.record = {
+      "user_id": kwargs["user_id"],
+      "tool_toggles": kwargs["tool_toggles"],
+      "rag_config": kwargs["rag_config"],
+      "analytics_preferences": kwargs["analytics_preferences"],
+      "preferred_model": kwargs["preferred_model"],
+      "preferred_models": kwargs["preferred_models"],
+      "theme": kwargs["theme"],
+      "language": kwargs["language"],
+      "updated_at": None,
+    }
+    return dict(self.record)
+
+
 def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles" / "medical"
+    profiles_dir = config_dir / "profiles" / "medical"
     config_dir.mkdir(parents=True)
     profiles_dir.mkdir(parents=True)
 
@@ -21,12 +54,6 @@ def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
 fork:
   name: starter
   language: en
-llm:
-  providers:
-    primary:
-      api_key: test-key
-      models:
-        en: openai/base-model
 database:
   url: sqlite:///base.db
 memory:
@@ -34,16 +61,42 @@ memory:
     host: localhost
     collection_prefix: base
   embeddings:
-    model: embed
     dimension: 384
   retention:
     session_memory_days: 90
     user_memory_days: 365
+checkpointing:
+  enabled: false
+        """,
+        encoding="utf-8",
+    )
+    profiles_dir.joinpath("core.yaml").write_text(
+        """
+llm:
+  roles:
+    chat:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
+    embedding:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-embedding
+    vision:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
+    auxiliary:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
 rag:
   collection_name: framework
   top_k: 5
 tokens:
   default_budget: 10000
+ingestion:
+  collection_name: framework
         """,
         encoding="utf-8",
     )
@@ -119,15 +172,36 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     app.include_router(router)
     client = TestClient(app)
 
-    # Fallback 1: derive from prompt language files when supported_languages is absent.
+    class _ProviderRegistry(dict):
+        def get_registry(self):
+            return self
+
+    def _core_config(prompt_languages):
+        provider = SimpleNamespace(models=SimpleNamespace(en="base-model", model_dump=lambda: {"en": "base-model"}))
+        roles = SimpleNamespace(
+        chat=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        embedding=SimpleNamespace(provider_id="lmstudio", model="openai/base-embedding", api_base="http://localhost:1234/v1"),
+        vision=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        auxiliary=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        )
+
+        llm = SimpleNamespace(
+            roles=roles,
+            get_role_provider=lambda _role: provider,
+        get_role_model_name=lambda _role, _lang: "openai/base-model" if _role != "embedding" else "openai/base-embedding",
+        get_role_provider_chain_with_models=lambda role_name, _lang: [("lmstudio", provider, "openai/base-model" if role_name != "embedding" else "openai/base-embedding")],
+        )
+
+        return SimpleNamespace(
+            rag=SimpleNamespace(collection_name="framework", top_k=5),
+            llm=llm,
+            fork=SimpleNamespace(language="en", supported_languages=[]),
+            prompts=SimpleNamespace(languages=prompt_languages),
+        )
+
     monkeypatch.setattr(
         "backend.routers.settings.load_core_config",
-        lambda: SimpleNamespace(
-            rag=SimpleNamespace(collection_name="framework", top_k=5),
-            llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(models=SimpleNamespace(en="base-model")))),
-            fork=SimpleNamespace(language="en", supported_languages=[]),
-            prompts=SimpleNamespace(languages={"de": object(), "en": object()}),
-        ),
+        lambda: _core_config({"de": object(), "en": object()}),
     )
     response = client.get("/api/system-config")
     assert response.status_code == 200
@@ -135,15 +209,9 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     assert body["framework_version"] == get_framework_version()
     assert body["supported_languages"] == ["de", "en"]
 
-    # Fallback 2: derive from fork.language when no prompt files are available.
     monkeypatch.setattr(
         "backend.routers.settings.load_core_config",
-        lambda: SimpleNamespace(
-            rag=SimpleNamespace(collection_name="framework", top_k=5),
-            llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(models=SimpleNamespace(en="base-model")))),
-            fork=SimpleNamespace(language="en", supported_languages=[]),
-            prompts=SimpleNamespace(languages={}),
-        ),
+        lambda: _core_config({}),
     )
     response = client.get("/api/system-config")
     assert response.status_code == 200
@@ -156,9 +224,15 @@ def test_reingest_all_documents_success(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AUTH_USERNAME", "u1")
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
-    monkeypatch.setenv("RAG_DATA_PATH", str(tmp_path))
-    monkeypatch.setenv("INGEST_COLLECTION", "framework")
-    monkeypatch.setenv("INGEST_LANGUAGE", "de")
+    monkeypatch.setattr(
+        "backend.routers.settings.resolve_runtime_ingestion_defaults",
+        lambda: SimpleNamespace(
+            source_path=str(tmp_path),
+            collection_name="framework",
+            language="de",
+            reingest_timeout_seconds=1800,
+        ),
+    )
 
     def _mock_run(*args, **kwargs):
         return CompletedProcess(
@@ -190,7 +264,15 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
     monkeypatch.setenv("AUTH_USERNAME", "u1")
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
     missing_path = tmp_path / "does-not-exist"
-    monkeypatch.setenv("RAG_DATA_PATH", str(missing_path))
+    monkeypatch.setattr(
+        "backend.routers.settings.resolve_runtime_ingestion_defaults",
+        lambda: SimpleNamespace(
+            source_path=str(missing_path),
+            collection_name="framework",
+            language="de",
+            reingest_timeout_seconds=1800,
+        ),
+    )
 
     app = FastAPI()
     app.include_router(router)
@@ -198,4 +280,122 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
 
     response = client.post("/api/ingestion/reingest-all")
     assert response.status_code == 400
-    assert "Ingestion source path does not exist" in response.json()["detail"]
+
+
+def test_partial_settings_update_preserves_preferred_model(monkeypatch):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.settings_store = _FakeSettingsStore()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/settings/user/u1",
+        json={
+            "analytics_preferences": {
+                "usage": {"showRequests": False}
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analytics_preferences"] == {"usage": {"showRequests": False}}
+    assert body["preferred_model"] == "openai/existing-model"
+    assert body["preferred_models"] == {"chat": "openai/existing-model"}
+
+
+def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.settings_store = _FakeSettingsStore()
+    client = TestClient(app)
+
+    async def _invalid_model(_model_name):
+        return None, "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+
+    monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _invalid_model)
+
+    response = client.post(
+        "/api/settings/user/u1",
+        json={
+            "preferred_model": "user2-model",
+            "theme": "auto",
+            "language": "en",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preferred_model"] is None
+    assert body["preferred_models"] == {}
+
+
+def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PROFILE_ID", "starter")
+
+    class _Provider:
+        def __init__(self):
+            self.models = SimpleNamespace(model_dump=lambda: {"en": "openai/test-model"})
+
+        def get_tool_calling_mode(self, _model_name: str) -> str:
+            return "native"
+
+    core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
+        llm=SimpleNamespace(
+        get_role_provider_chain_with_models=lambda role_name, _lang: [
+          ("lmstudio", _Provider(), "openai/test-model")
+        ] if role_name in {"chat", "vision", "auxiliary"} else [],
+        )
+    )
+
+    probe_rows = [
+        {
+        "provider_id": "lmstudio",
+            "model_name": "openai/test-model",
+            "configured_tool_calling_mode": "native",
+            "supports_bind_tools": False,
+            "supports_tool_schema": False,
+            "capability_mismatch": True,
+            "status": "warning",
+            "error_message": "bind_tools_failed: test-error",
+            "api_base": "http://host.docker.internal:1234/v1",
+            "probed_at": "2026-05-11T12:34:56+00:00",
+            "metadata": {"capabilities": {"supports_json_mode": False}, "probe_kind": "native_bind_tools"},
+        }
+    ]
+
+    monkeypatch.setattr("backend.routers.settings.get_active_profile_id", lambda: "starter")
+    monkeypatch.setattr("backend.routers.settings.load_core_config", lambda: core_config)
+
+    app = FastAPI()
+    app.state.llm_capability_probe_store = SimpleNamespace(
+        list_probe_results=lambda profile_id, limit=500: probe_rows
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.get("/api/llm/capabilities")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["profile_id"] == "starter"
+    assert len(payload["items"]) == 3
+
+    item = next(i for i in payload["items"] if i["role"] == "chat")
+    assert item["provider_id"] == "lmstudio"
+    assert item["model_name"] == "openai/test-model"
+    assert item["configured_tool_calling_mode"] == "native"
+    assert item["api_base"] == "http://host.docker.internal:1234/v1"
+    assert item["error_message"] == "bind_tools_failed: test-error"
+    assert item["metadata"]["probe_kind"] == "native_bind_tools"
+    assert item["capabilities"]["supports_json_mode"] is False

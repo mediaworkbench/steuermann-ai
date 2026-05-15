@@ -10,63 +10,53 @@ fork:
     - "en"
 
 llm:
-  providers:
-    lmstudio:
-      api_base: $LLM_ENDPOINT
-      models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-      tool_calling: "native"
-    ollama:
-      api_base: $LLM_ENDPOINT
-      models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-      tool_calling: "native"
-    openrouter:
-      api_base: "https://openrouter.ai/api/v1"
-      api_key: $LLM_PROVIDERS_OPENROUTER_API_KEY
-      models:
-        en: "openrouter/openai/gpt-4o-mini"
-        de: "openrouter/openai/gpt-4o-mini"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-      tool_calling: "native"
   roles:
     chat:
-      providers:
-        - provider_id: "lmstudio"
-        - provider_id: "ollama"
-        - provider_id: "openrouter"
-      config_only: false
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.3
+      max_tokens: 32768
+      timeout: 600
     embedding:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      temperature: 0.0
+      timeout: 300
     vision:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 600
     auxiliary:
-      providers:
-        - provider_id: "lmstudio"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 32768
+      timeout: 600
+  router:
+    routing_strategy: "simple-shuffle"
+    num_retries: 3
+    retry_after: 1
+    enable_pre_call_checks: true
+    default_max_parallel_requests: 4
 
 memory:
+  embeddings:
+    dimension: 768
+  mem0:
+    infer_enabled: true
   retention:
     session_memory_days: 90
     user_memory_days: 365
 
 rag:
   enabled: true
-  collection_name: $INGEST_COLLECTION
+  collection_name: framework
   top_k: 5
   score_threshold: 0.6
   with_payload:
@@ -77,15 +67,30 @@ rag:
   with_vectors: false
   timeout_seconds: 30
 
+ingestion:
+  source_path: $RAG_DATA_PATH
+  language: "de"
+  language_threshold: 0.8
+  embedding_batch_size: 32
+  upsert_batch_size: 128
+  file_concurrency: 1
+  incremental_mode: true
+  phase_timing: true
+  reingest_timeout_seconds: 1800
+
 tokens:
   default_budget: 10000
+  conversation_budget: null
+  per_turn_budget: null
+  per_turn_budget_ratio: 0.4
+  response_reserve_ratio: 0.15
+  enforce_per_node_hard_limit: true
   per_node_budgets: {}
 
 # Prompt templates loaded from config/profiles/starter/prompts/{lang}.yaml.
 
 tool_routing:
   similarity_threshold: 0.55
-  embedding_model: "text-embedding-granite-embedding-278m-multilingual"
   top_k: 5
   intent_boost: 0.2
   max_retries: 2

@@ -22,4 +22,6 @@ def test_ingestion_service_includes_required_core_config_env_vars() -> None:
     # These variables are required so `load_core_config()` can substitute placeholders
     # in config/core.yaml without falling back to defaults in ingestion startup.
     assert "PROFILE_ID" in env_keys
-    assert "LLM_ENDPOINT" in env_keys
+    assert "LLM_PROVIDERS_LMSTUDIO_API_BASE" in env_keys
+    assert "LLM_PROVIDERS_OLLAMA_API_BASE" in env_keys
+    assert "LLM_PROVIDERS_OPENROUTER_API_BASE" in env_keys

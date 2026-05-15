@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.2.4] — active-profile-provider-cutover
+
+- **break** Ingestion runtime settings now resolve from the active profile only; `.env`/Compose keep only deployment wiring, and `rag.collection_name` is now the single collection owner
+- **break** Runtime provider/model ownership moved fully to `config/profiles/<profile_id>/core.yaml`; `PROFILE_ID` is now required and `base` is no longer a runnable profile id
+- **break** Legacy `providers.primary` / `providers.fallback` assumptions removed from runtime consumers and test fixtures; role-based provider chains are now the only supported contract
+- **feat** `LLMFactory.get_router_model()` now forwards profile-owned LiteLLM router policy from `llm.router` (retry, routing strategy, default parallelism)
+- **fix** `backend/routers/chat.py` provider endpoint resolution now uses only the active profile's named provider registry; the final fallback to legacy `providers.primary` was removed
+- **fix** `backend/routers/settings.py`, ingestion CLI/runtime defaults, tool-calling mode resolution, crews, memory backend construction, and model-resolution helpers now resolve behavior from the active profile and named provider roles instead of legacy aliases or env-owned ingestion knobs
+- **fix** `.env` and `.env.example` now quote space-containing values so they can be sourced cleanly by POSIX shells and `zsh`
+- **docs** Updated `README.md`, `docs/configuration.md`, `docs/ingestion.md`, `docs/technical_architecture.md`, `docs/status.md`, and `.github/ARCHITECTURE.md` for active-profile-only provider/model/ingestion configuration
+- **test** Completed remaining legacy test cleanup, added direct chat endpoint resolution coverage, and validated the final cutover with focused regressions plus live stack smoke checks
+- **feat** Added profile-level Mem0 extraction toggle `memory.mem0.infer_enabled` and wired it through schema, loader allowlist, memory factory, and backend behavior
+- **fix** Mem0 extraction path now supports bounded infer payload compaction and robust fallback while preserving upsert continuity
+- **ops** Re-enabled Mem0 infer for starter profile after increasing chat/auxiliary max tokens to `32768`
+- **fix** CLI contract parity restored by adding `memory.mem0` to `config/contracts/cli_contract.yaml` `profile_safety.allowed_core_prefixes`
+- **fix** `universal_agentic_framework/orchestration/helpers/model_resolution.py` typing import now includes `List` for fallback attempt annotations
+- **fix** Frontend type-contract regression resolved in `frontend/src/hooks/__tests__/useProfile.test.tsx` by adding required `model_roles` mock field
+- **docs** Synced README, status snapshot, and architecture/configuration docs for Mem0 infer toggle, auxiliary-model wiring, and contract parity
+
+## [0.2.3] — provider-endpoint-consolidation
+
+- **break** `LLM_ENDPOINT` removed entirely; replaced by per-provider env vars `LLM_PROVIDERS_LMSTUDIO_API_BASE`, `LLM_PROVIDERS_OLLAMA_API_BASE`, `LLM_PROVIDERS_OPENROUTER_API_BASE` — update `.env` accordingly
+- **fix** `langchain-litellm` added to FastAPI dependency group — capability probes now run successfully at startup (root cause: tools were discovered but never executed because probe results were unavailable)
+- **fix** `server.py` state construction now forwards `llm_capability_probes` from the LangGraph request payload — mode reason advances from `configured_native_no_probe` to `configured_native_probe_ok`
+- **fix** Fallback deduplication in `model_resolution.py` changed from `(provider, model, source)` to `(provider, model)` — prevents the same candidate being retried twice
+- **feat** `config/core.yaml` provider `api_base` values interpolate from new provider-specific env vars rather than a single `LLM_ENDPOINT`
+- **fix** `config/profiles/starter/core.yaml` aligned with base config: provider `api_base` now resolves from `LLM_PROVIDERS_*_API_BASE` env vars and LM Studio model IDs use canonical `openai/...` prefix
+- **feat** `backend/routers/chat.py` resolves provider endpoint strictly from active provider config — no legacy fallback
+- **feat** `backend/routers/settings.py` `/api/models` endpoint resolves from primary provider config — no legacy fallback
+- **feat** `docker-compose.yml` injects `LLM_PROVIDERS_*_API_BASE` vars into all affected services; `WEB_SEARCH_MCP_URL` parameterised via env var
+- **improve** `steuermann setup doctor` checks for provider-specific endpoint vars and probes each configured endpoint individually (was single `LLM_ENDPOINT` check)
+- **improve** `.env.example` and `docs/configuration.md` updated to reflect new provider-specific env var naming; `LLM_ENDPOINT` references removed
+- **improve** `docs/monitoring.md`, `docs/technical_architecture.md`, and `docs/status.md` aligned with provider-specific endpoint env vars
+- **test** Updated endpoint-related fixtures/assertions in `tests/conftest.py`, `tests/test_config_loader.py`, `tests/test_langgraph_builder.py`, `tests/test_tool_invocation.py`, `tests/test_docker_compose_ingestion_env.py`, and `tests/test_steuermann_cli.py`
+- **feat** Tool-calling policy moved to model-level config via `model_tool_calling` map per provider; provider-level `tool_calling` removed from runtime decision path
+- **feat** Probe-authoritative mode resolution with freshness enforcement: stale/missing/invalid probe timestamps force `structured`; fresh successful probe is required for `native`
+- **feat** New settings API endpoint `GET /api/llm/capabilities` exposing per-model desired mode, effective mode, probe status, and capability metadata
+- **feat** Frontend Settings page now displays model capability status table with native/structured/react legend badges and an inline refresh action
+- **feat** Added "Copy diagnostics" action in Settings capability panel to export probe TTL and per-model capability rows as tab-delimited clipboard output
+- **feat** Capabilities table now supports per-model expandable details (configured mode, API base, bind/schema flags, mismatch flag, probe error, raw metadata)
+- **feat** Settings now supports role-based model preferences (`preferred_models`) with provider-locked selectors per configured role (chat/embedding/vision/auxiliary)
+- **feat** `/api/system-config` now includes `model_roles` entries (role, fixed provider, default model, role-scoped available models, optional model load error)
+- **fix** User settings persistence now stores `preferred_models` JSON alongside legacy `preferred_model` and keeps chat preference synchronized for runtime compatibility
+- **feat** Added configurable probe freshness env var `LLM_CAPABILITY_PROBE_TTL_SECONDS` (default `3600`) to `.env` and `.env.example`
+- **fix** Chat router now forwards latest capability probe rows per provider+model (not collapsed per provider), enabling correct model-level mode resolution
+- **docs** Updated `docs/configuration.md`, `docs/tool_development_guide.md`, and `docs/technical_architecture.md` for model-level tool-calling and probe freshness behavior
+
 ## [0.2.2] — provider-model-hardening
 
 - **fix** Model validation in `_validate_preferred_model` now derives provider prefix from the requested model ID, not the active profile's default — prevents `openrouter/...` being silently re-prefixed as `openai/...`

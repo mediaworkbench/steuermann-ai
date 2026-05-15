@@ -3,7 +3,9 @@ import pytest
 
 
 # Ensure config placeholder substitution succeeds in tests that call load_core_config() directly.
-os.environ.setdefault("LLM_ENDPOINT", "http://localhost:11434")
+os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
+os.environ.setdefault("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/v1")
+os.environ.setdefault("LLM_PROVIDERS_OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("QDRANT_HOST", "localhost")
 

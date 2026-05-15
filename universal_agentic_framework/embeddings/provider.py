@@ -11,6 +11,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def normalize_embedding_model_name(model_name: str) -> str:
+    """Normalize embedding model IDs for OpenAI-compatible /embeddings endpoints.
+
+    The chat stack may use LiteLLM-style IDs such as ``openai/<model>``.
+    Embedding endpoints (LM Studio/OpenAI-compatible) typically expect raw model IDs.
+    """
+    return (model_name or "").removeprefix("openai/").strip()
+
+
 class EmbeddingProvider(ABC):
     """Abstract base class for embedding providers."""
 
@@ -74,11 +83,18 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
             raise ImportError("httpx not installed. Install with: pip install httpx")
 
         self.endpoint = endpoint.rstrip("/")
-        self.model_name = model_name
+        requested_model_name = model_name
+        self.model_name = normalize_embedding_model_name(model_name)
         self.dimension = dimension
         self.client = httpx.Client(timeout=30.0)
         self._fallback = endpoint.startswith("$") or "$/" in endpoint or "$" in endpoint
-        logger.info(f"Initialized remote embedding provider: {endpoint} (model: {model_name})")
+        if requested_model_name != self.model_name:
+            logger.info(
+                "Normalized embedding model ID for remote provider: %s -> %s",
+                requested_model_name,
+                self.model_name,
+            )
+        logger.info(f"Initialized remote embedding provider: {endpoint} (model: {self.model_name})")
 
     def encode(self, texts: Union[str, List[str]], **kwargs) -> Union[List[float], List[List[float]]]:
         """Embed using remote OpenAI-compatible API.

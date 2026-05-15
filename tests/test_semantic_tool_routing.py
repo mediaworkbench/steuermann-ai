@@ -2,6 +2,7 @@
 
 import pytest
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
@@ -9,22 +10,34 @@ from universal_agentic_framework.orchestration.graph_builder import (
     node_prefilter_tools,
     node_route_tools,
     node_call_tools_native,
+    node_call_tools_structured,
     node_generate_response,
-    _clear_embedding_cache,
-    _detect_tool_routing_intents,
-    _build_semantic_tool_kwargs,
-    _extract_calculator_expression,
-    _run_forced_tool,
-    _apply_top_k_scored_tools,
 )
+from universal_agentic_framework.orchestration.helpers.embedding_provider import (
+    clear_embedding_cache as _clear_embedding_cache,
+)
+from universal_agentic_framework.orchestration.helpers.intent_detection import (
+    detect_tool_routing_intents as _detect_tool_routing_intents,
+)
+from universal_agentic_framework.orchestration.helpers.semantic_execution import (
+    build_semantic_tool_kwargs as _build_semantic_tool_kwargs,
+    extract_calculator_expression as _extract_calculator_expression,
+    run_forced_tool as _run_forced_tool,
+)
+from universal_agentic_framework.orchestration.helpers.tool_preparation import (
+    apply_top_k_scored_tools as _apply_top_k_scored_tools,
+)
+from universal_agentic_framework.orchestration.helpers.tool_scoring import _tool_embedding_cache
 from universal_agentic_framework.tools.datetime.tool import DateTimeTool
 
 
 @pytest.fixture(autouse=True)
 def clear_embedding_cache():
     """Clear embedding model cache before each test to ensure mocks work."""
+    _tool_embedding_cache.clear()
     _clear_embedding_cache()
     yield
+    _tool_embedding_cache.clear()
     _clear_embedding_cache()
 
 
@@ -67,6 +80,50 @@ class SequencedDummyModel:
         return SimpleNamespace(content="")
 
 
+class ListContentStructuredModel:
+    """Return structured JSON tool call embedded in list content blocks."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content=[
+                {"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'},
+            ]
+        )
+
+
+class DictContentStructuredModel:
+    """Return structured JSON tool call in dict-shaped content."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content={"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'}
+        )
+
+
+class MixedContentStructuredModel:
+    """Return mixed blocks where only one block contains valid JSON call text."""
+
+    def __init__(self):
+        self.invocations = []
+
+    def invoke(self, messages):
+        self.invocations.append(messages)
+        return SimpleNamespace(
+            content=[
+                {"type": "reasoning", "content": [{"summary": "planning"}]},
+                {"type": "text", "text": '{"tool": "datetime_tool", "args": {}}'},
+            ]
+        )
+
+
 class DummyNativeModel:
     """Minimal native tool-calling model stub."""
 
@@ -94,14 +151,22 @@ def set_mock_config(
 ):
     """Helper to configure core settings for tool routing tests."""
 
+    provider = SimpleNamespace(
+        type="ollama",
+        api_base="http://localhost:11434/v1",
+        models=SimpleNamespace(
+            en="ollama/llama",
+            model_dump=lambda: {language: "ollama/llama"},
+        ),
+        tool_calling="structured",
+        get_tool_calling_mode=lambda _model_name: provider.tool_calling,
+    )
+
     config = SimpleNamespace(
         fork=SimpleNamespace(name=fork_name, timezone=timezone, language=language),
         memory=SimpleNamespace(
             embeddings=SimpleNamespace(
-                model="text-embedding-granite-embedding-278m-multilingual",
                 dimension=768,
-                provider="local",
-                remote_endpoint=None,
             )
         ),
         tool_routing=SimpleNamespace(
@@ -113,9 +178,16 @@ def set_mock_config(
         ),
         tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
         llm=SimpleNamespace(
-            providers=SimpleNamespace(
-                primary=SimpleNamespace(type="ollama", models={language: "llama"})
-            )
+            roles=SimpleNamespace(
+                chat=SimpleNamespace(provider_id="ollama", model="ollama/llama", api_base="http://localhost:11434/v1")
+            ),
+            get_role_provider=lambda _role: provider,
+            get_role_model_name=lambda _role, _lang: "ollama/llama",
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("ollama", provider, "ollama/llama")
+            ] if role_name in {"chat", "vision", "auxiliary"} else [],
+            get_embedding_provider_type=lambda: "remote",
+            get_embedding_remote_endpoint=lambda: "http://localhost:11434/v1",
         ),
     )
 
@@ -421,7 +493,7 @@ class TestSemanticToolRouting:
         assert "tool_results" in result
         assert "tool_execution_results" in result
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_injects_tool_results_and_knowledge(self, mock_config, mock_model_factory):
         """Response node should inject both tool results and knowledge context."""
@@ -450,7 +522,7 @@ class TestSemanticToolRouting:
         assert "Doc text" in system_prompt
         assert result["messages"][-1]["content"] == "model output"
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_skips_tool_section_when_empty(self, mock_config, mock_model_factory):
         """Response node should not add tool section if no tool results are present."""
@@ -477,7 +549,7 @@ class TestSemanticToolRouting:
         assert "=== WISSENSDATENBANK ===" in system_prompt
         assert "Doc text" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_keeps_low_priority_memory_when_web_tool_results_present(self, mock_config, mock_model_factory):
         """Past memory should be retained as background while tool results remain primary."""
@@ -507,7 +579,7 @@ class TestSemanticToolRouting:
         assert "Old unrelated memory about The Shamen" in system_prompt
         assert "=== CONTEXT PRIORITY ===" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_when_extract_succeeded_but_model_claims_access_error(self, mock_config, mock_model_factory):
         """Response node should correct contradictory access-error claims after successful extraction."""
@@ -543,7 +615,7 @@ class TestSemanticToolRouting:
         assert result["messages"][-1]["content"] == "The headline is: Die Wahrheit ist eine Waffe."
         assert len(fake_model.invocations) >= 2
 
-    @patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_for_german_access_refusal_after_successful_extract(self, mock_config, mock_model_factory):
         """German refusal wording should trigger correction retry when extraction succeeded."""
@@ -651,7 +723,7 @@ class TestRoutingIntentDetection:
         assert intents["enhanced_web_query"] == "rosuvastatin"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_injects_request_url_when_missing(mock_config, mock_model_factory):
     """Native mode should inject request_url from user message when model omits URL args."""
@@ -693,7 +765,7 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
@@ -730,7 +802,7 @@ def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
     assert "web_search_mcp" in candidate_names
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
@@ -739,7 +811,7 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
     mock_score_similarity,
 ):
     set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
-    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+    mock_config.return_value.llm.get_role_provider("chat").tool_calling = "native"
 
     fake_provider = Mock()
     fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
@@ -752,12 +824,13 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
         "language": "en",
         "llm_capability_probes": [
             {
-                "provider_id": "primary",
-                "model_name": "llama",
+                "provider_id": "ollama",
+                "model_name": "ollama/llama",
                 "supports_bind_tools": False,
                 "supports_tool_schema": False,
                 "capability_mismatch": True,
                 "status": "warning",
+                "probed_at": datetime.now(timezone.utc).isoformat(),
             }
         ],
     }
@@ -768,7 +841,7 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
     assert result["tool_calling_mode_reason"] == "probe_capability_mismatch_downgrade"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_prefilter_keeps_native_mode_when_probe_is_ok(
@@ -777,7 +850,7 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     mock_score_similarity,
 ):
     set_mock_config(mock_config, similarity_threshold=0.10, top_k=5)
-    mock_config.return_value.llm.providers.primary.tool_calling = "native"
+    mock_config.return_value.llm.get_role_provider("chat").tool_calling = "native"
 
     fake_provider = Mock()
     fake_provider.encode.return_value = np.array([0.2, 0.3, 0.4])
@@ -790,12 +863,13 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
         "language": "en",
         "llm_capability_probes": [
             {
-                "provider_id": "primary",
-                "model_name": "llama",
+                "provider_id": "ollama",
+                "model_name": "ollama/llama",
                 "supports_bind_tools": True,
                 "supports_tool_schema": True,
                 "capability_mismatch": False,
                 "status": "ok",
+                "probed_at": datetime.now(timezone.utc).isoformat(),
             }
         ],
     }
@@ -803,10 +877,10 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     result = node_prefilter_tools(state)
 
     assert result["tool_calling_mode"] == "native"
-    assert result["tool_calling_mode_reason"] == "configured_native_probe_ok"
+    assert result["tool_calling_mode_reason"] == "probe_confirmed_native"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, mock_model_factory):
     """Native mode should still execute extract tool for URL prompts when model emits no tool calls."""
@@ -841,7 +915,7 @@ def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, m
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted via fallback"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_config, mock_model_factory):
     """Native mode should retry extract with inferred URL when first call returns protocol-missing error."""
@@ -884,6 +958,78 @@ def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_conf
     assert len(seen_calls) == 2
     assert seen_calls[1]["request_url"] == "https://www.mediaworkbench.com"
     assert result["tool_results"]["extract_webpage_mcp"] == "retry success content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_list_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should parse JSON tool call from list-based content blocks."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = ListContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_dict_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should parse JSON tool call from dict-shaped content."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = DictContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_tool_call_parses_mixed_content_blocks(mock_config, mock_model_factory):
+    """Structured mode should tolerate mixed content blocks and still parse JSON call."""
+    set_mock_config(mock_config)
+    mock_model_factory.return_value = MixedContentStructuredModel()
+
+    dt_tool = DateTimeTool()
+    state = {
+        "messages": [{"role": "user", "content": "what time is it"}],
+        "candidate_tools": [{"tool": dt_tool, "name": "datetime_tool", "score": 0.9}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert "datetime_tool" in result["tool_results"]
 
 
 class TestSemanticKwargsBuilder:

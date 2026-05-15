@@ -19,16 +19,18 @@ _backend_cache: Dict[Tuple, MemoryBackend] = {}
 def _cache_key(config: CoreConfig) -> Tuple:
     vs = config.memory.vector_store
     emb = config.memory.embeddings
-    llm = config.llm.providers.primary
+    llm = config.llm.get_role_provider("auxiliary")
+    embedding_model = config.llm.get_role_model_name("embedding", config.fork.language)
+    embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
     mem0 = config.memory.mem0
     return (
         vs.type,
         vs.host,
         vs.port,
         vs.collection_prefix,
-        emb.model,
+        embedding_model,
         emb.dimension,
-        emb.remote_endpoint,
+        embedding_remote_endpoint,
         str(llm.api_base),
         mem0.llm_provider,
         mem0.search_limit,
@@ -53,7 +55,9 @@ def build_memory_backend(
     emb = config.memory.embeddings
 
     if vs.type.lower() == "mem0":
-        llm_primary = config.llm.providers.primary
+        llm_provider = config.llm.get_role_provider("auxiliary")
+        embedding_model = config.llm.get_role_model_name("embedding", config.fork.language)
+        embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
         mem0_settings = config.memory.mem0
 
         # Bypass cache when test overrides are present.
@@ -66,17 +70,18 @@ def build_memory_backend(
             host=vs.host,
             port=vs.port,
             collection_prefix=vs.collection_prefix,
-            embedding_model=emb.model,
+            embedding_model=embedding_model,
             dimension=emb.dimension,
-            embedding_remote_endpoint=emb.remote_endpoint,
-            llm_model=str(llm_primary.models.model_dump().get(config.fork.language) or llm_primary.models.en or "openai/gpt-4o-mini"),
-            llm_api_base=str(llm_primary.api_base) if llm_primary.api_base else None,
-            llm_temperature=float(llm_primary.temperature or 0.0),
-            llm_max_tokens=int(llm_primary.max_tokens) if llm_primary.max_tokens else None,
-            llm_api_key=llm_primary.api_key,
+            embedding_remote_endpoint=embedding_remote_endpoint,
+            llm_model=config.llm.get_role_model_name("auxiliary", config.fork.language),
+            llm_api_base=str(llm_provider.api_base) if llm_provider.api_base else None,
+            llm_temperature=float(llm_provider.temperature or 0.0),
+            llm_max_tokens=int(llm_provider.max_tokens) if llm_provider.max_tokens else None,
+            llm_api_key=llm_provider.api_key,
             search_limit=mem0_settings.search_limit,
             custom_instructions=mem0_settings.custom_instructions,
             llm_provider=mem0_settings.llm_provider,
+            infer_enabled=mem0_settings.infer_enabled,
             client=client,
             embedder=embedder,
         )

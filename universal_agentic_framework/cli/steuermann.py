@@ -993,12 +993,22 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Set POSTGRES_PASSWORD in .env or environment" if not postgres_password else "Present",
     )
 
-    llm_endpoint = env.get("LLM_ENDPOINT")
+    llm_provider_vars = {
+        "LLM_PROVIDERS_LMSTUDIO_API_BASE": env.get("LLM_PROVIDERS_LMSTUDIO_API_BASE"),
+        "LLM_PROVIDERS_OLLAMA_API_BASE": env.get("LLM_PROVIDERS_OLLAMA_API_BASE"),
+        "LLM_PROVIDERS_OPENROUTER_API_BASE": env.get("LLM_PROVIDERS_OPENROUTER_API_BASE"),
+    }
+    configured_providers = {k: v for k, v in llm_provider_vars.items() if v}
     add_check(
-        "LLM_ENDPOINT",
-        bool(llm_endpoint),
+        "LLM provider endpoints",
+        bool(configured_providers),
         False,
-        "Set LLM_ENDPOINT for local validation and runtime config resolution" if not llm_endpoint else llm_endpoint,
+        (
+            "Set at least one of LLM_PROVIDERS_LMSTUDIO_API_BASE, LLM_PROVIDERS_OLLAMA_API_BASE, "
+            "LLM_PROVIDERS_OPENROUTER_API_BASE"
+        )
+        if not configured_providers
+        else ", ".join(f"{k}={v}" for k, v in configured_providers.items()),
     )
 
     embedding_server = env.get("EMBEDDING_SERVER")
@@ -1009,30 +1019,30 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
         "Set EMBEDDING_SERVER for embedding-backed memory and ingestion" if not embedding_server else embedding_server,
     )
 
-    profile_id = get_active_profile_id(env)
-    profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=False)
-    profile_ok = profile_id == "base" or (profile_dir is not None and profile_dir.exists())
+    try:
+        profile_id = get_active_profile_id(env)
+        profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=False)
+        profile_ok = profile_dir.exists()
+        profile_details = "Profile directory missing" if not profile_ok else f"Resolved profile: {profile_id}"
+    except Exception as exc:
+        profile_id = None
+        profile_ok = False
+        profile_details = str(exc)
     add_check(
         "PROFILE_ID",
         profile_ok,
         True,
-        "Profile directory missing" if not profile_ok else f"Resolved profile: {profile_id}",
+        profile_details,
     )
 
-    ingest_collection = env.get("INGEST_COLLECTION")
     try:
         core = load_core_config(env=env)
         rag_collection = core.rag.collection_name
-        aligned = not ingest_collection or ingest_collection == rag_collection
         add_check(
-            "INGEST_COLLECTION alignment",
-            aligned,
+            "RAG collection",
+            bool(rag_collection),
             False,
-            (
-                "INGEST_COLLECTION differs from core.rag.collection_name"
-                if not aligned
-                else f"Aligned collection: {rag_collection}"
-            ),
+            f"Configured collection: {rag_collection}",
         )
     except Exception as exc:
         add_check("Core config load", False, True, f"Failed to load core config: {exc}")
@@ -1040,19 +1050,21 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
     if args.probe_endpoints:
         import httpx
 
-        endpoint = env.get("LLM_ENDPOINT", "")
-        ok = bool(endpoint)
-        details = "LLM_ENDPOINT missing"
-        if endpoint:
-            try:
-                with httpx.Client(timeout=3.0) as client:
-                    response = client.get(endpoint)
-                ok = response.status_code < 500
-                details = f"HTTP {response.status_code}"
-            except Exception as exc:
-                ok = False
-                details = str(exc)
-        add_check("LLM endpoint probe", ok, False, details)
+        if not configured_providers:
+            add_check("LLM endpoint probe", False, False, "No LLM provider endpoints configured")
+        else:
+            for var_name, endpoint in configured_providers.items():
+                probe_ok = False
+                probe_details = f"{var_name} missing"
+                try:
+                    with httpx.Client(timeout=3.0) as client:
+                        response = client.get(endpoint)
+                    probe_ok = response.status_code < 500
+                    probe_details = f"HTTP {response.status_code}"
+                except Exception as exc:
+                    probe_ok = False
+                    probe_details = str(exc)
+                add_check(f"LLM endpoint probe ({var_name})", probe_ok, False, probe_details)
 
     has_blocking_fail = any(c["status"] == "fail" and c["blocking"] for c in checks)
     payload = {

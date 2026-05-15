@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import pytest
@@ -174,7 +175,7 @@ class FakeLLMCapabilityProbeStore:
         return [
             {
                 "profile_id": profile_id,
-                "provider_id": "primary",
+                "provider_id": "lmstudio",
                 "model_name": "openai/liquid/lfm2-24b-a2b",
                 "configured_tool_calling_mode": "native",
                 "supports_bind_tools": False,
@@ -376,8 +377,41 @@ def test_chat_forwards_llm_capability_probes(client) -> None:
     probes = fake_async_client.last_request_json.get("llm_capability_probes")
     assert isinstance(probes, list)
     assert probes
-    assert probes[0]["provider_id"] == "primary"
+    assert probes[0]["provider_id"] == "lmstudio"
     assert probes[0]["capability_mismatch"] is True
+
+
+def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = SimpleNamespace(api_base="http://localhost:1234/v1")
+    core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
+        llm=SimpleNamespace(
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("lmstudio", provider, "openai/test-model")
+            ] if role_name == "chat" else []
+        )
+    )
+
+    monkeypatch.setattr(chat_module, "load_core_config", lambda: core_config)
+
+    assert chat_module._resolve_provider_endpoint("openai") == "http://localhost:1234/v1"
+
+
+def test_resolve_provider_endpoint_does_not_fallback_to_legacy_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = SimpleNamespace(api_base="http://localhost:9999/v1")
+    core_config = SimpleNamespace(
+        fork=SimpleNamespace(language="en"),
+        llm=SimpleNamespace(
+            get_role_provider_chain_with_models=lambda role_name, _lang: [
+                ("other", provider, "ollama/test-model")
+            ] if role_name == "chat" else []
+        )
+    )
+
+    monkeypatch.setattr(chat_module, "load_core_config", lambda: core_config)
+
+    with pytest.raises(ValueError, match="No api_base configured for provider prefix 'openai'"):
+        chat_module._resolve_provider_endpoint("openai")
 
 
 def test_chat_uses_user_settings_language_over_request_language(client) -> None:
@@ -616,6 +650,7 @@ async def test_validate_preferred_model_accepts_provider_prefixed_when_endpoint_
 
     monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
     monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+    monkeypatch.setattr(chat_module, "_resolve_provider_endpoint", lambda _provider_prefix: "http://localhost:1234/v1")
 
     validated, warning = await chat_module._validate_preferred_model("openai/liquid/lfm2-24b-a2b")
     assert warning is None
@@ -659,10 +694,77 @@ async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatc
 
     monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
     monkeypatch.setattr(chat_module, "httpx", type("_HttpxModule", (), {"AsyncClient": _FakeAsyncClient}))
+    monkeypatch.setattr(chat_module, "_resolve_provider_endpoint", lambda _provider_prefix: "http://localhost:1234/v1")
 
     validated, warning = await chat_module._validate_preferred_model("liquid/lfm2-24b-a2b")
     assert warning is None
     assert validated == "openai/liquid/lfm2-24b-a2b"
+
+
+def test_chat_clears_invalid_persisted_chat_model_override(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    test_client, _, fake_async_client = client
+
+    class _InvalidPreferredModelStore:
+        def __init__(self) -> None:
+            self.upsert_calls: list[Dict[str, Any]] = []
+
+        def get_user_settings(self, user_id: str) -> Dict[str, Any] | None:
+            _ = user_id
+            return {
+                "tool_toggles": {},
+                "rag_config": {"collection": "", "top_k": 5},
+                "analytics_preferences": {},
+                "preferred_model": "user2-model",
+                "preferred_models": {
+                    "chat": "user2-model",
+                    "embedding": "openai/text-embedding-granite-embedding-278m-multilingual",
+                },
+                "theme": "auto",
+                "language": "en",
+            }
+
+        def upsert_user_settings(self, **kwargs) -> Dict[str, Any]:
+            self.upsert_calls.append(kwargs)
+            return {
+                "user_id": kwargs["user_id"],
+                "tool_toggles": kwargs["tool_toggles"],
+                "rag_config": kwargs["rag_config"],
+                "analytics_preferences": kwargs["analytics_preferences"],
+                "preferred_model": kwargs["preferred_model"],
+                "preferred_models": kwargs["preferred_models"],
+                "theme": kwargs["theme"],
+                "language": kwargs["language"],
+                "updated_at": None,
+            }
+
+    async def _invalid_model(*_args, **_kwargs):
+        return None, "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+
+    invalid_store = _InvalidPreferredModelStore()
+    test_client.app.state.settings_store = invalid_store
+    chat_module._settings_cache.clear()
+    monkeypatch.setattr(chat_module, "_validate_preferred_model", _invalid_model)
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "Use the default model please",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(invalid_store.upsert_calls) == 1
+    assert invalid_store.upsert_calls[0]["preferred_model"] is None
+    assert invalid_store.upsert_calls[0]["preferred_models"] == {
+        "embedding": "openai/text-embedding-granite-embedding-278m-multilingual"
+    }
+    assert fake_async_client.last_request_json["user_settings"]["preferred_model"] is None
+    assert response.json()["metadata"]["model_warning"] == (
+        "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+    )
 
 
 def test_chat_infers_workspace_document_by_bare_filename_from_message(client) -> None:

@@ -31,8 +31,7 @@ class DatabasePool:
         )
         # Keep schema compatible when DatabasePool is instantiated directly in tests/tools.
         try:
-            _ensure_settings_table(self)
-            _ensure_llm_probe_table(self)
+            _ensure_core_tables(self)
         except Exception:
             # Avoid making pool construction brittle; explicit init_db_pool still performs setup.
             pass
@@ -72,12 +71,17 @@ def init_db_pool() -> DatabasePool:
         maxconn=pool_size,
     )
     db_pool = DatabasePool(db_config)
+    _ensure_core_tables(db_pool)
+    return db_pool
+
+
+def _ensure_core_tables(db_pool: DatabasePool) -> None:
+    """Initialize the core schema expected by tests and runtime code."""
     _ensure_settings_table(db_pool)
     _ensure_llm_probe_table(db_pool)
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
     _ensure_conversation_tables(db_pool)
-    return db_pool
 
 
 def _ensure_settings_table(db_pool: DatabasePool) -> None:
@@ -88,6 +92,7 @@ def _ensure_settings_table(db_pool: DatabasePool) -> None:
             rag_config JSONB NOT NULL DEFAULT '{"collection":"","top_k":5}'::jsonb,
             analytics_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
             preferred_model TEXT,
+            preferred_models JSONB NOT NULL DEFAULT '{}'::jsonb,
             theme TEXT NOT NULL DEFAULT 'auto' CHECK (theme IN ('light', 'dark', 'auto')),
             display_sidebar_visible BOOLEAN NOT NULL DEFAULT TRUE,
             display_compact_mode BOOLEAN NOT NULL DEFAULT FALSE,
@@ -100,6 +105,10 @@ def _ensure_settings_table(db_pool: DatabasePool) -> None:
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(statement)
+            cur.execute(
+                "ALTER TABLE IF EXISTS user_settings "
+                "ADD COLUMN IF NOT EXISTS preferred_models JSONB NOT NULL DEFAULT '{}'::jsonb;"
+            )
         conn.commit()
 
 
@@ -241,7 +250,7 @@ class SettingsStore:
 
     def get_user_settings(self, user_id: str) -> Optional[Dict[str, Any]]:
         statement = """
-            SELECT user_id, tool_toggles, rag_config, analytics_preferences, preferred_model,
+            SELECT user_id, tool_toggles, rag_config, analytics_preferences, preferred_model, preferred_models,
                    theme, display_sidebar_visible, display_compact_mode, language,
                    notifications_enabled, notifications_sound, updated_at
             FROM user_settings
@@ -262,6 +271,7 @@ class SettingsStore:
         rag_config: Dict[str, Any],
         analytics_preferences: Optional[Dict[str, Any]] = None,
         preferred_model: Optional[str] = None,
+        preferred_models: Optional[Dict[str, Optional[str]]] = None,
         theme: str = "auto",
         display_sidebar_visible: bool = True,
         display_compact_mode: bool = False,
@@ -272,16 +282,17 @@ class SettingsStore:
         resolved_analytics_preferences = analytics_preferences or {}
         statement = """
             INSERT INTO user_settings (
-                user_id, tool_toggles, rag_config, analytics_preferences, preferred_model,
+                user_id, tool_toggles, rag_config, analytics_preferences, preferred_model, preferred_models,
                 theme, display_sidebar_visible, display_compact_mode, language,
                 notifications_enabled, notifications_sound, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id) DO UPDATE SET
                 tool_toggles = EXCLUDED.tool_toggles,
                 rag_config = EXCLUDED.rag_config,
                 analytics_preferences = EXCLUDED.analytics_preferences,
                 preferred_model = EXCLUDED.preferred_model,
+                preferred_models = EXCLUDED.preferred_models,
                 theme = EXCLUDED.theme,
                 display_sidebar_visible = EXCLUDED.display_sidebar_visible,
                 display_compact_mode = EXCLUDED.display_compact_mode,
@@ -289,10 +300,11 @@ class SettingsStore:
                 notifications_enabled = EXCLUDED.notifications_enabled,
                 notifications_sound = EXCLUDED.notifications_sound,
                 updated_at = NOW()
-            RETURNING user_id, tool_toggles, rag_config, analytics_preferences, preferred_model,
+            RETURNING user_id, tool_toggles, rag_config, analytics_preferences, preferred_model, preferred_models,
                       theme, display_sidebar_visible, display_compact_mode, language,
                       notifications_enabled, notifications_sound, updated_at;
         """
+        resolved_preferred_models = preferred_models or {}
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
@@ -303,6 +315,7 @@ class SettingsStore:
                         extras.Json(rag_config),
                         extras.Json(resolved_analytics_preferences),
                         preferred_model,
+                        extras.Json(resolved_preferred_models),
                         theme,
                         display_sidebar_visible,
                         display_compact_mode,
@@ -414,6 +427,10 @@ def _normalize_settings_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if isinstance(analytics_preferences, str):
         analytics_preferences = json.loads(analytics_preferences)
 
+    preferred_models = row.get("preferred_models") or {}
+    if isinstance(preferred_models, str):
+        preferred_models = json.loads(preferred_models)
+
     updated_at = row.get("updated_at")
     if isinstance(updated_at, datetime):
         updated_at_value = updated_at.isoformat()
@@ -428,6 +445,7 @@ def _normalize_settings_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "rag_config": rag_config,
         "analytics_preferences": analytics_preferences,
         "preferred_model": row.get("preferred_model"),
+        "preferred_models": preferred_models,
         "theme": row.get("theme", "auto"),
         "display_sidebar_visible": row.get("display_sidebar_visible", True),
         "display_compact_mode": row.get("display_compact_mode", False),

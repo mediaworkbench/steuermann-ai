@@ -18,7 +18,8 @@ class _FakeChatModel:
 
 @pytest.fixture(autouse=True)
 def patch_factories(monkeypatch):
-    monkeypatch.setenv("LLM_ENDPOINT", "http://localhost:11434")
+    monkeypatch.setenv("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
+    monkeypatch.setenv("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/v1")
 
     # Patch LLMFactory to return fake model (both get_model and get_router_model)
     def _fake_get_model(self, language: str, prefer_local: bool = True):
@@ -34,7 +35,7 @@ def patch_factories(monkeypatch):
     def _fake_build_backend(config, client=None, embedder=None):
         return InMemoryMemoryManager()
 
-    monkeypatch.setattr("universal_agentic_framework.memory.factory.build_memory_backend", _fake_build_backend)
+    monkeypatch.setattr("universal_agentic_framework.orchestration.graph_builder.build_memory_backend", _fake_build_backend)
 
 
 def test_langgraph_pipeline_runs_and_updates_memory():

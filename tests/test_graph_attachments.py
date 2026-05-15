@@ -4,6 +4,9 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 
 from universal_agentic_framework.orchestration import graph_builder
+from universal_agentic_framework.orchestration.helpers.text_processing import (
+    build_attachment_context_block as _build_attachment_context_block,
+)
 
 
 class _CapturingModel:
@@ -76,7 +79,7 @@ def _fake_config() -> SimpleNamespace:
 
 
 def test_build_attachment_context_block_labels_and_truncates() -> None:
-    block, normalized = graph_builder._build_attachment_context_block(
+    block, normalized = _build_attachment_context_block(
         [
             {
                 "id": "att-1",
@@ -102,7 +105,7 @@ def test_node_generate_response_injects_attachment_context(monkeypatch) -> None:
     model = _CapturingModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
@@ -139,7 +142,7 @@ def test_node_generate_response_retries_if_model_refuses_attachments(monkeypatch
     model = _RefusalThenAnswerModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
@@ -173,7 +176,7 @@ def test_node_generate_response_retries_on_inaccessible_extraction_phrase(monkey
     model = _InaccessibleThenAnswerModel()
 
     monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
-    monkeypatch.setattr(graph_builder, "_safe_get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "safe_get_model", lambda config, language, preferred_model=None: model)
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)

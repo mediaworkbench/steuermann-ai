@@ -7,20 +7,24 @@ from universal_agentic_framework.config.schemas import (
     DatabaseSettings,
     EmbeddingSettings,
     ForkSettings,
-    LLMProviders,
+    IngestionSettings,
+    LLMRoleSettings,
+    LLMRoles,
     LLMSettings,
     MemorySettings,
-    ProviderModelMap,
-    ProviderSettings,
     RetentionSettings,
     TokensSettings,
     VectorStoreSettings,
 )
 from universal_agentic_framework.llm.factory import LLMFactory, ModelSelection
-from universal_agentic_framework.orchestration.graph_builder import (
-    _ModelInvokeError,
-    _invoke_with_model_fallback,
-)
+from universal_agentic_framework.orchestration.helpers.model_resolution import invoke_with_model_fallback
+
+
+class _ModelInvokeError(RuntimeError):
+    def __init__(self, message: str, provider: str, model_name: str):
+        super().__init__(message)
+        self.provider = provider
+        self.model_name = model_name
 
 
 class _FailingModel:
@@ -50,32 +54,40 @@ def _core_config() -> CoreConfig:
     return CoreConfig(
         fork=ForkSettings(name="starter", language="en"),
         llm=LLMSettings(
-            providers=LLMProviders(
-                primary=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en="openai/primary-model"),
+            roles=LLMRoles(
+                chat=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
                     temperature=0.1,
                     max_tokens=256,
                     timeout=30,
                 ),
-                fallback=ProviderSettings(
-                    api_base=None,
-                    api_key=None,
-                    models=ProviderModelMap(en="openai/fallback-model"),
-                    temperature=0.1,
-                    max_tokens=256,
-                    timeout=30,
+                embedding=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/text-embedding-granite-embedding-278m-multilingual",
                 ),
-            )
+                vision=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
+                ),
+                auxiliary=LLMRoleSettings(
+                    provider_id="lmstudio",
+                    api_base="http://localhost:1234/v1",
+                    model="openai/primary-model",
+                ),
+            ),
         ),
         database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
         memory=MemorySettings(
             vector_store=VectorStoreSettings(type="mem0", host="qdrant", port=6333, collection_prefix="starter"),
-            embeddings=EmbeddingSettings(model="model", dimension=384, batch_size=32),
+            embeddings=EmbeddingSettings(dimension=384, batch_size=32),
             retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
         ),
         tokens=TokensSettings(default_budget=10000, per_node_budgets={}),
+        ingestion=IngestionSettings(collection_name="starter-rag"),
     )
 
 
@@ -96,7 +108,7 @@ def test_invoke_with_model_fallback_uses_next_candidate(monkeypatch):
 
     monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
 
-    text, provider, model_name, _ = _invoke_with_model_fallback(
+    text, provider, model_name, _ = invoke_with_model_fallback(
         config=config,
         language="en",
         payload="hello",
@@ -129,7 +141,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
     monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
 
     with pytest.raises(_ModelInvokeError) as exc_info:
-        _invoke_with_model_fallback(
+        invoke_with_model_fallback(
             config=config,
             language="en",
             payload="hello",
@@ -137,6 +149,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
             initial_provider="mock",
             initial_model_name="primary-model",
             preferred_model=None,
+            error_cls=_ModelInvokeError,
         )
 
     assert exc_info.value.provider == "mock"
@@ -146,7 +159,7 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
 def test_invoke_with_model_fallback_normalizes_list_content_blocks():
     config = _core_config()
 
-    text, provider, model_name, _ = _invoke_with_model_fallback(
+    text, provider, model_name, _ = invoke_with_model_fallback(
         config=config,
         language="en",
         payload="hello",

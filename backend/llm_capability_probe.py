@@ -59,30 +59,78 @@ class LLMCapabilityProbeRunner:
         return self._probe_target(target)
 
     def _collect_targets(self) -> list[ProbeTarget]:
+        """Collect all unique (provider_id, model_name) pairs across all roles except embedding."""
         llm_cfg = self._core_config.llm
-        registry = llm_cfg.providers.get_registry()
-        role_chain = llm_cfg.roles.chat.providers
         targets: list[ProbeTarget] = []
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()  # Track (provider_id, model_name) pairs
 
-        for ref in role_chain:
-            provider_id = str(ref.provider_id)
-            if provider_id in seen:
+        # Iterate through all roles except embedding (chat, vision, auxiliary)
+        role_names = ["chat", "vision", "auxiliary"]
+        for role_name in role_names:
+            # Check if role exists in config (may not exist in all test fixtures)
+            role_cfg = getattr(llm_cfg.roles, role_name, None)
+            if role_cfg is None:
+                logger.debug(f"Role {role_name} not found in config, skipping")
                 continue
-            provider = registry.get(provider_id)
-            if provider is None:
-                logger.warning("Skipping unknown probe provider", provider_id=provider_id)
+
+            try:
+                role_chain = llm_cfg.get_role_provider_chain_with_models(role_name, self._core_config.fork.language)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping role during probe target collection",
+                    extra={"role": role_name, "error": str(exc)},
+                )
                 continue
-            model_name = self._select_model(provider, self._core_config.fork.language)
-            targets.append(ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name))
-            seen.add(provider_id)
+
+            for provider_id, provider, model_name in role_chain:
+                pair_key = (str(provider_id), str(model_name))
+                if pair_key in seen:
+                    continue
+                targets.append(ProbeTarget(provider_id=str(provider_id), provider=provider, model_name=str(model_name)))
+                seen.add(pair_key)
+
+        # Log probe coverage for observability
+        if seen:
+            role_coverage = {}
+            for provider_id, model_name in seen:
+                for role_name in role_names:
+                    role_cfg = getattr(llm_cfg.roles, role_name, None)
+                    if role_cfg and str(getattr(role_cfg, "provider_id", "")) == provider_id:
+                        role_coverage.setdefault(role_name, []).append((provider_id, model_name))
+
+            logger.info(
+                f"Probe coverage: {len(targets)} models across {len(set(p for p, _ in seen))} providers",
+                role_summary={role: len(models) for role, models in role_coverage.items()},
+            )
 
         return targets
 
     def _probe_target(self, target: ProbeTarget) -> LLMCapabilityProbeResult:
-        tool_mode = str(getattr(target.provider, "tool_calling", "structured"))
+        getter = getattr(target.provider, "get_tool_calling_mode", None)
+        if callable(getter):
+            tool_mode = str(getter(target.model_name))
+        else:
+            tool_mode = str(getattr(target.provider, "tool_calling", "structured"))
         api_base_raw = getattr(target.provider, "api_base", None)
         api_base = str(api_base_raw) if api_base_raw else None
+        metadata = {
+            "probe_kind": "native_bind_tools" if tool_mode == "native" else "non_native_mode",
+            "capabilities": {
+                "max_output_tokens": getattr(target.provider, "max_tokens", None),
+                "supports_streaming": None,
+                "supports_json_mode": None,
+            },
+            "confidence": {
+                "max_output_tokens": "medium",
+                "supports_streaming": "low",
+                "supports_json_mode": "low",
+            },
+            "origin": {
+                "max_output_tokens": "config",
+                "supports_streaming": "unknown",
+                "supports_json_mode": "unknown",
+            },
+        }
 
         if tool_mode != "native":
             return LLMCapabilityProbeResult(
@@ -95,7 +143,7 @@ class LLMCapabilityProbeRunner:
                 supports_tool_schema=None,
                 capability_mismatch=False,
                 status="ok",
-                metadata={"probe_kind": "non_native_mode"},
+                metadata=metadata,
             )
 
         try:
@@ -112,7 +160,7 @@ class LLMCapabilityProbeRunner:
                 capability_mismatch=True,
                 status="error",
                 error_message=f"model_init_failed: {exc}",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
 
         try:
@@ -127,7 +175,7 @@ class LLMCapabilityProbeRunner:
                 supports_tool_schema=True,
                 capability_mismatch=False,
                 status="ok",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
         except Exception as exc:
             return LLMCapabilityProbeResult(
@@ -141,7 +189,7 @@ class LLMCapabilityProbeRunner:
                 capability_mismatch=True,
                 status="warning",
                 error_message=f"bind_tools_failed: {exc}",
-                metadata={"probe_kind": "native_bind_tools"},
+                metadata=metadata,
             )
 
     @staticmethod
@@ -161,6 +209,22 @@ class LLMCapabilityProbeRunner:
                 return str(value)
 
         raise ValueError("No model configured for provider")
+
+    @staticmethod
+    def _collect_all_models(provider: Any) -> set[str]:
+        """Collect all distinct models configured for a provider across all languages."""
+        models: set[str] = set()
+        
+        if hasattr(provider.models, "model_dump"):
+            model_dict = provider.models.model_dump()
+        else:
+            model_dict = vars(provider.models)
+
+        for value in model_dict.values():
+            if value:
+                models.add(str(value))
+
+        return models
 
     @staticmethod
     def _probe_native_bind_tools(model: Any) -> None:

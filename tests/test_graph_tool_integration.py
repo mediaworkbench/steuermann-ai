@@ -9,6 +9,59 @@ from unittest.mock import MagicMock, Mock, patch
 
 from universal_agentic_framework.orchestration.graph_builder import build_graph
 from universal_agentic_framework.tools.datetime.tool import DateTimeTool
+from universal_agentic_framework.memory import InMemoryMemoryManager
+
+
+def _mock_llm_for_tests(tool_calling: str = "structured"):
+    provider = SimpleNamespace(
+        type="ollama",
+        api_base="http://localhost:11434/v1",
+        models=SimpleNamespace(en="ollama/llama", model_dump=lambda: {"en": "ollama/llama"}),
+        tool_calling=tool_calling,
+        get_tool_calling_mode=lambda _model_name: tool_calling,
+    )
+    return SimpleNamespace(
+        roles=SimpleNamespace(chat=SimpleNamespace(provider_id="ollama", model="ollama/llama", api_base="http://localhost:11434/v1")),
+        get_role_provider=lambda _role: provider,
+        get_role_model_name=lambda role_name, _lang: "test-model" if role_name == "embedding" else "ollama/llama",
+        get_role_provider_chain_with_models=lambda role_name, _lang: [
+            ("ollama", provider, "ollama/llama")
+        ] if role_name in {"chat", "vision", "auxiliary"} else [],
+        get_embedding_provider_type=lambda: "remote",
+        get_embedding_remote_endpoint=lambda: "http://localhost:11434/v1",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _mock_external_services(monkeypatch):
+    """Prevent all integration tests from hitting real Qdrant/LLM endpoints."""
+    import numpy as np
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    monkeypatch.setenv("PROFILE_ID", "starter")
+
+    # Memory backend — avoid real Qdrant/Mem0 connection
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.build_memory_backend",
+        lambda *_, **__: InMemoryMemoryManager(),
+    )
+
+    # Embedding provider — avoid real embedding server
+    mock_embedder = Mock()
+    mock_embedder.encode.side_effect = lambda _: np.array([0.5] * 768)
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.build_embedding_provider",
+        lambda *_, **__: mock_embedder,
+    )
+
+    # LLM — avoid real LLM endpoint
+    mock_llm = Mock()
+    mock_llm.invoke.return_value = SimpleNamespace(content="test response")
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.safe_get_model",
+        lambda *_, **__: mock_llm,
+    )
 
 
 @pytest.mark.integration
@@ -70,7 +123,7 @@ class DummyModel:
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -96,14 +149,14 @@ def test_graph_injects_tool_and_knowledge_context(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tool_routing=SimpleNamespace(similarity_threshold=1.1, embedding_model="test-model", top_k=None, intent_boost=0.2, max_retries=2, min_top_score=0.7, min_spread=0.10),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}, tool_calling="structured"))),
+        llm=_mock_llm_for_tests("structured"),
         rag=None,
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=True, long_term_memory=False)
@@ -155,7 +208,7 @@ def test_graph_injects_tool_and_knowledge_context(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -178,13 +231,13 @@ def test_rag_request_uses_config(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+        llm=_mock_llm_for_tests("structured"),
         rag=SimpleNamespace(
             enabled=True,
             collection_name="my-collection",
@@ -228,7 +281,7 @@ def test_rag_request_uses_config(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -245,14 +298,14 @@ def test_rag_disabled_via_features(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tool_routing=SimpleNamespace(similarity_threshold=1.1, embedding_model="test-model", top_k=None, min_top_score=0.7, min_spread=0.10),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+        llm=_mock_llm_for_tests("structured"),
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=False)
 
@@ -273,7 +326,7 @@ def test_rag_disabled_via_features(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -296,14 +349,14 @@ def test_rag_keyword_fallback_search(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tool_routing=SimpleNamespace(similarity_threshold=1.1, embedding_model="test-model", top_k=None, min_top_score=0.7, min_spread=0.10),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+        llm=_mock_llm_for_tests("structured"),
         rag=SimpleNamespace(
             enabled=True,
             collection_name="test-collection",
@@ -357,7 +410,7 @@ def test_rag_keyword_fallback_search(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -380,14 +433,14 @@ def test_response_url_stripping_guardrail(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tool_routing=SimpleNamespace(similarity_threshold=1.1, embedding_model="test-model", top_k=None, min_top_score=0.7, min_spread=0.10),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+        llm=_mock_llm_for_tests("structured"),
         rag=SimpleNamespace(
             enabled=False,
             collection_name="test-collection",
@@ -429,7 +482,7 @@ def test_response_url_stripping_guardrail(
     assert "example.com" in final_response or "source omitted" in final_response
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -452,14 +505,14 @@ def test_long_term_memory_disabled_via_features(
         fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=SimpleNamespace(model="test-model", dimension=3, provider="local", remote_endpoint=None),
+            embeddings=SimpleNamespace(dimension=3),
         ),
         tool_routing=SimpleNamespace(similarity_threshold=1.1, embedding_model="test-model", top_k=None, min_top_score=0.7, min_spread=0.10),
         tokens=SimpleNamespace(
             default_budget=1000,
             per_node_budgets={"response_node": 1000, "summarization_node": 1000, "update_memory": 1000},
         ),
-        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+        llm=_mock_llm_for_tests("structured"),
         rag=SimpleNamespace(
             enabled=False,
             collection_name="test-collection",

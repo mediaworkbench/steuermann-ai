@@ -144,19 +144,21 @@ cp /path/to/my-notes/*.txt /data/rag-data/
 Environment variables (in `.env`):
 - `RAG_DATA_PATH`: Host path to mount (default: `/data/rag-data`)
 - `WORKSPACES_PATH`: Host path for workspace documents (default: `/data/workspaces`)
-- `INGEST_COLLECTION`: Qdrant collection name (default: `framework`)
-- `INGEST_LANGUAGE`: Target language code for corpus (default: `de`)
-- `INGEST_LANGUAGE_THRESHOLD`: Language confidence threshold (default: `0.8`, range: 0.0-1.0)
-- `INGEST_EMBEDDING_BATCH_SIZE`: Chunk embedding batch size (default: `32`)
-- `INGEST_UPSERT_BATCH_SIZE`: Qdrant upsert batch size (default: `128`)
-- `INGEST_FILE_CONCURRENCY`: Parallel file ingestion workers (default: `1`)
-- `INGEST_INCREMENTAL`: Skip unchanged files by hash and replace changed ones (`true`/`false`, default: `true`)
-- `INGEST_PHASE_TIMING`: Include phase timing metrics in ingestion results (`true`/`false`, default: `true`)
 - `QDRANT_HOST`: Qdrant host (default: `qdrant`)
 - `QDRANT_PORT`: Qdrant port (default: `6333`)
 
+Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
+- `rag.collection_name`: Canonical Qdrant collection used by both ingestion and retrieval
+- `ingestion.language`: Target language code for corpus metadata (default: `de`)
+- `ingestion.language_threshold`: Language confidence threshold (default: `0.8`, range: `0.0-1.0`)
+- `ingestion.embedding_batch_size`: Chunk embedding batch size (default: `32`)
+- `ingestion.upsert_batch_size`: Qdrant upsert batch size (default: `128`)
+- `ingestion.file_concurrency`: Parallel file ingestion workers (default: `1`)
+- `ingestion.incremental_mode`: Skip unchanged files by hash and replace changed ones (`true`/`false`, default: `true`)
+- `ingestion.phase_timing`: Include phase timing metrics in ingestion results (`true`/`false`, default: `true`)
+
 **RAG retrieval alignment:**
-- Ensure `config/core.yaml` uses the same `rag.collection_name` as `INGEST_COLLECTION` so the graph queries the right collection.
+- `rag.collection_name` is the single collection identifier. Keep ingestion and retrieval pointed at that same profile-owned value.
 
 **Embedding provider alignment:**
 - Ingestion and runtime retrieval should use the same embedding model family and dimensions.
@@ -169,7 +171,7 @@ Environment variables (in `.env`):
   - `detected_language`: Actual detected language (e.g., "en", "de", "unknown")
   - `language_confidence`: Detection confidence (0.0-1.0)
   - `target_language`: Expected corpus language from config
-- Lower `INGEST_LANGUAGE_THRESHOLD` for mixed-language or technical documents
+- Lower `core.ingestion.language_threshold` for mixed-language or technical documents
 
 **Watch Mode Features:**
 - Initial sweep ingests all existing files on startup
@@ -189,12 +191,7 @@ Startup behavior (containerized watch mode):
 - On launch, the ingestion service performs an initial scan of the mounted source path and ingests any existing documents before starting the watchdog.
 - After the initial sweep, new files dropped into the source path are ingested automatically.
 
-Override at runtime:
-```bash
-export INGEST_COLLECTION=my-knowledge
-export INGEST_LANGUAGE=de
-docker compose up -d ingestion
-```
+To change collection or language defaults, edit the active profile's `rag` / `ingestion` section and restart the ingestion service.
 
 ---
 
@@ -532,7 +529,7 @@ embedding:
 
 **Note:** Language validation has been changed to **accept all languages** and tag chunks with detected language metadata.
 
-**reject_threshold / INGEST_LANGUAGE_THRESHOLD:**
+**reject_threshold / core.ingestion.language_threshold:**
 - Default: 0.8
 - Range: 0.0-1.0
 - **Not used for rejection** - only for logging/metadata purposes
@@ -568,9 +565,10 @@ validation:
   reject_threshold: 0.8     # Not used for rejection
 ```
 
-**Environment variable:**
-```bash
-INGEST_LANGUAGE_THRESHOLD=0.8  # Can be set but doesn't affect acceptance
+**Profile setting:**
+```yaml
+ingestion:
+  language_threshold: 0.8  # Can be set but doesn't affect acceptance
 ```
 
 ---

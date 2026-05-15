@@ -2,10 +2,12 @@ from universal_agentic_framework.memory.factory import build_memory_backend
 from universal_agentic_framework.memory import Mem0MemoryBackend, InMemoryMemoryManager
 from universal_agentic_framework.config.schemas import (
     CoreConfig,
+    IngestionSettings,
     ForkSettings,
+    LLMRoleSettings,
+    LLMRoles,
     LLMSettings,
     LLMProviders,
-    ProviderSettings,
     DatabaseSettings,
     MemorySettings,
     VectorStoreSettings,
@@ -42,13 +44,15 @@ class _FakeEmbedder:
 
 
 def _minimal_llm_settings() -> LLMSettings:
-    primary = ProviderSettings(
-        api_base=None,
-        api_key=None,
-        models={"en": "ollama/llama-3.1-8b"},
-        temperature=0.3,
+    return LLMSettings(
+        providers=LLMProviders(),
+        roles=LLMRoles(
+            chat=LLMRoleSettings(provider_id="ollama", api_base="http://localhost:11434/v1", model="ollama/llama-3.1-8b"),
+            embedding=LLMRoleSettings(provider_id="ollama", api_base="http://localhost:11434/v1", model="ollama/nomic-embed-text"),
+            vision=LLMRoleSettings(provider_id="ollama", api_base="http://localhost:11434/v1", model="ollama/llama-3.1-8b"),
+            auxiliary=LLMRoleSettings(provider_id="ollama", api_base="http://localhost:11434/v1", model="ollama/llama-3.1-8b"),
+        ),
     )
-    return LLMSettings(providers=LLMProviders(primary=primary))
 
 
 def _base_config(vs_type: str) -> CoreConfig:
@@ -58,10 +62,11 @@ def _base_config(vs_type: str) -> CoreConfig:
         database=DatabaseSettings(url="postgresql://x:y@localhost:5432/db"),
         memory=MemorySettings(
             vector_store=VectorStoreSettings(type=vs_type, host="qdrant", port=6333, collection_prefix="test"),
-            embeddings=EmbeddingSettings(model="paraphrase-multilingual-MiniLM-L12-v2", dimension=384),
+            embeddings=EmbeddingSettings(dimension=384),
             retention=RetentionSettings(),
         ),
         tokens=TokensSettings(default_budget=1000, per_node_budgets={}),
+        ingestion=IngestionSettings(collection_name="test"),
     )
 
 

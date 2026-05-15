@@ -105,6 +105,9 @@ export type Messages = {
     systemDefault: string;
     loadingModels: string;
     noModelsAvailable: string;
+    noRoleModelsAvailable: string;
+    roleModelLabel: string;
+    roleProviderLocked: string;
     saveSettings: string;
     settingsSaved: string;
     failedToSaveSettings: string;
@@ -115,6 +118,36 @@ export type Messages = {
     confirmReingestAll: string;
     reingestSuccess: string;
     reingestFailed: string;
+    capabilitiesTitle: string;
+    capabilitiesSubtitle: string;
+    capabilitiesTtl: string;
+    capabilitiesLoading: string;
+    capabilitiesLoadFailed: string;
+    capabilitiesEmpty: string;
+    legendTitle: string;
+    legendNative: string;
+    legendStructured: string;
+    legendReact: string;
+    copyDiagnostics: string;
+    copyDiagnosticsSuccess: string;
+    copyDiagnosticsFailed: string;
+    capabilityDetails: string;
+    showDetails: string;
+    hideDetails: string;
+    detailConfiguredMode: string;
+    detailApiBase: string;
+    detailError: string;
+    detailBindTools: string;
+    detailToolSchema: string;
+    detailMismatch: string;
+    detailMetadata: string;
+    capabilityModel: string;
+    capabilityRole: string;
+    capabilityDesired: string;
+    capabilityEffective: string;
+    capabilityProbeStatus: string;
+    capabilityReason: string;
+    capabilityProbedAt: string;
   };
   chat: {
     noMessagesYet: string;
@@ -472,6 +505,9 @@ export const messages: Record<Locale, Messages> = {
       systemDefault: "System default: {value}",
       loadingModels: "Loading models...",
       noModelsAvailable: "No models available - is Ollama running?",
+      noRoleModelsAvailable: "No role model configuration available",
+      roleModelLabel: "{role} model",
+      roleProviderLocked: "Provider locked by profile: {provider}",
       saveSettings: "Save Settings",
       settingsSaved: "Settings saved",
       failedToSaveSettings: "Failed to save settings",
@@ -482,6 +518,36 @@ export const messages: Record<Locale, Messages> = {
       confirmReingestAll: "This will clear and re-index the configured collection. Continue?",
       reingestSuccess: "Re-ingestion completed: {processed} files, {chunks} chunks",
       reingestFailed: "Failed to re-ingest documents",
+      capabilitiesTitle: "Model Tool-Calling Capabilities",
+      capabilitiesSubtitle: "Desired vs effective mode based on probe results. ",
+      capabilitiesTtl: "Probe TTL: {value}s",
+      capabilitiesLoading: "Loading model capability status...",
+      capabilitiesLoadFailed: "Failed to load model capability status",
+      capabilitiesEmpty: "No model capability results available yet",
+      legendTitle: "Legend:",
+      legendNative: "native",
+      legendStructured: "structured",
+      legendReact: "react",
+      copyDiagnostics: "Copy diagnostics",
+      copyDiagnosticsSuccess: "Diagnostics copied",
+      copyDiagnosticsFailed: "Failed to copy diagnostics",
+      capabilityDetails: "Details",
+      showDetails: "Show",
+      hideDetails: "Hide",
+      detailConfiguredMode: "Configured mode",
+      detailApiBase: "API base",
+      detailError: "Probe error",
+      detailBindTools: "Supports bind_tools",
+      detailToolSchema: "Supports tool schema",
+      detailMismatch: "Capability mismatch",
+      detailMetadata: "Raw metadata",
+      capabilityModel: "Model",
+      capabilityRole: "Role",
+      capabilityDesired: "Desired",
+      capabilityEffective: "Effective",
+      capabilityProbeStatus: "Probe Status",
+      capabilityReason: "Reason",
+      capabilityProbedAt: "Probed At",
     },
     chat: {
       noMessagesYet: "No messages yet",
@@ -838,6 +904,9 @@ export const messages: Record<Locale, Messages> = {
       systemDefault: "Systemstandard: {value}",
       loadingModels: "Modelle werden geladen...",
       noModelsAvailable: "Keine Modelle verfügbar - läuft Ollama?",
+      noRoleModelsAvailable: "Keine Rollen-Modellkonfiguration verfugbar",
+      roleModelLabel: "{role}-Modell",
+      roleProviderLocked: "Provider durch Profil festgelegt: {provider}",
       saveSettings: "Einstellungen speichern",
       settingsSaved: "Einstellungen gespeichert",
       failedToSaveSettings: "Einstellungen konnten nicht gespeichert werden",
@@ -848,6 +917,36 @@ export const messages: Record<Locale, Messages> = {
       confirmReingestAll: "Dies leert die konfigurierte Collection und indiziert sie neu. Fortfahren?",
       reingestSuccess: "Neuindizierung abgeschlossen: {processed} Dateien, {chunks} Chunks",
       reingestFailed: "Neuindizierung der Dokumente fehlgeschlagen",
+      capabilitiesTitle: "Modell Tool-Calling-Fahigkeiten",
+      capabilitiesSubtitle: "Gewunschter vs effektiver Modus basierend auf Probe-Ergebnissen. ",
+      capabilitiesTtl: "Probe-TTL: {value}s",
+      capabilitiesLoading: "Lade Modell-Fahigkeitsstatus...",
+      capabilitiesLoadFailed: "Modell-Fahigkeitsstatus konnte nicht geladen werden",
+      capabilitiesEmpty: "Noch keine Modell-Fahigkeitsergebnisse verfugbar",
+      legendTitle: "Legende:",
+      legendNative: "native",
+      legendStructured: "structured",
+      legendReact: "react",
+      copyDiagnostics: "Diagnose kopieren",
+      copyDiagnosticsSuccess: "Diagnose kopiert",
+      copyDiagnosticsFailed: "Diagnose konnte nicht kopiert werden",
+      capabilityDetails: "Details",
+      showDetails: "Anzeigen",
+      hideDetails: "Verbergen",
+      detailConfiguredMode: "Konfigurierter Modus",
+      detailApiBase: "API-Basis",
+      detailError: "Probe-Fehler",
+      detailBindTools: "Unterstutzt bind_tools",
+      detailToolSchema: "Unterstutzt Tool-Schema",
+      detailMismatch: "Fahigkeitskonflikt",
+      detailMetadata: "Roh-Metadaten",
+      capabilityModel: "Modell",
+      capabilityRole: "Rolle",
+      capabilityDesired: "Gewunscht",
+      capabilityEffective: "Effektiv",
+      capabilityProbeStatus: "Probe-Status",
+      capabilityReason: "Grund",
+      capabilityProbedAt: "Gepruft am",
     },
     chat: {
       noMessagesYet: "Noch keine Nachrichten",

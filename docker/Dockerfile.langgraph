@@ -24,8 +24,9 @@ RUN pip install --no-cache-dir "poetry>=1.7.0" && \
         done && \
         [ "$attempts" -lt 3 ]
 
-# Copy source code (only what's needed for orchestration)
+# Copy source code required by orchestration runtime
 COPY universal_agentic_framework/ ./universal_agentic_framework/
+COPY backend/ ./backend/
 COPY config/ ./config/
 
 FROM python:3.11-slim AS runtime
@@ -43,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed Python packages and app code from builder
 COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app/universal_agentic_framework ./universal_agentic_framework/
+COPY --from=builder /app/backend ./backend/
 COPY --from=builder /app/config ./config/
 
 # Create non-root user (UID/GID configurable for Linux bind-mount compatibility)

@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 # Set environment variables for tests before imports
-os.environ.setdefault("LLM_ENDPOINT", "http://localhost:11434")
+os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
 os.environ.setdefault("QDRANT_HOST", "localhost")
 os.environ.setdefault("WEB_SEARCH_MCP_URL", "http://localhost:9100")
 
@@ -15,9 +15,16 @@ from universal_agentic_framework.tools.datetime.tool import DateTimeTool
 
 
 @pytest.mark.integration
+@patch("universal_agentic_framework.orchestration.graph_builder.build_memory_backend")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-def test_llm_invokes_datetime_tool(mock_embedding_provider):
+def test_llm_invokes_datetime_tool(mock_embedding_provider, mock_memory_backend):
     """Test semantic tool routing with datetime tool (model-agnostic approach)."""
+    # Mock memory backend to avoid external Qdrant/Mem0 dependency
+    mock_mem = Mock()
+    mock_mem.load.return_value = []
+    mock_mem.upsert.return_value = None
+    mock_memory_backend.return_value = mock_mem
+
     graph = build_graph()
 
     # Mock embedder to avoid external embedding endpoint dependency
@@ -26,7 +33,7 @@ def test_llm_invokes_datetime_tool(mock_embedding_provider):
     mock_embedding_provider.return_value = embedder
     
     # Mock LLM to return a simple response
-    with patch("universal_agentic_framework.orchestration.graph_builder._safe_get_model") as mock_model_factory:
+    with patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model") as mock_model_factory:
         # LLM response (tool results injected into context, no tool calling needed)
         response = Mock()
         response.content = "You were born 51 years ago if born on 1974-05-24."

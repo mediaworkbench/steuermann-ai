@@ -1,8 +1,8 @@
 """Regression tests for _extract_exact_reply_directive in graph_builder."""
 
 import pytest
-from universal_agentic_framework.orchestration.graph_builder import (
-    _extract_exact_reply_directive,
+from universal_agentic_framework.orchestration.helpers.directives import (
+    extract_exact_reply_directive as _extract_exact_reply_directive,
 )
 
 

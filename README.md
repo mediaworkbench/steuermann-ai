@@ -24,7 +24,7 @@ It is designed as a **reusable template**: one codebase, many deployments. Each 
 
 Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration, or force you into a single-domain mold. Steuermann takes a different approach:
 
-- **Your infrastructure, your data.** Runs entirely on-premise with local LLMs via Ollama/LM Studio. No data leaves your network. Full data sovereignty.
+- **Your infrastructure, your data.** Runs entirely on-premise with profile-owned provider configuration for LM Studio, Ollama, and other OpenAI-compatible endpoints. No data leaves your network unless you explicitly configure an external provider.
 - **Not just a library — a complete application.** Ships with a production frontend (chat, settings, metrics, analytics), a FastAPI backend, and Docker Compose orchestration. `docker compose up` gives you a working AI assistant.
 - **Domain-agnostic by design.** The same framework powers a medical knowledge assistant, a financial analysis tool, or an internal operations chatbot. Profiles customize everything through YAML — no forks, no rewrites.
 - **Multi-agent, not multi-hack.** LangGraph owns the control flow. CrewAI crews (Research, Analytics, Code Generation, Planning) are invoked as graph nodes and return structured results. Clean separation, predictable behavior.
@@ -97,6 +97,8 @@ Memory is not an afterthought — it is an explicit, first-class part of the exe
 - **Co-occurrence linking** — automatically builds a knowledge graph by tracking which memories are retrieved together, enabling context expansion and related-memory discovery
 - **Memory summarization** — compresses and synthesizes older memories to maintain quality without unbounded growth
 - **Explicit lifecycle** — memory load and update operations are dedicated graph nodes, not hidden side effects
+- **Configurable extraction mode** — `memory.mem0.infer_enabled` can switch between full Mem0 extraction (`true`) and verbatim persistence fallback (`false`)
+- **Auxiliary-role extraction binding** — memory extraction uses the `llm.roles.auxiliary` model path, so extraction capacity is controlled via auxiliary role model/context settings
 - **Full CRUD API** — `/api/memories` endpoints with list, detail, delete, stats, and rate; `/memories` frontend page for user-facing memory management
 
 ### RAG & Knowledge Ingestion
@@ -130,7 +132,7 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **Semantic tool routing** — queries are scored against tool descriptions using similarity matching with intent detection, so the right tools are selected without brittle keyword rules
 - **Three tool-calling modes**: `native` (model function calling), `structured` (JSON schema in prompt), and `react` (Thought → Action → Observation loop)
 - **Automatic mode downgrade** — detects if a model doesn't support native tool calling and automatically falls back to structured mode without breaking the conversation flow
-- **Multi-provider LLM support** — role-based provider chains with automatic fallback, configured via `config/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
+- **Multi-provider LLM support** — role-based provider chains with automatic fallback and LiteLLM router policy, owned by `config/profiles/<profile_id>/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
 - **Tool-calling mode enforcement** — mode validation ensures consistency across all tool routing layers (prefilter, routing decision, and Layer 2 invocation nodes)
 - **Tool sandboxing** with permission-based access control
 - **Per-tool rate limiting** with sliding window enforcement
@@ -212,7 +214,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 ### Prerequisites
 
 - [Docker](https://www.docker.com/) & Docker Compose
-- [Ollama](https://ollama.ai/) or [LM Studio](https://lmstudio.ai/) running on the host machine
+- [LM Studio](https://lmstudio.ai/) running on the host machine, or another provider endpoint configured for the active profile
 
 ### 1. Clone and configure
 
@@ -220,7 +222,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 git clone https://github.com/mediaworkbench/steuermann-ai.git
 cd steuermann-ai
 cp .env.example .env
-# Edit .env — at minimum set POSTGRES_PASSWORD
+# Edit .env — at minimum set POSTGRES_PASSWORD, PROFILE_ID, and the provider endpoint vars used by that profile
 poetry install
 poetry run steuermann setup doctor --format json
 poetry run steuermann config validate --format json
@@ -321,7 +323,7 @@ cp /path/to/your/docs/*.pdf ./data/rag-data/
 docker compose up -d ingestion
 ```
 
-Watch mode detects new files in real time, performs periodic sweeps every 30 seconds, and removes chunks when source files are deleted. Configure language and thresholds via `INGEST_LANGUAGE` and `INGEST_LANGUAGE_THRESHOLD` in `.env`.
+Watch mode detects new files in real time, performs periodic sweeps every 30 seconds, and removes chunks when source files are deleted. Configure ingestion language, thresholds, batching, and collection settings in `config/profiles/<profile_id>/core.yaml`; keep `.env` for mount paths and service wiring only.
 
 For host-side development and local test execution with Poetry, see `docs/index.md`.
 

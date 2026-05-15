@@ -16,6 +16,8 @@ The runtime configuration model is:
 
 The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
 
+`PROFILE_ID` is required at runtime. `base` is no longer a runnable profile id; it only refers to repository-level defaults.
+
 Configuration files remain directly editable. The `steuermann` CLI is a validation, diagnostics, and scaffolding companion; it does not replace manual YAML or `.env` editing.
 
 ---
@@ -78,28 +80,63 @@ language_enforcement: "Respond in English unless the user explicitly asks otherw
 
 ### LLM Configuration
 
+Runtime LLM configuration lives in the active profile overlay: `config/profiles/<profile_id>/core.yaml`. Repository-level `config/core.yaml` is limited to deployment-global settings such as database, memory, and checkpointing.
+
 ```yaml
+# config/profiles/starter/core.yaml
 llm:
   providers:
-    primary: # Primary LLM provider
-      api_base: "http://host.docker.internal:11434" # Provider endpoint
+    lmstudio:
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      api_key: "lm-studio"
       models:
-        en: "ollama/llama-3.1-8b" # LiteLLM model string: provider/model-name
-        de: "ollama/llama-3.1-8b-german"
+        en: "openai/liquid/lfm2-24b-a2b"
+        de: "openai/liquid/lfm2-24b-a2b"
+      model_tool_calling:
+        openai/liquid/lfm2-24b-a2b: "native"
       temperature: 0.7 # 0.0-2.0, higher = more creative
       max_tokens: 4096 # Max tokens per request
       timeout: 300 # Timeout in seconds
-      tool_calling: "native" # Options: native, structured, react
 
-    fallback: # Fallback provider (optional)
-      api_base: "https://api.openai.com/v1"
-      api_key: "${OPENAI_API_KEY}"
+    openrouter:
+      api_base: "${LLM_PROVIDERS_OPENROUTER_API_BASE}"
+      api_key: "${OPENROUTER_API_KEY}"
       models:
-        en: "openai/gpt-4o"
-        de: "openai/gpt-4o"
+        en: "openrouter/openai/gpt-4o-mini"
+        de: "openrouter/openai/gpt-4o-mini"
+      model_tool_calling:
+        openrouter/openai/gpt-4o-mini: "native"
       temperature: 0.3
       max_tokens: 4096
       timeout: 300
+
+  roles:
+    chat:
+      providers:
+        - provider_id: lmstudio
+        - provider_id: openrouter
+    embedding:
+      providers:
+        - provider_id: lmstudio
+          model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      config_only: true
+    vision:
+      providers:
+        - provider_id: lmstudio
+          models:
+            en: "openai/gpt-4.1-mini"
+            de: "openai/gpt-4.1-mini"
+      config_only: true
+    auxiliary:
+      providers:
+        - provider_id: lmstudio
+      config_only: true
+
+  router:
+    routing_strategy: simple-shuffle
+    num_retries: 3
+    retry_after: 1
+    default_max_parallel_requests: 4
 ```
 
 **Model strings use LiteLLM's `provider/model-name` format:**
@@ -110,7 +147,16 @@ llm:
 - `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
 
-**LM Studio vs Ollama:** The docker-compose default endpoint is `http://host.docker.internal:11434` (Ollama). If you use LM Studio (port `1234`), set `LLM_ENDPOINT=http://host.docker.internal:1234/v1` in `.env`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
+**Provider registry and roles:** `llm.providers` is a named registry. Runtime consumers resolve models through role chains like `llm.roles.chat.providers`, not through legacy `primary` / `fallback` aliases. LiteLLM router behavior is configured by `llm.router` in the same profile overlay.
+
+Each `llm.roles.<role>.providers[]` entry can optionally override the provider default model with either:
+
+- `model`: one explicit model for that role/provider pair
+- `models`: language-specific role models (`en`, `de`, etc.)
+
+If omitted, runtime falls back to `llm.providers.<provider>.models`.
+
+**LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
 **Tool calling modes:**
 
@@ -154,6 +200,7 @@ memory:
 
   mem0:
     search_limit: 10 # Internal Mem0 retrieval window before local reranking
+    infer_enabled: true # Enables Mem0 extraction/inference before persistence
     custom_instructions: null # Optional extraction guidance for Mem0
 ```
 
@@ -162,6 +209,7 @@ memory:
 - `provider: "remote"` uses an OpenAI-compatible embeddings endpoint (for example LM Studio).
 - Keep `dimension` synchronized with the selected model, otherwise Qdrant collection compatibility issues occur.
 - If migrating dimensions (for example `384 -> 768`), recreate existing vector collections.
+- Profile overlays may override `memory.embeddings.*` in `config/profiles/<profile_id>/core.yaml`, so embedding model selection can be profile-specific.
 
 **Memory feedback ratings (importance scoring):**
 
@@ -169,14 +217,23 @@ memory:
 - Ratings are persisted as `metadata.user_rating` through the Mem0 adapter and automatically feed the feedback factor in memory importance scoring.
 - Authorization is enforced per memory owner (`user_id`) and non-owned memories return `403`.
 
+**Mem0 extraction behavior:**
+
+- `memory.mem0.infer_enabled: true` enables Mem0 extraction/deduplication and structured memory updates.
+- `memory.mem0.infer_enabled: false` skips extraction and stores summary text verbatim via fallback path.
+- Mem0 extraction uses the model configured for `llm.roles.auxiliary`.
+- For local models, use a sufficiently large context window for extraction workloads (practical baseline: 16k minimum, 32k preferred).
+
 **Environment variables:**
 
 ```bash
-EMBEDDING_SERVER=http://host.docker.internal:8000/v1  # Default: LM Studio embeddings endpoint
-LLM_ENDPOINT=http://host.docker.internal:1234/v1       # LM Studio LLM endpoint (default docker-compose: port 11434 for Ollama)
+EMBEDDING_SERVER=http://host.docker.internal:1234/v1       # LM Studio embeddings endpoint
+LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1  # LM Studio chat endpoint
+LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1   # Ollama chat endpoint
+LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1       # OpenRouter endpoint
 ```
 
-`EMBEDDING_SERVER` and `LLM_ENDPOINT` are independent — they can point to the same LM Studio instance on different ports or to completely separate servers.
+`EMBEDDING_SERVER` and the `LLM_PROVIDERS_*_API_BASE` vars are independent — they can point to the same LM Studio instance or to separate servers. Only set the vars for providers you are actually using.
 
 ### RAG Retrieval Configuration
 
@@ -197,7 +254,7 @@ rag:
 
 **Notes:**
 
-- `collection_name` should match `INGEST_COLLECTION` (see [docs/ingestion.md](docs/ingestion.md)).
+- `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
 - `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 
@@ -294,7 +351,7 @@ tool_routing:
 Tool selection uses a three-tier architecture:
 
 1. **Layer 1 — Semantic Pre-filter** (always runs): Embeds user query, scores all tools via cosine similarity, applies intent boosting, returns top-K candidates. Does NOT execute tools.
-2. **Layer 2 — Model-Driven Tool Calling**: The LLM receives candidate tools and decides which (if any) to call. Mode depends on provider `tool_calling` setting (native/structured/react).
+2. **Layer 2 — Model-Driven Tool Calling**: The LLM receives candidate tools and decides which (if any) to call. Mode is resolved per model from `model_tool_calling` and then validated against fresh probe results (probe can downgrade native to structured).
 3. **Layer 3 — Output Validation + Retry**: Validates tool call arguments against schema, re-prompts on parse failure up to `max_retries` times.
 
 **Filtering gates (Layer 1):**
@@ -575,8 +632,10 @@ POSTGRES_DB=framework
 QDRANT_HOST=qdrant
 QDRANT_PORT=6333
 
-# LLM
-LLM_ENDPOINT=http://host.docker.internal:11434
+# LLM provider endpoints (set the ones matching your active providers)
+LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
+LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
+LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1
 ```
 
 Note on PROFILE_ID:
