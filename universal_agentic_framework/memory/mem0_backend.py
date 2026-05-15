@@ -4,7 +4,6 @@ SOURCE OF TRUTH OWNERSHIP:
 - Primary: Mem0 + Qdrant vector store
 - Adapter caches (for SDK transition robustness):
   - _metadata_cache: Record metadata keyed by memory ID
-  - _text_cache: Full text keyed by memory ID
   - _owner_cache: User ID ownership keyed by memory ID
   - _rating_overrides: Manual rating adjustments for fallback
 
@@ -26,7 +25,7 @@ RATING SIGNAL FLOW:
 - Analytics endpoint calculates coverage: (rated / retrieved) over time window
 
 KNOWN ISSUES (to address in Phase 3):
-- 4 separate maps without locking; potential race condition under high concurrency
+- 3 separate maps without locking; potential race condition under high concurrency
 - Unbounded cache growth; no eviction policy yet (planned: LRU or bounded)
 - Missing PostgreSQL co_occurrence_edges table for knowledge graph persistence
 
@@ -112,7 +111,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         # Cache metadata/rating for robust compatibility when SDK update semantics differ.
         self._metadata_cache: Dict[str, Dict[str, Any]] = {}
-        self._text_cache: Dict[str, str] = {}
         self._owner_cache: Dict[str, str] = {}
         self._rating_overrides: Dict[str, int] = {}
 
@@ -426,7 +424,6 @@ class Mem0MemoryBackend(MemoryBackend):
                 metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
             memory_id = str(metadata["memory_id"])
             self._metadata_cache[memory_id] = dict(metadata)
-            self._text_cache[memory_id] = item["text"]
             self._owner_cache[memory_id] = user_id
             out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
 
@@ -588,7 +585,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         payload["memory_id"] = memory_id
         self._metadata_cache[memory_id] = dict(payload)
-        self._text_cache[memory_id] = text
         self._owner_cache[memory_id] = user_id
 
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
@@ -604,7 +600,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         for memory_id in memory_ids:
             self._metadata_cache.pop(memory_id, None)
-            self._text_cache.pop(memory_id, None)
             self._owner_cache.pop(memory_id, None)
             self._rating_overrides.pop(memory_id, None)
 
@@ -636,7 +631,6 @@ class Mem0MemoryBackend(MemoryBackend):
         self._memory.delete(memory_id)
 
         self._metadata_cache.pop(memory_id, None)
-        self._text_cache.pop(memory_id, None)
         self._owner_cache.pop(memory_id, None)
         self._rating_overrides.pop(memory_id, None)
 
@@ -654,11 +648,10 @@ class Mem0MemoryBackend(MemoryBackend):
         self._rating_overrides[memory_id] = int(rating)
         self._metadata_cache[memory_id] = self._merge_metadata(memory_id, updated)
 
-        text = self._text_cache.get(memory_id)
-        if not text:
-            fetched = self._fetch_by_id(memory_id)
-            if fetched:
-                text = fetched["text"]
+        text: Optional[str] = None
+        fetched = self._fetch_by_id(memory_id)
+        if fetched:
+            text = fetched["text"]
 
         if not text:
             return
