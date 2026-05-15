@@ -1,3 +1,40 @@
+"""LangGraph orchestration: single source of truth for execution control and state management.
+
+MEMORY LAYER INTEGRATION & SOURCE OF TRUTH OWNERSHIP:
+
+1. SHORT-MEMORY (Digest Chain)
+   - Owner: LangGraph graph orchestration via GraphState
+   - Lifecycle:
+     a) Created: performance_nodes.conversation_compression_node_sync() extracts digests
+     b) Stored: GraphState.digest_context (bounded list)
+     c) Propagated: node_update_memory() → update_memory_node(state)
+     d) Persisted: Backend stores in Mem0 record metadata
+     e) Retrieved: load_memory_node() returns with digest context intact
+   - Validation: Digest metadata must appear in loaded_memory after upsert (checkpoint #7)
+
+2. LONG-MEMORY (Mem0 Records)
+   - Owner: Mem0MemoryBackend + Qdrant vector store
+   - Graph integration:
+     - load_memory_node() queries backend → populates loaded_memory, digest_context, memory_analytics
+     - update_memory_node() receives digest_chain → passes to backend.upsert()
+    - Metadata consistency maintained via canonical Mem0 metadata fields
+
+3. KNOWLEDGE GRAPH (Co-occurrence Links)
+   - Current owner: MemoryCoOccurrenceTracker (in-memory, non-persistent)
+   - Planned owner: PostgreSQL co_occurrence_edges (Phase 3)
+   - Graph integration:
+     - Populated during load_memory_node() retrieval
+     - Used for related_memory expansion in memory_analytics
+   - Caveat: Lost on restart (planned fix in Phase 3)
+
+CRITICAL CONSTRAINTS:
+- GraphState is session-scoped; one instance per user session
+- No global/shared state across sessions (memory is explicit node operation)
+- Digest chain bounded by core.memory.digest_max_items config
+
+See: docs/technical_architecture.md (Memory Architecture) for full memory layer design
+"""
+
 from __future__ import annotations
 
 import datetime
@@ -35,6 +72,7 @@ from universal_agentic_framework.orchestration.performance_nodes import (
     memory_cache_store_node_sync,
     conversation_compression_node_sync,
     cache_stats_node_sync,
+    get_summarizer,
 )
 from universal_agentic_framework.orchestration.crew_nodes import (
     node_research_crew,
@@ -71,6 +109,34 @@ from universal_agentic_framework.orchestration.helpers import (
 )
 
 logger = get_logger(__name__)
+
+_DIGEST_CHAIN_MAX_ITEMS = 5
+
+
+def _is_digest_entry(entry: Any) -> bool:
+    return isinstance(entry, dict) and bool(entry.get("digest_id"))
+
+
+def _merge_digest_chains(
+    existing: List[Dict[str, Any]],
+    extracted: List[Dict[str, Any]],
+    *,
+    max_items: int = _DIGEST_CHAIN_MAX_ITEMS,
+) -> List[Dict[str, Any]]:
+    """Merge digest chains (newest-first), dedupe by digest_id, and cap length."""
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in list(extracted) + list(existing):
+        if not _is_digest_entry(item):
+            continue
+        digest_id = str(item.get("digest_id"))
+        if digest_id in seen:
+            continue
+        seen.add(digest_id)
+        merged.append(dict(item))
+        if len(merged) >= max_items:
+            break
+    return merged
 
 class GraphState(TypedDict, total=False):
     messages: List[Dict[str, Any]]
@@ -2109,6 +2175,26 @@ def node_summarize(state: GraphState) -> GraphState:
     
     logger.info("Summarizing conversation", fork_name=fork_name)
 
+    # Keep digest_chain normalized even when compression does not generate a new summary.
+    try:
+        features = load_features_config()
+        if getattr(features, "memory_digest_chain_enabled", True):
+            summarizer = get_summarizer()
+            existing_chain = state.get("digest_chain") or []
+            extracted_chain = summarizer.extract_digest_chain(
+                state.get("messages", []),
+                max_items=_DIGEST_CHAIN_MAX_ITEMS,
+            )
+            state["digest_chain"] = _merge_digest_chains(
+                existing_chain,
+                extracted_chain,
+                max_items=_DIGEST_CHAIN_MAX_ITEMS,
+            )
+        else:
+            state["digest_chain"] = []
+    except Exception as e:
+        logger.warning("digest_chain_normalization_failed", error=str(e))
+
     model = safe_get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
@@ -2272,11 +2358,18 @@ def node_update_memory(state: GraphState) -> GraphState:
     with track_node_execution(fork_name, "update_memory"):
         try:
             digest_chain = state.get("digest_chain") or []
+            if not getattr(features_config, "memory_digest_chain_enabled", True):
+                digest_chain = []
             latest_digest = digest_chain[0] if digest_chain else None
             metadata = {"type": "summary"}
             if latest_digest:
                 metadata["digest_id"] = latest_digest.get("digest_id")
                 metadata["previous_digest_id"] = latest_digest.get("previous_digest_id")
+            if digest_chain:
+                metadata["digest_chain_ids"] = [
+                    d.get("digest_id") for d in digest_chain if isinstance(d, dict) and d.get("digest_id")
+                ]
+                metadata["digest_chain_length"] = len(digest_chain)
 
             logger.info("Calling update_memory_node", user_id=user_id, text_length=len(summary_text))
             result = update_memory_node(
@@ -2285,6 +2378,7 @@ def node_update_memory(state: GraphState) -> GraphState:
                 metadata=metadata,
                 backend=backend,
                 messages=_exchange_messages if _exchange_messages else None,
+                digest_chain=digest_chain,
             )
             result["tokens_used"] = (result.get("tokens_used") or 0) + update_tokens
             result["turn_tokens_used"] = (result.get("turn_tokens_used") or 0) + update_tokens

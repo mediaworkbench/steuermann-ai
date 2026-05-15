@@ -6,6 +6,7 @@ a live Qdrant or LLM instance.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -26,6 +27,15 @@ class _FakeMemory:
         self.last_search_filters: Optional[Dict[str, Any]] = None
         self.last_get_all_filters: Optional[Dict[str, Any]] = None
         self.last_delete_all_filters: Optional[Dict[str, Any]] = None
+        self.last_search_user_id: Optional[str] = None
+        self.last_search_top_k: Optional[int] = None
+        self.last_search_limit: Optional[int] = None
+        self.last_get_all_user_id: Optional[str] = None
+        self.last_get_all_top_k: Optional[int] = None
+        self.last_get_all_limit: Optional[int] = None
+        self.last_delete_all_user_id: Optional[str] = None
+        self.last_get_memory_id: Optional[str] = None
+        self.last_delete_memory_id: Optional[str] = None
         self.last_add_infer: Optional[bool] = None
         self.last_add_payload: Any = None
 
@@ -68,6 +78,9 @@ class _FakeMemory:
         limit: Optional[int] = None,
     ) -> dict:
         self.last_search_filters = dict(filters or {})
+        self.last_search_user_id = user_id
+        self.last_search_top_k = top_k
+        self.last_search_limit = limit
         effective_user_id = user_id or self.last_search_filters.get("user_id")
         effective_limit = top_k if top_k is not None else (limit if limit is not None else 10)
         results = [
@@ -89,12 +102,16 @@ class _FakeMemory:
         limit: Optional[int] = None,
     ) -> dict:
         self.last_get_all_filters = dict(filters or {})
+        self.last_get_all_user_id = user_id
+        self.last_get_all_top_k = top_k
+        self.last_get_all_limit = limit
         effective_user_id = user_id or self.last_get_all_filters.get("user_id")
         effective_limit = top_k if top_k is not None else (limit if limit is not None else 100)
         results = [v for v in self._store.values() if v["user_id"] == effective_user_id][:effective_limit]
         return {"results": results}
 
-    def get(self, *, memory_id: str) -> Optional[dict]:
+    def get(self, memory_id: str) -> Optional[dict]:
+        self.last_get_memory_id = memory_id
         return self._store.get(memory_id)
 
     def update(self, *, memory_id: str, data: str = "", **kwargs: Any) -> None:
@@ -112,10 +129,15 @@ class _FakeMemory:
         user_id: Optional[str] = None,
     ) -> None:
         self.last_delete_all_filters = dict(filters or {})
+        self.last_delete_all_user_id = user_id
         effective_user_id = user_id or self.last_delete_all_filters.get("user_id")
         to_delete = [k for k, v in self._store.items() if v["user_id"] == effective_user_id]
         for k in to_delete:
             del self._store[k]
+
+    def delete(self, memory_id: str) -> None:
+        self.last_delete_memory_id = memory_id
+        self._store.pop(memory_id, None)
 
 
 class _NoHitSearchFakeMemory(_FakeMemory):
@@ -132,6 +154,30 @@ class _NoHitSearchFakeMemory(_FakeMemory):
     ) -> dict:
         self.last_search_filters = dict(filters or {})
         return {"results": []}
+
+
+class _FakeCoOccurrenceTracker:
+    def __init__(self, related_by_memory_id: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> None:
+        self.related_by_memory_id = related_by_memory_id or {}
+        self.record_calls: List[Dict[str, Any]] = []
+        self.prune_calls: List[datetime] = []
+
+    def record_co_occurrence(self, memory_ids, session_id, user_id=None, timestamp=None):
+        self.record_calls.append(
+            {
+                "memory_ids": list(memory_ids),
+                "session_id": session_id,
+                "user_id": user_id,
+            }
+        )
+
+    def get_related_memories(self, memory_id, user_id=None, top_k=5, current_time=None):
+        items = list(self.related_by_memory_id.get(memory_id, []))
+        return items[:top_k]
+
+    def prune_old_co_occurrences(self, current_time=None):
+        self.prune_calls.append(current_time)
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +336,18 @@ def test_load_with_query_applies_importance_scoring():
     assert any("machine learning" in t for t in texts)
 
 
+def test_search_uses_filters_based_api_only():
+    backend = _make_backend()
+    backend.upsert("u1", "search scope")
+
+    _ = backend.load("u1", query="search", top_k=3)
+
+    assert backend._memory.last_search_filters == {"user_id": "u1"}
+    assert backend._memory.last_search_user_id is None
+    assert backend._memory.last_search_top_k == 10
+    assert backend._memory.last_search_limit is None
+
+
 def test_load_with_query_falls_back_to_recent_when_search_has_no_hits():
     backend = _make_backend_nohit_search()
     backend.upsert("u1", "most recent memory one")
@@ -320,6 +378,66 @@ def test_load_top_k_limits_results():
     assert len(records) <= 3
 
 
+def test_load_include_related_respects_fanout_cap():
+    backend = _make_backend(co_occurrence_fanout_cap=2, co_occurrence_related_top_k_per_memory=5)
+
+    # Seed records and keep deterministic insertion order for fake get_all/search.
+    for i in range(1, 8):
+        backend.upsert("u1", f"memory entry {i}")
+
+    records_all = backend.load("u1", top_k=10)
+    ids = [r.metadata.get("memory_id") for r in records_all]
+    primary_1, primary_2 = ids[0], ids[1]
+    related_candidates = ids[2:6]
+
+    fake_tracker = _FakeCoOccurrenceTracker(
+        related_by_memory_id={
+            primary_1: [
+                {"memory_id": related_candidates[0], "strength": 0.5, "co_occurrence_count": 3},
+                {"memory_id": related_candidates[1], "strength": 0.4, "co_occurrence_count": 2},
+                {"memory_id": related_candidates[2], "strength": 0.3, "co_occurrence_count": 1},
+            ],
+            primary_2: [
+                {"memory_id": related_candidates[3], "strength": 0.6, "co_occurrence_count": 4},
+            ],
+        }
+    )
+    backend._co_occurrence_tracker = fake_tracker
+
+    out = backend.load("u1", top_k=2, include_related=True, session_id="s-1")
+    # 2 primary + capped 2 related max
+    assert len(out) <= 4
+    related_out = [r for r in out if r.metadata.get("memory_id") not in {primary_1, primary_2}]
+    assert len(related_out) <= 2
+
+
+def test_load_include_related_prune_maintenance_is_interval_bound():
+    backend = _make_backend(co_occurrence_prune_interval_seconds=3600)
+    backend.upsert("u1", "memory one")
+    backend.upsert("u1", "memory two")
+
+    records_all = backend.load("u1", top_k=10)
+    ids = [r.metadata.get("memory_id") for r in records_all]
+    p1, p2 = ids[0], ids[1]
+
+    fake_tracker = _FakeCoOccurrenceTracker(
+        related_by_memory_id={
+            p1: [{"memory_id": p2, "strength": 0.5, "co_occurrence_count": 1}],
+            p2: [{"memory_id": p1, "strength": 0.5, "co_occurrence_count": 1}],
+        }
+    )
+    backend._co_occurrence_tracker = fake_tracker
+
+    backend.load("u1", top_k=2, include_related=True, session_id="s-1")
+    backend.load("u1", top_k=2, include_related=True, session_id="s-2")
+    assert len(fake_tracker.prune_calls) == 1
+
+    # Force the maintenance window to be elapsed and verify a new prune call occurs.
+    backend._last_co_occurrence_prune_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    backend.load("u1", top_k=2, include_related=True, session_id="s-3")
+    assert len(fake_tracker.prune_calls) == 2
+
+
 def test_load_returns_empty_for_unknown_user():
     backend = _make_backend()
     records = backend.load("nobody", query="anything", top_k=5)
@@ -347,16 +465,35 @@ def test_clear_removes_all_user_memories():
     assert len(backend.load("u2", top_k=10)) == 1
 
 
-def test_clear_purges_internal_caches():
+def test_get_all_and_delete_all_use_filters_based_api_only():
+    backend = _make_backend()
+    backend.upsert("u1", "to clear")
+
+    backend.clear("u1")
+
+    assert backend._memory.last_get_all_filters == {"user_id": "u1"}
+    assert backend._memory.last_get_all_user_id is None
+    assert backend._memory.last_get_all_top_k is None
+    assert backend._memory.last_get_all_limit == 10000
+    assert backend._memory.last_delete_all_filters == {"user_id": "u1"}
+    assert backend._memory.last_delete_all_user_id is None
+
+
+def test_clear_removes_rated_memories_without_cache_state():
     backend = _make_backend()
     rec = backend.upsert("u1", "cached text")
     mid = rec.metadata["memory_id"]
 
+    backend.set_memory_user_rating(
+        point_id=mid,
+        metadata={"memory_id": mid},
+        rating=5,
+    )
+    assert backend.find_memory_point(mid)["payload"]["metadata"]["user_rating"] == 5
+
     backend.clear("u1")
 
-    assert mid not in backend._metadata_cache
-    assert mid not in backend._text_cache
-    assert mid not in backend._owner_cache
+    assert backend.find_memory_point(mid) is None
 
 
 def test_find_memory_point_returns_correct_shape():
@@ -370,6 +507,7 @@ def test_find_memory_point_returns_correct_shape():
     assert "payload" in point
     assert point["payload"]["text"] == "findable text"
     assert point["payload"]["user_id"] == "u1"
+    assert backend._memory.last_get_memory_id == mid
 
 
 def test_find_memory_point_returns_none_for_unknown():
@@ -391,7 +529,18 @@ def test_find_memory_point_handles_null_score():
     assert point["payload"]["text"] == "null-score memory"
 
 
-def test_set_memory_user_rating_persists_in_cache():
+def test_delete_memory_uses_canonical_delete_signature():
+    backend = _make_backend()
+    rec = backend.upsert("u1", "delete me")
+    mid = rec.metadata["memory_id"]
+
+    backend.delete_memory(memory_id=mid, user_id="u1")
+
+    assert backend._memory.last_delete_memory_id == mid
+    assert backend.find_memory_point(mid) is None
+
+
+def test_set_memory_user_rating_persists_to_mem0():
     backend = _make_backend()
     rec = backend.upsert("u1", "rateable memory")
     mid = rec.metadata["memory_id"]
@@ -402,8 +551,9 @@ def test_set_memory_user_rating_persists_in_cache():
         rating=5,
     )
 
-    assert backend._rating_overrides[mid] == 5
-    assert backend._metadata_cache[mid]["user_rating"] == 5
+    point = backend.find_memory_point(mid)
+    assert point is not None
+    assert point["payload"]["metadata"]["user_rating"] == 5
 
 
 def test_set_memory_user_rating_appears_in_subsequent_load():
@@ -423,7 +573,7 @@ def test_set_memory_user_rating_appears_in_subsequent_load():
     assert rated[0].metadata["user_rating"] == 4
 
 
-def test_set_memory_user_rating_persists_after_cache_reset():
+def test_set_memory_user_rating_persists_across_subsequent_load():
     backend = _make_backend()
     rec = backend.upsert("u1", "persist rating")
     mid = rec.metadata["memory_id"]
@@ -433,10 +583,6 @@ def test_set_memory_user_rating_persists_after_cache_reset():
         metadata={"memory_id": mid},
         rating=5,
     )
-
-    # Simulate a fresh in-process state (e.g., page reload/new request path).
-    backend._rating_overrides.clear()
-    backend._metadata_cache.clear()
 
     records = backend.load("u1", top_k=10)
     rated = [r for r in records if r.metadata.get("memory_id") == mid]

@@ -126,3 +126,34 @@ async def log_event(
         return {"status": "logged"}
     else:
         raise HTTPException(status_code=500, detail="Failed to log event")
+
+
+@router.get("/analytics/message-quality")
+async def get_message_quality(
+    days: int = Query(default=30, ge=1, le=365),
+    request: Request = None,
+) -> Dict[str, Any]:
+    """Get daily message quality (thumbs up/down) trends for the past N days.
+
+    Each entry contains the date, up_count, down_count, total_feedback,
+    total_assistant_messages, and net_score (up - down) for that day.
+    """
+    store = _get_analytics_store(request)
+    quality_data = store.get_message_quality(days=days)
+
+    total_up = sum(d["up_count"] for d in quality_data)
+    total_down = sum(d["down_count"] for d in quality_data)
+    total_feedback = sum(d["total_feedback"] for d in quality_data)
+    total_messages = sum(d["total_assistant_messages"] for d in quality_data)
+    feedback_rate = round(total_feedback / total_messages, 4) if total_messages > 0 else 0.0
+
+    return {
+        "period_days": days,
+        "quality_data": quality_data,
+        "total_up": total_up,
+        "total_down": total_down,
+        "total_feedback": total_feedback,
+        "total_assistant_messages": total_messages,
+        "net_score": total_up - total_down,
+        "feedback_rate": feedback_rate,
+    }

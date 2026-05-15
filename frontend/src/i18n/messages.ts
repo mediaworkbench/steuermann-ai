@@ -343,6 +343,17 @@ export type Messages = {
     bucketMid: string;
     bucketHigh: string;
     noRetrievalData: string;
+    coverageHealthy: string;
+    coverageLow: string;
+    coverageVeryLow: string;
+    messageQuality: string;
+    messageQualitySubtitle: string;
+    thumbsUp: string;
+    thumbsDown: string;
+    netScore: string;
+    feedbackRate: string;
+    totalFeedback: string;
+    noMessageQualityData: string;
   };
   memories: {
     title: string;
@@ -370,6 +381,12 @@ export type Messages = {
     previous: string;
     next: string;
     rateStars: string;
+    ratingHelp: string;
+    ratingAriaLabel: string;
+    ratingStatusSaving: string;
+    ratingStatusSaved: string;
+    ratingStatusRetry: string;
+    emptyHint: string;
   };
   charts: {
     loading: string;
@@ -731,7 +748,7 @@ export const messages: Record<Locale, Messages> = {
       days: "days",
       na: "N/A",
       retrievalFeedback: "Retrieval Feedback Loop",
-      retrievalFeedbackSubtitle: "How often retrieved memories are subsequently rated by the user",
+      retrievalFeedbackSubtitle: "How often memories retrieved in chat are subsequently rated on the Memories page",
       retrievalSignalsTotal: "Retrieval Signals",
       retrievedWithRating: "Retrieved with Rating",
       retrievedWithoutRating: "Retrieved without Rating",
@@ -744,6 +761,17 @@ export const messages: Record<Locale, Messages> = {
       bucketMid: "Mid (3)",
       bucketHigh: "High (4–5)",
       noRetrievalData: "No retrieval quality data yet",
+      coverageHealthy: "Healthy",
+      coverageLow: "Low coverage",
+      coverageVeryLow: "Very low",
+      messageQuality: "Message Quality",
+      messageQualitySubtitle: "Daily thumbs up/down feedback on assistant responses",
+      thumbsUp: "Thumbs Up",
+      thumbsDown: "Thumbs Down",
+      netScore: "Net Score",
+      feedbackRate: "Feedback Rate",
+      totalFeedback: "Total Feedback",
+      noMessageQualityData: "No message quality data yet",
     },
     memories: {
       title: "Memory",
@@ -771,6 +799,12 @@ export const messages: Record<Locale, Messages> = {
       previous: "Previous",
       next: "Next",
       rateStars: "Rate {count} stars",
+      ratingHelp: "Rate memories by how useful they are for future answers.",
+      ratingAriaLabel: "Rate memory usefulness for future answers",
+      ratingStatusSaving: "Saving",
+      ratingStatusSaved: "Saved",
+      ratingStatusRetry: "Retry",
+      emptyHint: "Continue chatting and the agent will learn from your conversations.",
     },
     charts: {
       loading: "Loading...",
@@ -1130,7 +1164,7 @@ export const messages: Record<Locale, Messages> = {
       days: "Tage",
       na: "k.A.",
       retrievalFeedback: "Abruf-Feedback-Schleife",
-      retrievalFeedbackSubtitle: "Wie oft abgerufene Erinnerungen anschließend vom Nutzer bewertet werden",
+      retrievalFeedbackSubtitle: "Wie oft im Chat abgerufene Erinnerungen anschließend auf der Speicher-Seite bewertet werden",
       retrievalSignalsTotal: "Abrufsignale",
       retrievedWithRating: "Mit Bewertung abgerufen",
       retrievedWithoutRating: "Ohne Bewertung abgerufen",
@@ -1143,6 +1177,17 @@ export const messages: Record<Locale, Messages> = {
       bucketMid: "Mittel (3)",
       bucketHigh: "Hoch (4–5)",
       noRetrievalData: "Noch keine Abrufqualitätsdaten vorhanden",
+      coverageHealthy: "Gesund",
+      coverageLow: "Geringe Abdeckung",
+      coverageVeryLow: "Sehr gering",
+      messageQuality: "Nachrichtenqualität",
+      messageQualitySubtitle: "Tägliches Daumen-hoch/runter-Feedback zu Assistentenantworten",
+      thumbsUp: "Daumen hoch",
+      thumbsDown: "Daumen runter",
+      netScore: "Nettobewertung",
+      feedbackRate: "Feedbackrate",
+      totalFeedback: "Gesamtfeedback",
+      noMessageQualityData: "Noch keine Nachrichtenqualitätsdaten vorhanden",
     },
     memories: {
       title: "Speicher",
@@ -1170,6 +1215,12 @@ export const messages: Record<Locale, Messages> = {
       previous: "Zurück",
       next: "Weiter",
       rateStars: "{count} Sterne bewerten",
+      ratingHelp: "Bewerte Erinnerungen danach, wie hilfreich sie für zukünftige Antworten sind. Nachrichten-Daumen im Chat bleiben separates Qualitätsfeedback.",
+      ratingAriaLabel: "Nützlichkeit dieser Erinnerung für zukünftige Antworten bewerten",
+      ratingStatusSaving: "Speichert",
+      ratingStatusSaved: "Gespeichert",
+      ratingStatusRetry: "Erneut versuchen",
+      emptyHint: "Fahre fort zu chatten und der Agent wird aus deinen Gesprächen lernen.",
     },
     charts: {
       loading: "Wird geladen...",

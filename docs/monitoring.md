@@ -184,6 +184,22 @@ sum by (rating_bucket) (langgraph_memory_retrieval_signal_total)
 
 **Dashboard**: These are surfaced in the **Metrics → Trends** tab under "Retrieval Feedback Loop".
 
+**Single-surface rating model**: As of Phase 4, memory star ratings are collected exclusively from the **Memories page** (`/memories`). The chat view shows retrieved memories as read-only context with the current rating displayed as text; the interactive rating widget is intentionally absent from chat. This means `langgraph_memory_rated_after_retrieval_total` is incremented only when a user navigates to the Memories page and rates a memory that was recently retrieved in a conversation — which is the correct, unambiguous signal for retrieval quality feedback. Thumbs feedback in chat remains a separate message-quality signal and is not counted here.
+
+### Message Quality Metrics
+
+These metrics instrument thumbs up/down feedback on assistant messages separately from memory ratings.
+
+```promql
+# Total assistant-message feedback actions in chat
+# Labels: fork_name, value (up/down/removed)
+langgraph_message_feedback_total{fork_name="starter"}
+```
+
+**Dashboard**: These are surfaced in the **Metrics → Trends** tab under "Message Quality" via the backend analytics endpoint `/api/analytics/message-quality`.
+
+**Signal boundary**: Message thumbs in chat reflect response quality for assistant messages. They do not modify memory ratings directly and are intentionally separate from retrieval-quality coverage metrics.
+
 ### Memory Health Thresholds
 
 The following thresholds are recommended for operational alerting and manual review. The `/metrics` dashboard surface shows these as contextual data; configure Prometheus alert rules in `monitoring/alerts.yml` for automated firing.
@@ -207,7 +223,7 @@ If `memory_load_failed` events appear in LangGraph logs or the memory load error
 3. **Check Mem0 initialization** — Look for `api_key` or `llm.config.api_base` errors in the langgraph startup logs. At least one `LLM_PROVIDERS_*_API_BASE` env var must be set and reachable at LangGraph startup.
 4. **Inspect null-score events** — If memories return with missing scores (visible as importance `0.0` in the dashboard), the Qdrant vector has no score attached. This is handled defensively (`score = float(item.get("score") or 1.0)`) but indicates Mem0 returned an unexpected shape.
 5. **Check ownership filtering** — If a user sees 0 memories but Qdrant has data, the `filters={"user_id": ...}` in `Mem0MemoryBackend.load()` may not match. Confirm `AUTH_USERNAME` or the authenticated user ID matches the `user_id` stored during memory upsert.
-6. **Rating persistence failures** — A `WARNING` log line containing `"Could not persist rating to Mem0 after all attempts"` means the in-memory `_rating_overrides` cache was used as fallback. Ratings are not lost for the current process lifetime but will not survive a restart. Investigate the Mem0 SDK `update()` API shape for the running version.
+6. **Rating persistence failures** — A `WARNING` log line containing `"mem0_rating_persist_signature_mismatch"` or `"mem0_rating_persist_failed"` indicates the adapter could not persist the canonical Mem0 `update(memory_id, data=..., metadata=...)` call. The rating will not be retained by adapter-side fallback state; only successfully persisted Mem0 metadata is authoritative. Investigate the running Mem0 SDK version and update API behavior.
 
 ---
 

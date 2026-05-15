@@ -15,6 +15,7 @@ import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
 import MemoryTrendsChart from "@/components/MemoryTrendsChart";
 import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
 import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
+import { MessageQualityPanel } from "@/components/MessageQualityPanel";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
@@ -151,6 +152,7 @@ export default function MetricsPage() {
     latencyAnalysis,
     memoryTrends,
     memoryRetrievalQuality,
+    messageQuality,
     loading: analyticsLoading,
     error: analyticsError,
     refetch: refetchAnalytics,
@@ -536,6 +538,7 @@ export default function MetricsPage() {
               </div>
 
               <RetrievalFeedbackPanel data={memoryRetrievalQuality} formatNumber={formatNumber} />
+              <MessageQualityPanel data={messageQuality} formatNumber={formatNumber} />
 
               <div className={styles.chartCard}>
                 <h3 className={styles.chartTitle}>{t("metrics.summary")}</h3>

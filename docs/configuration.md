@@ -202,6 +202,9 @@ memory:
     search_limit: 10 # Internal Mem0 retrieval window before local reranking
     infer_enabled: true # Enables Mem0 extraction/inference before persistence
     custom_instructions: null # Optional extraction guidance for Mem0
+    co_occurrence_fanout_cap: 5 # Maximum related memories appended per retrieval
+    co_occurrence_related_top_k_per_memory: 5 # Per-primary-memory related lookup depth
+    co_occurrence_prune_interval_seconds: 300 # Maintenance interval for stale edge pruning
 ```
 
 **Embedding provider notes:**
@@ -223,6 +226,12 @@ memory:
 - `memory.mem0.infer_enabled: false` skips extraction and stores summary text verbatim via fallback path.
 - Mem0 extraction uses the model configured for `llm.roles.auxiliary`.
 - For local models, use a sufficiently large context window for extraction workloads (practical baseline: 16k minimum, 32k preferred).
+
+**Mem0 co-occurrence durability controls:**
+
+- `memory.mem0.co_occurrence_fanout_cap` bounds retrieval-time related-memory fanout.
+- `memory.mem0.co_occurrence_related_top_k_per_memory` controls per-primary related-edge scan depth.
+- `memory.mem0.co_occurrence_prune_interval_seconds` controls maintenance cadence for pruning stale co-occurrence edges.
 
 **Environment variables:**
 
@@ -501,6 +510,12 @@ voice_interface: false # Enable voice I/O
 ui_tool_visualization: true # Show tool calls in UI
 ui_token_counter: false # Show token usage
 ui_export_chat: true # Allow chat export
+
+# Memory emergency controls (development rollback switches)
+memory_load_enabled: true # Enable load_memory_node retrieval path
+memory_update_enabled: true # Enable update_memory_node persistence path
+memory_co_occurrence_enabled: true # Enable co-occurrence tracking updates
+memory_digest_chain_enabled: true # Enable digest metadata propagation
 ```
 
 **Feature dependencies (validated at startup):**
@@ -517,6 +532,12 @@ FEATURE_DEPENDENCIES = {
 - Reduces dependencies
 - Improves performance
 - Enhances security (e.g., disable web_search for compliance)
+
+**Memory emergency controls:**
+
+- These switches are intended for development rollback and diagnostics.
+- Default values should remain `true` in normal operation.
+- Turning them off bypasses specific memory pipeline segments without changing core config schemas.
 
 ---
 

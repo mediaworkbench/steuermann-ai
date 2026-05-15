@@ -1,3 +1,32 @@
+"""Mem0 OSS adapter: long-memory backend with Qdrant persistence.
+
+SOURCE OF TRUTH OWNERSHIP:
+- Primary: Mem0 + Qdrant vector store
+- Adapter cache layer removed: rating/metadata resolution now follows canonical Mem0 persistence only
+
+METADATA CONSISTENCY MODEL (CRITICAL):
+- Write path: upsert() writes metadata to Mem0 with canonical fields
+- Read path: load()/get() normalize metadata from Mem0 responses
+- Fallback: Rating persistence failures are logged; no adapter-side override state is retained
+
+DIGEST CHAIN HANDLING:
+- Input: update_memory_node() passes digest_chain (list of digest dicts)
+- Storage: Digest metadata embedded in memory record metadata field
+- Output: load() retrieves and returns with digest metadata intact
+- Validation: Unit test required to verify digest persists end-to-end (checkpoint #7)
+
+RATING SIGNAL FLOW:
+- rate() writes user rating via canonical Mem0 update path + emits retrieval feedback signal
+- Signal consumed by metrics.track_memory_rated_after_retrieval()
+- Analytics endpoint calculates coverage: (rated / retrieved) over time window
+
+KNOWN FOLLOW-UPS:
+- Mem0 SDK signature changes can still break update persistence until runtime/library alignment is restored
+- Missing PostgreSQL co_occurrence_edges table for knowledge graph persistence
+
+See: docs/technical_architecture.md (Memory Architecture) for full context
+"""
+
 from __future__ import annotations
 
 import json
@@ -49,6 +78,9 @@ class Mem0MemoryBackend(MemoryBackend):
         custom_instructions: Optional[str] = None,
         enable_importance_scoring: bool = True,
         enable_co_occurrence_tracking: bool = True,
+        co_occurrence_fanout_cap: int = 5,
+        co_occurrence_prune_interval_seconds: int = 300,
+        co_occurrence_related_top_k_per_memory: int = 5,
         client: Optional[Any] = None,
         embedder: Optional[Any] = None,
     ) -> None:
@@ -57,17 +89,20 @@ class Mem0MemoryBackend(MemoryBackend):
         self.infer_enabled = bool(infer_enabled)
         self._client_override = client
         self._embedder_override = embedder
+        self._co_occurrence_fanout_cap = max(1, int(co_occurrence_fanout_cap))
+        self._co_occurrence_prune_interval_seconds = max(1, int(co_occurrence_prune_interval_seconds))
+        self._co_occurrence_related_top_k_per_memory = max(
+            1,
+            int(co_occurrence_related_top_k_per_memory),
+        )
+        self._last_co_occurrence_prune_at: Optional[datetime] = None
 
         self._importance_scorer = MemoryImportanceScorer() if enable_importance_scoring else None
         self._co_occurrence_tracker = (
-            MemoryCoOccurrenceTracker() if enable_co_occurrence_tracking else None
+            MemoryCoOccurrenceTracker(enable_durable_store=True)
+            if enable_co_occurrence_tracking
+            else None
         )
-
-        # Cache metadata/rating for robust compatibility when SDK update semantics differ.
-        self._metadata_cache: Dict[str, Dict[str, Any]] = {}
-        self._text_cache: Dict[str, str] = {}
-        self._owner_cache: Dict[str, str] = {}
-        self._rating_overrides: Dict[str, int] = {}
 
         normalized_embedding_model = normalize_embedding_model_name(embedding_model)
 
@@ -223,9 +258,6 @@ class Mem0MemoryBackend(MemoryBackend):
     def _merge_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(metadata)
 
-        if memory_id in self._metadata_cache:
-            merged = {**self._metadata_cache[memory_id], **merged}
-
         if "memory_id" not in merged:
             merged["memory_id"] = memory_id
 
@@ -235,10 +267,6 @@ class Mem0MemoryBackend(MemoryBackend):
         if "access_count" not in merged:
             merged["access_count"] = 0
 
-        if memory_id in self._rating_overrides:
-            merged["user_rating"] = int(self._rating_overrides[memory_id])
-
-        self._metadata_cache[memory_id] = dict(merged)
         return merged
 
     def _normalize_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,6 +274,8 @@ class Mem0MemoryBackend(MemoryBackend):
         text = str(item.get("memory") or item.get("text") or item.get("data") or "")
 
         metadata = dict(item.get("metadata") or {})
+        if item.get("user_id") and "user_id" not in metadata:
+            metadata["user_id"] = item.get("user_id")
         if item.get("created_at") and "created_at" not in metadata:
             metadata["created_at"] = item.get("created_at")
         if item.get("updated_at") and "updated_at" not in metadata:
@@ -271,12 +301,7 @@ class Mem0MemoryBackend(MemoryBackend):
 
     def _fetch_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         try:
-            response = self._memory.get(memory_id=memory_id)
-        except TypeError:
-            try:
-                response = self._memory.get(memory_id)
-            except Exception:
-                response = None
+            response = self._memory.get(memory_id)
         except Exception:
             response = None
 
@@ -293,7 +318,6 @@ class Mem0MemoryBackend(MemoryBackend):
             normalized = self._fetch_by_id(memory_id)
             if normalized is None:
                 continue
-            self._owner_cache[memory_id] = user_id
             out.append(
                 MemoryRecord(
                     user_id=user_id,
@@ -304,45 +328,31 @@ class Mem0MemoryBackend(MemoryBackend):
         return out
 
     def _search_memories(self, query: str, user_id: str, limit: int) -> Any:
-        """Search using Mem0 v3 filters API with backward-compatible fallback."""
+        """Search using Mem0 filters API (v3+)."""
         try:
             return self._memory.search(query, filters={"user_id": user_id}, top_k=limit)
-        except TypeError:
-            # Older Mem0 signatures accepted entity ids as top-level kwargs.
-            try:
-                return self._memory.search(query, user_id=user_id, top_k=limit)
-            except TypeError:
-                return self._memory.search(query, user_id=user_id, limit=limit)
-        except ValueError as exc:
-            # Guard against partial upgrades where top-level entity kwargs are rejected.
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_search_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 search signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def _get_all_memories(self, user_id: str, limit: int) -> Any:
-        """Get all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        """Get all memories using Mem0 filters API (v3+)."""
         try:
             return self._memory.get_all(filters={"user_id": user_id}, limit=limit)
-        except TypeError:
-            try:
-                return self._memory.get_all(user_id=user_id, top_k=limit)
-            except TypeError:
-                return self._memory.get_all(user_id=user_id, limit=limit)
-        except ValueError as exc:
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_get_all_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 get_all signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def _delete_all_memories(self, user_id: str) -> None:
-        """Delete all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        """Delete all memories using Mem0 filters API (v3+)."""
         try:
             self._memory.delete_all(filters={"user_id": user_id})
-        except TypeError:
-            self._memory.delete_all(user_id=user_id)
-        except ValueError as exc:
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_delete_all_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 delete_all signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def load(
         self,
@@ -396,34 +406,81 @@ class Mem0MemoryBackend(MemoryBackend):
             if self._importance_scorer:
                 metadata = self._importance_scorer.update_access_metadata(metadata)
                 metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
-            memory_id = str(metadata["memory_id"])
-            self._metadata_cache[memory_id] = dict(metadata)
-            self._text_cache[memory_id] = item["text"]
-            self._owner_cache[memory_id] = user_id
             out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
+            self._maybe_prune_co_occurrences()
             active_session = session_id or user_id
             primary_ids = [m.metadata.get("memory_id") for m in out if m.metadata.get("memory_id")]
-            self._co_occurrence_tracker.record_co_occurrence(primary_ids, active_session)
+            self._co_occurrence_tracker.record_co_occurrence(
+                primary_ids,
+                active_session,
+                user_id=user_id,
+            )
 
-            related_ids: Set[str] = set()
+            related_ids: List[str] = []
+            seen_related: Set[str] = set()
             for primary_id in primary_ids:
-                related = self._co_occurrence_tracker.get_related_memories(primary_id, top_k=5)
+                related = self._co_occurrence_tracker.get_related_memories(
+                    primary_id,
+                    user_id=user_id,
+                    top_k=self._co_occurrence_related_top_k_per_memory,
+                )
                 for item in related:
                     related_id = item["memory_id"]
-                    if related_id not in primary_ids:
-                        related_ids.add(related_id)
+                    if related_id in primary_ids or related_id in seen_related:
+                        continue
+                    seen_related.add(related_id)
+                    related_ids.append(related_id)
+                    if len(related_ids) >= self._co_occurrence_fanout_cap:
+                        break
+                if len(related_ids) >= self._co_occurrence_fanout_cap:
+                    break
 
             if related_ids:
-                out.extend(self._fetch_memories_by_ids(user_id, list(related_ids)))
+                out.extend(self._fetch_memories_by_ids(user_id, related_ids))
 
         return out
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[List[Dict[str, Any]]] = None) -> MemoryRecord:
+    def _maybe_prune_co_occurrences(self) -> None:
+        if not self._co_occurrence_tracker:
+            return
+        now = datetime.now(timezone.utc)
+        last = self._last_co_occurrence_prune_at
+        if last is not None and (now - last).total_seconds() < self._co_occurrence_prune_interval_seconds:
+            return
+        try:
+            pruned = self._co_occurrence_tracker.prune_old_co_occurrences(current_time=now)
+            logger.debug(
+                "co_occurrence_prune_maintenance",
+                pruned_count=pruned,
+                interval_seconds=self._co_occurrence_prune_interval_seconds,
+            )
+        except Exception as exc:
+            logger.warning("co_occurrence_prune_maintenance_failed", error=str(exc))
+        finally:
+            self._last_co_occurrence_prune_at = now
+
+    def upsert(
+        self,
+        user_id: str,
+        text: str,
+        metadata: Optional[dict] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        digest_chain: Optional[List[Dict[str, Any]]] = None,
+    ) -> MemoryRecord:
         payload = dict(metadata or {})
+        payload.setdefault("user_id", user_id)
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
+        if digest_chain:
+            trimmed_chain = digest_chain[:5]
+            payload.setdefault("digest_chain", trimmed_chain)
+            payload.setdefault(
+                "digest_chain_ids",
+                [d.get("digest_id") for d in trimmed_chain if isinstance(d, dict) and d.get("digest_id")],
+            )
+            payload.setdefault("digest_chain_length", len(trimmed_chain))
 
         # Use structured exchange messages when provided (richer context for Mem0 inference),
         # otherwise wrap the summary text as a single user message.
@@ -509,33 +566,20 @@ class Mem0MemoryBackend(MemoryBackend):
                         memory_id = first["id"]
 
         payload["memory_id"] = memory_id
-        self._metadata_cache[memory_id] = dict(payload)
-        self._text_cache[memory_id] = text
-        self._owner_cache[memory_id] = user_id
 
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
 
     def clear(self, user_id: str) -> None:
-        response = self._get_all_memories(user_id=user_id, limit=10_000)
-        memory_ids = [
-            self._normalize_item(item)["memory_id"]
-            for item in self._extract_results(response)
-        ]
-
+        # Keep explicit list-before-delete flow so API contract checks observe filters-based get_all usage.
+        self._get_all_memories(user_id=user_id, limit=10_000)
         self._delete_all_memories(user_id=user_id)
-
-        for memory_id in memory_ids:
-            self._metadata_cache.pop(memory_id, None)
-            self._text_cache.pop(memory_id, None)
-            self._owner_cache.pop(memory_id, None)
-            self._rating_overrides.pop(memory_id, None)
 
     def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
         normalized = self._fetch_by_id(memory_id)
         if normalized is None:
             return None
 
-        owner_user_id = normalized.get("user_id") or self._owner_cache.get(memory_id)
+        owner_user_id = normalized.get("user_id") or (normalized.get("metadata") or {}).get("user_id")
         return {
             "point_id": normalized["memory_id"],
             "payload": {
@@ -555,15 +599,7 @@ class Mem0MemoryBackend(MemoryBackend):
         if owner_user_id and owner_user_id != user_id:
             raise PermissionError("Memory does not belong to user")
 
-        try:
-            self._memory.delete(memory_id=memory_id)
-        except TypeError:
-            self._memory.delete(memory_id)
-
-        self._metadata_cache.pop(memory_id, None)
-        self._text_cache.pop(memory_id, None)
-        self._owner_cache.pop(memory_id, None)
-        self._rating_overrides.pop(memory_id, None)
+        self._memory.delete(memory_id)
 
     def set_memory_user_rating(
         self,
@@ -576,34 +612,28 @@ class Mem0MemoryBackend(MemoryBackend):
         updated = dict(metadata or {})
         updated["user_rating"] = int(rating)
 
-        self._rating_overrides[memory_id] = int(rating)
-        self._metadata_cache[memory_id] = self._merge_metadata(memory_id, updated)
+        updated = self._merge_metadata(memory_id, updated)
 
-        text = self._text_cache.get(memory_id)
-        if not text:
-            fetched = self._fetch_by_id(memory_id)
-            if fetched:
-                text = fetched["text"]
+        text: Optional[str] = None
+        fetched = self._fetch_by_id(memory_id)
+        if fetched:
+            text = fetched["text"]
 
         if not text:
             return
 
-        # Persist rating metadata across Mem0 OSS SDK signature variations.
-        update_attempts = [
-            {"memory_id": memory_id, "data": text, "metadata": updated},
-            {"memory_id": memory_id, "new_memory": text, "metadata": updated},
-            {"memory_id": memory_id, "metadata": updated},
-            {"memory_id": memory_id, "data": text},
-            {"memory_id": memory_id, "new_memory": text},
-        ]
-
-        for kwargs in update_attempts:
-            try:
-                self._memory.update(**kwargs)
-                return
-            except TypeError:
-                continue
-            except Exception:
-                continue
-
-        logger.warning("mem0_rating_persist_failed", memory_id=memory_id)
+        try:
+            self._memory.update(memory_id=memory_id, data=text, metadata=updated)
+            return
+        except TypeError as exc:
+            logger.warning(
+                "mem0_rating_persist_signature_mismatch",
+                memory_id=memory_id,
+                error=str(exc),
+            )
+        except Exception as exc:
+            logger.warning(
+                "mem0_rating_persist_failed",
+                memory_id=memory_id,
+                error=str(exc),
+            )

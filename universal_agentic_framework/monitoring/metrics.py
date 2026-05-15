@@ -110,6 +110,13 @@ MEMORY_RATED_AFTER_RETRIEVAL_TOTAL = Counter(
     ["fork_name"],
 )
 
+# Message quality / chat feedback metrics
+MESSAGE_FEEDBACK_TOTAL = Counter(
+    "langgraph_message_feedback_total",
+    "Count of thumbs-up/down/removed feedback actions on assistant messages",
+    ["fork_name", "value"],  # value: up, down, removed
+)
+
 # Cache metrics
 CACHE_HITS_TOTAL = Counter(
     "cache_hits_total",
@@ -573,6 +580,16 @@ def track_memory_rated_after_retrieval(fork_name: str) -> None:
         fork_name: Active profile / fork identifier.
     """
     MEMORY_RATED_AFTER_RETRIEVAL_TOTAL.labels(fork_name=fork_name).inc()
+
+
+def track_message_feedback(fork_name: str, value: str) -> None:
+    """Emit a message-quality signal for a thumbs up/down/removed action.
+
+    Args:
+        fork_name: Active profile / fork identifier.
+        value: One of "up", "down", or "removed" (when feedback is cleared).
+    """
+    MESSAGE_FEEDBACK_TOTAL.labels(fork_name=fork_name, value=value).inc()
 
 
 # Cache tracking functions

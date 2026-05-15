@@ -9,6 +9,66 @@ from universal_agentic_framework.memory.linking import (
 )
 
 
+class _FakeDurableStore:
+    def __init__(self):
+        self._edges = {}
+
+    def record_co_occurrence_pair(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        related_memory_id: str,
+        session_id: str,
+        event_time: datetime | None = None,
+    ) -> None:
+        key = (user_id, memory_id, related_memory_id)
+        existing = self._edges.get(key)
+        if existing is None:
+            self._edges[key] = {
+                "count": 1,
+                "strength": 0.1,
+                "updated_at": event_time or datetime.now(timezone.utc),
+            }
+            return
+        existing["count"] += 1
+        existing["strength"] = min(1.0, float(existing["strength"]) + 0.1)
+        existing["updated_at"] = event_time or datetime.now(timezone.utc)
+
+    def get_related_edges(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        top_k: int,
+        min_strength: float,
+        updated_since: datetime | None = None,
+    ):
+        out = []
+        for (uid, mid, rid), data in self._edges.items():
+            if uid != user_id or mid != memory_id:
+                continue
+            if updated_since and data["updated_at"] < updated_since:
+                continue
+            if float(data["strength"]) < min_strength:
+                continue
+            out.append(
+                {
+                    "memory_id": rid,
+                    "strength": float(data["strength"]),
+                    "co_occurrence_count": int(data["count"]),
+                }
+            )
+        out.sort(key=lambda x: x["strength"], reverse=True)
+        return out[:top_k]
+
+    def prune_old_edges(self, *, cutoff_time: datetime) -> int:
+        keys = [k for k, v in self._edges.items() if v["updated_at"] < cutoff_time]
+        for key in keys:
+            del self._edges[key]
+        return len(keys)
+
+
 class TestMemoryCoOccurrenceTracker:
     """Tests for MemoryCoOccurrenceTracker class."""
     
@@ -64,12 +124,42 @@ class TestMemoryCoOccurrenceTracker:
         assert len(related) == 2
         related_ids = {r["memory_id"] for r in related}
         assert related_ids == {"mem_2", "mem_3"}
-        
+
         # mem_2 should be related to mem_1 and mem_3
         related = tracker.get_related_memories("mem_2")
         assert len(related) == 2
         related_ids = {r["memory_id"] for r in related}
         assert related_ids == {"mem_1", "mem_3"}
+
+    def test_durable_store_persists_links_across_tracker_restart(self):
+        durable = _FakeDurableStore()
+        tracker_a = MemoryCoOccurrenceTracker(durable_store=durable, enable_durable_store=True)
+        tracker_b = MemoryCoOccurrenceTracker(durable_store=durable, enable_durable_store=True)
+
+        tracker_a.record_co_occurrence(
+            memory_ids=["mem_1", "mem_2", "mem_3"],
+            session_id="session_1",
+            user_id="u1",
+        )
+
+        # New tracker instance should still see durable links.
+        related = tracker_b.get_related_memories("mem_1", user_id="u1", top_k=5)
+        related_ids = {item["memory_id"] for item in related}
+        assert "mem_2" in related_ids
+        assert "mem_3" in related_ids
+
+    def test_durable_store_respects_user_partitioning(self):
+        durable = _FakeDurableStore()
+        tracker = MemoryCoOccurrenceTracker(durable_store=durable, enable_durable_store=True)
+
+        tracker.record_co_occurrence(["mem_1", "mem_2"], "session_u1", user_id="u1")
+        tracker.record_co_occurrence(["mem_1", "mem_9"], "session_u2", user_id="u2")
+
+        related_u1 = tracker.get_related_memories("mem_1", user_id="u1", top_k=5)
+        related_u2 = tracker.get_related_memories("mem_1", user_id="u2", top_k=5)
+
+        assert {r["memory_id"] for r in related_u1} == {"mem_2"}
+        assert {r["memory_id"] for r in related_u2} == {"mem_9"}
     
     def test_record_co_occurrence_single_memory(self):
         """Test that single memory produces no co-occurrence."""

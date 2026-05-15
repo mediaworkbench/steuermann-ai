@@ -9,6 +9,12 @@ memory_importance_scoring: true  # Enable importance-based reranking
 memory_include_related: true     # Fetch related memories via co-occurrence
 memory_top_k: 5                  # Number of primary memories to retrieve
 
+# Memory layer emergency rollback switches (set to false to disable during development/debugging)
+memory_load_enabled: true        # Enable load_memory_node() operation; disable to skip retrieval
+memory_update_enabled: true      # Enable update_memory_node() operation; disable to skip persistence
+memory_co_occurrence_enabled: true  # Enable co-occurrence tracking; disable to bypass knowledge graph
+memory_digest_chain_enabled: true   # Enable digest chain propagation to memory; disable for baseline behavior
+
 # Optional features
 authentication: false
 monitoring: false  # enable in production

@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
-import { MemoryRating } from "./MemoryRating";
 import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
@@ -229,19 +228,16 @@ function MemoryUsedList({
         {memories.map((memory) => (
           <div
             key={memory.memory_id}
-            className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2"
+            className="rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2"
           >
             <div className="min-w-0">
               <div className="truncate text-xs text-evergreen/70">{memory.text || memory.memory_id}</div>
               <div className="mt-0.5 text-[11px] text-evergreen/45">
                 {memory.is_related ? "Related" : "Primary"}
                 {typeof memory.importance_score === "number" ? ` • score ${memory.importance_score.toFixed(2)}` : ""}
+                {typeof memory.user_rating === "number" ? ` • rated ${memory.user_rating}/5` : ""}
               </div>
             </div>
-            <MemoryRating
-              memoryId={memory.memory_id}
-              initialRating={typeof memory.user_rating === "number" ? memory.user_rating : 0}
-            />
           </div>
         ))}
       </div>

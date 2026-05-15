@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Star, ThumbsUp, BarChart2 } from "lucide-react";
+import { MessageSquare, Star, BarChart2 } from "lucide-react";
 import type { MemoryRetrievalQualityData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -61,6 +61,15 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
   const total = data.retrieval_signals_total;
   const priorPct = (data.prior_rating_coverage * 100).toFixed(1);
   const feedbackPct = (data.feedback_coverage * 100).toFixed(1);
+  const feedbackNum = data.feedback_coverage * 100;
+
+  // Coverage health badge thresholds match monitoring.md runbook
+  const coverageHealth =
+    feedbackNum >= 20
+      ? { label: t("metrics.coverageHealthy"), cls: "bg-emerald-100 text-emerald-700" }
+      : feedbackNum >= 5
+        ? { label: t("metrics.coverageLow"), cls: "bg-amber-100 text-amber-700" }
+        : { label: t("metrics.coverageVeryLow"), cls: "bg-red-100 text-red-700" };
 
   // Build bucket bar segments
   const buckets = data.rating_bucket_distribution ?? {};
@@ -76,9 +85,14 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
   return (
     <div className="rounded-2xl border border-evergreen/10 bg-white p-6 shadow-sm space-y-5">
       <div>
-        <h3 className="text-sm font-semibold text-evergreen/70">
-          {t("metrics.retrievalFeedback")}
-        </h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-evergreen/70">
+            {t("metrics.retrievalFeedback")}
+          </h3>
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${coverageHealth.cls}`}>
+            {coverageHealth.label}
+          </span>
+        </div>
         <p className="text-xs text-evergreen/40 mt-0.5">
           {t("metrics.retrievalFeedbackSubtitle")}
         </p>
@@ -98,7 +112,7 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
           unit="%"
         />
         <MiniCard
-          icon={<ThumbsUp size={16} />}
+          icon={<Star size={16} />}
           label={t("metrics.ratedAfterRetrieval")}
           value={formatNumber(data.rated_after_retrieval_total)}
         />

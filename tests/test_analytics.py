@@ -70,6 +70,50 @@ class TestAnalyticsSchema:
         ]
         assert all(idx in indices for idx in expected_indices)
 
+    def test_co_occurrence_edges_table_exists(self, db_pool):
+        """Verify co_occurrence_edges table exists with expected columns."""
+        with db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_name = 'co_occurrence_edges'
+                    ORDER BY ordinal_position;
+                    """
+                )
+                columns = {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+
+        expected = [
+            "user_id",
+            "memory_id",
+            "related_memory_id",
+            "session_evidence",
+            "decayed_strength",
+            "created_at",
+            "updated_at",
+        ]
+        assert all(col in columns for col in expected)
+
+    def test_co_occurrence_edges_indices_exist(self, db_pool):
+        """Verify indices required for co-occurrence read path exist."""
+        with db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT indexname FROM pg_indexes
+                    WHERE tablename = 'co_occurrence_edges'
+                    ORDER BY indexname;
+                    """
+                )
+                indices = [row[0] for row in cur.fetchall()]
+
+        expected_indices = [
+            "idx_co_occurrence_user_memory",
+            "idx_co_occurrence_user_updated",
+        ]
+        assert all(idx in indices for idx in expected_indices)
+
 
 class TestAnalyticsStoreLogEvent:
     """Test event logging functionality."""

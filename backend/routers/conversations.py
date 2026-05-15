@@ -13,6 +13,13 @@ from pydantic import BaseModel, Field
 from backend.attachments import AttachmentValidationError, WorkspaceValidationError
 from backend.single_user import get_effective_user_id, require_api_access
 
+try:
+    from universal_agentic_framework.monitoring.metrics import track_message_feedback as _track_message_feedback
+except Exception:
+    _track_message_feedback = None  # type: ignore[assignment]
+
+_PROFILE_ID = os.getenv("PROFILE_ID", "starter")
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -535,6 +542,8 @@ async def set_message_feedback(
         msg = store.update_message_feedback(message_id, body.feedback)
         if not msg:
             raise HTTPException(status_code=404, detail="Message not found")
+        if _track_message_feedback is not None:
+            _track_message_feedback(_PROFILE_ID, body.feedback if body.feedback else "removed")
         return msg
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

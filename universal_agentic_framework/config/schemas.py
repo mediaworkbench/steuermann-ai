@@ -281,6 +281,9 @@ class Mem0Settings(BaseModel):
     custom_instructions: Optional[str] = None
     llm_provider: str = "openai"  # "lmstudio" for LM Studio servers (uses json_schema response format)
     infer_enabled: bool = True
+    co_occurrence_fanout_cap: PositiveInt = 5
+    co_occurrence_prune_interval_seconds: PositiveInt = 300
+    co_occurrence_related_top_k_per_memory: PositiveInt = 5
 
 
 class MemorySettings(BaseModel):
@@ -492,4 +495,12 @@ class FeaturesConfig(BaseModel):
     crew_chaining: bool = False
     crew_parallel_execution: bool = False
     crew_result_validation: bool = True
+    
+    # Memory layer emergency rollback switches (Phase 1.3)
+    # Set these to false for emergency disable during development/debugging
+    memory_load_enabled: bool = True        # Enable load_memory_node() retrieval operation
+    memory_update_enabled: bool = True      # Enable update_memory_node() persistence operation
+    memory_co_occurrence_enabled: bool = True  # Enable co-occurrence tracking for knowledge graph
+    memory_digest_chain_enabled: bool = True   # Enable digest chain propagation to memory metadata
+    
     model_config = ConfigDict(extra="allow")

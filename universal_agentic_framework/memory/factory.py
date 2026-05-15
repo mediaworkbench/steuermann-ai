@@ -82,6 +82,9 @@ def build_memory_backend(
             custom_instructions=mem0_settings.custom_instructions,
             llm_provider=mem0_settings.llm_provider,
             infer_enabled=mem0_settings.infer_enabled,
+            co_occurrence_fanout_cap=mem0_settings.co_occurrence_fanout_cap,
+            co_occurrence_prune_interval_seconds=mem0_settings.co_occurrence_prune_interval_seconds,
+            co_occurrence_related_top_k_per_memory=mem0_settings.co_occurrence_related_top_k_per_memory,
             client=client,
             embedder=embedder,
         )

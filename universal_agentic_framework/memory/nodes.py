@@ -1,12 +1,51 @@
+"""Memory lifecycle nodes: load and update operations for graph execution.
+
+SOURCE OF TRUTH OWNERSHIP:
+- Digest chain: LangGraph orchestration (GraphState.digest_context)
+  - Created by: performance_nodes.conversation_compression_node_sync()
+  - Propagated by: graph_builder.node_update_memory() → update_memory_node()
+  - Persisted in: Mem0 memory record metadata
+  
+- Long-memory records: Mem0 + Qdrant vector store (MemoryBackend)
+  - Accessed via: load_memory_node(), update_memory_node()
+    - Metadata owned by: Mem0MemoryBackend (cache + canonical Mem0 metadata fields)
+  - Ratings stored in: PostgreSQL (via backend) + memory record metadata
+  
+- Co-occurrence links: PostgreSQL durable + Mem0 metadata projection (planned Phase 3)
+  - Tracked by: MemoryCoOccurrenceTracker
+  - Currently: in-memory only (non-persistent)
+  - Planned: hybrid persistence with decay model
+
+READ PATTERN:
+1. load_memory_node() queries memory backend
+2. Backend searches Mem0/Qdrant + retrieves related memories
+3. Digest context extracted from loaded_memory (sorted by timestamp)
+4. Related memories attached to memory_analytics
+
+WRITE PATTERN:
+1. update_memory_node() receives (user_id, text, digest_chain)
+2. Passes digest_chain to backend.upsert() for embedding in metadata
+3. Backend stores to Mem0 + updates metadata consistency state
+4. Co-occurrence tracker records memory IDs for knowledge graph
+
+VALIDATION GATES:
+- Digest metadata must persist end-to-end (checkpoint #7 in plan)
+- Rating signals must correctly emit after retrieval (checkpoint #8)
+- Related memories must be includable in retrieval context (feature flag)
+
+See: docs/technical_architecture.md (Memory Architecture) for full architecture
+"""
+
 from __future__ import annotations
 
 import structlog
+import inspect
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 from . import InMemoryMemoryManager, MemoryBackend
 from .factory import build_memory_backend
-from universal_agentic_framework.config import load_core_config
+from universal_agentic_framework.config import load_core_config, load_features_config
 from universal_agentic_framework.monitoring import metrics
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +106,29 @@ def load_memory_node(
     
     Returns:
         Updated state with loaded_memory and memory_analytics fields
+        
+    KILL SWITCH: Set features.memory_load_enabled=false to disable this operation during emergency rollback.
     """
+    # EMERGENCY ROLLBACK: Check memory_load_enabled feature flag
+    try:
+        features = load_features_config()
+        if not features.memory_load_enabled:
+            logger.info("memory_load_disabled_by_feature_flag")
+            # Return empty loaded_memory to bypass retrieval
+            state["loaded_memory"] = []
+            state["digest_context"] = []
+            state["memory_analytics"] = {
+                "primary_count": 0,
+                "related_count": 0,
+                "digest_count": 0,
+                "total_count": 0,
+                "include_related_enabled": False,
+            }
+            return state
+    except Exception as e:
+        logger.warning("failed_to_load_features_for_kill_switch", error=str(e))
+        # Continue normally if features config unavailable
+    
     user_id = state.get("user_id")
     messages = state.get("messages", [])
     query = messages[-1]["content"] if messages else None
@@ -163,11 +224,31 @@ def load_memory_node(
     return state
 
 
-def update_memory_node(state: Dict[str, Any], text: str, metadata: Optional[dict] = None, backend: Optional[MemoryBackend] = None, messages: Optional[list] = None) -> Dict[str, Any]:
+def update_memory_node(
+    state: Dict[str, Any],
+    text: str,
+    metadata: Optional[dict] = None,
+    backend: Optional[MemoryBackend] = None,
+    messages: Optional[list] = None,
+    digest_chain: Optional[list[dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Write a distilled memory entry for the user.
 
     Expects state to include key: "user_id".
+    
+    KILL SWITCH: Set features.memory_update_enabled=false to disable this operation during emergency rollback.
     """
+    # EMERGENCY ROLLBACK: Check memory_update_enabled feature flag
+    try:
+        features = load_features_config()
+        if not features.memory_update_enabled:
+            logger.info("memory_update_disabled_by_feature_flag")
+            # Skip the update operation
+            return state
+    except Exception as e:
+        logger.warning("failed_to_load_features_for_kill_switch", error=str(e))
+        # Continue normally if features config unavailable
+    
     user_id = state.get("user_id")
     logger.info("update_memory_node called", user_id=user_id, text_length=len(text) if text else 0)
     
@@ -186,7 +267,21 @@ def update_memory_node(state: Dict[str, Any], text: str, metadata: Optional[dict
     
     logger.info("Attempting upsert", user_id=user_id, text_length=len(text) if text else 0, backend_type=type(store).__name__)
     try:
-        result = store.upsert(user_id=user_id, text=text, metadata=metadata, messages=messages)
+        upsert_kwargs = {
+            "user_id": user_id,
+            "text": text,
+            "metadata": metadata,
+            "messages": messages,
+        }
+        try:
+            sig = inspect.signature(store.upsert)
+            if "digest_chain" in sig.parameters and digest_chain:
+                upsert_kwargs["digest_chain"] = digest_chain
+        except Exception:
+            # If signature inspection fails, use backward-compatible call path.
+            pass
+
+        result = store.upsert(**upsert_kwargs)
         logger.info("Upsert successful", user_id=user_id, memory_id=result.metadata.get("memory_id") if hasattr(result, "metadata") else "unknown")
         return state
     except Exception as e:

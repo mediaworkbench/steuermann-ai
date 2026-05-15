@@ -18,6 +18,15 @@
 - **fix** `universal_agentic_framework/orchestration/helpers/model_resolution.py` typing import now includes `List` for fallback attempt annotations
 - **fix** Frontend type-contract regression resolved in `frontend/src/hooks/__tests__/useProfile.test.tsx` by adding required `model_roles` mock field
 - **docs** Synced README, status snapshot, and architecture/configuration docs for Mem0 infer toggle, auxiliary-model wiring, and contract parity
+- **feat** Added message-quality telemetry pipeline: Prometheus counter for assistant thumbs feedback, analytics endpoint `/api/analytics/message-quality`, frontend `MessageQualityPanel`, and EN/DE i18n wiring in Metrics Trends
+- **ops** Phase 8 verification completed: authenticated API smoke checks, message feedback write-path validation, Prometheus metric verification, docs drift check, and no-cache container rebuild/health validation
+- **refactor** Mem0 adapter de-customization slices: enforce filters-based Mem0 search/list/delete API, switch to canonical OSS `get/delete/update` signatures, and remove redundant adapter `_text_cache`
+- **refactor** Continued Mem0 adapter de-customization: removed `_owner_cache` and derive ownership from canonical Mem0 item fields/metadata (`user_id`) for lookup/delete/rating flows
+- **refactor** Continued Mem0 adapter de-customization: removed `_metadata_cache` and `_rating_overrides`; metadata/rating consistency now relies on canonical Mem0 metadata normalization and canonical `update(memory_id, data=..., metadata=...)` persistence only
+- **ops** Phase 3.5 memory-layer de-customization marked complete after final cache-layer removal, full regression pass, docs drift check, and no-cache backend image rebuild/recreate
+- **test** Added regression coverage to lock the current Mem0 OSS adapter contract and validated full suite (`950 passed, 5 skipped`)
+- **test** Added repeatable live stack E2E memory inference test (`tests/test_live_memory_inference_e2e.py`) covering short-term recall, long-term persistence (`/api/memories`), and long-term recall via `/api/chat`
+- **docs** Updated README, monitoring, status, and architecture docs for message-quality telemetry and latest Mem0 adapter contract cleanup
 
 ## [0.2.3] — provider-endpoint-consolidation
 

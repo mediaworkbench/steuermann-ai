@@ -81,3 +81,35 @@ groups:
             Average importance score has been below 0.3 for 10 minutes.
             Consider reviewing recent memory upserts or the importance scoring
             configuration in core.yaml.
+
+      - alert: FeedbackCoverageLow
+        expr: >
+          sum(rate(langgraph_memory_rated_after_retrieval_total[30m])) /
+          clamp_min(sum(rate(langgraph_memory_retrieval_signal_total[30m])), 0.001) < 0.05
+        for: 30m
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: Memory feedback coverage below 5%
+          description: >
+            Fewer than 5% of retrieved memories are being rated on the Memories page
+            after retrieval. This weakens the retrieval quality feedback loop.
+            Check that the Memories page is accessible and ratings are persisting
+            to Qdrant (see monitoring.md triage: "Rating persistence failures").
+
+      - alert: MemoryRatingCoverageLow
+        expr: >
+          sum(langgraph_memory_retrieval_signal_total{rated="yes"}) /
+          clamp_min(sum(langgraph_memory_retrieval_signal_total), 1) < 0.10
+        for: 1h
+        labels:
+          severity: warning
+          service: langgraph
+        annotations:
+          summary: Prior rating coverage at retrieval time below 10%
+          description: >
+            Less than 10% of memories served in chat context carry a prior user rating.
+            This means the retrieval quality signal has little historical grounding.
+            Encourage users to rate memories on the Memories page to improve future
+            retrieval quality.
