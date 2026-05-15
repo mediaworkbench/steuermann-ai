@@ -95,7 +95,9 @@ class Mem0MemoryBackend(MemoryBackend):
 
         self._importance_scorer = MemoryImportanceScorer() if enable_importance_scoring else None
         self._co_occurrence_tracker = (
-            MemoryCoOccurrenceTracker() if enable_co_occurrence_tracking else None
+            MemoryCoOccurrenceTracker(enable_durable_store=True)
+            if enable_co_occurrence_tracking
+            else None
         )
 
         # Cache metadata/rating for robust compatibility when SDK update semantics differ.
@@ -440,11 +442,19 @@ class Mem0MemoryBackend(MemoryBackend):
         if include_related and self._co_occurrence_tracker and len(out) > 1:
             active_session = session_id or user_id
             primary_ids = [m.metadata.get("memory_id") for m in out if m.metadata.get("memory_id")]
-            self._co_occurrence_tracker.record_co_occurrence(primary_ids, active_session)
+            self._co_occurrence_tracker.record_co_occurrence(
+                primary_ids,
+                active_session,
+                user_id=user_id,
+            )
 
             related_ids: Set[str] = set()
             for primary_id in primary_ids:
-                related = self._co_occurrence_tracker.get_related_memories(primary_id, top_k=5)
+                related = self._co_occurrence_tracker.get_related_memories(
+                    primary_id,
+                    user_id=user_id,
+                    top_k=5,
+                )
                 for item in related:
                     related_id = item["memory_id"]
                     if related_id not in primary_ids:

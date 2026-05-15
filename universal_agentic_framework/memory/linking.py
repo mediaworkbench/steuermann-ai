@@ -47,7 +47,7 @@ from __future__ import annotations
 import structlog
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +57,43 @@ try:
 except Exception:
     # Fallback: feature flag unavailable, always enable co-occurrence tracking
     load_features_config = None
+
+
+class CoOccurrenceDurableStore(Protocol):
+    def record_co_occurrence_pair(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        related_memory_id: str,
+        session_id: str,
+        event_time: Optional[datetime] = None,
+    ) -> None:
+        ...
+
+    def get_related_edges(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        top_k: int,
+        min_strength: float,
+        updated_since: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        ...
+
+    def prune_old_edges(self, *, cutoff_time: datetime) -> int:
+        ...
+
+
+def _try_build_default_durable_store() -> Optional[CoOccurrenceDurableStore]:
+    try:
+        from backend.db import CoOccurrenceEdgeStore, init_db_pool
+
+        return CoOccurrenceEdgeStore(init_db_pool())
+    except Exception as exc:
+        logger.warning("co_occurrence_durable_store_unavailable", error=str(exc))
+        return None
 
 
 class MemoryCoOccurrenceTracker:
@@ -76,6 +113,8 @@ class MemoryCoOccurrenceTracker:
         decay_window_days: int = 30,
         min_co_occurrence_strength: float = 0.1,
         max_related_memories: int = 10,
+        durable_store: Optional[CoOccurrenceDurableStore] = None,
+        enable_durable_store: bool = False,
     ):
         """Initialize co-occurrence tracker.
         
@@ -87,6 +126,9 @@ class MemoryCoOccurrenceTracker:
         self.decay_window_days = decay_window_days
         self.min_co_occurrence_strength = min_co_occurrence_strength
         self.max_related_memories = max_related_memories
+        self._durable_store = durable_store
+        if self._durable_store is None and enable_durable_store:
+            self._durable_store = _try_build_default_durable_store()
         
         # In-memory storage: {memory_id: {related_id: [(timestamp, session_id), ...]}}
         # In production, this would be persisted to PostgreSQL or Qdrant metadata
@@ -99,12 +141,14 @@ class MemoryCoOccurrenceTracker:
             decay_window_days=decay_window_days,
             min_strength=min_co_occurrence_strength,
             max_related=max_related_memories,
+            durable_store=bool(self._durable_store),
         )
     
     def record_co_occurrence(
         self,
         memory_ids: List[str],
         session_id: str,
+        user_id: Optional[str] = None,
         timestamp: Optional[datetime] = None,
     ) -> None:
         """Record that memories were retrieved together in a session.
@@ -140,6 +184,31 @@ class MemoryCoOccurrenceTracker:
                 # Bidirectional: A→B and B→A
                 self._co_occurrences[mem_id_a][mem_id_b].append((timestamp, session_id))
                 self._co_occurrences[mem_id_b][mem_id_a].append((timestamp, session_id))
+
+                if self._durable_store and user_id:
+                    try:
+                        self._durable_store.record_co_occurrence_pair(
+                            user_id=user_id,
+                            memory_id=mem_id_a,
+                            related_memory_id=mem_id_b,
+                            session_id=session_id,
+                            event_time=timestamp,
+                        )
+                        self._durable_store.record_co_occurrence_pair(
+                            user_id=user_id,
+                            memory_id=mem_id_b,
+                            related_memory_id=mem_id_a,
+                            session_id=session_id,
+                            event_time=timestamp,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "co_occurrence_durable_write_failed",
+                            user_id=user_id,
+                            memory_id=mem_id_a,
+                            related_memory_id=mem_id_b,
+                            error=str(exc),
+                        )
         
         logger.debug(
             "recorded_co_occurrence",
@@ -151,9 +220,10 @@ class MemoryCoOccurrenceTracker:
     def get_related_memories(
         self,
         memory_id: str,
+        user_id: Optional[str] = None,
         top_k: int = 5,
         current_time: Optional[datetime] = None,
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Any]]:
         """Get memories frequently retrieved with this memory.
         
         Args:
@@ -167,6 +237,27 @@ class MemoryCoOccurrenceTracker:
         """
         if current_time is None:
             current_time = datetime.now(timezone.utc)
+
+        # Prefer durable edges when available (restart-safe source of truth).
+        if self._durable_store and user_id:
+            try:
+                cutoff_time = current_time - timedelta(days=self.decay_window_days)
+                durable_related = self._durable_store.get_related_edges(
+                    user_id=user_id,
+                    memory_id=memory_id,
+                    top_k=top_k,
+                    min_strength=self.min_co_occurrence_strength,
+                    updated_since=cutoff_time,
+                )
+                if durable_related:
+                    return durable_related
+            except Exception as exc:
+                logger.warning(
+                    "co_occurrence_durable_read_failed",
+                    user_id=user_id,
+                    memory_id=memory_id,
+                    error=str(exc),
+                )
         
         if memory_id not in self._co_occurrences:
             return []
@@ -214,8 +305,9 @@ class MemoryCoOccurrenceTracker:
     def get_metadata_format(
         self,
         memory_id: str,
+        user_id: Optional[str] = None,
         current_time: Optional[datetime] = None,
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Any]]:
         """Get related memories in format suitable for Qdrant metadata.
         
         Args:
@@ -228,6 +320,7 @@ class MemoryCoOccurrenceTracker:
         """
         related = self.get_related_memories(
             memory_id,
+            user_id=user_id,
             top_k=self.max_related_memories,
             current_time=current_time,
         )
@@ -282,6 +375,12 @@ class MemoryCoOccurrenceTracker:
             pruned_count=pruned_count,
             cutoff_time=cutoff_time.isoformat(),
         )
+
+        if self._durable_store:
+            try:
+                pruned_count += self._durable_store.prune_old_edges(cutoff_time=cutoff_time)
+            except Exception as exc:
+                logger.warning("co_occurrence_durable_prune_failed", error=str(exc))
         
         return pruned_count
     

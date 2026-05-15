@@ -82,6 +82,7 @@ def _ensure_core_tables(db_pool: DatabasePool) -> None:
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
     _ensure_conversation_tables(db_pool)
+    _ensure_co_occurrence_tables(db_pool)
 
 
 def _ensure_settings_table(db_pool: DatabasePool) -> None:
@@ -842,6 +843,153 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
                 if sql.strip():
                     cur.execute(sql)
         conn.commit()
+
+
+def _ensure_co_occurrence_tables(db_pool: DatabasePool) -> None:
+    """Create durable co-occurrence edges table for memory linking."""
+    statement = """
+        CREATE TABLE IF NOT EXISTS co_occurrence_edges (
+            user_id TEXT NOT NULL,
+            memory_id TEXT NOT NULL,
+            related_memory_id TEXT NOT NULL,
+            session_evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+            decayed_strength DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, memory_id, related_memory_id)
+        );
+    """
+    indices_statement = """
+        CREATE INDEX IF NOT EXISTS idx_co_occurrence_user_memory
+            ON co_occurrence_edges(user_id, memory_id);
+        CREATE INDEX IF NOT EXISTS idx_co_occurrence_user_updated
+            ON co_occurrence_edges(user_id, updated_at);
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            for sql in indices_statement.split(';'):
+                if sql.strip():
+                    cur.execute(sql)
+        conn.commit()
+
+
+class CoOccurrenceEdgeStore:
+    """Durable read/write access for memory co-occurrence edges."""
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_co_occurrence_tables(self._db_pool)
+
+    def record_co_occurrence_pair(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        related_memory_id: str,
+        session_id: str,
+        event_time: Optional[datetime] = None,
+    ) -> None:
+        if memory_id == related_memory_id:
+            return
+        event_time = event_time or datetime.now(timezone.utc)
+        evidence = {
+            "total_count": 1,
+            "last_session_id": session_id,
+            "last_seen_at": event_time.isoformat(),
+        }
+        statement = """
+            INSERT INTO co_occurrence_edges (
+                user_id,
+                memory_id,
+                related_memory_id,
+                session_evidence,
+                decayed_strength,
+                created_at,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (user_id, memory_id, related_memory_id)
+            DO UPDATE SET
+                session_evidence = jsonb_build_object(
+                    'total_count', COALESCE((co_occurrence_edges.session_evidence->>'total_count')::INT, 0) + 1,
+                    'last_session_id', EXCLUDED.session_evidence->>'last_session_id',
+                    'last_seen_at', EXCLUDED.session_evidence->>'last_seen_at'
+                ),
+                decayed_strength = LEAST(1.0, GREATEST(co_occurrence_edges.decayed_strength, 0.0) + 0.1),
+                updated_at = NOW();
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    statement,
+                    (
+                        user_id,
+                        memory_id,
+                        related_memory_id,
+                        extras.Json(evidence),
+                        0.1,
+                    ),
+                )
+            conn.commit()
+
+    def get_related_edges(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        top_k: int,
+        min_strength: float,
+        updated_since: Optional[datetime] = None,
+    ) -> list[Dict[str, Any]]:
+        params: list[Any] = [user_id, memory_id]
+        where = "WHERE user_id = %s AND memory_id = %s"
+        if updated_since is not None:
+            where += " AND updated_at >= %s"
+            params.append(updated_since)
+
+        statement = f"""
+            SELECT related_memory_id, decayed_strength, session_evidence, updated_at
+            FROM co_occurrence_edges
+            {where}
+            ORDER BY decayed_strength DESC, updated_at DESC
+            LIMIT %s;
+        """
+        params.append(max(top_k * 2, top_k))
+
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, tuple(params))
+                rows = cur.fetchall()
+
+        out: list[Dict[str, Any]] = []
+        for row in rows:
+            strength = float(row.get("decayed_strength") or 0.0)
+            if strength < min_strength:
+                continue
+            evidence = row.get("session_evidence") or {}
+            out.append(
+                {
+                    "memory_id": row.get("related_memory_id"),
+                    "strength": strength,
+                    "co_occurrence_count": int(evidence.get("total_count") or 0),
+                }
+            )
+            if len(out) >= top_k:
+                break
+        return out
+
+    def prune_old_edges(self, *, cutoff_time: datetime) -> int:
+        statement = """
+            DELETE FROM co_occurrence_edges
+            WHERE updated_at < %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (cutoff_time,))
+                pruned = cur.rowcount or 0
+            conn.commit()
+        return int(pruned)
 
 
 class ConversationStore:
