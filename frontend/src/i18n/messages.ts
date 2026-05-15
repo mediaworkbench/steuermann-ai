@@ -375,6 +375,7 @@ export type Messages = {
     ratingStatusSaving: string;
     ratingStatusSaved: string;
     ratingStatusRetry: string;
+    emptyHint: string;
   };
   charts: {
     loading: string;
@@ -781,6 +782,7 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaving: "Saving",
       ratingStatusSaved: "Saved",
       ratingStatusRetry: "Retry",
+      emptyHint: "Continue chatting and the agent will learn from your conversations.",
     },
     charts: {
       loading: "Loading...",
@@ -1185,6 +1187,7 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaving: "Speichert",
       ratingStatusSaved: "Gespeichert",
       ratingStatusRetry: "Erneut versuchen",
+      emptyHint: "Fahre fort zu chatten und der Agent wird aus deinen Gesprächen lernen.",
     },
     charts: {
       loading: "Wird geladen...",

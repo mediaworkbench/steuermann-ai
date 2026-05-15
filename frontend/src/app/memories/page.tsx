@@ -11,16 +11,16 @@ import type { MemoryItem, MemoryStats } from "@/lib/types";
 const PAGE_SIZE = 50;
 
 function ImportanceBar({ score }: { score: number | null }) {
-  if (score === null) return <span className="text-xs text-white/30">—</span>;
+  if (score === null) return <span className="text-xs text-evergreen/30">—</span>;
   const pct = Math.round(score * 100);
   const color =
-    pct >= 80 ? "bg-emerald-400" : pct >= 50 ? "bg-yellow-400" : "bg-red-400";
+    pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-yellow-400" : "bg-red-400";
   return (
     <div className="flex items-center gap-2">
-      <div className="w-16 h-1.5 rounded-full bg-white/10 overflow-hidden">
+      <div className="w-16 h-1.5 rounded-full bg-evergreen/10 overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-white/50">{pct}%</span>
+      <span className="text-xs text-evergreen/55">{pct}%</span>
     </div>
   );
 }
@@ -35,12 +35,12 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-light-cyan/50 mb-1">
+    <div className="rounded-xl border border-evergreen/15 bg-evergreen/5 px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-wider text-evergreen/55 mb-1">
         {label}
       </p>
-      <p className="text-2xl font-bold text-light-cyan">{value}</p>
-      {sub && <p className="text-xs text-white/40 mt-0.5">{sub}</p>}
+      <p className="text-2xl font-bold text-evergreen">{value}</p>
+      {sub && <p className="text-xs text-evergreen/40 mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -165,9 +165,6 @@ export default function MemoriesPage() {
                        text-evergreen placeholder-evergreen/30 text-sm
                        focus:outline-none focus:ring-2 focus:ring-evergreen/30"
           />
-          <p className="mt-2 text-xs text-evergreen/55">
-            {t("memories.ratingHelp")}
-          </p>
         </div>
 
         {/* Table */}
@@ -177,7 +174,22 @@ export default function MemoriesPage() {
               <tr className="bg-evergreen text-light-cyan text-xs uppercase tracking-wider">
                 <th className="px-4 py-3 text-left font-semibold">{t("memories.memory")}</th>
                 <th className="px-4 py-3 text-left font-semibold hidden md:table-cell w-36">{t("memories.importance")}</th>
-                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell w-36">{t("memories.rating")}</th>
+                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell w-36">
+                  <span className="flex items-center gap-1">
+                    {t("memories.rating")}
+                    <span
+                      className="group relative cursor-default"
+                      aria-label={t("memories.ratingHelp")}
+                    >
+                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-light-cyan/50 text-[9px] leading-none text-light-cyan/70 select-none">
+                        i
+                      </span>
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-evergreen px-3 py-2 text-[11px] text-light-cyan/90 leading-snug shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10 normal-case tracking-normal font-normal">
+                        {t("memories.ratingHelp")}
+                      </span>
+                    </span>
+                  </span>
+                </th>
                 <th className="px-4 py-3 text-left font-semibold hidden lg:table-cell w-40">{t("memories.saved")}</th>
                 <th className="px-4 py-3 w-12" />
               </tr>
@@ -192,23 +204,31 @@ export default function MemoriesPage() {
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-evergreen/40">
-                    {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
+                  <td colSpan={5} className="px-4 py-14 text-center">
+                    <div className="flex flex-col items-center gap-2 text-evergreen/40">
+                      <Brain size={28} className="opacity-30" />
+                      <span className="text-sm">
+                        {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
+                      </span>
+                      {!search && (
+                        <span className="text-xs max-w-xs leading-relaxed">
+                          {t("memories.emptyHint")}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}
               {!loading &&
-                filtered.map((mem, i) => (
+                filtered.map((mem) => (
                   <tr
                     key={mem.memory_id}
-                    className={`border-t border-evergreen/5 ${
-                      i % 2 === 0 ? "bg-white" : "bg-evergreen/2"
-                      } hover:bg-evergreen/2 transition-colors`}
+                    className="border-t border-evergreen/8 hover:bg-evergreen/3 transition-colors"
                   >
                     <td className="px-4 py-3 text-evergreen leading-snug max-w-xs lg:max-w-lg">
                       <span className="line-clamp-3">{mem.text}</span>
                       {mem.is_related && (
-                        <span className="ml-2 text-xs text-light-cyan bg-evergreen/20 px-1.5 py-0.5 rounded">
+                        <span className="ml-2 text-xs text-evergreen bg-evergreen/15 px-1.5 py-0.5 rounded font-medium">
                           {t("memories.related")}
                         </span>
                       )}
