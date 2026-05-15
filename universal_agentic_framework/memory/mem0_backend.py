@@ -4,7 +4,6 @@ SOURCE OF TRUTH OWNERSHIP:
 - Primary: Mem0 + Qdrant vector store
 - Adapter caches (for SDK transition robustness):
   - _metadata_cache: Record metadata keyed by memory ID
-  - _owner_cache: User ID ownership keyed by memory ID
   - _rating_overrides: Manual rating adjustments for fallback
 
 METADATA CONSISTENCY MODEL (CRITICAL):
@@ -111,7 +110,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         # Cache metadata/rating for robust compatibility when SDK update semantics differ.
         self._metadata_cache: Dict[str, Dict[str, Any]] = {}
-        self._owner_cache: Dict[str, str] = {}
         self._rating_overrides: Dict[str, int] = {}
 
         normalized_embedding_model = normalize_embedding_model_name(embedding_model)
@@ -291,6 +289,8 @@ class Mem0MemoryBackend(MemoryBackend):
         text = str(item.get("memory") or item.get("text") or item.get("data") or "")
 
         metadata = dict(item.get("metadata") or {})
+        if item.get("user_id") and "user_id" not in metadata:
+            metadata["user_id"] = item.get("user_id")
         if item.get("created_at") and "created_at" not in metadata:
             metadata["created_at"] = item.get("created_at")
         if item.get("updated_at") and "updated_at" not in metadata:
@@ -333,7 +333,6 @@ class Mem0MemoryBackend(MemoryBackend):
             normalized = self._fetch_by_id(memory_id)
             if normalized is None:
                 continue
-            self._owner_cache[memory_id] = user_id
             out.append(
                 MemoryRecord(
                     user_id=user_id,
@@ -424,7 +423,6 @@ class Mem0MemoryBackend(MemoryBackend):
                 metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
             memory_id = str(metadata["memory_id"])
             self._metadata_cache[memory_id] = dict(metadata)
-            self._owner_cache[memory_id] = user_id
             out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
@@ -489,6 +487,7 @@ class Mem0MemoryBackend(MemoryBackend):
         digest_chain: Optional[List[Dict[str, Any]]] = None,
     ) -> MemoryRecord:
         payload = dict(metadata or {})
+        payload.setdefault("user_id", user_id)
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
         if digest_chain:
@@ -585,7 +584,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         payload["memory_id"] = memory_id
         self._metadata_cache[memory_id] = dict(payload)
-        self._owner_cache[memory_id] = user_id
 
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
 
@@ -600,7 +598,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         for memory_id in memory_ids:
             self._metadata_cache.pop(memory_id, None)
-            self._owner_cache.pop(memory_id, None)
             self._rating_overrides.pop(memory_id, None)
 
     def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
@@ -608,7 +605,7 @@ class Mem0MemoryBackend(MemoryBackend):
         if normalized is None:
             return None
 
-        owner_user_id = normalized.get("user_id") or self._owner_cache.get(memory_id)
+        owner_user_id = normalized.get("user_id") or (normalized.get("metadata") or {}).get("user_id")
         return {
             "point_id": normalized["memory_id"],
             "payload": {
@@ -631,7 +628,6 @@ class Mem0MemoryBackend(MemoryBackend):
         self._memory.delete(memory_id)
 
         self._metadata_cache.pop(memory_id, None)
-        self._owner_cache.pop(memory_id, None)
         self._rating_overrides.pop(memory_id, None)
 
     def set_memory_user_rating(

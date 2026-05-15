@@ -487,7 +487,6 @@ def test_clear_purges_internal_caches():
     backend.clear("u1")
 
     assert mid not in backend._metadata_cache
-    assert mid not in backend._owner_cache
 
 
 def test_find_memory_point_returns_correct_shape():

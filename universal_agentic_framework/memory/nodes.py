@@ -8,7 +8,7 @@ SOURCE OF TRUTH OWNERSHIP:
   
 - Long-memory records: Mem0 + Qdrant vector store (MemoryBackend)
   - Accessed via: load_memory_node(), update_memory_node()
-  - Metadata owned by: Mem0MemoryBackend (with caches for robustness)
+    - Metadata owned by: Mem0MemoryBackend (cache + canonical Mem0 metadata fields)
   - Ratings stored in: PostgreSQL (via backend) + memory record metadata
   
 - Co-occurrence links: PostgreSQL durable + Mem0 metadata projection (planned Phase 3)
@@ -25,7 +25,7 @@ READ PATTERN:
 WRITE PATTERN:
 1. update_memory_node() receives (user_id, text, digest_chain)
 2. Passes digest_chain to backend.upsert() for embedding in metadata
-3. Backend stores to Mem0 + updates _metadata_cache
+3. Backend stores to Mem0 + updates metadata consistency state
 4. Co-occurrence tracker records memory IDs for knowledge graph
 
 VALIDATION GATES:
