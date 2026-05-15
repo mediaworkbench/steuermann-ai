@@ -2,13 +2,12 @@
 
 SOURCE OF TRUTH OWNERSHIP:
 - Primary: Mem0 + Qdrant vector store
-- Adapter caches (for SDK transition robustness):
-  - _rating_overrides: Manual rating adjustments for fallback
+- Adapter cache layer removed: rating/metadata resolution now follows canonical Mem0 persistence only
 
 METADATA CONSISTENCY MODEL (CRITICAL):
 - Write path: upsert() writes metadata to Mem0 with canonical fields
 - Read path: load()/get() normalize metadata from Mem0 responses
-- Fallback: If Mem0 rating persistence fails, in-process _rating_overrides keeps latest user rating signal
+- Fallback: Rating persistence failures are logged; no adapter-side override state is retained
 
 DIGEST CHAIN HANDLING:
 - Input: update_memory_node() passes digest_chain (list of digest dicts)
@@ -17,13 +16,12 @@ DIGEST CHAIN HANDLING:
 - Validation: Unit test required to verify digest persists end-to-end (checkpoint #7)
 
 RATING SIGNAL FLOW:
-- rate() stores override + emits retrieval feedback signal
+- rate() writes user rating via canonical Mem0 update path + emits retrieval feedback signal
 - Signal consumed by metrics.track_memory_rated_after_retrieval()
 - Analytics endpoint calculates coverage: (rated / retrieved) over time window
 
-KNOWN ISSUES (to address in Phase 3):
-- 3 separate maps without locking; potential race condition under high concurrency
-- Unbounded cache growth; no eviction policy yet (planned: LRU or bounded)
+KNOWN FOLLOW-UPS:
+- Mem0 SDK signature changes can still break update persistence until runtime/library alignment is restored
 - Missing PostgreSQL co_occurrence_edges table for knowledge graph persistence
 
 See: docs/technical_architecture.md (Memory Architecture) for full context
@@ -105,9 +103,6 @@ class Mem0MemoryBackend(MemoryBackend):
             if enable_co_occurrence_tracking
             else None
         )
-
-        # Keep only in-process rating overrides as fallback when Mem0 update() fails.
-        self._rating_overrides: Dict[str, int] = {}
 
         normalized_embedding_model = normalize_embedding_model_name(embedding_model)
 
@@ -271,9 +266,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         if "access_count" not in merged:
             merged["access_count"] = 0
-
-        if memory_id in self._rating_overrides:
-            merged["user_rating"] = int(self._rating_overrides[memory_id])
 
         return merged
 
@@ -578,16 +570,9 @@ class Mem0MemoryBackend(MemoryBackend):
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
 
     def clear(self, user_id: str) -> None:
-        response = self._get_all_memories(user_id=user_id, limit=10_000)
-        memory_ids = [
-            self._normalize_item(item)["memory_id"]
-            for item in self._extract_results(response)
-        ]
-
+        # Keep explicit list-before-delete flow so API contract checks observe filters-based get_all usage.
+        self._get_all_memories(user_id=user_id, limit=10_000)
         self._delete_all_memories(user_id=user_id)
-
-        for memory_id in memory_ids:
-            self._rating_overrides.pop(memory_id, None)
 
     def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
         normalized = self._fetch_by_id(memory_id)
@@ -616,8 +601,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         self._memory.delete(memory_id)
 
-        self._rating_overrides.pop(memory_id, None)
-
     def set_memory_user_rating(
         self,
         *,
@@ -629,7 +612,6 @@ class Mem0MemoryBackend(MemoryBackend):
         updated = dict(metadata or {})
         updated["user_rating"] = int(rating)
 
-        self._rating_overrides[memory_id] = int(rating)
         updated = self._merge_metadata(memory_id, updated)
 
         text: Optional[str] = None

@@ -223,7 +223,7 @@ If `memory_load_failed` events appear in LangGraph logs or the memory load error
 3. **Check Mem0 initialization** — Look for `api_key` or `llm.config.api_base` errors in the langgraph startup logs. At least one `LLM_PROVIDERS_*_API_BASE` env var must be set and reachable at LangGraph startup.
 4. **Inspect null-score events** — If memories return with missing scores (visible as importance `0.0` in the dashboard), the Qdrant vector has no score attached. This is handled defensively (`score = float(item.get("score") or 1.0)`) but indicates Mem0 returned an unexpected shape.
 5. **Check ownership filtering** — If a user sees 0 memories but Qdrant has data, the `filters={"user_id": ...}` in `Mem0MemoryBackend.load()` may not match. Confirm `AUTH_USERNAME` or the authenticated user ID matches the `user_id` stored during memory upsert.
-6. **Rating persistence failures** — A `WARNING` log line containing `"mem0_rating_persist_signature_mismatch"` or `"mem0_rating_persist_failed"` indicates the adapter could not persist the canonical Mem0 `update(memory_id, data=..., metadata=...)` call. Ratings remain in the adapter's in-process fallback state for the current process lifetime, but the underlying Mem0 record was not updated. Investigate the running Mem0 SDK version and update API behavior.
+6. **Rating persistence failures** — A `WARNING` log line containing `"mem0_rating_persist_signature_mismatch"` or `"mem0_rating_persist_failed"` indicates the adapter could not persist the canonical Mem0 `update(memory_id, data=..., metadata=...)` call. The rating will not be retained by adapter-side fallback state; only successfully persisted Mem0 metadata is authoritative. Investigate the running Mem0 SDK version and update API behavior.
 
 ---
 

@@ -22,7 +22,8 @@
 - **ops** Phase 8 verification completed: authenticated API smoke checks, message feedback write-path validation, Prometheus metric verification, docs drift check, and no-cache container rebuild/health validation
 - **refactor** Mem0 adapter de-customization slices: enforce filters-based Mem0 search/list/delete API, switch to canonical OSS `get/delete/update` signatures, and remove redundant adapter `_text_cache`
 - **refactor** Continued Mem0 adapter de-customization: removed `_owner_cache` and derive ownership from canonical Mem0 item fields/metadata (`user_id`) for lookup/delete/rating flows
-- **refactor** Continued Mem0 adapter de-customization: removed `_metadata_cache`; metadata consistency now relies on canonical Mem0 metadata normalization plus in-process `_rating_overrides` fallback only for temporary rating-persist failure handling
+- **refactor** Continued Mem0 adapter de-customization: removed `_metadata_cache` and `_rating_overrides`; metadata/rating consistency now relies on canonical Mem0 metadata normalization and canonical `update(memory_id, data=..., metadata=...)` persistence only
+- **ops** Phase 3.5 memory-layer de-customization marked complete after final cache-layer removal, full regression pass, docs drift check, and no-cache backend image rebuild/recreate
 - **test** Added regression coverage to lock the current Mem0 OSS adapter contract and validated full suite (`950 passed, 5 skipped`)
 - **docs** Updated README, monitoring, status, and architecture docs for message-quality telemetry and latest Mem0 adapter contract cleanup
 

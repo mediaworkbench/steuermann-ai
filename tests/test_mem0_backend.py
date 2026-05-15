@@ -479,7 +479,7 @@ def test_get_all_and_delete_all_use_filters_based_api_only():
     assert backend._memory.last_delete_all_user_id is None
 
 
-def test_clear_purges_rating_override_cache():
+def test_clear_removes_rated_memories_without_cache_state():
     backend = _make_backend()
     rec = backend.upsert("u1", "cached text")
     mid = rec.metadata["memory_id"]
@@ -489,11 +489,11 @@ def test_clear_purges_rating_override_cache():
         metadata={"memory_id": mid},
         rating=5,
     )
-    assert backend._rating_overrides[mid] == 5
+    assert backend.find_memory_point(mid)["payload"]["metadata"]["user_rating"] == 5
 
     backend.clear("u1")
 
-    assert mid not in backend._rating_overrides
+    assert backend.find_memory_point(mid) is None
 
 
 def test_find_memory_point_returns_correct_shape():
@@ -540,7 +540,7 @@ def test_delete_memory_uses_canonical_delete_signature():
     assert backend.find_memory_point(mid) is None
 
 
-def test_set_memory_user_rating_persists_in_cache():
+def test_set_memory_user_rating_persists_to_mem0():
     backend = _make_backend()
     rec = backend.upsert("u1", "rateable memory")
     mid = rec.metadata["memory_id"]
@@ -551,7 +551,6 @@ def test_set_memory_user_rating_persists_in_cache():
         rating=5,
     )
 
-    assert backend._rating_overrides[mid] == 5
     point = backend.find_memory_point(mid)
     assert point is not None
     assert point["payload"]["metadata"]["user_rating"] == 5
@@ -574,7 +573,7 @@ def test_set_memory_user_rating_appears_in_subsequent_load():
     assert rated[0].metadata["user_rating"] == 4
 
 
-def test_set_memory_user_rating_persists_after_cache_reset():
+def test_set_memory_user_rating_persists_across_subsequent_load():
     backend = _make_backend()
     rec = backend.upsert("u1", "persist rating")
     mid = rec.metadata["memory_id"]
@@ -584,9 +583,6 @@ def test_set_memory_user_rating_persists_after_cache_reset():
         metadata={"memory_id": mid},
         rating=5,
     )
-
-    # Simulate a fresh in-process state (e.g., page reload/new request path).
-    backend._rating_overrides.clear()
 
     records = backend.load("u1", top_k=10)
     rated = [r for r in records if r.metadata.get("memory_id") == mid]

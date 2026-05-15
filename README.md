@@ -441,13 +441,13 @@ See [docs/cli.md](docs/cli.md) for the full CLI reference including argument det
 
 Steuermann is in **experimental beta**. The core orchestration, memory, RAG pipeline, frontend, and monitoring stack are stable and tested. The following areas are actively evolving:
 
-- Phase 3.5 memory-layer de-customization beyond the current Mem0 OSS contract cleanup
+- Post-Phase-3.5 hardening for Mem0 runtime/SDK compatibility observability
 - CrewAI crew fine-tuning for production workloads (currently disabled by default)
 - Additional document parsers and ingestion formats
 - Extended MCP tool ecosystem
 - Multi-user workspace features
 
-Latest validated state: message-quality telemetry is live in `/metrics`, the Mem0 adapter is aligned to the current OSS API contract, and the latest full-suite local run passed with `950 passed, 5 skipped`.
+Latest validated state: message-quality telemetry is live in `/metrics`, Phase 3.5 memory-layer de-customization is complete (legacy adapter caches removed), the Mem0 adapter is aligned to the current OSS API contract, and the latest full-suite local run passed with `950 passed, 5 skipped`.
 
 <div align="center">
 
