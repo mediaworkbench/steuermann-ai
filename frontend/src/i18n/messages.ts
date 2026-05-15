@@ -343,6 +343,9 @@ export type Messages = {
     bucketMid: string;
     bucketHigh: string;
     noRetrievalData: string;
+    coverageHealthy: string;
+    coverageLow: string;
+    coverageVeryLow: string;
   };
   memories: {
     title: string;
@@ -737,7 +740,7 @@ export const messages: Record<Locale, Messages> = {
       days: "days",
       na: "N/A",
       retrievalFeedback: "Retrieval Feedback Loop",
-      retrievalFeedbackSubtitle: "How often retrieved memories are subsequently rated by the user",
+      retrievalFeedbackSubtitle: "How often memories retrieved in chat are subsequently rated on the Memories page",
       retrievalSignalsTotal: "Retrieval Signals",
       retrievedWithRating: "Retrieved with Rating",
       retrievedWithoutRating: "Retrieved without Rating",
@@ -750,6 +753,9 @@ export const messages: Record<Locale, Messages> = {
       bucketMid: "Mid (3)",
       bucketHigh: "High (4–5)",
       noRetrievalData: "No retrieval quality data yet",
+      coverageHealthy: "Healthy",
+      coverageLow: "Low coverage",
+      coverageVeryLow: "Very low",
     },
     memories: {
       title: "Memory",
@@ -1142,7 +1148,7 @@ export const messages: Record<Locale, Messages> = {
       days: "Tage",
       na: "k.A.",
       retrievalFeedback: "Abruf-Feedback-Schleife",
-      retrievalFeedbackSubtitle: "Wie oft abgerufene Erinnerungen anschließend vom Nutzer bewertet werden",
+      retrievalFeedbackSubtitle: "Wie oft im Chat abgerufene Erinnerungen anschließend auf der Speicher-Seite bewertet werden",
       retrievalSignalsTotal: "Abrufsignale",
       retrievedWithRating: "Mit Bewertung abgerufen",
       retrievedWithoutRating: "Ohne Bewertung abgerufen",
@@ -1155,6 +1161,9 @@ export const messages: Record<Locale, Messages> = {
       bucketMid: "Mittel (3)",
       bucketHigh: "Hoch (4–5)",
       noRetrievalData: "Noch keine Abrufqualitätsdaten vorhanden",
+      coverageHealthy: "Gesund",
+      coverageLow: "Geringe Abdeckung",
+      coverageVeryLow: "Sehr gering",
     },
     memories: {
       title: "Speicher",

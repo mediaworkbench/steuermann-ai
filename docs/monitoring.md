@@ -184,6 +184,8 @@ sum by (rating_bucket) (langgraph_memory_retrieval_signal_total)
 
 **Dashboard**: These are surfaced in the **Metrics → Trends** tab under "Retrieval Feedback Loop".
 
+**Single-surface rating model**: As of Phase 4, memory star ratings are collected exclusively from the **Memories page** (`/memories`). The chat view shows retrieved memories as read-only context with the current rating displayed as text; the interactive rating widget is intentionally absent from chat. This means `langgraph_memory_rated_after_retrieval_total` is incremented only when a user navigates to the Memories page and rates a memory that was recently retrieved in a conversation — which is the correct, unambiguous signal for retrieval quality feedback. Thumbs feedback in chat remains a separate message-quality signal and is not counted here.
+
 ### Memory Health Thresholds
 
 The following thresholds are recommended for operational alerting and manual review. The `/metrics` dashboard surface shows these as contextual data; configure Prometheus alert rules in `monitoring/alerts.yml` for automated firing.
