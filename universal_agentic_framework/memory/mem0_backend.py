@@ -1,3 +1,38 @@
+"""Mem0 OSS adapter: long-memory backend with Qdrant persistence.
+
+SOURCE OF TRUTH OWNERSHIP:
+- Primary: Mem0 + Qdrant vector store
+- Adapter caches (for SDK transition robustness):
+  - _metadata_cache: Record metadata keyed by memory ID
+  - _text_cache: Full text keyed by memory ID
+  - _owner_cache: User ID ownership keyed by memory ID
+  - _rating_overrides: Manual rating adjustments for fallback
+
+METADATA CONSISTENCY MODEL (CRITICAL):
+- Write path: upsert() populates caches after Mem0 write succeeds
+- Read path: load() uses Mem0 results; populates/uses caches for consistency
+- Invalidation: Caches cleared on delete(); NOT automatically invalidated on reads
+- Fallback: If Mem0 SDK semantics change, caches provide bridge during transition
+
+DIGEST CHAIN HANDLING:
+- Input: update_memory_node() passes digest_chain (list of digest dicts)
+- Storage: Digest metadata embedded in memory record metadata field
+- Output: load() retrieves and returns with digest metadata intact
+- Validation: Unit test required to verify digest persists end-to-end (checkpoint #7)
+
+RATING SIGNAL FLOW:
+- rate() stores override + emits retrieval feedback signal
+- Signal consumed by metrics.track_memory_rated_after_retrieval()
+- Analytics endpoint calculates coverage: (rated / retrieved) over time window
+
+KNOWN ISSUES (to address in Phase 3):
+- 4 separate maps without locking; potential race condition under high concurrency
+- Unbounded cache growth; no eviction policy yet (planned: LRU or bounded)
+- Missing PostgreSQL co_occurrence_edges table for knowledge graph persistence
+
+See: docs/technical_architecture.md (Memory Architecture) for full context
+"""
+
 from __future__ import annotations
 
 import json

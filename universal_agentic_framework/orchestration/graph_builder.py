@@ -1,3 +1,40 @@
+"""LangGraph orchestration: single source of truth for execution control and state management.
+
+MEMORY LAYER INTEGRATION & SOURCE OF TRUTH OWNERSHIP:
+
+1. SHORT-MEMORY (Digest Chain)
+   - Owner: LangGraph graph orchestration via GraphState
+   - Lifecycle:
+     a) Created: performance_nodes.conversation_compression_node_sync() extracts digests
+     b) Stored: GraphState.digest_context (bounded list)
+     c) Propagated: node_update_memory() → update_memory_node(state)
+     d) Persisted: Backend stores in Mem0 record metadata
+     e) Retrieved: load_memory_node() returns with digest context intact
+   - Validation: Digest metadata must appear in loaded_memory after upsert (checkpoint #7)
+
+2. LONG-MEMORY (Mem0 Records)
+   - Owner: Mem0MemoryBackend + Qdrant vector store
+   - Graph integration:
+     - load_memory_node() queries backend → populates loaded_memory, digest_context, memory_analytics
+     - update_memory_node() receives digest_chain → passes to backend.upsert()
+     - Metadata consistency maintained via _metadata_cache, _text_cache, _owner_cache
+
+3. KNOWLEDGE GRAPH (Co-occurrence Links)
+   - Current owner: MemoryCoOccurrenceTracker (in-memory, non-persistent)
+   - Planned owner: PostgreSQL co_occurrence_edges (Phase 3)
+   - Graph integration:
+     - Populated during load_memory_node() retrieval
+     - Used for related_memory expansion in memory_analytics
+   - Caveat: Lost on restart (planned fix in Phase 3)
+
+CRITICAL CONSTRAINTS:
+- GraphState is session-scoped; one instance per user session
+- No global/shared state across sessions (memory is explicit node operation)
+- Digest chain bounded by core.memory.digest_max_items config
+
+See: docs/technical_architecture.md (Memory Architecture) for full memory layer design
+"""
+
 from __future__ import annotations
 
 import datetime

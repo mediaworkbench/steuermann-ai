@@ -1,8 +1,45 @@
 """Cross-session memory linking for knowledge graph construction.
 
-This module tracks which memories are frequently retrieved together across
-sessions to build a knowledge graph of related memories. This enables
-context expansion: when retrieving memory A, also fetch related memories B, C.
+CRITICAL CAVEAT (Phase 3 planned fix):
+This module currently maintains a NONPERSISTENT co-occurrence knowledge graph.
+On process restart, all links are lost. This is a known limitation being addressed in Phase 3
+with hybrid PostgreSQL + Qdrant persistence.
+
+CURRENT ARCHITECTURE (IN-MEMORY ONLY):
+This module tracks which memories are frequently retrieved together across sessions to build
+a knowledge graph of related memories. This enables context expansion: when retrieving memory A,
+also fetch related memories B, C.
+
+PLANNED ARCHITECTURE (PHASE 3 - HYBRID PERSISTENCE):
+- Durable source: PostgreSQL co_occurrence_edges table
+  - Schema: (user_id, memory_id, related_memory_id, session_evidence, decayed_strength, created_at, updated_at)
+  - Indexes: (user_id, memory_id) and (user_id, updated_at)
+- Acceleration layer: top related edges projected into Qdrant memory metadata
+- Read path: reconstruct from durable edges + projection with precedence handling
+- Write path: transactional upsert after retrieval; async projection refresh
+
+CURRENT BEHAVIOR:
+- In-memory storage: defaultdict keyed by memory_id → related_id → [(timestamp, session_id), ...]
+- Decay model: sliding window (only count within N days)
+- Strength calculation: normalized 0.0-1.0 based on co-occurrence frequency
+- Pruning: manual via prune_old_co_occurrences() or via init parameter
+
+OPERATIONS:
+- record_co_occurrence(memory_ids, session_id): Called during retrieval to track co-occurrence
+- get_related_memories(memory_id, top_k): Called to expand context during retrieval
+- get_metadata_format(): Returns related memories formatted for metadata injection
+
+SOURCE OF TRUTH OWNERSHIP:
+- Current: MemoryCoOccurrenceTracker instance (session-scoped)
+- Planned: PostgreSQL durable + in-memory cache for performance
+- Invalidation: Planned to clear cache on co_occurrence_edges table update
+
+VALIDATION & TESTING:
+- See checkpoint #8 in plan: PostgreSQL schema validation gate
+- Checkpoint #7 verifies digest chain end-to-end (related piece of knowledge graph)
+- Integration tests in test_memory_linking.py
+
+See: docs/technical_architecture.md (Memory Architecture) for full context
 """
 
 from __future__ import annotations
@@ -13,6 +50,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 logger = structlog.get_logger(__name__)
+
+# Import for feature flag kill switch
+try:
+    from universal_agentic_framework.config import load_features_config
+except Exception:
+    # Fallback: feature flag unavailable, always enable co-occurrence tracking
+    load_features_config = None
 
 
 class MemoryCoOccurrenceTracker:
@@ -69,7 +113,20 @@ class MemoryCoOccurrenceTracker:
             memory_ids: List of memory IDs retrieved together
             session_id: Session identifier
             timestamp: When this co-occurrence happened (defaults to now)
+            
+        KILL SWITCH: Set features.memory_co_occurrence_enabled=false to disable tracking.
         """
+        # EMERGENCY ROLLBACK: Check memory_co_occurrence_enabled feature flag
+        if load_features_config is not None:
+            try:
+                features = load_features_config()
+                if not features.memory_co_occurrence_enabled:
+                    logger.info("co_occurrence_tracking_disabled_by_feature_flag")
+                    return
+            except Exception as e:
+                logger.warning("failed_to_load_features_for_kill_switch", error=str(e))
+                # Continue normally if features config unavailable
+        
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
         

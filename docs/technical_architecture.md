@@ -455,6 +455,25 @@ If prior memory conflicts with current-turn tool outputs, tool outputs take prec
 
 Advanced memory behavior is integrated into this architecture: semantic similarity retrieval, recency-aware ranking, frequency-aware prioritization, and cross-session linking through metadata and retrieval patterns.
 
+### 6.5 Memory Ownership And Durability (Concise)
+
+- Short-memory digest chain source of truth: `GraphState.digest_context` (session-scoped, bounded).
+- Long-memory source of truth: Mem0 OSS with Qdrant-backed storage, accessed via `Mem0MemoryBackend`.
+- Co-occurrence links current state: in-memory tracker only; links are lost on restart.
+- Co-occurrence links target state: PostgreSQL `co_occurrence_edges` as durable source with metadata projection for fast retrieval.
+
+Digest flow used by memory updates:
+
+1. Compression/summarization creates digest metadata.
+2. `node_update_memory` passes digest chain to `update_memory_node`.
+3. `Mem0MemoryBackend.upsert` stores digest metadata with memory records.
+4. `load_memory_node` can surface digest context on later retrieval.
+
+Critical verification expectation:
+
+- End-to-end digest metadata persistence must be validated in tests.
+- Co-occurrence persistence must be validated once PostgreSQL durability lands.
+
 ---
 
 ## **7. LLM Integration Layer**

@@ -501,6 +501,12 @@ voice_interface: false # Enable voice I/O
 ui_tool_visualization: true # Show tool calls in UI
 ui_token_counter: false # Show token usage
 ui_export_chat: true # Allow chat export
+
+# Memory emergency controls (development rollback switches)
+memory_load_enabled: true # Enable load_memory_node retrieval path
+memory_update_enabled: true # Enable update_memory_node persistence path
+memory_co_occurrence_enabled: true # Enable co-occurrence tracking updates
+memory_digest_chain_enabled: true # Enable digest metadata propagation
 ```
 
 **Feature dependencies (validated at startup):**
@@ -517,6 +523,12 @@ FEATURE_DEPENDENCIES = {
 - Reduces dependencies
 - Improves performance
 - Enhances security (e.g., disable web_search for compliance)
+
+**Memory emergency controls:**
+
+- These switches are intended for development rollback and diagnostics.
+- Default values should remain `true` in normal operation.
+- Turning them off bypasses specific memory pipeline segments without changing core config schemas.
 
 ---
 
