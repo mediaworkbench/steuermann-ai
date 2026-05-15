@@ -318,12 +318,7 @@ class Mem0MemoryBackend(MemoryBackend):
 
     def _fetch_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         try:
-            response = self._memory.get(memory_id=memory_id)
-        except TypeError:
-            try:
-                response = self._memory.get(memory_id)
-            except Exception:
-                response = None
+            response = self._memory.get(memory_id)
         except Exception:
             response = None
 
@@ -638,10 +633,7 @@ class Mem0MemoryBackend(MemoryBackend):
         if owner_user_id and owner_user_id != user_id:
             raise PermissionError("Memory does not belong to user")
 
-        try:
-            self._memory.delete(memory_id=memory_id)
-        except TypeError:
-            self._memory.delete(memory_id)
+        self._memory.delete(memory_id)
 
         self._metadata_cache.pop(memory_id, None)
         self._text_cache.pop(memory_id, None)

@@ -34,6 +34,8 @@ class _FakeMemory:
         self.last_get_all_top_k: Optional[int] = None
         self.last_get_all_limit: Optional[int] = None
         self.last_delete_all_user_id: Optional[str] = None
+        self.last_get_memory_id: Optional[str] = None
+        self.last_delete_memory_id: Optional[str] = None
         self.last_add_infer: Optional[bool] = None
         self.last_add_payload: Any = None
 
@@ -108,7 +110,8 @@ class _FakeMemory:
         results = [v for v in self._store.values() if v["user_id"] == effective_user_id][:effective_limit]
         return {"results": results}
 
-    def get(self, *, memory_id: str) -> Optional[dict]:
+    def get(self, memory_id: str) -> Optional[dict]:
+        self.last_get_memory_id = memory_id
         return self._store.get(memory_id)
 
     def update(self, *, memory_id: str, data: str = "", **kwargs: Any) -> None:
@@ -131,6 +134,10 @@ class _FakeMemory:
         to_delete = [k for k, v in self._store.items() if v["user_id"] == effective_user_id]
         for k in to_delete:
             del self._store[k]
+
+    def delete(self, memory_id: str) -> None:
+        self.last_delete_memory_id = memory_id
+        self._store.pop(memory_id, None)
 
 
 class _NoHitSearchFakeMemory(_FakeMemory):
@@ -495,6 +502,7 @@ def test_find_memory_point_returns_correct_shape():
     assert "payload" in point
     assert point["payload"]["text"] == "findable text"
     assert point["payload"]["user_id"] == "u1"
+    assert backend._memory.last_get_memory_id == mid
 
 
 def test_find_memory_point_returns_none_for_unknown():
@@ -514,6 +522,17 @@ def test_find_memory_point_handles_null_score():
     assert point is not None
     assert point["point_id"] == mid
     assert point["payload"]["text"] == "null-score memory"
+
+
+def test_delete_memory_uses_canonical_delete_signature():
+    backend = _make_backend()
+    rec = backend.upsert("u1", "delete me")
+    mid = rec.metadata["memory_id"]
+
+    backend.delete_memory(memory_id=mid, user_id="u1")
+
+    assert backend._memory.last_delete_memory_id == mid
+    assert backend.find_memory_point(mid) is None
 
 
 def test_set_memory_user_rating_persists_in_cache():
