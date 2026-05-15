@@ -94,11 +94,13 @@ Memory is not an afterthought — it is an explicit, first-class part of the exe
 - **Semantic search** via Mem0's retrieval pipeline with configurable similarity thresholds
 - **Importance scoring** — multi-factor ranking based on relevance, recency (exponential decay), access frequency (logarithmic), and explicit user feedback
 - **User rating feedback loop** — memories rated after retrieval are tracked via Prometheus counters; feedback coverage visible in the Metrics Trends dashboard
+- **Message quality telemetry** — assistant thumbs up/down feedback is aggregated into daily analytics and surfaced in the Metrics Trends dashboard as a dedicated Message Quality panel
 - **Co-occurrence linking** — automatically builds a knowledge graph by tracking which memories are retrieved together, enabling context expansion and related-memory discovery
 - **Memory summarization** — compresses and synthesizes older memories to maintain quality without unbounded growth
 - **Explicit lifecycle** — memory load and update operations are dedicated graph nodes, not hidden side effects
 - **Configurable extraction mode** — `memory.mem0.infer_enabled` can switch between full Mem0 extraction (`true`) and verbatim persistence fallback (`false`)
 - **Auxiliary-role extraction binding** — memory extraction uses the `llm.roles.auxiliary` model path, so extraction capacity is controlled via auxiliary role model/context settings
+- **Current Mem0 OSS contract** — adapter calls are aligned to Mem0's current OSS signatures (`filters={"user_id": ...}` for scoped search/list/delete, canonical `get/delete/update` operations)
 - **Full CRUD API** — `/api/memories` endpoints with list, detail, delete, stats, and rate; `/memories` frontend page for user-facing memory management
 
 ### RAG & Knowledge Ingestion
@@ -157,7 +159,7 @@ A production-oriented Next.js application — not a demo chat widget — with re
 - **Settings panel** — model selection, language preferences, tool toggles, RAG configuration
 - **Metrics dashboard** at `/metrics` with two views:
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
-  - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, summary cards, CSV export
+  - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, message quality panel, summary cards, CSV export
 - **Memory management** at `/memories` — browse, rate, and delete individual memories with full filtering and sorting
 - **Workspace sidebar** for managing uploaded documents per conversation
 - **Dark/light theme** with system preference detection
@@ -439,10 +441,13 @@ See [docs/cli.md](docs/cli.md) for the full CLI reference including argument det
 
 Steuermann is in **experimental beta**. The core orchestration, memory, RAG pipeline, frontend, and monitoring stack are stable and tested. The following areas are actively evolving:
 
+- Phase 3.5 memory-layer de-customization beyond the current Mem0 OSS contract cleanup
 - CrewAI crew fine-tuning for production workloads (currently disabled by default)
 - Additional document parsers and ingestion formats
 - Extended MCP tool ecosystem
 - Multi-user workspace features
+
+Latest validated state: message-quality telemetry is live in `/metrics`, the Mem0 adapter is aligned to the current OSS API contract, and the latest full-suite local run passed with `950 passed, 5 skipped`.
 
 <div align="center">
 
