@@ -25,6 +25,7 @@
 - **refactor** Continued Mem0 adapter de-customization: removed `_metadata_cache` and `_rating_overrides`; metadata/rating consistency now relies on canonical Mem0 metadata normalization and canonical `update(memory_id, data=..., metadata=...)` persistence only
 - **ops** Phase 3.5 memory-layer de-customization marked complete after final cache-layer removal, full regression pass, docs drift check, and no-cache backend image rebuild/recreate
 - **test** Added regression coverage to lock the current Mem0 OSS adapter contract and validated full suite (`950 passed, 5 skipped`)
+- **test** Added repeatable live stack E2E memory inference test (`tests/test_live_memory_inference_e2e.py`) covering short-term recall, long-term persistence (`/api/memories`), and long-term recall via `/api/chat`
 - **docs** Updated README, monitoring, status, and architecture docs for message-quality telemetry and latest Mem0 adapter contract cleanup
 
 ## [0.2.3] — provider-endpoint-consolidation
