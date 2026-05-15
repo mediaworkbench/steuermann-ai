@@ -3,14 +3,12 @@
 SOURCE OF TRUTH OWNERSHIP:
 - Primary: Mem0 + Qdrant vector store
 - Adapter caches (for SDK transition robustness):
-  - _metadata_cache: Record metadata keyed by memory ID
   - _rating_overrides: Manual rating adjustments for fallback
 
 METADATA CONSISTENCY MODEL (CRITICAL):
-- Write path: upsert() populates caches after Mem0 write succeeds
-- Read path: load() uses Mem0 results; populates/uses caches for consistency
-- Invalidation: Caches cleared on delete(); NOT automatically invalidated on reads
-- Fallback: If Mem0 SDK semantics change, caches provide bridge during transition
+- Write path: upsert() writes metadata to Mem0 with canonical fields
+- Read path: load()/get() normalize metadata from Mem0 responses
+- Fallback: If Mem0 rating persistence fails, in-process _rating_overrides keeps latest user rating signal
 
 DIGEST CHAIN HANDLING:
 - Input: update_memory_node() passes digest_chain (list of digest dicts)
@@ -108,8 +106,7 @@ class Mem0MemoryBackend(MemoryBackend):
             else None
         )
 
-        # Cache metadata/rating for robust compatibility when SDK update semantics differ.
-        self._metadata_cache: Dict[str, Dict[str, Any]] = {}
+        # Keep only in-process rating overrides as fallback when Mem0 update() fails.
         self._rating_overrides: Dict[str, int] = {}
 
         normalized_embedding_model = normalize_embedding_model_name(embedding_model)
@@ -266,9 +263,6 @@ class Mem0MemoryBackend(MemoryBackend):
     def _merge_metadata(self, memory_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(metadata)
 
-        if memory_id in self._metadata_cache:
-            merged = {**self._metadata_cache[memory_id], **merged}
-
         if "memory_id" not in merged:
             merged["memory_id"] = memory_id
 
@@ -281,7 +275,6 @@ class Mem0MemoryBackend(MemoryBackend):
         if memory_id in self._rating_overrides:
             merged["user_rating"] = int(self._rating_overrides[memory_id])
 
-        self._metadata_cache[memory_id] = dict(merged)
         return merged
 
     def _normalize_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -421,8 +414,6 @@ class Mem0MemoryBackend(MemoryBackend):
             if self._importance_scorer:
                 metadata = self._importance_scorer.update_access_metadata(metadata)
                 metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
-            memory_id = str(metadata["memory_id"])
-            self._metadata_cache[memory_id] = dict(metadata)
             out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
@@ -583,7 +574,6 @@ class Mem0MemoryBackend(MemoryBackend):
                         memory_id = first["id"]
 
         payload["memory_id"] = memory_id
-        self._metadata_cache[memory_id] = dict(payload)
 
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
 
@@ -597,7 +587,6 @@ class Mem0MemoryBackend(MemoryBackend):
         self._delete_all_memories(user_id=user_id)
 
         for memory_id in memory_ids:
-            self._metadata_cache.pop(memory_id, None)
             self._rating_overrides.pop(memory_id, None)
 
     def find_memory_point(self, memory_id: str) -> Optional[dict[str, Any]]:
@@ -627,7 +616,6 @@ class Mem0MemoryBackend(MemoryBackend):
 
         self._memory.delete(memory_id)
 
-        self._metadata_cache.pop(memory_id, None)
         self._rating_overrides.pop(memory_id, None)
 
     def set_memory_user_rating(
@@ -642,7 +630,7 @@ class Mem0MemoryBackend(MemoryBackend):
         updated["user_rating"] = int(rating)
 
         self._rating_overrides[memory_id] = int(rating)
-        self._metadata_cache[memory_id] = self._merge_metadata(memory_id, updated)
+        updated = self._merge_metadata(memory_id, updated)
 
         text: Optional[str] = None
         fetched = self._fetch_by_id(memory_id)

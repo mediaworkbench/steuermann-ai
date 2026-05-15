@@ -17,7 +17,7 @@ MEMORY LAYER INTEGRATION & SOURCE OF TRUTH OWNERSHIP:
    - Graph integration:
      - load_memory_node() queries backend → populates loaded_memory, digest_context, memory_analytics
      - update_memory_node() receives digest_chain → passes to backend.upsert()
-    - Metadata consistency maintained via _metadata_cache and canonical Mem0 metadata fields
+    - Metadata consistency maintained via canonical Mem0 metadata fields
 
 3. KNOWLEDGE GRAPH (Co-occurrence Links)
    - Current owner: MemoryCoOccurrenceTracker (in-memory, non-persistent)

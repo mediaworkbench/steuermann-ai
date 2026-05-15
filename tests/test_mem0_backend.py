@@ -479,14 +479,21 @@ def test_get_all_and_delete_all_use_filters_based_api_only():
     assert backend._memory.last_delete_all_user_id is None
 
 
-def test_clear_purges_internal_caches():
+def test_clear_purges_rating_override_cache():
     backend = _make_backend()
     rec = backend.upsert("u1", "cached text")
     mid = rec.metadata["memory_id"]
 
+    backend.set_memory_user_rating(
+        point_id=mid,
+        metadata={"memory_id": mid},
+        rating=5,
+    )
+    assert backend._rating_overrides[mid] == 5
+
     backend.clear("u1")
 
-    assert mid not in backend._metadata_cache
+    assert mid not in backend._rating_overrides
 
 
 def test_find_memory_point_returns_correct_shape():
@@ -545,7 +552,9 @@ def test_set_memory_user_rating_persists_in_cache():
     )
 
     assert backend._rating_overrides[mid] == 5
-    assert backend._metadata_cache[mid]["user_rating"] == 5
+    point = backend.find_memory_point(mid)
+    assert point is not None
+    assert point["payload"]["metadata"]["user_rating"] == 5
 
 
 def test_set_memory_user_rating_appears_in_subsequent_load():
@@ -578,7 +587,6 @@ def test_set_memory_user_rating_persists_after_cache_reset():
 
     # Simulate a fresh in-process state (e.g., page reload/new request path).
     backend._rating_overrides.clear()
-    backend._metadata_cache.clear()
 
     records = backend.load("u1", top_k=10)
     rated = [r for r in records if r.metadata.get("memory_id") == mid]
