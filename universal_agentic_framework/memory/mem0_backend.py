@@ -351,45 +351,31 @@ class Mem0MemoryBackend(MemoryBackend):
         return out
 
     def _search_memories(self, query: str, user_id: str, limit: int) -> Any:
-        """Search using Mem0 v3 filters API with backward-compatible fallback."""
+        """Search using Mem0 filters API (v3+)."""
         try:
             return self._memory.search(query, filters={"user_id": user_id}, top_k=limit)
-        except TypeError:
-            # Older Mem0 signatures accepted entity ids as top-level kwargs.
-            try:
-                return self._memory.search(query, user_id=user_id, top_k=limit)
-            except TypeError:
-                return self._memory.search(query, user_id=user_id, limit=limit)
-        except ValueError as exc:
-            # Guard against partial upgrades where top-level entity kwargs are rejected.
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_search_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 search signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def _get_all_memories(self, user_id: str, limit: int) -> Any:
-        """Get all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        """Get all memories using Mem0 filters API (v3+)."""
         try:
             return self._memory.get_all(filters={"user_id": user_id}, limit=limit)
-        except TypeError:
-            try:
-                return self._memory.get_all(user_id=user_id, top_k=limit)
-            except TypeError:
-                return self._memory.get_all(user_id=user_id, limit=limit)
-        except ValueError as exc:
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_get_all_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 get_all signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def _delete_all_memories(self, user_id: str) -> None:
-        """Delete all memories using Mem0 v3 filters API with backward-compatible fallback."""
+        """Delete all memories using Mem0 filters API (v3+)."""
         try:
             self._memory.delete_all(filters={"user_id": user_id})
-        except TypeError:
-            self._memory.delete_all(user_id=user_id)
-        except ValueError as exc:
-            if "Top-level entity parameters" in str(exc):
-                logger.warning("mem0_delete_all_requires_filters", error=str(exc))
-            raise
+        except TypeError as exc:
+            raise RuntimeError(
+                "Mem0 delete_all signature mismatch: expected filters-based API (v3+)."
+            ) from exc
 
     def load(
         self,
@@ -685,22 +671,18 @@ class Mem0MemoryBackend(MemoryBackend):
         if not text:
             return
 
-        # Persist rating metadata across Mem0 OSS SDK signature variations.
-        update_attempts = [
-            {"memory_id": memory_id, "data": text, "metadata": updated},
-            {"memory_id": memory_id, "new_memory": text, "metadata": updated},
-            {"memory_id": memory_id, "metadata": updated},
-            {"memory_id": memory_id, "data": text},
-            {"memory_id": memory_id, "new_memory": text},
-        ]
-
-        for kwargs in update_attempts:
-            try:
-                self._memory.update(**kwargs)
-                return
-            except TypeError:
-                continue
-            except Exception:
-                continue
-
-        logger.warning("mem0_rating_persist_failed", memory_id=memory_id)
+        try:
+            self._memory.update(memory_id=memory_id, data=text, metadata=updated)
+            return
+        except TypeError as exc:
+            logger.warning(
+                "mem0_rating_persist_signature_mismatch",
+                memory_id=memory_id,
+                error=str(exc),
+            )
+        except Exception as exc:
+            logger.warning(
+                "mem0_rating_persist_failed",
+                memory_id=memory_id,
+                error=str(exc),
+            )

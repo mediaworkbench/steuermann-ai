@@ -27,6 +27,13 @@ class _FakeMemory:
         self.last_search_filters: Optional[Dict[str, Any]] = None
         self.last_get_all_filters: Optional[Dict[str, Any]] = None
         self.last_delete_all_filters: Optional[Dict[str, Any]] = None
+        self.last_search_user_id: Optional[str] = None
+        self.last_search_top_k: Optional[int] = None
+        self.last_search_limit: Optional[int] = None
+        self.last_get_all_user_id: Optional[str] = None
+        self.last_get_all_top_k: Optional[int] = None
+        self.last_get_all_limit: Optional[int] = None
+        self.last_delete_all_user_id: Optional[str] = None
         self.last_add_infer: Optional[bool] = None
         self.last_add_payload: Any = None
 
@@ -69,6 +76,9 @@ class _FakeMemory:
         limit: Optional[int] = None,
     ) -> dict:
         self.last_search_filters = dict(filters or {})
+        self.last_search_user_id = user_id
+        self.last_search_top_k = top_k
+        self.last_search_limit = limit
         effective_user_id = user_id or self.last_search_filters.get("user_id")
         effective_limit = top_k if top_k is not None else (limit if limit is not None else 10)
         results = [
@@ -90,6 +100,9 @@ class _FakeMemory:
         limit: Optional[int] = None,
     ) -> dict:
         self.last_get_all_filters = dict(filters or {})
+        self.last_get_all_user_id = user_id
+        self.last_get_all_top_k = top_k
+        self.last_get_all_limit = limit
         effective_user_id = user_id or self.last_get_all_filters.get("user_id")
         effective_limit = top_k if top_k is not None else (limit if limit is not None else 100)
         results = [v for v in self._store.values() if v["user_id"] == effective_user_id][:effective_limit]
@@ -113,6 +126,7 @@ class _FakeMemory:
         user_id: Optional[str] = None,
     ) -> None:
         self.last_delete_all_filters = dict(filters or {})
+        self.last_delete_all_user_id = user_id
         effective_user_id = user_id or self.last_delete_all_filters.get("user_id")
         to_delete = [k for k, v in self._store.items() if v["user_id"] == effective_user_id]
         for k in to_delete:
@@ -315,6 +329,18 @@ def test_load_with_query_applies_importance_scoring():
     assert any("machine learning" in t for t in texts)
 
 
+def test_search_uses_filters_based_api_only():
+    backend = _make_backend()
+    backend.upsert("u1", "search scope")
+
+    _ = backend.load("u1", query="search", top_k=3)
+
+    assert backend._memory.last_search_filters == {"user_id": "u1"}
+    assert backend._memory.last_search_user_id is None
+    assert backend._memory.last_search_top_k == 10
+    assert backend._memory.last_search_limit is None
+
+
 def test_load_with_query_falls_back_to_recent_when_search_has_no_hits():
     backend = _make_backend_nohit_search()
     backend.upsert("u1", "most recent memory one")
@@ -430,6 +456,20 @@ def test_clear_removes_all_user_memories():
 
     assert backend.load("u1", top_k=10) == []
     assert len(backend.load("u2", top_k=10)) == 1
+
+
+def test_get_all_and_delete_all_use_filters_based_api_only():
+    backend = _make_backend()
+    backend.upsert("u1", "to clear")
+
+    backend.clear("u1")
+
+    assert backend._memory.last_get_all_filters == {"user_id": "u1"}
+    assert backend._memory.last_get_all_user_id is None
+    assert backend._memory.last_get_all_top_k is None
+    assert backend._memory.last_get_all_limit == 10000
+    assert backend._memory.last_delete_all_filters == {"user_id": "u1"}
+    assert backend._memory.last_delete_all_user_id is None
 
 
 def test_clear_purges_internal_caches():
