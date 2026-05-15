@@ -7,7 +7,9 @@ import {
   fetchLatencyAnalysis,
   fetchMemoryTrends,
   fetchMemoryRetrievalQuality,
+  fetchMessageQuality,
   type MemoryRetrievalQualityData,
+  type MessageQualityResponse,
 } from "@/lib/api";
 
 interface UseAnalyticsOptions {
@@ -29,6 +31,7 @@ interface UseAnalyticsReturn {
     avg_quality_score: number;
   }[] | null;
   memoryRetrievalQuality: MemoryRetrievalQualityData | null;
+  messageQuality: MessageQualityResponse | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -52,6 +55,7 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     avg_quality_score: number;
   }[] | null>(null);
   const [memoryRetrievalQuality, setMemoryRetrievalQuality] = useState<MemoryRetrievalQualityData | null>(null);
+  const [messageQuality, setMessageQuality] = useState<MessageQualityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,12 +63,13 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     setLoading(true);
     setError(null);
     try {
-      const [trends, tokens, latency, memory, retrievalQuality] = await Promise.all([
+      const [trends, tokens, latency, memory, retrievalQuality, msgQuality] = await Promise.all([
         fetchUsageTrends(days),
         fetchTokenConsumption(days),
         fetchLatencyAnalysis(days),
         fetchMemoryTrends(days),
         fetchMemoryRetrievalQuality(),
+        fetchMessageQuality(days),
       ]);
 
       if (trends) setUsageTrends(trends.trends || []);
@@ -72,6 +77,7 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
       if (latency) setLatencyAnalysis(latency.latency_data || []);
       if (memory) setMemoryTrends(memory.trends || []);
       if (retrievalQuality) setMemoryRetrievalQuality(retrievalQuality);
+      if (msgQuality) setMessageQuality(msgQuality);
 
       if (!trends || !tokens || !latency || !memory) {
         setError("Failed to load some analytics data");
@@ -98,6 +104,7 @@ export function useAnalytics(options?: UseAnalyticsOptions): UseAnalyticsReturn 
     latencyAnalysis,
     memoryTrends,
     memoryRetrievalQuality,
+    messageQuality,
     loading,
     error,
     refetch,

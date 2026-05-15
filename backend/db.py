@@ -2136,3 +2136,39 @@ class AnalyticsStore:
             "daily_avg_cost": round(daily_avg_cost, 4),
             "monthly_projection": round(monthly_projection, 4),
         }
+
+    def get_message_quality(self, days: int = 30) -> list[Dict[str, Any]]:
+        """Get daily message quality (thumbs up/down) trends over the past N days.
+
+        Queries the messages table directly for assistant messages that have
+        received explicit thumbs feedback from the user.
+        """
+        statement = """
+            SELECT
+                DATE(m.created_at) AS date,
+                COUNT(*) FILTER (WHERE m.feedback = 'up')   AS up_count,
+                COUNT(*) FILTER (WHERE m.feedback = 'down') AS down_count,
+                COUNT(*) FILTER (WHERE m.feedback IS NOT NULL) AS total_feedback,
+                COUNT(*) AS total_assistant_messages
+            FROM messages m
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE m.role = 'assistant'
+              AND m.created_at >= NOW() - INTERVAL '%s days'
+            GROUP BY DATE(m.created_at)
+            ORDER BY date ASC;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (days,))
+                rows = cur.fetchall()
+        return [
+            {
+                "date": row["date"].isoformat(),
+                "up_count": int(row["up_count"] or 0),
+                "down_count": int(row["down_count"] or 0),
+                "total_feedback": int(row["total_feedback"] or 0),
+                "total_assistant_messages": int(row["total_assistant_messages"] or 0),
+                "net_score": int(row["up_count"] or 0) - int(row["down_count"] or 0),
+            }
+            for row in rows
+        ]

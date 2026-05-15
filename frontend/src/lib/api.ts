@@ -289,6 +289,26 @@ export interface MemoryRetrievalQualityData {
   timestamp: string;
 }
 
+export interface MessageQualityPoint {
+  date: string;
+  up_count: number;
+  down_count: number;
+  total_feedback: number;
+  total_assistant_messages: number;
+  net_score: number;
+}
+
+export interface MessageQualityResponse {
+  period_days: number;
+  quality_data: MessageQualityPoint[];
+  total_up: number;
+  total_down: number;
+  total_feedback: number;
+  total_assistant_messages: number;
+  net_score: number;
+  feedback_rate: number;
+}
+
 export interface MemoryTrendsResponse {
   period_days: number;
   trends: MemoryTrendPoint[];
@@ -366,6 +386,20 @@ export async function fetchMemoryRetrievalQuality(): Promise<MemoryRetrievalQual
     return (await response.json()) as MemoryRetrievalQualityData;
   } catch (error) {
     console.error("Error fetching memory retrieval quality:", error);
+    return null;
+  }
+}
+
+export async function fetchMessageQuality(days: number = 30): Promise<MessageQualityResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/analytics/message-quality?days=${days}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch message quality: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as MessageQualityResponse;
+  } catch (error) {
+    console.error("Error fetching message quality:", error);
     return null;
   }
 }

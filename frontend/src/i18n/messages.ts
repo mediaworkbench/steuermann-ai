@@ -346,6 +346,14 @@ export type Messages = {
     coverageHealthy: string;
     coverageLow: string;
     coverageVeryLow: string;
+    messageQuality: string;
+    messageQualitySubtitle: string;
+    thumbsUp: string;
+    thumbsDown: string;
+    netScore: string;
+    feedbackRate: string;
+    totalFeedback: string;
+    noMessageQualityData: string;
   };
   memories: {
     title: string;
@@ -756,6 +764,14 @@ export const messages: Record<Locale, Messages> = {
       coverageHealthy: "Healthy",
       coverageLow: "Low coverage",
       coverageVeryLow: "Very low",
+      messageQuality: "Message Quality",
+      messageQualitySubtitle: "Daily thumbs up/down feedback on assistant responses",
+      thumbsUp: "Thumbs Up",
+      thumbsDown: "Thumbs Down",
+      netScore: "Net Score",
+      feedbackRate: "Feedback Rate",
+      totalFeedback: "Total Feedback",
+      noMessageQualityData: "No message quality data yet",
     },
     memories: {
       title: "Memory",
@@ -1164,6 +1180,14 @@ export const messages: Record<Locale, Messages> = {
       coverageHealthy: "Gesund",
       coverageLow: "Geringe Abdeckung",
       coverageVeryLow: "Sehr gering",
+      messageQuality: "Nachrichtenqualität",
+      messageQualitySubtitle: "Tägliches Daumen-hoch/runter-Feedback zu Assistentenantworten",
+      thumbsUp: "Daumen hoch",
+      thumbsDown: "Daumen runter",
+      netScore: "Nettobewertung",
+      feedbackRate: "Feedbackrate",
+      totalFeedback: "Gesamtfeedback",
+      noMessageQualityData: "Noch keine Nachrichtenqualitätsdaten vorhanden",
     },
     memories: {
       title: "Speicher",
