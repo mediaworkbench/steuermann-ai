@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Trash2, Star, RefreshCw, Brain } from "lucide-react";
-import { fetchMemories, fetchMemoryStats, deleteMemory, rateMemory } from "@/lib/api";
+import { Trash2, RefreshCw, Brain } from "lucide-react";
+import { fetchMemories, fetchMemoryStats, deleteMemory } from "@/lib/api";
+import { MemoryRating } from "@/components/MemoryRating";
 import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
@@ -20,43 +21,6 @@ function ImportanceBar({ score }: { score: number | null }) {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-white/50">{pct}%</span>
-    </div>
-  );
-}
-
-function StarRating({
-  memoryId,
-  current,
-  onRate,
-  getRateLabel,
-}: {
-  memoryId: string;
-  current: number | null;
-  onRate: (id: string, r: number) => void;
-  getRateLabel: (count: number) => string;
-}) {
-  const [hover, setHover] = useState(0);
-  return (
-    <div className="flex gap-0.5">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          onClick={() => onRate(memoryId, n)}
-          onMouseEnter={() => setHover(n)}
-          onMouseLeave={() => setHover(0)}
-          className="p-0.5 rounded transition-colors cursor-pointer"
-          aria-label={getRateLabel(n)}
-        >
-          <Star
-            size={13}
-            className={
-              n <= (hover || current || 0)
-                ? "fill-yellow-400 text-yellow-500"
-                : "text-evergreen/35"
-            }
-          />
-        </button>
-      ))}
     </div>
   );
 }
@@ -134,14 +98,11 @@ export default function MemoriesPage() {
     setConfirmDelete(null);
   };
 
-  const handleRate = async (id: string, rating: number) => {
-    const ok = await rateMemory(id, rating);
-    if (ok) {
-      setItems((prev) =>
-        prev.map((m) => (m.memory_id === id ? { ...m, user_rating: rating } : m)),
-      );
-    }
-  };
+  const handleRateChange = useCallback((id: string, rating: number) => {
+    setItems((prev) =>
+      prev.map((m) => (m.memory_id === id ? { ...m, user_rating: rating } : m)),
+    );
+  }, []);
 
   const filtered = search.trim()
     ? items.filter((m) => m.text.toLowerCase().includes(search.toLowerCase()))
@@ -204,6 +165,9 @@ export default function MemoriesPage() {
                        text-evergreen placeholder-evergreen/30 text-sm
                        focus:outline-none focus:ring-2 focus:ring-evergreen/30"
           />
+          <p className="mt-2 text-xs text-evergreen/55">
+            {t("memories.ratingHelp")}
+          </p>
         </div>
 
         {/* Table */}
@@ -238,8 +202,8 @@ export default function MemoriesPage() {
                   <tr
                     key={mem.memory_id}
                     className={`border-t border-evergreen/5 ${
-                      i % 2 === 0 ? "bg-white" : "bg-evergreen/[0.02]"
-                    } hover:bg-evergreen/5 transition-colors`}
+                      i % 2 === 0 ? "bg-white" : "bg-evergreen/2"
+                      } hover:bg-evergreen/2 transition-colors`}
                   >
                     <td className="px-4 py-3 text-evergreen leading-snug max-w-xs lg:max-w-lg">
                       <span className="line-clamp-3">{mem.text}</span>
@@ -253,11 +217,19 @@ export default function MemoriesPage() {
                       <ImportanceBar score={mem.importance_score} />
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <StarRating
+                      <MemoryRating
                         memoryId={mem.memory_id}
-                        current={mem.user_rating}
-                        onRate={handleRate}
+                        initialRating={typeof mem.user_rating === "number" ? mem.user_rating : 0}
+                        onRatingChange={(rating) => handleRateChange(mem.memory_id, rating)}
+                        compact
+                        showStatus
+                        ariaLabel={t("memories.ratingAriaLabel")}
                         getRateLabel={(count) => t("memories.rateStars", { count })}
+                        statusLabels={{
+                          saving: t("memories.ratingStatusSaving"),
+                          saved: t("memories.ratingStatusSaved"),
+                          retry: t("memories.ratingStatusRetry"),
+                        }}
                       />
                     </td>
                     <td className="px-4 py-3 text-evergreen/40 text-xs hidden lg:table-cell">

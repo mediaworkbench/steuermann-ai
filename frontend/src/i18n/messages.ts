@@ -370,6 +370,11 @@ export type Messages = {
     previous: string;
     next: string;
     rateStars: string;
+    ratingHelp: string;
+    ratingAriaLabel: string;
+    ratingStatusSaving: string;
+    ratingStatusSaved: string;
+    ratingStatusRetry: string;
   };
   charts: {
     loading: string;
@@ -771,6 +776,11 @@ export const messages: Record<Locale, Messages> = {
       previous: "Previous",
       next: "Next",
       rateStars: "Rate {count} stars",
+      ratingHelp: "Rate memories by how useful they are for future answers.",
+      ratingAriaLabel: "Rate memory usefulness for future answers",
+      ratingStatusSaving: "Saving",
+      ratingStatusSaved: "Saved",
+      ratingStatusRetry: "Retry",
     },
     charts: {
       loading: "Loading...",
@@ -1170,6 +1180,11 @@ export const messages: Record<Locale, Messages> = {
       previous: "Zurück",
       next: "Weiter",
       rateStars: "{count} Sterne bewerten",
+      ratingHelp: "Bewerte Erinnerungen danach, wie hilfreich sie für zukünftige Antworten sind. Nachrichten-Daumen im Chat bleiben separates Qualitätsfeedback.",
+      ratingAriaLabel: "Nützlichkeit dieser Erinnerung für zukünftige Antworten bewerten",
+      ratingStatusSaving: "Speichert",
+      ratingStatusSaved: "Gespeichert",
+      ratingStatusRetry: "Erneut versuchen",
     },
     charts: {
       loading: "Wird geladen...",
