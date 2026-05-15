@@ -10,7 +10,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 - FastAPI adapter layer (settings management, metrics exposure, auth)
 - Modern frontend (Next.js + React production stack)
 - Profile-based customization via declarative overlays
-- Unified technology stack (PostgreSQL, Qdrant, LM Studio, Prometheus)
+- Unified technology stack (PostgreSQL, Qdrant, Prometheus, external LLM providers)
 - Language-specific optimization per profile
 - Separate but integrated RAG/ingestion pipeline
 - Clear separation of concerns (orchestration, adaptation, presentation)
@@ -80,12 +80,12 @@ This document defines the technical architecture for the Steuermann - a domain-a
 └───────────────────────────────────────────────────────────────────┘
             │
 ┌───────────┼──────────────────────────────────────────────────────┐
-│           │         Host Services (Outside Docker)                │
-│  ┌────────▼──────────┐                                            │
-│  │  LM Studio        │  (http://host.docker.internal:1234/v1)    │
-│  │  - Local LLMs     │                                            │
-│  │  - Model serving  │                                            │
-│  └───────────────────┘                                            │
+│           │         External Provider Endpoints                    │
+│  ┌────────▼───────────────────────────────┐                       │
+│  │  LLM Providers (configured per profile) │                       │
+│  │  - LM Studio / Ollama / OpenRouter      │                       │
+│  │  - Any OpenAI-compatible API endpoint    │                       │
+│  └─────────────────────────────────────────┘                       │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,7 +101,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 - Memory: Mem0 OSS embedded (`>=2.0.1`) - Memory abstraction with embedded Qdrant-backed storage
 - Embeddings: Remote provider abstraction (Current) - Config-driven embeddings via remote OpenAI-compatible endpoint
 - Monitoring: Prometheus (Latest) - Metrics collection and alerting
-- LLM Server: LM Studio (Latest) - Local model hosting (host, port `1234`)
+- LLM Providers: External provider endpoints (Latest) - Configured via profile-owned provider registry
 
 ---
 
@@ -1214,7 +1214,7 @@ services:
 
 ### **13.3 Host Network Configuration**
 
-**Access to LM Studio (on host):**
+**Access to local provider endpoints on host (example: LM Studio/Ollama):**
 
 ```yaml
 services:
@@ -1223,6 +1223,7 @@ services:
       - "host.docker.internal:host-gateway" # Linux
     environment:
       - LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
+      - LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
 ```
 
 **Platform-specific:**
@@ -1410,7 +1411,7 @@ docker compose up -d --build
 | Orchestration    | LangGraph (dedicated internal service)                  | Clear service boundaries and independent scaling                 |
 | Persistence      | PostgreSQL                                              | Unified storage, ACID guarantees                                 |
 | Vector Store     | Qdrant                                                  | Purpose-built, self-hosted, performant                           |
-| LLM Server       | LM Studio (OpenAI-compatible local endpoint)            | Fits on-prem deployment and local model serving                  |
+| LLM Providers    | LM Studio / Ollama / OpenRouter (or other compatible APIs) | Provider choice is deployment-owned, not part of app runtime     |
 | Embeddings       | OpenAI-compatible endpoint                              | Keeps runtime and ingestion aligned on a single remote interface |
 | Frontend         | Next.js + FastAPI                                       | Modern React stack, production-ready                             |
 | Monitoring       | Prometheus                                              | Simple, proven metrics and alerting                              |
@@ -1467,12 +1468,12 @@ This architecture covers:
 - **vs Pinecone**: Self-hosted requirement
 - **vs pgvector**: Dedicated vector search > Postgres extension
 
-### **Why LM Studio on Host vs Docker?**
+### **Why External Provider Endpoints vs Bundled Model Runtime?**
 
-- Model management easier on host
-- GPU access simpler
-- Better performance (no virtualization overhead)
-- Updates independent of framework
+- Keeps the application runtime provider-agnostic and profile-driven
+- Allows independent scaling/lifecycle of model infrastructure and app services
+- Supports local providers (for example LM Studio or Ollama) and remote APIs (for example OpenRouter)
+- Avoids coupling release cadence of provider runtimes to framework deployment
 
 ### **Why Next.js + FastAPI Architecture?**
 

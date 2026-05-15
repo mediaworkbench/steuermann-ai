@@ -14,7 +14,7 @@
 
 </div>
 
-Steuermann (german for steersman) is a **self-hosted framework** for building agentic AI systems that run **entirely on-premise**. It orchestrates multi-agent workflows through LangGraph, retrieves domain knowledge via RAG, remembers context across conversations, and presents everything through a modern React frontend — all without sending a single byte to external cloud AI services.
+Steuermann (german for steersman) is a **self-hosted framework** for building agentic AI systems that run **on-prem-first**. It orchestrates multi-agent workflows through LangGraph, retrieves domain knowledge via RAG, remembers context across conversations, and presents everything through a modern React frontend. Provider connectivity is profile-driven, so deployments can run local-only endpoints or opt into explicitly configured external providers.
 
 It is designed as a **reusable template**: one codebase, many deployments. Each deployment adapts to a specific domain (medical, financial, operational, analytical) through declarative **profile overlays** — configuration files that customize behavior without touching a line of framework code.
 
@@ -24,7 +24,7 @@ It is designed as a **reusable template**: one codebase, many deployments. Each 
 
 Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration, or force you into a single-domain mold. Steuermann takes a different approach:
 
-- **Your infrastructure, your data.** Runs entirely on-premise with profile-owned provider configuration for LM Studio, Ollama, and other OpenAI-compatible endpoints. No data leaves your network unless you explicitly configure an external provider.
+- **Your infrastructure, your data.** Designed on-prem-first with profile-owned provider configuration for LM Studio, Ollama, OpenRouter, and other OpenAI-compatible endpoints. No data leaves your network unless you explicitly configure an external provider.
 - **Not just a library — a complete application.** Ships with a production frontend (chat, settings, metrics, analytics), a FastAPI backend, and Docker Compose orchestration. `docker compose up` gives you a working AI assistant.
 - **Domain-agnostic by design.** The same framework powers a medical knowledge assistant, a financial analysis tool, or an internal operations chatbot. Profiles customize everything through YAML — no forks, no rewrites.
 - **Multi-agent, not multi-hack.** LangGraph owns the control flow. CrewAI crews (Research, Analytics, Code Generation, Planning) are invoked as graph nodes and return structured results. Clean separation, predictable behavior.
@@ -50,8 +50,8 @@ Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration
 │  Graph Execution · Tool Routing · Memory · RAG · Crews      │
 └────┬─────────┬───────────┬───────────┬──────────────────────┘
      │         │           │           │
-   Qdrant   PostgreSQL   Redis      LM Studio (host)
-   Vectors  Checkpoints  Cache      Local LLMs
+  Qdrant   PostgreSQL   Redis      External LLM Provider(s)
+  Vectors  Checkpoints  Cache      LM Studio / Ollama / OpenRouter
 ```
 
 | Service        | Port            | Role                                                            |
@@ -63,7 +63,7 @@ Most agentic AI frameworks require cloud-hosted LLMs, lack proper UI integration
 | **Qdrant**     | 6333 (internal) | Vector database — RAG embeddings and Mem0 internal storage      |
 | **Redis**      | 6379 (internal) | Response caching, message broker                                |
 | **Prometheus** | 9090 (internal) | Metrics collection and alerting                                 |
-| **LM Studio** | 1234 (host)     | Local LLM server — runs on host for GPU access                  |
+| **External LLM Provider(s)** | External endpoint(s) | Configured provider APIs (for example LM Studio, Ollama, OpenRouter, other OpenAI-compatible endpoints) |
 
 By default only the frontend (3000) and FastAPI (8001) are bound to the host. Internal services (Qdrant, Prometheus, PostgreSQL, Redis) are accessible only within the Docker network. See [step 3](#3-optional-expose-internal-services-for-local-development) below to expose them during development.
 
@@ -151,7 +151,7 @@ The framework is language-aware at every layer — from LLM model selection to p
 
 ### Modern Frontend
 
-A production-ready Next.js application — not a demo chat widget — with real settings management, analytics, and operational dashboards.
+A production-oriented Next.js application — not a demo chat widget — with real settings management, analytics, and operational dashboards.
 
 - **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history
 - **Settings panel** — model selection, language preferences, tool toggles, RAG configuration
@@ -202,7 +202,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 - **Network isolation by default** — Qdrant, Prometheus, PostgreSQL, and Redis are only accessible within the Docker network; only the frontend and API are exposed to the host
 - **Per-user rate limiting** enabled by default
 - **Tool sandboxing** with permission-based access control
-- **No data exfiltration** — local LLMs, local vector store, local database
+- **No implicit data exfiltration** — all provider endpoints are explicit profile configuration; local-only operation is supported
 - **CORS configuration** with allowlisted origins
 
 > Public-facing, multi-tenant, and zero-trust deployments are out of scope for this release.
@@ -214,7 +214,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 ### Prerequisites
 
 - [Docker](https://www.docker.com/) & Docker Compose
-- [LM Studio](https://lmstudio.ai/) running on the host machine, or another provider endpoint configured for the active profile
+- At least one reachable LLM provider endpoint configured for the active profile (for example [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), or [OpenRouter](https://openrouter.ai/))
 
 ### 1. Clone and configure
 
@@ -427,10 +427,10 @@ See [docs/cli.md](docs/cli.md) for the full CLI reference including argument det
 | Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | RAG embeddings and Mem0 internal vector store    |
 | Database        | [PostgreSQL](https://www.postgresql.org/) ≥15               | Conversations, checkpoints, users, audit logs    |
 | Memory          | [Mem0 OSS](https://github.com/mem0ai/mem0) ≥2.0             | Memory abstraction with embedded Qdrant backend  |
-| Embeddings      | Multilingual models (local, LM Studio)                      | OpenAI-compatible API                            |
+| Embeddings      | Multilingual embedding models                                | OpenAI-compatible API                            |
 | Cache           | [Redis](https://redis.io/) ≥5                               | Response caching, session data                   |
 | Monitoring      | [Prometheus](https://prometheus.io/)                        | Metrics collection and alerting                  |
-| LLM Server      | [LM Studio](https://lmstudio.ai/)                           | Local model hosting with GPU acceleration        |
+| LLM Providers   | [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), [OpenRouter](https://openrouter.ai/) | External provider endpoints configured per profile |
 | Tools           | [MCP SDK](https://modelcontextprotocol.io/)                 | Model Context Protocol integration               |
 
 ---

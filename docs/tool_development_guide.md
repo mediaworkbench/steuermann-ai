@@ -396,11 +396,11 @@ poetry run pytest
 
 ## Standard Tools Reference
 
-Standard tools are production-ready integrations provided by the template for all profiles. They follow five design principles:
+Standard tools are deployment-oriented integrations provided by the template for all profiles. They follow five design principles:
 
 1. **Configuration-driven** — all settings via `config/tools.yaml`
 2. **Profile-optional** — profiles enable/disable any standard tool
-3. **Production-ready** — uses established, maintained services
+3. **Operationally robust** — uses established, maintained services
 4. **Secure** — API keys via environment variables, never in code
 5. **Testable** — comprehensive tests with mocking support
 
