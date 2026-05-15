@@ -97,6 +97,8 @@ Memory is not an afterthought — it is an explicit, first-class part of the exe
 - **Co-occurrence linking** — automatically builds a knowledge graph by tracking which memories are retrieved together, enabling context expansion and related-memory discovery
 - **Memory summarization** — compresses and synthesizes older memories to maintain quality without unbounded growth
 - **Explicit lifecycle** — memory load and update operations are dedicated graph nodes, not hidden side effects
+- **Configurable extraction mode** — `memory.mem0.infer_enabled` can switch between full Mem0 extraction (`true`) and verbatim persistence fallback (`false`)
+- **Auxiliary-role extraction binding** — memory extraction uses the `llm.roles.auxiliary` model path, so extraction capacity is controlled via auxiliary role model/context settings
 - **Full CRUD API** — `/api/memories` endpoints with list, detail, delete, stats, and rate; `/memories` frontend page for user-facing memory management
 
 ### RAG & Knowledge Ingestion

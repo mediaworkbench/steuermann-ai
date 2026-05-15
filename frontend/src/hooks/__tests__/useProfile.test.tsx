@@ -34,6 +34,7 @@ describe("useProfile", () => {
   test("loads profile and applies theme tokens to root element", async () => {
     mockFetchSystemConfig.mockResolvedValue({
       available_tools: [],
+      model_roles: [],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "base-model",
       framework_version: "0.2.1",

@@ -65,7 +65,10 @@ class LRUPolicy(EvictionPolicy):
     
     def on_get(self, key: str, entry: CacheEntry) -> None:
         """Update last accessed time."""
-        entry.last_accessed = time.time()
+        now = time.time()
+        # Keep access timestamps strictly increasing per entry even when
+        # clocks are coarse/frozen, so recently accessed entries stay newer.
+        entry.last_accessed = max(now, entry.last_accessed + 1e-9)
     
     def on_set(self, key: str, entry: CacheEntry) -> None:
         """Record insertion."""
@@ -90,7 +93,9 @@ class LFUPolicy(EvictionPolicy):
     def on_get(self, key: str, entry: CacheEntry) -> None:
         """Increment access count."""
         entry.access_count += 1
-        entry.last_accessed = time.time()
+        now = time.time()
+        # Mirror LRU monotonic update behavior for deterministic LFU tie-breaks.
+        entry.last_accessed = max(now, entry.last_accessed + 1e-9)
     
     def on_set(self, key: str, entry: CacheEntry) -> None:
         """Initialize access count."""

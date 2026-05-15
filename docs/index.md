@@ -7,7 +7,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 ## Start Here
 
 - **[README.md](../README.md)** - Project overview, architecture snapshot, feature set, and quick start
-- **[technical_architecture.md](technical_architecture.md)** - Current runtime architecture snapshot and documentation sync checklist
+- **[status.md](status.md)** - Current runtime snapshot, notable changes, and documentation sync checklist
 
 ---
 

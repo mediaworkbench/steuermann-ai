@@ -1,6 +1,6 @@
 """Model resolution and fallback logic helpers."""
 
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.llm.provider_registry import normalize_model_id

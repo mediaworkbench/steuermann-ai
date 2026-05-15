@@ -200,6 +200,7 @@ memory:
 
   mem0:
     search_limit: 10 # Internal Mem0 retrieval window before local reranking
+    infer_enabled: true # Enables Mem0 extraction/inference before persistence
     custom_instructions: null # Optional extraction guidance for Mem0
 ```
 
@@ -215,6 +216,13 @@ memory:
 - Users can rate retrieved memories from `1` to `5` stars via `POST /api/memories/{memory_id}/rate`.
 - Ratings are persisted as `metadata.user_rating` through the Mem0 adapter and automatically feed the feedback factor in memory importance scoring.
 - Authorization is enforced per memory owner (`user_id`) and non-owned memories return `403`.
+
+**Mem0 extraction behavior:**
+
+- `memory.mem0.infer_enabled: true` enables Mem0 extraction/deduplication and structured memory updates.
+- `memory.mem0.infer_enabled: false` skips extraction and stores summary text verbatim via fallback path.
+- Mem0 extraction uses the model configured for `llm.roles.auxiliary`.
+- For local models, use a sufficiently large context window for extraction workloads (practical baseline: 16k minimum, 32k preferred).
 
 **Environment variables:**
 

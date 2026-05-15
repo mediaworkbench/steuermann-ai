@@ -11,6 +11,13 @@
 - **fix** `.env` and `.env.example` now quote space-containing values so they can be sourced cleanly by POSIX shells and `zsh`
 - **docs** Updated `README.md`, `docs/configuration.md`, `docs/ingestion.md`, `docs/technical_architecture.md`, `docs/status.md`, and `.github/ARCHITECTURE.md` for active-profile-only provider/model/ingestion configuration
 - **test** Completed remaining legacy test cleanup, added direct chat endpoint resolution coverage, and validated the final cutover with focused regressions plus live stack smoke checks
+- **feat** Added profile-level Mem0 extraction toggle `memory.mem0.infer_enabled` and wired it through schema, loader allowlist, memory factory, and backend behavior
+- **fix** Mem0 extraction path now supports bounded infer payload compaction and robust fallback while preserving upsert continuity
+- **ops** Re-enabled Mem0 infer for starter profile after increasing chat/auxiliary max tokens to `32768`
+- **fix** CLI contract parity restored by adding `memory.mem0` to `config/contracts/cli_contract.yaml` `profile_safety.allowed_core_prefixes`
+- **fix** `universal_agentic_framework/orchestration/helpers/model_resolution.py` typing import now includes `List` for fallback attempt annotations
+- **fix** Frontend type-contract regression resolved in `frontend/src/hooks/__tests__/useProfile.test.tsx` by adding required `model_roles` mock field
+- **docs** Synced README, status snapshot, and architecture/configuration docs for Mem0 infer toggle, auxiliary-model wiring, and contract parity
 
 ## [0.2.3] — provider-endpoint-consolidation
 

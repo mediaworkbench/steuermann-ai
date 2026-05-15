@@ -42,6 +42,7 @@ profile_safety:
     - rag
     - tokens
     - memory.embeddings
+    - memory.mem0
     - memory.retention
   disallowed_feature_flags:
     - authentication

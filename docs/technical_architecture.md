@@ -435,6 +435,8 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 
 Memory is loaded explicitly at graph start and written only by dedicated memory nodes — never automatic. The `load_memory_node` queries via the `Mem0MemoryBackend` adapter for user facts/preferences/history. The `update_memory_node` distills new conversation into long-term memory via LLM summarization and persists via Mem0.
 
+Mem0 extraction behavior is profile-configurable through `memory.mem0.infer_enabled`. When enabled, Mem0 performs extraction/deduplication before persistence; when disabled, the pipeline stores summary text via verbatim fallback. Extraction model selection follows `llm.roles.auxiliary`.
+
 Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
 
 ### **6.3 Context Priority Rules (Response Assembly)**

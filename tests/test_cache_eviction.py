@@ -217,6 +217,36 @@ async def test_memory_backend_with_lru():
 
 
 @pytest.mark.asyncio
+async def test_memory_backend_with_lru_when_time_frozen(monkeypatch):
+    """LRU should still evict untouched entries under frozen/coarse clocks."""
+    frozen_time = 1000.0
+    monkeypatch.setattr(
+        "universal_agentic_framework.caching.manager.time.time",
+        lambda: frozen_time,
+    )
+    monkeypatch.setattr(
+        "universal_agentic_framework.caching.eviction.time.time",
+        lambda: frozen_time,
+    )
+
+    backend = MemoryCacheBackend(max_size=3, eviction_policy="LRU")
+
+    await backend.set("key1", "val1", ttl_seconds=3600)
+    await backend.set("key2", "val2", ttl_seconds=3600)
+    await backend.set("key3", "val3", ttl_seconds=3600)
+
+    await backend.get("key1")
+    await backend.get("key2")
+
+    await backend.set("key4", "val4", ttl_seconds=3600)
+
+    assert await backend.get("key1") is not None
+    assert await backend.get("key2") is not None
+    assert await backend.get("key3") is None
+    assert await backend.get("key4") is not None
+
+
+@pytest.mark.asyncio
 async def test_memory_backend_with_lfu():
     """Test memory backend with LFU eviction."""
     backend = MemoryCacheBackend(max_size=3, eviction_policy="LFU")
