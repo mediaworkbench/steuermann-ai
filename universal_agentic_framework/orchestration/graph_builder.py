@@ -72,6 +72,7 @@ from universal_agentic_framework.orchestration.performance_nodes import (
     memory_cache_store_node_sync,
     conversation_compression_node_sync,
     cache_stats_node_sync,
+    get_summarizer,
 )
 from universal_agentic_framework.orchestration.crew_nodes import (
     node_research_crew,
@@ -108,6 +109,34 @@ from universal_agentic_framework.orchestration.helpers import (
 )
 
 logger = get_logger(__name__)
+
+_DIGEST_CHAIN_MAX_ITEMS = 5
+
+
+def _is_digest_entry(entry: Any) -> bool:
+    return isinstance(entry, dict) and bool(entry.get("digest_id"))
+
+
+def _merge_digest_chains(
+    existing: List[Dict[str, Any]],
+    extracted: List[Dict[str, Any]],
+    *,
+    max_items: int = _DIGEST_CHAIN_MAX_ITEMS,
+) -> List[Dict[str, Any]]:
+    """Merge digest chains (newest-first), dedupe by digest_id, and cap length."""
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in list(extracted) + list(existing):
+        if not _is_digest_entry(item):
+            continue
+        digest_id = str(item.get("digest_id"))
+        if digest_id in seen:
+            continue
+        seen.add(digest_id)
+        merged.append(dict(item))
+        if len(merged) >= max_items:
+            break
+    return merged
 
 class GraphState(TypedDict, total=False):
     messages: List[Dict[str, Any]]
@@ -2146,6 +2175,26 @@ def node_summarize(state: GraphState) -> GraphState:
     
     logger.info("Summarizing conversation", fork_name=fork_name)
 
+    # Keep digest_chain normalized even when compression does not generate a new summary.
+    try:
+        features = load_features_config()
+        if getattr(features, "memory_digest_chain_enabled", True):
+            summarizer = get_summarizer()
+            existing_chain = state.get("digest_chain") or []
+            extracted_chain = summarizer.extract_digest_chain(
+                state.get("messages", []),
+                max_items=_DIGEST_CHAIN_MAX_ITEMS,
+            )
+            state["digest_chain"] = _merge_digest_chains(
+                existing_chain,
+                extracted_chain,
+                max_items=_DIGEST_CHAIN_MAX_ITEMS,
+            )
+        else:
+            state["digest_chain"] = []
+    except Exception as e:
+        logger.warning("digest_chain_normalization_failed", error=str(e))
+
     model = safe_get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
@@ -2309,11 +2358,18 @@ def node_update_memory(state: GraphState) -> GraphState:
     with track_node_execution(fork_name, "update_memory"):
         try:
             digest_chain = state.get("digest_chain") or []
+            if not getattr(features_config, "memory_digest_chain_enabled", True):
+                digest_chain = []
             latest_digest = digest_chain[0] if digest_chain else None
             metadata = {"type": "summary"}
             if latest_digest:
                 metadata["digest_id"] = latest_digest.get("digest_id")
                 metadata["previous_digest_id"] = latest_digest.get("previous_digest_id")
+            if digest_chain:
+                metadata["digest_chain_ids"] = [
+                    d.get("digest_id") for d in digest_chain if isinstance(d, dict) and d.get("digest_id")
+                ]
+                metadata["digest_chain_length"] = len(digest_chain)
 
             logger.info("Calling update_memory_node", user_id=user_id, text_length=len(summary_text))
             result = update_memory_node(
@@ -2322,6 +2378,7 @@ def node_update_memory(state: GraphState) -> GraphState:
                 metadata=metadata,
                 backend=backend,
                 messages=_exchange_messages if _exchange_messages else None,
+                digest_chain=digest_chain,
             )
             result["tokens_used"] = (result.get("tokens_used") or 0) + update_tokens
             result["turn_tokens_used"] = (result.get("turn_tokens_used") or 0) + update_tokens

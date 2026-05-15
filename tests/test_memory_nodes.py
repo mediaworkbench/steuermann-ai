@@ -62,3 +62,58 @@ def test_load_memory_node_extracts_digest_context():
     assert digest_context[0]["metadata"].get("digest_id") == "d-1"
     assert digest_context[0]["metadata"].get("is_digest") is True
     assert analytics.get("digest_count") == 1
+
+
+def test_update_memory_node_forwards_digest_chain_when_backend_supports_it():
+    class _DigestAwareBackend(InMemoryMemoryManager):
+        def __init__(self):
+            super().__init__()
+            self.last_digest_chain = None
+
+        def upsert(self, user_id, text, metadata=None, messages=None, digest_chain=None):
+            self.last_digest_chain = digest_chain
+            return super().upsert(
+                user_id=user_id,
+                text=text,
+                metadata=metadata,
+                messages=messages,
+                digest_chain=digest_chain,
+            )
+
+    backend = _DigestAwareBackend()
+    state = {"user_id": "u4"}
+    digest_chain = [{"digest_id": "d-10", "previous_digest_id": "d-9"}]
+
+    update_memory_node(
+        state,
+        text="digest aware memory",
+        metadata={"type": "summary"},
+        backend=backend,
+        digest_chain=digest_chain,
+    )
+
+    assert backend.last_digest_chain == digest_chain
+    rows = backend.load(user_id="u4")
+    assert rows[0].metadata.get("digest_chain_ids") == ["d-10"]
+
+
+def test_update_memory_node_backwards_compatible_with_legacy_backend_signature():
+    class _LegacyBackend(InMemoryMemoryManager):
+        # Deliberately omits digest_chain for backward compatibility checks.
+        def upsert(self, user_id, text, metadata=None, messages=None):
+            return super().upsert(user_id=user_id, text=text, metadata=metadata, messages=messages)
+
+    backend = _LegacyBackend()
+    state = {"user_id": "u5"}
+
+    update_memory_node(
+        state,
+        text="legacy backend memory",
+        metadata={"type": "summary", "digest_id": "d-legacy"},
+        backend=backend,
+        digest_chain=[{"digest_id": "d-legacy"}],
+    )
+
+    rows = backend.load(user_id="u5")
+    assert len(rows) == 1
+    assert rows[0].text == "legacy backend memory"

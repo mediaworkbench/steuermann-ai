@@ -24,8 +24,23 @@ class InMemoryMemoryManager:
             filtered = records
         return filtered[:top_k]
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[list] = None) -> MemoryRecord:
-        rec = MemoryRecord(user_id=user_id, text=text, metadata=metadata or {})
+    def upsert(
+        self,
+        user_id: str,
+        text: str,
+        metadata: Optional[dict] = None,
+        messages: Optional[list] = None,
+        digest_chain: Optional[list[dict]] = None,
+    ) -> MemoryRecord:
+        payload = dict(metadata or {})
+        if digest_chain:
+            payload.setdefault("digest_chain", digest_chain)
+            payload.setdefault(
+                "digest_chain_ids",
+                [d.get("digest_id") for d in digest_chain if isinstance(d, dict) and d.get("digest_id")],
+            )
+            payload.setdefault("digest_chain_length", len(digest_chain))
+        rec = MemoryRecord(user_id=user_id, text=text, metadata=payload)
         self._store.setdefault(user_id, []).append(rec)
         return rec
 

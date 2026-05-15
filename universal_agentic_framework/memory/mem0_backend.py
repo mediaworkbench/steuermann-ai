@@ -455,10 +455,25 @@ class Mem0MemoryBackend(MemoryBackend):
 
         return out
 
-    def upsert(self, user_id: str, text: str, metadata: Optional[dict] = None, messages: Optional[List[Dict[str, Any]]] = None) -> MemoryRecord:
+    def upsert(
+        self,
+        user_id: str,
+        text: str,
+        metadata: Optional[dict] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        digest_chain: Optional[List[Dict[str, Any]]] = None,
+    ) -> MemoryRecord:
         payload = dict(metadata or {})
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
+        if digest_chain:
+            trimmed_chain = digest_chain[:5]
+            payload.setdefault("digest_chain", trimmed_chain)
+            payload.setdefault(
+                "digest_chain_ids",
+                [d.get("digest_id") for d in trimmed_chain if isinstance(d, dict) and d.get("digest_id")],
+            )
+            payload.setdefault("digest_chain_length", len(trimmed_chain))
 
         # Use structured exchange messages when provided (richer context for Mem0 inference),
         # otherwise wrap the summary text as a single user message.
