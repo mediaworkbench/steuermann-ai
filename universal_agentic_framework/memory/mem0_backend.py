@@ -84,6 +84,9 @@ class Mem0MemoryBackend(MemoryBackend):
         custom_instructions: Optional[str] = None,
         enable_importance_scoring: bool = True,
         enable_co_occurrence_tracking: bool = True,
+        co_occurrence_fanout_cap: int = 5,
+        co_occurrence_prune_interval_seconds: int = 300,
+        co_occurrence_related_top_k_per_memory: int = 5,
         client: Optional[Any] = None,
         embedder: Optional[Any] = None,
     ) -> None:
@@ -92,6 +95,13 @@ class Mem0MemoryBackend(MemoryBackend):
         self.infer_enabled = bool(infer_enabled)
         self._client_override = client
         self._embedder_override = embedder
+        self._co_occurrence_fanout_cap = max(1, int(co_occurrence_fanout_cap))
+        self._co_occurrence_prune_interval_seconds = max(1, int(co_occurrence_prune_interval_seconds))
+        self._co_occurrence_related_top_k_per_memory = max(
+            1,
+            int(co_occurrence_related_top_k_per_memory),
+        )
+        self._last_co_occurrence_prune_at: Optional[datetime] = None
 
         self._importance_scorer = MemoryImportanceScorer() if enable_importance_scoring else None
         self._co_occurrence_tracker = (
@@ -440,6 +450,7 @@ class Mem0MemoryBackend(MemoryBackend):
             out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
+            self._maybe_prune_co_occurrences()
             active_session = session_id or user_id
             primary_ids = [m.metadata.get("memory_id") for m in out if m.metadata.get("memory_id")]
             self._co_occurrence_tracker.record_co_occurrence(
@@ -448,22 +459,48 @@ class Mem0MemoryBackend(MemoryBackend):
                 user_id=user_id,
             )
 
-            related_ids: Set[str] = set()
+            related_ids: List[str] = []
+            seen_related: Set[str] = set()
             for primary_id in primary_ids:
                 related = self._co_occurrence_tracker.get_related_memories(
                     primary_id,
                     user_id=user_id,
-                    top_k=5,
+                    top_k=self._co_occurrence_related_top_k_per_memory,
                 )
                 for item in related:
                     related_id = item["memory_id"]
-                    if related_id not in primary_ids:
-                        related_ids.add(related_id)
+                    if related_id in primary_ids or related_id in seen_related:
+                        continue
+                    seen_related.add(related_id)
+                    related_ids.append(related_id)
+                    if len(related_ids) >= self._co_occurrence_fanout_cap:
+                        break
+                if len(related_ids) >= self._co_occurrence_fanout_cap:
+                    break
 
             if related_ids:
-                out.extend(self._fetch_memories_by_ids(user_id, list(related_ids)))
+                out.extend(self._fetch_memories_by_ids(user_id, related_ids))
 
         return out
+
+    def _maybe_prune_co_occurrences(self) -> None:
+        if not self._co_occurrence_tracker:
+            return
+        now = datetime.now(timezone.utc)
+        last = self._last_co_occurrence_prune_at
+        if last is not None and (now - last).total_seconds() < self._co_occurrence_prune_interval_seconds:
+            return
+        try:
+            pruned = self._co_occurrence_tracker.prune_old_co_occurrences(current_time=now)
+            logger.debug(
+                "co_occurrence_prune_maintenance",
+                pruned_count=pruned,
+                interval_seconds=self._co_occurrence_prune_interval_seconds,
+            )
+        except Exception as exc:
+            logger.warning("co_occurrence_prune_maintenance_failed", error=str(exc))
+        finally:
+            self._last_co_occurrence_prune_at = now
 
     def upsert(
         self,

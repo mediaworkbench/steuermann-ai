@@ -25,6 +25,9 @@ memory:
     search_limit: 10
     custom_instructions: null
     llm_provider: "lmstudio"
+    co_occurrence_fanout_cap: 5
+    co_occurrence_prune_interval_seconds: 300
+    co_occurrence_related_top_k_per_memory: 5
 
 checkpointing:
   enabled: true

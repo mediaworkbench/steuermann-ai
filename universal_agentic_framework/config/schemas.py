@@ -281,6 +281,9 @@ class Mem0Settings(BaseModel):
     custom_instructions: Optional[str] = None
     llm_provider: str = "openai"  # "lmstudio" for LM Studio servers (uses json_schema response format)
     infer_enabled: bool = True
+    co_occurrence_fanout_cap: PositiveInt = 5
+    co_occurrence_prune_interval_seconds: PositiveInt = 300
+    co_occurrence_related_top_k_per_memory: PositiveInt = 5
 
 
 class MemorySettings(BaseModel):

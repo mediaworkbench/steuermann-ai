@@ -6,6 +6,7 @@ a live Qdrant or LLM instance.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -132,6 +133,30 @@ class _NoHitSearchFakeMemory(_FakeMemory):
     ) -> dict:
         self.last_search_filters = dict(filters or {})
         return {"results": []}
+
+
+class _FakeCoOccurrenceTracker:
+    def __init__(self, related_by_memory_id: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> None:
+        self.related_by_memory_id = related_by_memory_id or {}
+        self.record_calls: List[Dict[str, Any]] = []
+        self.prune_calls: List[datetime] = []
+
+    def record_co_occurrence(self, memory_ids, session_id, user_id=None, timestamp=None):
+        self.record_calls.append(
+            {
+                "memory_ids": list(memory_ids),
+                "session_id": session_id,
+                "user_id": user_id,
+            }
+        )
+
+    def get_related_memories(self, memory_id, user_id=None, top_k=5, current_time=None):
+        items = list(self.related_by_memory_id.get(memory_id, []))
+        return items[:top_k]
+
+    def prune_old_co_occurrences(self, current_time=None):
+        self.prune_calls.append(current_time)
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +343,66 @@ def test_load_top_k_limits_results():
 
     records = backend.load("u1", top_k=3)
     assert len(records) <= 3
+
+
+def test_load_include_related_respects_fanout_cap():
+    backend = _make_backend(co_occurrence_fanout_cap=2, co_occurrence_related_top_k_per_memory=5)
+
+    # Seed records and keep deterministic insertion order for fake get_all/search.
+    for i in range(1, 8):
+        backend.upsert("u1", f"memory entry {i}")
+
+    records_all = backend.load("u1", top_k=10)
+    ids = [r.metadata.get("memory_id") for r in records_all]
+    primary_1, primary_2 = ids[0], ids[1]
+    related_candidates = ids[2:6]
+
+    fake_tracker = _FakeCoOccurrenceTracker(
+        related_by_memory_id={
+            primary_1: [
+                {"memory_id": related_candidates[0], "strength": 0.5, "co_occurrence_count": 3},
+                {"memory_id": related_candidates[1], "strength": 0.4, "co_occurrence_count": 2},
+                {"memory_id": related_candidates[2], "strength": 0.3, "co_occurrence_count": 1},
+            ],
+            primary_2: [
+                {"memory_id": related_candidates[3], "strength": 0.6, "co_occurrence_count": 4},
+            ],
+        }
+    )
+    backend._co_occurrence_tracker = fake_tracker
+
+    out = backend.load("u1", top_k=2, include_related=True, session_id="s-1")
+    # 2 primary + capped 2 related max
+    assert len(out) <= 4
+    related_out = [r for r in out if r.metadata.get("memory_id") not in {primary_1, primary_2}]
+    assert len(related_out) <= 2
+
+
+def test_load_include_related_prune_maintenance_is_interval_bound():
+    backend = _make_backend(co_occurrence_prune_interval_seconds=3600)
+    backend.upsert("u1", "memory one")
+    backend.upsert("u1", "memory two")
+
+    records_all = backend.load("u1", top_k=10)
+    ids = [r.metadata.get("memory_id") for r in records_all]
+    p1, p2 = ids[0], ids[1]
+
+    fake_tracker = _FakeCoOccurrenceTracker(
+        related_by_memory_id={
+            p1: [{"memory_id": p2, "strength": 0.5, "co_occurrence_count": 1}],
+            p2: [{"memory_id": p1, "strength": 0.5, "co_occurrence_count": 1}],
+        }
+    )
+    backend._co_occurrence_tracker = fake_tracker
+
+    backend.load("u1", top_k=2, include_related=True, session_id="s-1")
+    backend.load("u1", top_k=2, include_related=True, session_id="s-2")
+    assert len(fake_tracker.prune_calls) == 1
+
+    # Force the maintenance window to be elapsed and verify a new prune call occurs.
+    backend._last_co_occurrence_prune_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    backend.load("u1", top_k=2, include_related=True, session_id="s-3")
+    assert len(fake_tracker.prune_calls) == 2
 
 
 def test_load_returns_empty_for_unknown_user():

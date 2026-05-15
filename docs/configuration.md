@@ -202,6 +202,9 @@ memory:
     search_limit: 10 # Internal Mem0 retrieval window before local reranking
     infer_enabled: true # Enables Mem0 extraction/inference before persistence
     custom_instructions: null # Optional extraction guidance for Mem0
+    co_occurrence_fanout_cap: 5 # Maximum related memories appended per retrieval
+    co_occurrence_related_top_k_per_memory: 5 # Per-primary-memory related lookup depth
+    co_occurrence_prune_interval_seconds: 300 # Maintenance interval for stale edge pruning
 ```
 
 **Embedding provider notes:**
@@ -223,6 +226,12 @@ memory:
 - `memory.mem0.infer_enabled: false` skips extraction and stores summary text verbatim via fallback path.
 - Mem0 extraction uses the model configured for `llm.roles.auxiliary`.
 - For local models, use a sufficiently large context window for extraction workloads (practical baseline: 16k minimum, 32k preferred).
+
+**Mem0 co-occurrence durability controls:**
+
+- `memory.mem0.co_occurrence_fanout_cap` bounds retrieval-time related-memory fanout.
+- `memory.mem0.co_occurrence_related_top_k_per_memory` controls per-primary related-edge scan depth.
+- `memory.mem0.co_occurrence_prune_interval_seconds` controls maintenance cadence for pruning stale co-occurrence edges.
 
 **Environment variables:**
 

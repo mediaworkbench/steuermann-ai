@@ -459,8 +459,8 @@ Advanced memory behavior is integrated into this architecture: semantic similari
 
 - Short-memory digest chain source of truth: `GraphState.digest_context` (session-scoped, bounded).
 - Long-memory source of truth: Mem0 OSS with Qdrant-backed storage, accessed via `Mem0MemoryBackend`.
-- Co-occurrence links current state: in-memory tracker only; links are lost on restart.
-- Co-occurrence links target state: PostgreSQL `co_occurrence_edges` as durable source with metadata projection for fast retrieval.
+- Co-occurrence links durable source: PostgreSQL `co_occurrence_edges` (user-partitioned, indexed by user+memory and user+updated_at).
+- Co-occurrence retrieval path: durable-first reads with in-memory fallback, plus bounded fanout and periodic prune maintenance.
 
 Digest flow used by memory updates:
 
@@ -472,7 +472,7 @@ Digest flow used by memory updates:
 Critical verification expectation:
 
 - End-to-end digest metadata persistence must be validated in tests.
-- Co-occurrence persistence must be validated once PostgreSQL durability lands.
+- Co-occurrence persistence, restart durability, and index/schema checks are validated in tests.
 
 ---
 
