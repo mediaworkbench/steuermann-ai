@@ -766,61 +766,55 @@ Recursive subdirectory discovery with **/*.ext patterns.
 
 ### **10.2 Ingestion Configuration**
 
+Ingestion settings live under the `ingestion:` key in the active profile overlay (`config/profiles/<profile_id>/core.yaml`). There is no separate `ingestion.yaml` file.
+
 ```yaml
-# config/ingestion.yaml
+# config/profiles/starter/core.yaml
 ingestion:
-  enabled: true
+  source_path: $RAG_DATA_PATH          # Directory to ingest (env var or --source CLI override)
+  language: "de"                        # Primary language for ingestion
+  language_threshold: 0.8              # Minimum language detection confidence
+  embedding_batch_size: 32             # Documents embedded per batch
+  upsert_batch_size: 128               # Vectors upserted per Qdrant batch
+  file_concurrency: 1                  # Parallel file processing workers
+  incremental_mode: true               # Skip unchanged files (hash-based)
+  phase_timing: true                   # Emit per-phase timing logs
+  reingest_timeout_seconds: 1800       # Timeout for full reingest via API trigger
 
-  source:
-    type: "filesystem" # or "s3"
-    path: "/mnt/knowledge-sources"
-    watch: true # Auto-ingest new files
-
-  processing:
-    chunk_size: 512
-    chunk_overlap: 50
-    language: "de" # Must match profile language
-
-  embedding:
-    model: "paraphrase-multilingual-MiniLM-L12-v2"
-    batch_size: 32
-
-  collections:
-    - name: "medical-ai-de-procedures"
-      description: "Clinical procedures and protocols"
-      file_patterns: ["**/*.pdf", "**/protocols_*.md"]
-      metadata:
-        category: "clinical"
-        priority: "high"
-
-    - name: "medical-ai-de-drugs"
-      description: "Medication database"
-      file_patterns: ["**/*.csv", "**/*medications*.xlsx"]
-      metadata:
-        category: "pharmaceutical"
-        priority: "medium"
-
-  validation:
-    language_detection: true
-    reject_threshold: 0.8 # Not used for rejection; all languages accepted and tagged
+rag:
+  collection_name: "framework"         # Must match collection used at ingest AND retrieval time
 ```
 
-**Note:** Language validation accepts all documents and tags chunks with `detected_language`, `language_confidence`, and `target_language` metadata fields.
+**Note:** Language validation accepts all documents and tags chunks with `detected_language`, `language_confidence`, and `target_language` metadata fields. All languages are accepted; none are rejected.
 
 ### **10.3 Ingestion CLI**
 
+All ingestion commands go through the unified `steuermann` CLI. Source, collection, and language all default to values from the active profile's `core.yaml` and can be overridden per-run.
+
 ```bash
-# Manual ingestion trigger
-poetry run ingest --config config/ingestion.yaml --source /path/to/docs
+# One-shot ingestion (uses core.yaml defaults for source/collection)
+poetry run steuermann ingest ingest
 
-# Watch mode (auto-ingest)
-poetry run ingest --watch
+# Override source and collection for a single run
+poetry run steuermann ingest ingest \
+  --source /data/rag-data \
+  --collection medical-ai-de-procedures \
+  --language de
 
-# Re-index specific collection
-poetry run ingest --collection medical-ai-de-procedures --reindex
+# Watch mode (auto-ingest new files, checks every 30 seconds)
+poetry run steuermann ingest watch \
+  --source /data/rag-data \
+  --collection medical-ai-de-procedures
 
-# Validate without ingesting
-poetry run ingest --validate-only
+# Clear and reindex a collection
+poetry run steuermann ingest reindex \
+  --source /data/rag-data \
+  --collection medical-ai-de-procedures
+
+# Validate documents without ingesting (dry run)
+poetry run steuermann ingest validate \
+  --source /data/rag-data \
+  --verbose
 ```
 
 ### **10.4 Language Detection & Tagging**

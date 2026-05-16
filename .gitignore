@@ -36,6 +36,8 @@ docs/status.md
 .github/
 .vscode/
 .idea/
+.claude/
+CLAUDE.md
 
 # Profile overlays: keep template starter profile tracked, ignore local/custom overlays
 /config/profiles/*/

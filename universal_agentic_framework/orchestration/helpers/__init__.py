@@ -23,6 +23,7 @@ from .text_processing import (
     truncate_text_by_tokens,
     build_attachment_context_block,
     build_workspace_document_context_block,
+    extract_json_object,
 )
 
 # Intent detection
@@ -84,6 +85,7 @@ __all__ = [
     "truncate_text_by_tokens",
     "build_attachment_context_block",
     "build_workspace_document_context_block",
+    "extract_json_object",
     # Intent detection
     "detect_tool_routing_intents",
     # Tool scoring

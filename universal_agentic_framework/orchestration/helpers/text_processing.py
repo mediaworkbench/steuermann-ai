@@ -1,8 +1,48 @@
 """Text processing and context block building helpers."""
 
-from typing import Any, Dict, List, Tuple
+import json
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from universal_agentic_framework.llm.budget import estimate_tokens
+
+
+def extract_json_object(text: str) -> Optional[dict]:
+    """Extract the first valid JSON object from text.
+
+    Handles markdown code fences, leading prose, and nested objects.
+    Falls back to a brace-counting scan when direct parse fails.
+    """
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    cleaned = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
+
+    # Fast path: the whole string is valid JSON
+    try:
+        result = json.loads(cleaned)
+        if isinstance(result, dict):
+            return result
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Brace-counting scan — handles nested objects and leading prose
+    for i, ch in enumerate(cleaned):
+        if ch != "{":
+            continue
+        depth = 0
+        for j, c in enumerate(cleaned[i:], i):
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        candidate = json.loads(cleaned[i : j + 1])
+                        if isinstance(candidate, dict):
+                            return candidate
+                    except (json.JSONDecodeError, ValueError):
+                        break  # malformed at this start; try next '{'
+
+    return None
 
 
 def truncate_text_by_tokens(text: str, max_tokens: int) -> str:

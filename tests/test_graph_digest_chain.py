@@ -37,7 +37,7 @@ def test_node_summarize_normalizes_and_prunes_digest_chain(monkeypatch):
     monkeypatch.setattr(
         graph_builder,
         "_invoke_with_model_fallback",
-        lambda **kwargs: ("user fact summary", "fake_provider", "fake_model", None),
+        lambda **kwargs: ("user fact summary", "fake_provider", "fake_model", None, None),
     )
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: _DummyContext())
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)

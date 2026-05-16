@@ -67,8 +67,12 @@ def invoke_with_model_fallback(
     preferred_model: Optional[str] = None,
     logger: Optional[Any] = None,
     error_cls: Optional[type] = None,
-) -> Tuple[str, str, str, object]:
+) -> Tuple[str, str, str, object, Optional[dict]]:
     """Invoke a model with ordered runtime fallback and return response text + metadata.
+
+    Returns (text, provider, model_name, candidate_model, usage_metadata) where
+    usage_metadata is the AIMessage.usage_metadata dict if the provider returned it,
+    else None.
 
     This helper mirrors graph_builder behavior and supports custom error classes
     to preserve backward compatibility for existing tests and callers.
@@ -113,6 +117,29 @@ def invoke_with_model_fallback(
 
         return str(raw)
 
+    try:
+        from litellm.exceptions import (
+            ContextWindowExceededError as _CWE,
+            RateLimitError as _RLE,
+            AuthenticationError as _AE,
+            ServiceUnavailableError as _SUE,
+        )
+        _LITELLM_EXCEPTIONS: tuple = (_CWE, _RLE, _AE, _SUE)
+    except ImportError:
+        _CWE = _RLE = _AE = _SUE = None
+        _LITELLM_EXCEPTIONS = ()
+
+    def _classify_error(exc: Exception) -> str:
+        if _CWE and isinstance(exc, _CWE):
+            return "context_window_exceeded"
+        if _RLE and isinstance(exc, _RLE):
+            return "rate_limit"
+        if _AE and isinstance(exc, _AE):
+            return "auth_error"
+        if _SUE and isinstance(exc, _SUE):
+            return "service_unavailable"
+        return "error"
+
     attempts: List[Tuple[object, str, str, str]] = [
         (initial_model, initial_provider, initial_model_name, "initial"),
     ]
@@ -122,6 +149,7 @@ def invoke_with_model_fallback(
     expanded_fallbacks = False
     idx = 0
     last_error: Optional[Exception] = None
+    last_error_type: str = "error"
     last_provider = initial_provider
     last_model_name = initial_model_name
 
@@ -133,6 +161,8 @@ def invoke_with_model_fallback(
             out = invoke(payload) if callable(invoke) else (
                 candidate_model(payload) if callable(candidate_model) else str(payload)
             )
+            _meta = getattr(out, "usage_metadata", None)
+            usage_metadata = _meta if isinstance(_meta, dict) and _meta else None
             raw_text = out.content if hasattr(out, "content") else out
             text = _normalize_response_text(raw_text)
             if not text.strip():
@@ -144,9 +174,10 @@ def invoke_with_model_fallback(
                     model=model_name,
                     source=source,
                 )
-            return text, provider, model_name, candidate_model
+            return text, provider, model_name, candidate_model, usage_metadata
         except Exception as exc:
             last_error = exc
+            last_error_type = _classify_error(exc)
             last_provider = provider
             last_model_name = model_name
             if logger is not None:
@@ -191,5 +222,5 @@ def invoke_with_model_fallback(
         error_msg = f"{error_msg}: {last_error}"
 
     if error_cls is not None:
-        raise error_cls(error_msg, provider=last_provider, model_name=last_model_name)
+        raise error_cls(error_msg, provider=last_provider, model_name=last_model_name, error_type=last_error_type)
     raise RuntimeError(error_msg)

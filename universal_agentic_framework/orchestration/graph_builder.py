@@ -84,9 +84,23 @@ from universal_agentic_framework.orchestration.crew_nodes import (
 )
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 
+try:
+    from litellm.exceptions import (
+        ContextWindowExceededError as _LiteLLMContextWindowExceededError,
+        RateLimitError as _LiteLLMRateLimitError,
+        AuthenticationError as _LiteLLMAuthenticationError,
+        ServiceUnavailableError as _LiteLLMServiceUnavailableError,
+    )
+except ImportError:
+    _LiteLLMContextWindowExceededError = None  # type: ignore[assignment,misc]
+    _LiteLLMRateLimitError = None  # type: ignore[assignment,misc]
+    _LiteLLMAuthenticationError = None  # type: ignore[assignment,misc]
+    _LiteLLMServiceUnavailableError = None  # type: ignore[assignment,misc]
+
 # Import extracted helpers
 from universal_agentic_framework.orchestration.helpers import (
     extract_exact_reply_directive,
+    extract_json_object,
     record_tool_success,
     record_tool_error,
     build_attachment_context_block,
@@ -186,10 +200,24 @@ def _get_routing_embedding_provider(config: Any) -> Tuple[EmbeddingProvider, str
 
 
 class _ModelInvokeError(RuntimeError):
-    def __init__(self, message: str, provider: str, model_name: str):
+    def __init__(self, message: str, provider: str, model_name: str, error_type: str = "error"):
         super().__init__(message)
         self.provider = provider
         self.model_name = model_name
+        self.error_type = error_type
+
+
+def _tokens_from_usage(
+    usage_metadata: Optional[dict], fallback_text: str
+) -> Tuple[int, int]:
+    """Return (input_tokens, output_tokens) from usage_metadata or char/4 fallback."""
+    if usage_metadata:
+        return (
+            usage_metadata.get("input_tokens", 0),
+            usage_metadata.get("output_tokens", 0),
+        )
+    approx = estimate_tokens(fallback_text)
+    return 0, approx
 
 
 def _invoke_with_model_fallback(
@@ -201,7 +229,7 @@ def _invoke_with_model_fallback(
     initial_provider: str,
     initial_model_name: str,
     preferred_model: Optional[str] = None,
-) -> Tuple[str, str, str, object]:
+) -> Tuple[str, str, str, object, Optional[dict]]:
     """Thin wrapper over helper implementation preserving local error type."""
     return invoke_with_model_fallback(
         config=config,
@@ -964,20 +992,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 )
 
                 # Try to parse JSON tool call from response
-                tool_call = None
-                try:
-                    stripped = response_text.strip()
-                    if stripped.startswith("{"):
-                        tool_call = json.loads(stripped)
-                except json.JSONDecodeError:
-                    # Try to extract JSON from within the response
-                    import re
-                    json_match = re.search(r'\{[^{}]*"tool"\s*:.*?\}', response_text, re.DOTALL)
-                    if json_match:
-                        try:
-                            tool_call = json.loads(json_match.group(0))
-                        except json.JSONDecodeError:
-                            pass
+                tool_call = extract_json_object(response_text)
 
                 if not tool_call or "tool" not in tool_call:
                     logger.info("Model chose not to call tools (structured)", attempt=attempt)
@@ -1143,18 +1158,16 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                     break
 
                 # Parse Action line
-                action_match = re.search(r'Action:\s*(\{.*?\})', response_text, re.DOTALL)
-                if not action_match:
+                action_marker = re.search(r'Action:\s*', response_text, re.DOTALL)
+                action = extract_json_object(response_text[action_marker.end():]) if action_marker else None
+                if not action:
+                    if action_marker:
+                        logger.warning("Failed to parse ReAct action JSON", iteration=iteration)
+                        messages.append(AIMessage(content=response_text))
+                        messages.append(HumanMessage(content="Observation: Invalid JSON in Action. Please fix the format."))
+                        continue
                     logger.info("No action found in ReAct response, treating as final answer", iteration=iteration)
                     break
-
-                try:
-                    action = json.loads(action_match.group(1))
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse ReAct action JSON", iteration=iteration)
-                    messages.append(AIMessage(content=response_text))
-                    messages.append(HumanMessage(content="Observation: Invalid JSON in Action. Please fix the format."))
-                    continue
 
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
@@ -1817,8 +1830,9 @@ def node_generate_response(state: GraphState) -> GraphState:
                 tools_executed=len(tool_results))
 
     with track_node_execution(fork_name, "respond"):
+        _usage_meta: Optional[dict] = None
         try:
-            response_text, provider, model_name, active_model = _invoke_with_model_fallback(
+            response_text, provider, model_name, active_model, _usage_meta = _invoke_with_model_fallback(
                 config=config,
                 language=lang,
                 payload=messages,
@@ -1837,17 +1851,29 @@ def node_generate_response(state: GraphState) -> GraphState:
             logger.info("LLM response received", response_length=len(response_text), response_preview=response_text[:200])
             track_llm_call(fork_name, provider, model_name, "success")
         except _ModelInvokeError as e:
-            track_llm_call(fork_name, provider, model_name, "error")
-            logger.error(
+            error_type = getattr(e, "error_type", "error")
+            track_llm_call(fork_name, e.provider, e.model_name, error_type)
+            log_fn = logger.error if error_type in ("error", "auth_error") else logger.warning
+            log_fn(
                 "LLM call failed",
                 error=str(e),
-                exc_info=True,
+                exc_info=(error_type in ("error", "auth_error")),
                 provider=e.provider,
                 model_name=e.model_name,
+                error_type=error_type,
             )
             provider = e.provider
             model_name = e.model_name
-            response_text = f"LLM Error: {str(e)[:100]}"
+            if error_type == "context_window_exceeded":
+                response_text = "The request is too long for this model. Please shorten your message or start a new conversation."
+            elif error_type == "rate_limit":
+                response_text = "The model is temporarily unavailable due to rate limits. Please try again in a moment."
+            elif error_type == "auth_error":
+                response_text = "There is a configuration error with the AI provider. Please contact the administrator."
+            elif error_type == "service_unavailable":
+                response_text = "The AI model is currently unavailable. Please try again shortly."
+            else:
+                response_text = f"LLM Error: {str(e)[:100]}"
         except Exception as e:
             track_llm_call(fork_name, provider, model_name, "error")
             logger.error("LLM call failed", error=str(e), exc_info=True, provider=provider, model_name=model_name)
@@ -2132,7 +2158,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             )
             response_text = exact_reply
 
-        output_tokens = estimate_tokens(response_text)
+        _, output_tokens = _tokens_from_usage(_usage_meta, response_text)
         node_tokens = input_tokens + output_tokens
         require_tokens(node_tokens, available_response_budget, "Response node")
         if enforce_node_hard_limit and node_tokens > node_budget:
@@ -2238,7 +2264,7 @@ def node_summarize(state: GraphState) -> GraphState:
 
     with track_node_execution(fork_name, "summarize"):
         try:
-            summary, provider, model_name, _ = _invoke_with_model_fallback(
+            summary, provider, model_name, _, _sum_usage_meta = _invoke_with_model_fallback(
                 config=config,
                 language=lang,
                 payload=prompt,
@@ -2257,12 +2283,14 @@ def node_summarize(state: GraphState) -> GraphState:
                 model_name=e.model_name,
             )
             summary = f"LLM: {prompt}"
+            _sum_usage_meta = None
         except Exception as e:
             track_llm_call(fork_name, provider, model_name, "error")
             logger.warning("Summarization LLM call failed, using fallback", error=str(e))
             summary = f"LLM: {prompt}"
-        
-        output_tokens = estimate_tokens(summary)
+            _sum_usage_meta = None
+
+        _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
         node_tokens = input_tokens + output_tokens
         require_tokens(node_tokens, available_budget, "Summarization node")
         if enforce_node_hard_limit and node_tokens > sum_budget:

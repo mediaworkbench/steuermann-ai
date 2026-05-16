@@ -49,17 +49,39 @@ poetry run steuermann ingest watch \
   --language en
 ```
 
-### 2. Using Configuration File
+### 2. Standard Configuration (via `core.yaml`)
 
-Create `config/ingestion.yaml`:
+The preferred way to configure ingestion is through the active profile overlay. All ingestion parameters come from the `ingestion:` and `rag:` keys in `config/profiles/<profile_id>/core.yaml`:
 
 ```yaml
+# config/profiles/starter/core.yaml
+ingestion:
+  source_path: $RAG_DATA_PATH       # or set --source on the CLI
+  language: "en"
+  language_threshold: 0.8
+  embedding_batch_size: 32
+  upsert_batch_size: 128
+  file_concurrency: 1
+  incremental_mode: true
+
+rag:
+  collection_name: "my-app"         # collection used for ingest AND retrieval
+```
+
+With this in place, running `poetry run steuermann ingest ingest` with no flags uses the profile config automatically.
+
+### 3. Per-Run Override File (`--config`)
+
+You can pass `--config <path>` to override the profile config for a single run. This uses a separate YAML schema (not `core.yaml` format):
+
+```yaml
+# my-override.yaml  (any filename, passed via --config)
 ingestion:
   source:
     path: "/mnt/knowledge-sources"
     qdrant_host: "localhost"
     qdrant_port: 6333
-  
+
   processing:
     chunk_size: 512
     chunk_overlap: 50
@@ -70,13 +92,14 @@ ingestion:
     upsert_batch_size: 128
     enable_incremental: true
     enable_phase_timing: true
-  
+
   embedding:
     model: "text-embedding-granite-embedding-278m-multilingual"
     provider: "remote"
     remote_endpoint: "${EMBEDDING_SERVER}"
     batch_size: 32
-  
+    dimension: 768
+
   collections:
     - name: "my-app-procedures"
       description: "Standard operating procedures"
@@ -86,17 +109,18 @@ ingestion:
       metadata:
         category: "procedures"
         priority: "high"
-  
+
   validation:
-    language_detection: true
     reject_threshold: 0.8
 ```
 
 Then run:
 
 ```bash
-poetry run steuermann ingest ingest --config config/ingestion.yaml
+poetry run steuermann ingest ingest --config my-override.yaml
 ```
+
+> **Note:** `--config` bypasses `core.yaml` entirely and requires all embedding/collection fields to be explicit. For normal operation, prefer the `core.yaml` approach.
 
 ---
 
@@ -303,10 +327,9 @@ poetry run steuermann ingest ingest \
   --collection docs \
   --language en
 
-# With config file
+# With per-run override file (bypasses core.yaml; must include all embedding/collection fields)
 poetry run steuermann ingest ingest \
-  --source /data/documents \
-  --config config/ingestion.yaml
+  --config my-override.yaml
 
 # Validate only (dry run)
 poetry run steuermann ingest ingest \
