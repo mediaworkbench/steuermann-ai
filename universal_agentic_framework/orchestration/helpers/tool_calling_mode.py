@@ -85,18 +85,18 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
     if not probe_rows:
         return "structured", "probe_missing_forced_structured"
 
-    matching_rows = [
-        row for row in probe_rows
-        if str(row.get("provider_id") or "") == provider_id
-    ]
-    if selected_model_name:
-        normalized_selected = normalize_model_id(str(selected_model_name))
-        model_specific = [
-            row for row in matching_rows
-            if normalize_model_id(str(row.get("model_name") or "")) == normalized_selected
+    normalized_selected = normalize_model_id(str(selected_model_name)) if selected_model_name else None
+    if normalized_selected:
+        matching_rows = [
+            row for row in probe_rows
+            if str(row.get("provider_id") or "") == provider_id
+            and normalize_model_id(str(row.get("model_name") or "")) == normalized_selected
         ]
-        if model_specific:
-            matching_rows = model_specific
+    else:
+        matching_rows = [
+            row for row in probe_rows
+            if str(row.get("provider_id") or "") == provider_id
+        ]
 
     if not matching_rows:
         return "structured", "probe_model_not_found_forced_structured"

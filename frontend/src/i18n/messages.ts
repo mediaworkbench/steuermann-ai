@@ -138,7 +138,6 @@ export type Messages = {
     detailApiBase: string;
     detailError: string;
     detailBindTools: string;
-    detailToolSchema: string;
     detailMismatch: string;
     detailMetadata: string;
     capabilityModel: string;
@@ -177,6 +176,8 @@ export type Messages = {
     model: string;
     temperature: string;
     toolsInvoked: string;
+    memoriesUsed: string;
+    memoriesUsedDetail: string;
     feedbackSaved: string;
     feedbackRemoved: string;
     workspaceDocumentSaved: string;
@@ -374,6 +375,7 @@ export type Messages = {
     noMemoriesMatchFilter: string;
     noMemoriesYet: string;
     related: string;
+    primary: string;
     deleteMemory: string;
     confirmYes: string;
     confirmNo: string;
@@ -555,7 +557,6 @@ export const messages: Record<Locale, Messages> = {
       detailApiBase: "API base",
       detailError: "Probe error",
       detailBindTools: "Supports bind_tools",
-      detailToolSchema: "Supports tool schema",
       detailMismatch: "Capability mismatch",
       detailMetadata: "Raw metadata",
       capabilityModel: "Model",
@@ -594,6 +595,8 @@ export const messages: Record<Locale, Messages> = {
       model: "Model",
       temperature: "Temperature",
       toolsInvoked: "Tools invoked",
+      memoriesUsed: "memories",
+      memoriesUsedDetail: "Memories used",
       feedbackSaved: "Feedback saved",
       feedbackRemoved: "Feedback removed",
       workspaceDocumentSaved: "Workspace document saved",
@@ -792,6 +795,7 @@ export const messages: Record<Locale, Messages> = {
       noMemoriesMatchFilter: "No memories match your filter.",
       noMemoriesYet: "No memories yet.",
       related: "related",
+      primary: "primary",
       deleteMemory: "Delete memory",
       confirmYes: "Yes",
       confirmNo: "No",
@@ -971,7 +975,6 @@ export const messages: Record<Locale, Messages> = {
       detailApiBase: "API-Basis",
       detailError: "Probe-Fehler",
       detailBindTools: "Unterstutzt bind_tools",
-      detailToolSchema: "Unterstutzt Tool-Schema",
       detailMismatch: "Fahigkeitskonflikt",
       detailMetadata: "Roh-Metadaten",
       capabilityModel: "Modell",
@@ -1010,6 +1013,8 @@ export const messages: Record<Locale, Messages> = {
       model: "Modell",
       temperature: "Temperatur",
       toolsInvoked: "Verwendete Tools",
+      memoriesUsed: "Erinnerungen",
+      memoriesUsedDetail: "Verwendete Erinnerungen",
       feedbackSaved: "Feedback gespeichert",
       feedbackRemoved: "Feedback entfernt",
       workspaceDocumentSaved: "Workspace-Dokument gespeichert",
@@ -1208,6 +1213,7 @@ export const messages: Record<Locale, Messages> = {
       noMemoriesMatchFilter: "Keine Erinnerungen entsprechen deinem Filter.",
       noMemoriesYet: "Noch keine Erinnerungen.",
       related: "verwandt",
+      primary: "primär",
       deleteMemory: "Speicher löschen",
       confirmYes: "Ja",
       confirmNo: "Nein",

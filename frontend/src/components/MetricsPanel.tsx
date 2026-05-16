@@ -33,6 +33,7 @@ export function MetricsPanel({
     ? (metrics.response_time_ms / 1000).toFixed(1)
     : null;
   const toolCount = metrics?.tools_executed?.length ?? 0;
+  const memoryCount = metrics?.memories_used?.length ?? 0;
 
   const handleCopy = useCallback(() => {
     const doCopy = () => {
@@ -90,6 +91,17 @@ export function MetricsPanel({
                 <span className="flex items-center gap-0.5">
                   <Icon name="build" size={13} className="text-pacific-blue/70" />
                   {toolCount} {t("chat.toolsInvoked")}
+                </span>
+              </>
+            )}
+            {memoryCount > 0 && (
+              <>
+                <span className="text-evergreen/20" aria-hidden="true">
+                  ·
+                </span>
+                <span className="flex items-center gap-0.5">
+                  <Icon name="memory" size={13} className="text-pacific-blue/70" />
+                  {memoryCount} {t("chat.memoriesUsed")}
                 </span>
               </>
             )}
@@ -209,6 +221,31 @@ export function MetricsPanel({
                       </span>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Memories */}
+            {metrics?.memories_used && metrics.memories_used.length > 0 && (
+              <div className="pt-2 border-t border-light-cyan/40">
+                <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
+                  {t("chat.memoriesUsedDetail")}
+                </span>
+                <div className="space-y-1.5">
+                  {metrics.memories_used.map((mem) => (
+                    <div key={mem.memory_id} className="text-evergreen/70">
+                      <div className="text-xs">{mem.text || mem.memory_id}</div>
+                      <div className="text-[11px] text-evergreen/40 mt-0.5">
+                        {mem.is_related ? t("memories.related") : t("memories.primary")}
+                        {typeof mem.importance_score === "number"
+                          ? ` · score ${mem.importance_score.toFixed(2)}`
+                          : ""}
+                        {typeof mem.user_rating === "number"
+                          ? ` · rated ${mem.user_rating}/5`
+                          : ""}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

@@ -82,87 +82,114 @@ language_enforcement: "Respond in English unless the user explicitly asks otherw
 
 Runtime LLM configuration lives in the active profile overlay: `config/profiles/<profile_id>/core.yaml`. Repository-level `config/core.yaml` is limited to deployment-global settings such as database, memory, and checkpointing.
 
+Each role (`chat`, `embedding`, `vision`, `auxiliary`) is a flat block with a single provider. The `llm.providers` registry is synthesized at parse time from these role blocks and is not a YAML-configurable field.
+
 ```yaml
 # config/profiles/starter/core.yaml
 llm:
-  providers:
-    lmstudio:
-      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      api_key: "lm-studio"
-      models:
-        en: "openai/liquid/lfm2-24b-a2b"
-        de: "openai/liquid/lfm2-24b-a2b"
-      model_tool_calling:
-        openai/liquid/lfm2-24b-a2b: "native"
-      temperature: 0.7 # 0.0-2.0, higher = more creative
-      max_tokens: 4096 # Max tokens per request
-      timeout: 300 # Timeout in seconds
-
-    openrouter:
-      api_base: "${LLM_PROVIDERS_OPENROUTER_API_BASE}"
-      api_key: "${OPENROUTER_API_KEY}"
-      models:
-        en: "openrouter/openai/gpt-4o-mini"
-        de: "openrouter/openai/gpt-4o-mini"
-      model_tool_calling:
-        openrouter/openai/gpt-4o-mini: "native"
-      temperature: 0.3
-      max_tokens: 4096
-      timeout: 300
-
   roles:
     chat:
-      providers:
-        - provider_id: lmstudio
-        - provider_id: openrouter
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.3          # 0.0-2.0; higher = more creative
+      max_tokens: 32768
+      timeout: 600
+
     embedding:
-      providers:
-        - provider_id: lmstudio
-          model: "openai/text-embedding-granite-embedding-278m-multilingual"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      temperature: 0.0
+      timeout: 300
+
     vision:
-      providers:
-        - provider_id: lmstudio
-          models:
-            en: "openai/gpt-4.1-mini"
-            de: "openai/gpt-4.1-mini"
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 600
+
     auxiliary:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.2
+      max_tokens: 32768
+      timeout: 600
 
   router:
     routing_strategy: simple-shuffle
     num_retries: 3
     retry_after: 1
+    enable_pre_call_checks: true
     default_max_parallel_requests: 4
 ```
+
+**Required roles:** All four roles must be present in the profile overlay. Each requires `provider_id`, `api_base`, and `model`.
+
+**Role purposes:**
+
+- `chat` — primary conversational LLM
+- `embedding` — vector embeddings for tool routing and memory retrieval
+- `vision` — multimodal/image processing requests
+- `auxiliary` — Mem0 memory extraction and deduplication; requires at least 16k context window (32k recommended)
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
 - `ollama/llama-3.1-8b` — Local Ollama (default docker-compose endpoint: `http://host.docker.internal:11434`)
 - `openai/gpt-4o` — OpenAI API (set `api_key` or `OPENAI_API_KEY` env var)
 - `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
-- `openai/liquid/lfm2-24b-a2b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
+- `openai/google/gemma-4-e4b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
 - Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
-
-**Provider registry and roles:** `llm.providers` is a named registry. Runtime consumers resolve models through role chains like `llm.roles.chat.providers`, not through legacy `primary` / `fallback` aliases. LiteLLM router behavior is configured by `llm.router` in the same profile overlay.
-
-Each `llm.roles.<role>.providers[]` entry can optionally override the provider default model with either:
-
-- `model`: one explicit model for that role/provider pair
-- `models`: language-specific role models (`en`, `de`, etc.)
-
-If omitted, runtime falls back to `llm.providers.<provider>.models`.
 
 **LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
 
+**Multi-provider fallbacks:** Each role targets a single provider. Cross-provider failover is configured at the router level via `llm.router.fallbacks`:
+
+```yaml
+llm:
+  router:
+    fallbacks:
+      - {"openai/google/gemma-4-e4b": ["openrouter/openai/gpt-4o-mini"]}
+    default_fallbacks: ["openrouter/openai/gpt-4o-mini"]
+```
+
 **Tool calling modes:**
 
-- `native` - Model supports function calling natively (e.g., GPT-4, LFM2). Uses `bind_tools()` — the model decides which tools to call.
-- `structured` (default) - Tool schemas injected into the system prompt as JSON. The model outputs a JSON tool call. Works with any model.
-- `react` - ReAct-style loop (Thought → Action → Observation). Best for weaker models that can't follow JSON schemas reliably.
+- `structured` (default) — Tool schemas injected into the system prompt as JSON. The model outputs a JSON tool call. Works with any model.
+- `native` — Uses `bind_tools()` — the model decides which tools to call. Declare intent in YAML; the probe confirms or downgrades at runtime.
+- `react` — ReAct-style loop (Thought → Action → Observation). Best for weaker models that can't follow JSON schemas reliably.
+
+Mode is declared per-model in YAML under the role and confirmed at runtime by the capability probe. Two-step resolution:
+
+1. **YAML declaration** — set `model_tool_calling` on the role. Omitting the key defaults to `structured`.
+2. **Runtime probe confirmation** — if `native` is declared, the probe checks `supports_bind_tools` and `supports_tool_schema` for the active model. A stale, missing, or failed probe automatically downgrades to `structured`.
+
+```yaml
+llm:
+  roles:
+    chat:
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "openai/google/gemma-4-e4b"
+      temperature: 0.3
+      max_tokens: 32768
+      timeout: 600
+      # Declare native mode when the model supports it.
+      # Leave commented out to use the default (structured).
+      # model_tool_calling:
+      #   openai/google/gemma-4-e4b: "native"
+```
+
+Multiple models can be mapped independently within a single role:
+
+```yaml
+model_tool_calling:
+  openai/openai/gpt-4o: "native"
+  openai/google/gemma-4-e4b: "structured"
+```
 
 **Native reliability note:**
 
@@ -470,23 +497,24 @@ backstory: "" # Missing context
 
 ```yaml
 tools:
-  - name: "patient_database" # Unique tool identifier
-    path: "plugins/patient_database" # Path relative to repository root
-    enabled: true # Enable/disable tool
+  - name: "patient_database"                    # Unique tool identifier
+    path: "plugins/patient_database"             # Path relative to repository root
+    enabled: true
 
   - name: "medical_calculator"
     path: "plugins/medical_calculator"
     enabled: true
 
-  - name: "web_search" # Core template tool
-    path: "universal_agentic_framework/plugins/web_search"
-    enabled: false # Disable if not needed
+  - name: "datetime_tool"                        # Built-in framework tool
+    path: "universal_agentic_framework/tools/datetime"
+    enabled: true
 ```
 
 **Tool discovery:**
 
-- Core tools auto-discovered from `universal_agentic_framework/plugins/`
-- Profile tools must be explicitly registered here
+- Built-in tools live in `universal_agentic_framework/tools/<name>/` (not `plugins/`)
+- Each tool directory requires `__init__.py`, `tool.py`, and `tool.yaml`
+- All tools (built-in and custom) must be explicitly listed here to be loaded
 
 ---
 
@@ -496,42 +524,36 @@ tools:
 
 ```yaml
 # Core features
-multi_agent_crews: true # Enable CrewAI crews
-long_term_memory: true # Enable memory system
-ingestion_service: true # Enable document ingestion
-rag_retrieval: true # Enable RAG retrieval in the graph
+multi_agent_crews: false # Enable CrewAI crews (globally disabled by default)
+long_term_memory: true   # Enable Mem0/Qdrant memory system
+ingestion_service: true  # Enable document ingestion service
+rag_retrieval: true      # Enable RAG retrieval in the graph
 
-# Optional features
-web_search: false # Enable web search tool
-code_execution: false # Enable code interpreter
-voice_interface: false # Enable voice I/O
+# Memory retrieval tuning
+memory_importance_scoring: true  # Enable importance-based reranking
+memory_include_related: true     # Fetch related memories via co-occurrence
+memory_top_k: 5                  # Number of primary memories to retrieve
 
 # UI features
 ui_tool_visualization: true # Show tool calls in UI
-ui_token_counter: false # Show token usage
-ui_export_chat: true # Allow chat export
+ui_token_counter: true      # Show token usage
+ui_export_chat: true        # Allow chat export
 
-# Memory emergency controls (development rollback switches)
-memory_load_enabled: true # Enable load_memory_node retrieval path
-memory_update_enabled: true # Enable update_memory_node persistence path
-memory_co_occurrence_enabled: true # Enable co-occurrence tracking updates
-memory_digest_chain_enabled: true # Enable digest metadata propagation
+# Crew features (only relevant when multi_agent_crews: true)
+crew_result_caching: true
+crew_cache_ttl_seconds: 3600
+crew_result_validation: true
+crew_chaining: false
+crew_parallel_execution: false
+
+# Memory layer emergency rollback switches
+memory_load_enabled: true           # Enable load_memory_node retrieval path
+memory_update_enabled: true         # Enable update_memory_node persistence path
+memory_co_occurrence_enabled: true  # Enable co-occurrence tracking updates
+memory_digest_chain_enabled: true   # Enable digest metadata propagation
 ```
 
-**Feature dependencies (validated at startup):**
-
-```python
-FEATURE_DEPENDENCIES = {
-    "web_search": ["multi_agent_crews"],  # web_search requires crews
-    "ui_tool_visualization": ["multi_agent_crews"],
-}
-```
-
-**Disabling features:**
-
-- Reduces dependencies
-- Improves performance
-- Enhances security (e.g., disable web_search for compliance)
+**Deployment-global flags** (`ingestion_service`, `authentication`, `monitoring`) cannot be overridden in a profile overlay — only in `config/features.yaml`.
 
 **Memory emergency controls:**
 
@@ -541,53 +563,23 @@ FEATURE_DEPENDENCIES = {
 
 ---
 
-## Ingestion Configuration (`ingestion.yaml`)
+## Ingestion Configuration
 
-**Note:** Only required if `features.ingestion_service: true`
+**Note:** Only active if `features.ingestion_service: true`. Ingestion settings live under the `ingestion:` key inside `config/profiles/<profile_id>/core.yaml` — there is no separate `ingestion.yaml` file.
 
 ```yaml
+# config/profiles/starter/core.yaml
 ingestion:
-  enabled: true
-
-  source:
-    type: "filesystem" # Options: filesystem, s3
-    path: "/mnt/knowledge-sources" # Path to documents
-    watch: true # Auto-ingest new files
-
-  processing:
-    chunk_size: 512 # Characters per chunk
-    chunk_overlap: 50 # Overlap between chunks
-    language: "de" # Must match profile language
-
-  embedding:
-    model: "text-embedding-granite-embedding-278m-multilingual"
-    batch_size: 32 # Documents per batch
-
-  collections:
-    - name: "medical-ai-de-procedures"
-      description: "Clinical procedures and protocols"
-      file_patterns:
-        - "procedures_*.pdf"
-        - "protocols_*.md"
-      metadata:
-        category: "clinical"
-        priority: "high"
-
-    - name: "medical-ai-de-drugs"
-      description: "Medication database"
-      file_patterns:
-        - "drugs_*.csv"
-        - "medications_*.xlsx"
-      metadata:
-        category: "pharmaceutical"
-        priority: "medium"
-
-  validation:
-    language_detection: true # Detect and tag document language
-    reject_threshold: 0.8 # Threshold (not used for rejection as of 2026-01-22)
+  source_path: $RAG_DATA_PATH          # Path to document directory (env var)
+  language: "de"                        # Primary language for ingestion
+  language_threshold: 0.8              # Minimum language detection confidence
+  embedding_batch_size: 32             # Documents embedded per batch
+  upsert_batch_size: 128               # Vectors upserted per Qdrant batch
+  file_concurrency: 1                  # Parallel file processing workers
+  incremental_mode: true               # Skip unchanged files (hash-based)
+  phase_timing: true                   # Emit per-phase timing logs
+  reingest_timeout_seconds: 1800       # Timeout for full reingest via API
 ```
-
-**Note:** Language validation accepts all documents and tags chunks with detected language metadata. The `reject_threshold` is kept for backward compatibility but not used for rejection.
 
 **Supported file types:**
 
@@ -597,10 +589,14 @@ ingestion:
 - Markdown (`.md`, `.markdown`)
 - Text (`.txt`)
 
-**Collection naming convention:**
-`{profile-id}_{type}_{language}`
+**Collection naming:** The RAG collection is configured separately via `rag.collection_name` in the profile overlay (see RAG Retrieval Configuration above). Use the same value when running `steuermann ingest`.
 
-Example: `medical-ai-de-procedures`, `financial-ai-en-reports`
+**Running ingestion:**
+
+```bash
+poetry run steuermann ingest ingest --source ./data/rag-data --collection <name>
+poetry run steuermann ingest watch  --source ./data/rag-data --collection <name>
+```
 
 ---
 
@@ -700,10 +696,6 @@ CHAT_WORKSPACE_ENABLED=false
 CHAT_WORKSPACE_ROOT=
 CHAT_WORKSPACE_RETENTION_HOURS=24
 
-# Feature Flags (override YAML)
-FEATURE_MULTI_AGENT_CREWS=true
-FEATURE_WEB_SEARCH=false
-
 # Debug
 DEBUG=false
 LOG_LEVEL=INFO
@@ -727,20 +719,18 @@ LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=fa
 Example:
 
 ```yaml
-# base/core.yaml
-llm:
-  providers:
-    primary:
-      temperature: 0.7
+# config/core.yaml (base defaults — deployment-global only)
+tokens:
+  default_budget: 10000
 
-# config/profiles/medical-ai/core.yaml
-llm:
-  providers:
-    primary:
-      temperature: 0.3  # Overrides base
+# config/profiles/medical-ai/core.yaml (profile overlay)
+tokens:
+  default_budget: 15000    # Overrides base
 
-# .env
-LLM_TEMPERATURE=0.5  # Overrides both (if code supports this)
+llm:
+  roles:
+    chat:
+      temperature: 0.2     # Profile-specific temperature override
 ```
 
 ---
@@ -774,16 +764,16 @@ poetry run steuermann config contract-check --format json
 poetry run steuermann docs check --format json
 
 # Preview a profile-safe change without writing
-poetry run steuermann config set --profile starter --key core.llm.providers.ollama.temperature --value 0.6 --format json
+poetry run steuermann config set --profile starter --key core.llm.roles.chat.temperature --value 0.3 --format json
 
 # Persist a profile-safe change and run post-write validation
-poetry run steuermann config set --profile starter --key core.llm.providers.ollama.temperature --value 0.6 --apply --confirm APPLY --format json
+poetry run steuermann config set --profile starter --key core.llm.roles.chat.temperature --value 0.3 --apply --confirm APPLY --format json
 
 # Preview an unset operation without writing
-poetry run steuermann config unset --profile starter --key core.llm.providers.ollama.temperature --format json
+poetry run steuermann config unset --profile starter --key core.llm.roles.chat.temperature --format json
 
 # Persist an unset operation with post-write validation and rollback safeguards
-poetry run steuermann config unset --profile starter --key core.llm.providers.ollama.temperature --apply --confirm APPLY --format json
+poetry run steuermann config unset --profile starter --key core.llm.roles.chat.temperature --apply --confirm APPLY --format json
 ```
 
 When `--apply` is used without `--confirm APPLY`, interactive terminals prompt for confirmation.
@@ -817,14 +807,13 @@ fork:
   # ❌ Missing required 'language' field
 ```
 
-**Invalid provider type:**
+**Invalid model string:**
 
 ```yaml
 llm:
-  providers:
-    primary:
-      models:
-        en: "huggingface/gpt2" # ❌ Model string missing provider/ prefix or unsupported prefix
+  roles:
+    chat:
+      model: "gpt2" # ❌ Model string missing provider/ prefix (e.g. "openai/gpt-4o")
 ```
 
 **Embedding dimension mismatch:**
@@ -842,90 +831,142 @@ memory:
 
 ### Minimal Configuration (English, Local LLM)
 
+Split across the two files that the loader merges:
+
 ```yaml
-# config/core.yaml
-fork:
-  name: "simple-assistant"
-  language: "en"
-
-llm:
-  providers:
-    primary:
-      api_base: "http://host.docker.internal:11434"
-      models:
-        en: "ollama/llama-3.1-8b"
-
-memory:
-  vector_store:
-    type: "mem0"
-    host: "qdrant"
-    collection_prefix: "simple-assistant"
-  mem0:
-    search_limit: 10
-
+# config/core.yaml (deployment-global — database/memory/checkpointing only)
 database:
   url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
-
-tokens:
-  default_budget: 5000
-```
-
-### Production Configuration (German Medical AI)
-
-```yaml
-# config/core.yaml
-fork:
-  name: "medical-ai-de"
-  language: "de"
-  locale: "de_DE"
-  timezone: "Europe/Berlin"
-
-llm:
-  providers:
-    primary:
-      api_base: "http://host.docker.internal:11434"
-      models:
-        de: "ollama/llama-3.1-8b-german"
-      temperature: 0.3 # Lower for medical accuracy
-      max_tokens: 8192
-      timeout: 600
-
-    fallback:
-      api_base: "https://api.openai.com/v1"
-      api_key: "${OPENAI_API_KEY}"
-      models:
-        de: "openai/gpt-4o"
-      temperature: 0.2
 
 memory:
   vector_store:
     type: "mem0"
     host: "qdrant"
     port: 6333
-    collection_prefix: "medical-ai-de"
-
+    collection_prefix: "simple-assistant"
+  embeddings:
+    dimension: 768
   mem0:
     search_limit: 10
+```
 
+```yaml
+# config/profiles/simple-assistant/core.yaml (profile overlay)
+fork:
+  name: "simple-assistant"
+  language: "en"
+
+llm:
+  roles:
+    chat:
+      provider_id: "ollama"
+      api_base: "${LLM_PROVIDERS_OLLAMA_API_BASE}"
+      model: "ollama/llama-3.1-8b"
+      temperature: 0.7
+      max_tokens: 4096
+      timeout: 300
+    embedding:
+      provider_id: "ollama"
+      api_base: "${LLM_PROVIDERS_OLLAMA_API_BASE}"
+      model: "ollama/nomic-embed-text"
+      temperature: 0.0
+      timeout: 120
+    vision:
+      provider_id: "ollama"
+      api_base: "${LLM_PROVIDERS_OLLAMA_API_BASE}"
+      model: "ollama/llama-3.1-8b"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 300
+    auxiliary:
+      provider_id: "ollama"
+      api_base: "${LLM_PROVIDERS_OLLAMA_API_BASE}"
+      model: "ollama/llama-3.1-8b"
+      temperature: 0.2
+      max_tokens: 16384
+      timeout: 300
+  router:
+    routing_strategy: simple-shuffle
+    num_retries: 3
+    retry_after: 1
+
+tokens:
+  default_budget: 5000
+
+rag:
+  enabled: true
+  collection_name: "simple-assistant"
+  top_k: 5
+  score_threshold: 0.6
+```
+
+### Production Configuration (German Medical AI)
+
+```yaml
+# config/profiles/medical-ai-de/core.yaml
+fork:
+  name: "medical-ai-de"
+  language: "de"
+  locale: "de_DE"
+  timezone: "Europe/Berlin"
+  supported_languages: ["de", "en"]
+
+llm:
+  roles:
+    chat:
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/mistral/mistral-7b-instruct"
+      temperature: 0.2          # Lower for medical accuracy
+      max_tokens: 32768
+      timeout: 600
+    embedding:
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      temperature: 0.0
+      timeout: 300
+    vision:
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/mistral/mistral-7b-instruct"
+      temperature: 0.2
+      max_tokens: 2048
+      timeout: 600
+    auxiliary:
+      provider_id: "lmstudio"
+      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
+      model: "openai/mistral/mistral-7b-instruct"
+      temperature: 0.2
+      max_tokens: 32768
+      timeout: 600
+  router:
+    routing_strategy: simple-shuffle
+    num_retries: 3
+    retry_after: 1
+    fallbacks:
+      - {"openai/mistral/mistral-7b-instruct": ["openai/gpt-4o-mini"]}
+
+memory:
   embeddings:
-    model: "distiluse-base-multilingual-cased-v2"
-    dimension: 512
-
+    dimension: 768
+  mem0:
+    infer_enabled: true
   retention:
-    session_memory_days: 30 # HIPAA: shorter retention
+    session_memory_days: 30   # shorter retention for compliance
     user_memory_days: 90
 
-database:
-  url: "postgresql://framework:${POSTGRES_PASSWORD}@postgres:5432/medical_ai"
-  pool_size: 20
-  echo: false
+rag:
+  enabled: true
+  collection_name: "medical-ai-de"
+  top_k: 5
+  score_threshold: 0.6
 
 tokens:
   default_budget: 15000
-  per_node_budgets:
-    diagnosis_crew: 5000
-    treatment_crew: 4000
-    response_node: 2000
+  per_turn_budget_ratio: 0.4
+  response_reserve_ratio: 0.15
+  enforce_per_node_hard_limit: true
 ```
 
 ---

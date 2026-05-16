@@ -18,6 +18,8 @@ llm:
       temperature: 0.3
       max_tokens: 32768
       timeout: 600
+      # model_tool_calling:
+      #   openai/google/gemma-4-e4b: "native"  # enable when capability probe confirms support
     embedding:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE

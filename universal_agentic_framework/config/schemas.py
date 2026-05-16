@@ -121,10 +121,15 @@ class LLMRoleSettings(BaseModel):
     temperature: Optional[confloat(ge=0.0, le=2.0)] = None
     max_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
+    model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _normalize_models(self) -> "LLMRoleSettings":
         self.model = normalize_model_id(str(self.model))
+        if self.model_tool_calling:
+            self.model_tool_calling = {
+                normalize_model_id(k): v for k, v in self.model_tool_calling.items()
+            }
         return self
 
 
@@ -182,6 +187,7 @@ class LLMSettings(BaseModel):
                 "temperature": role_cfg.temperature if role_cfg.temperature is not None else 0.7,
                 "max_tokens": role_cfg.max_tokens,
                 "timeout": role_cfg.timeout,
+                "model_tool_calling": dict(role_cfg.model_tool_calling),
             }
 
         self.providers = LLMProviders.model_validate(provider_payload)
@@ -234,6 +240,7 @@ class LLMSettings(BaseModel):
                 "temperature": role.temperature if role.temperature is not None else 0.7,
                 "max_tokens": role.max_tokens,
                 "timeout": role.timeout,
+                "model_tool_calling": dict(role.model_tool_calling),
             }
         )
         return [(str(role.provider_id), provider, str(role.model))]

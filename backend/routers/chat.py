@@ -1109,6 +1109,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
         "llm_capability_probes": llm_capability_probes,
+        **({"session_id": request_body.conversation_id} if request_body.conversation_id else {}),
         "attachments": [
             {
                 "id": attachment["id"],
