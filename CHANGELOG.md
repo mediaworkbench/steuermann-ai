@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.5] — probe-hardening-session-continuity
+
+- **fix** `resolve_effective_tool_calling_mode()` now requires an exact `(provider_id, model_name)` match from probe results; previously fell back to any probe for the same provider when no exact match existed, silently applying the wrong model's capabilities
+- **feat** New reason code `probe_model_not_found_forced_structured` emitted when probe data exists for the provider but not the specific model — distinguishes "no probe at all" from "wrong model probed"
+- **feat** `LLMCapabilityProbeRunner.reprobe_for_model(model_name)` added — reprobes only providers whose configured model matches the given name; avoids a full reprobe on every model-change settings save
+- **fix** `_trigger_reprobe_on_model_change()` in `backend/routers/settings.py` now calls the curated `reprobe_for_model()` instead of a full `run()`, reducing probe latency on settings updates
+- **fix** `reprobe_model()` broken provider registry lookup fixed — was calling `llm_cfg.providers.get_registry()` which does not exist in the current flat role-based config schema
+- **fix** Probe metadata noise removed — unprobed fields (`supports_streaming`, `supports_json_mode`, confidence, origin) were being emitted as `null`/`"unknown"` and displayed in the Settings UI; now only `probe_kind` and `max_output_tokens` are included
+- **fix** `supports_tool_schema` removed from Settings capabilities detail panel — it was always identical to `supports_bind_tools` (both tested by the same `bind_tools()` call)
+- **feat** `count_tokens_for_model(model_name, text)` added to `universal_agentic_framework/llm/budget.py` using `litellm.token_counter()` with tiktoken model-aware counting; falls back to `estimate_tokens()` character approximation on exception
+- **fix** `respond_node` and `summarize_node` in `graph_builder.py` now use `count_tokens_for_model()` for input-token accounting instead of the character-estimate approximation
+- **feat** "Memories used" UI folded into MetricsPanel — the always-expanded `MemoryUsedList` above each assistant message is removed; memory count now appears as a chip in the collapsed MetricsPanel summary line and as an expandable section inside the panel body; no new CSS required
+- **fix** `POST /api/chat` now forwards `conversation_id` to LangGraph as `session_id` — the LangGraph checkpointer uses `session_id` as `thread_id`, so all turns within the same `conversation_id` now share graph state and conversation history; previously every request started a fresh thread regardless of `conversation_id`
+- **fix** E2E memory inference test (`tests/test_live_memory_inference_e2e.py`) hardened: stale-memory cleanup now covers both `SHORT_TOKEN` and `LONG_TOKEN` prefixes; conversation isolation uses dedicated UUIDs (`conv_store` for storage turns, `conv_recall` for cross-session recall); storage instruction framing improved for reliable Mem0 fact extraction; short-recall sleep increased to 2 s
+- **test** `tests/test_graph_builder_fallback.py` updated for simplified `invoke_with_model_fallback()` — replaced obsolete candidate-expansion-loop tests with error classification (generic error → `error_type="error"`) and LiteLLM context-window classification tests
+- **test** `tests/test_reprobe_triggers.py` updated to verify curated `reprobe_for_model()` behavior — mock exposes the method and assertions confirm curated reprobe is called (not a full run) on model change
+
 ## [0.2.4] — active-profile-provider-cutover
 
 - **break** Ingestion runtime settings now resolve from the active profile only; `.env`/Compose keep only deployment wiring, and `rag.collection_name` is now the single collection owner

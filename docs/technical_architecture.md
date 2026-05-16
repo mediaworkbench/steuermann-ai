@@ -202,6 +202,7 @@ class GraphState(TypedDict, total=False):
 - Runtime selection: `checkpointing` config block plus `CHECKPOINTER_*` env overrides
 - Enables conversation resumption across restarts
 - Per-session continuity via `configurable.thread_id = session_id` in `/invoke`
+- `session_id` is populated from the `conversation_id` field in `POST /api/chat` — the FastAPI adapter forwards it as `session_id` in the LangGraph request body; when no `conversation_id` is provided, the server generates `"{user_id}_{timestamp}"` as a single-use thread
 
 **Configuration:**
 
@@ -347,6 +348,10 @@ def _validate_and_log_tool_calling_mode(
     return is_valid, reason
 ```
 
+**Probe Lookup — Exact Match Required:**
+
+`resolve_effective_tool_calling_mode()` requires an exact `(provider_id, model_name)` match from the probe results table. If probe data exists for the provider but not for the specific model, it falls back to `structured` rather than silently using a different model's probe results.
+
 **Downgrade Logic:**
 
 Mode is downgraded from native → structured when:
@@ -354,7 +359,7 @@ Mode is downgraded from native → structured when:
 - `capability_mismatch` = true (probe detected `bind_tools()` not supported)
 - `status` ∈ {"warning", "error"} (probe execution failed or found issues)
 - `supports_bind_tools` = false (model doesn't support native tool binding)
-- No probe data available for configured provider (fallback to no-downgrade)
+- No probe data available for the exact `(provider_id, model_name)` pair
 
 Downgrade reason: `probe_capability_mismatch_downgrade`
 
@@ -367,6 +372,11 @@ Reason field propagates through entire pipeline:
 - `configured_native_no_probe` — native configured but no probe data (risky, proceed cautiously)
 - `probe_capability_mismatch_downgrade` — probe detected mismatch, downgraded to structured
 - `configured_native_probe_provider_not_found` — provider not found in probe results
+- `probe_model_not_found_forced_structured` — provider found in probe results but not the specific model
+
+**Curated Reprobe:**
+
+`LLMCapabilityProbeRunner.reprobe_for_model(model_name)` reprobes only the providers whose configured model matches the given name. The settings model-change trigger calls this instead of a full `run()`, avoiding unnecessary probes of unrelated models.
 
 **Benefits:**
 
@@ -590,6 +600,10 @@ def get_router_model(self, language: str) -> ChatLiteLLMRouter:
 ```
 
 ### **7.3 Token Budgeting**
+
+**Model-Aware Input Counting:**
+
+`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond and summarize nodes call this function (with the resolved model name) to account for pre-call input tokens before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
 
 **Per-Node Budget Enforcement:**
 
