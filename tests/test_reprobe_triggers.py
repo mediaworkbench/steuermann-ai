@@ -35,14 +35,14 @@ def probe_store(db_pool):
 
 class FakeLLMCapabilityProbeRunner:
     """Mock probe runner for testing."""
-    
+
     def __init__(self, profile_id=None, core_config=None):
         self.profile_id = profile_id or "test_profile"
         self.core_config = core_config
         self.reprobe_calls = []
-    
+
     def run(self):
-        """Return fake probe results."""
+        """Return fake probe results (full reprobe)."""
         self.reprobe_calls.append(("run", None))
         return [
             LLMCapabilityProbeResult(
@@ -56,9 +56,25 @@ class FakeLLMCapabilityProbeRunner:
                 status="ok",
             )
         ]
-    
+
+    def reprobe_for_model(self, model_name: str):
+        """Return fake probe result for the given model (curated reprobe)."""
+        self.reprobe_calls.append(("reprobe_for_model", model_name))
+        return [
+            LLMCapabilityProbeResult(
+                profile_id=self.profile_id,
+                provider_id="test_provider",
+                model_name=model_name,
+                configured_tool_calling_mode="native",
+                supports_bind_tools=True,
+                supports_tool_schema=True,
+                capability_mismatch=False,
+                status="ok",
+            )
+        ]
+
     def reprobe_model(self, provider_id: str, model_name: str):
-        """Return fake reprobe result for specific model."""
+        """Return fake reprobe result for specific provider+model."""
         self.reprobe_calls.append(("reprobe_model", provider_id, model_name))
         return LLMCapabilityProbeResult(
             profile_id=self.profile_id,
@@ -142,9 +158,10 @@ class TestReprobeTriggersOnSettingsChange:
         )
         assert response.status_code == 200
         
-        # Verify reprobe was called
+        # Verify curated reprobe was called for the specific new model
         assert len(fake_runner.reprobe_calls) > 0
-        assert fake_runner.reprobe_calls[0][0] == "run"  # Should have called run()
+        assert fake_runner.reprobe_calls[0][0] == "reprobe_for_model"
+        assert fake_runner.reprobe_calls[0][1] == "new-model"
     
     def test_no_reprobe_when_model_unchanged(self, client_with_mocks, probe_store):
         """No reprobe should run if preferred_model doesn't change."""
@@ -238,15 +255,16 @@ class TestReprobeTriggersOnSettingsChange:
         )
         assert response.status_code == 200
         
-        # Verify that reprobe was triggered (called fake_runner.run())
+        # Verify that curated reprobe was triggered for the new model
         assert len(fake_runner.reprobe_calls) > 0
+        assert fake_runner.reprobe_calls[0][0] == "reprobe_for_model"
     
     def test_reprobe_failure_doesnt_block_settings_update(self, client_with_mocks):
         """Settings update should succeed even if reprobe fails."""
         client, fake_runner = client_with_mocks
         
-        # Make reprobe fail
-        fake_runner.run = MagicMock(side_effect=Exception("Probe failed"))
+        # Make curated reprobe fail
+        fake_runner.reprobe_for_model = MagicMock(side_effect=Exception("Probe failed"))
         
         # Update settings with model change - should still succeed
         response = client.post(

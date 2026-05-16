@@ -126,7 +126,7 @@ def _get_probe_store(request: Request) -> Optional[LLMCapabilityProbeStore]:
 
 
 def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
-    """Trigger curated reprobe when user selects a new preferred model."""
+    """Trigger curated reprobe for the specific model the user switched to."""
     probe_store = _get_probe_store(request)
     if not probe_store:
         logger.debug("Probe store unavailable; skipping reprobe trigger")
@@ -135,17 +135,20 @@ def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
     try:
         profile_id = get_active_profile_id()
         runner = LLMCapabilityProbeRunner(profile_id=profile_id)
-        
-        # Run full reprobe to detect which provider the model is configured for
-        # This is simpler than trying to parse provider IDs from model names
-        results = runner.run()
-        
-        # Persist all reprobe results
+        results = runner.reprobe_for_model(new_model)
+
+        if not results:
+            logger.info(
+                "Reprobe skipped: model not in current config",
+                extra={"profile_id": profile_id, "new_model": new_model},
+            )
+            return
+
         for result in results:
             probe_store.upsert_probe_result(result)
-        
+
         logger.info(
-            "Reprobe triggered on preferred model change",
+            "Curated reprobe completed on preferred model change",
             extra={
                 "profile_id": profile_id,
                 "new_model": new_model,

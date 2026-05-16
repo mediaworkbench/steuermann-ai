@@ -47,16 +47,25 @@ class LLMCapabilityProbeRunner:
             results.append(self._probe_target(target))
         return results
 
-    def reprobe_model(self, provider_id: str, model_name: str) -> LLMCapabilityProbeResult:
-        """Reprobe a specific provider+model combination (curated reprobe)."""
-        llm_cfg = self._core_config.llm
-        registry = llm_cfg.providers.get_registry()
-        provider = registry.get(provider_id)
-        if provider is None:
-            raise ValueError(f"Unknown provider_id: {provider_id}")
+    def reprobe_for_model(self, model_name: str) -> list[LLMCapabilityProbeResult]:
+        """Reprobe only the targets whose model_name matches (curated reprobe).
 
-        target = ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name)
-        return self._probe_target(target)
+        Returns an empty list when the model is not found in the current config.
+        """
+        from universal_agentic_framework.llm.provider_registry import normalize_model_id
+        normalized = normalize_model_id(model_name)
+        matching = [t for t in self._collect_targets() if normalize_model_id(t.model_name) == normalized]
+        return [self._probe_target(t) for t in matching]
+
+    def reprobe_model(self, provider_id: str, model_name: str) -> LLMCapabilityProbeResult:
+        """Reprobe a specific provider+model combination by explicit provider_id."""
+        llm_cfg = self._core_config.llm
+        role_chain = llm_cfg.get_role_provider_chain_with_models("chat", self._core_config.fork.language)
+        for pid, provider, _ in role_chain:
+            if str(pid) == provider_id:
+                target = ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name)
+                return self._probe_target(target)
+        raise ValueError(f"Unknown provider_id: {provider_id}")
 
     def _collect_targets(self) -> list[ProbeTarget]:
         """Collect all unique (provider_id, model_name) pairs across all roles except embedding."""
@@ -115,21 +124,7 @@ class LLMCapabilityProbeRunner:
         api_base = str(api_base_raw) if api_base_raw else None
         metadata = {
             "probe_kind": "native_bind_tools" if tool_mode == "native" else "non_native_mode",
-            "capabilities": {
-                "max_output_tokens": getattr(target.provider, "max_tokens", None),
-                "supports_streaming": None,
-                "supports_json_mode": None,
-            },
-            "confidence": {
-                "max_output_tokens": "medium",
-                "supports_streaming": "low",
-                "supports_json_mode": "low",
-            },
-            "origin": {
-                "max_output_tokens": "config",
-                "supports_streaming": "unknown",
-                "supports_json_mode": "unknown",
-            },
+            "max_output_tokens": getattr(target.provider, "max_tokens", None),
         }
 
         if tool_mode != "native":

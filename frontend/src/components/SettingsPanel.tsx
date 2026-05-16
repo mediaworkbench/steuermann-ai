@@ -539,10 +539,6 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                                 <span>{item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}</span>
                               </div>
                               <div>
-                                <span className="font-semibold">{t("settingsPanel.detailToolSchema")}: </span>
-                                <span>{item.supports_tool_schema === null ? t("metrics.na") : String(item.supports_tool_schema)}</span>
-                              </div>
-                              <div>
                                 <span className="font-semibold">{t("settingsPanel.detailMismatch")}: </span>
                                 <span>{String(item.capability_mismatch)}</span>
                               </div>

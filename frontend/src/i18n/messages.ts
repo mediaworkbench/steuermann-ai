@@ -138,7 +138,6 @@ export type Messages = {
     detailApiBase: string;
     detailError: string;
     detailBindTools: string;
-    detailToolSchema: string;
     detailMismatch: string;
     detailMetadata: string;
     capabilityModel: string;
@@ -555,7 +554,6 @@ export const messages: Record<Locale, Messages> = {
       detailApiBase: "API base",
       detailError: "Probe error",
       detailBindTools: "Supports bind_tools",
-      detailToolSchema: "Supports tool schema",
       detailMismatch: "Capability mismatch",
       detailMetadata: "Raw metadata",
       capabilityModel: "Model",
@@ -971,7 +969,6 @@ export const messages: Record<Locale, Messages> = {
       detailApiBase: "API-Basis",
       detailError: "Probe-Fehler",
       detailBindTools: "Unterstutzt bind_tools",
-      detailToolSchema: "Unterstutzt Tool-Schema",
       detailMismatch: "Fahigkeitskonflikt",
       detailMetadata: "Roh-Metadaten",
       capabilityModel: "Modell",
