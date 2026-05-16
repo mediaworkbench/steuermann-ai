@@ -136,8 +136,6 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **Automatic mode downgrade** — detects if a model doesn't support native tool calling and automatically falls back to structured mode without breaking the conversation flow
 - **Multi-provider LLM support** — role-based provider chains with automatic fallback and LiteLLM router policy, owned by `config/profiles/<profile_id>/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
 - **Tool-calling mode enforcement** — mode validation ensures consistency across all tool routing layers (prefilter, routing decision, and Layer 2 invocation nodes)
-- **Tool sandboxing** with permission-based access control
-- **Per-tool rate limiting** with sliding window enforcement
 - **Profile-level tool configuration** — enable, disable, or reconfigure tools per deployment profile
 
 ### Multilingual Support
@@ -203,7 +201,6 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 - **Bearer token boundary** between Next.js and FastAPI (`CHAT_ACCESS_TOKEN`)
 - **Network isolation by default** — Qdrant, Prometheus, PostgreSQL, and Redis are only accessible within the Docker network; only the frontend and API are exposed to the host
 - **Per-user rate limiting** enabled by default
-- **Tool sandboxing** with permission-based access control
 - **No implicit data exfiltration** — all provider endpoints are explicit profile configuration; local-only operation is supported
 - **CORS configuration** with allowlisted origins
 

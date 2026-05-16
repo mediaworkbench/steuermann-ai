@@ -58,7 +58,7 @@ config_schema:                     # Configurable parameters
     default: "default_value"
     description: "What this param controls"
 
-permissions:                       # Used by sandbox
+permissions:                       # Declared capabilities (informational)
   - "system:compute"
 
 cost_per_call: 0.0                 # For cost tracking
@@ -265,78 +265,6 @@ For common patterns, intent detection **boosts** a tool's similarity score (does
 - Be specific about capabilities
 - Write descriptions in all supported languages (en, de, fr)
 - Test with embedding similarity to verify scoring
-
----
-
-## Security: Sandbox & Rate Limiting
-
-### Tool Sandbox (`tools/sandbox.py`)
-
-The `ToolSandbox` wraps tool execution with:
-
-- **Permission checks**: Tools declare required permissions in `tool.yaml`; sandbox verifies policy allows them
-- **Timeout enforcement**: ThreadPoolExecutor-based with configurable per-call timeout
-- **Output size limits**: Prevents tools from returning excessively large outputs
-- **Concurrent execution cap**: Limits parallel tool calls
-- **Path restrictions**: Blocks access to sensitive filesystem paths
-
-```python
-from universal_agentic_framework.tools import ToolSandbox, SandboxPolicy, Permission
-
-# Custom policy
-policy = SandboxPolicy(
-    allowed_permissions={Permission.SYSTEM_TIME.value, Permission.SYSTEM_COMPUTE.value},
-    max_execution_time=10.0,
-    max_output_size=524288,
-    max_concurrent=3,
-    denied_paths=["/etc/shadow", "~/.ssh"],
-)
-
-sandbox = ToolSandbox(policy=policy)
-result = sandbox.execute(
-    tool_name="calculator_tool",
-    func=calc._run,
-    kwargs={"operation": "evaluate", "expression": "2+2"},
-    required_permissions=["system:compute"],
-)
-print(result.success, result.output)
-```
-
-### Permission categories
-
-| Permission | Scope |
-| ----------- | ------- |
-| `system:time` | Date/time operations |
-| `system:compute` | CPU-intensive math |
-| `filesystem:read` | Read files |
-| `filesystem:write` | Write files |
-| `network:http` | External HTTP calls |
-| `network:internal` | Internal service calls |
-
-### Rate Limiter (`tools/rate_limiter.py`)
-
-Sliding-window rate limiter with three levels:
-
-```python
-from universal_agentic_framework.tools import ToolRateLimiter, RateLimitConfig
-
-limiter = ToolRateLimiter(RateLimitConfig(
-    global_max_calls=100,         # All tools combined
-    global_window_seconds=60,
-    per_tool_max_calls=20,        # Per individual tool
-    per_tool_window_seconds=60,
-    per_user_max_calls=30,        # Per user
-    per_user_window_seconds=60,
-))
-
-# Before executing a tool:
-check = limiter.check("calculator_tool", user_id="user123")
-if check.allowed:
-    # execute tool
-    limiter.record("calculator_tool", user_id="user123")
-else:
-    print(f"Rate limited: {check.reason}, retry after {check.retry_after_seconds}s")
-```
 
 ---
 

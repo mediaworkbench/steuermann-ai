@@ -702,7 +702,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
 - **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt; Research Crew Searcher task receives `current_date` / `current_year` as kickoff inputs.
 
-→ **Implementation details, security sandbox, rate limiter:** [Tool Development Guide](tool_development_guide.md)
+→ **Implementation details:** [Tool Development Guide](tool_development_guide.md)
 
 ---
 
@@ -716,7 +716,7 @@ Tools are discovered via a hybrid approach:
 
 Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, permissions, and cost estimates in its `tool.yaml` manifest.
 
-→ **Full guide (creating tools, manifests, MCP servers, routing, sandbox, testing):** [Tool Development Guide](tool_development_guide.md)
+→ **Full guide (creating tools, manifests, MCP servers, routing, testing):** [Tool Development Guide](tool_development_guide.md)
 
 ---
 

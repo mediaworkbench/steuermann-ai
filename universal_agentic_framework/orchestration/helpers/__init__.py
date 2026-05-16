@@ -30,24 +30,10 @@ from .text_processing import (
 from .intent_detection import detect_tool_routing_intents
 
 # Tool scoring
-from .tool_scoring import (
-    score_tool_similarity,
-    build_semantic_tool_kwargs as build_prefilter_tool_kwargs,
-)
-
-# Semantic execution
-from .semantic_execution import (
-    extract_calculator_expression,
-    build_semantic_tool_kwargs,
-    run_forced_tool,
-    execute_semantic_scored_tools,
-)
+from .tool_scoring import score_tool_similarity
 
 # Tool preparation
-from .tool_preparation import (
-    prepare_scored_tools_with_forced_execution,
-    apply_top_k_scored_tools,
-)
+from .tool_preparation import apply_top_k_scored_tools
 
 # Embedding provider
 from .embedding_provider import (
@@ -90,14 +76,7 @@ __all__ = [
     "detect_tool_routing_intents",
     # Tool scoring
     "score_tool_similarity",
-    "build_prefilter_tool_kwargs",
-    # Semantic execution
-    "extract_calculator_expression",
-    "build_semantic_tool_kwargs",
-    "run_forced_tool",
-    "execute_semantic_scored_tools",
     # Tool preparation
-    "prepare_scored_tools_with_forced_execution",
     "apply_top_k_scored_tools",
     # Embedding provider
     "get_routing_embedding_provider",

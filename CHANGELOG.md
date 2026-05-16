@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.6] — tool-system-refactor
+
+- **refactor** Removed dead `node_route_tools` function (~155 lines) from `graph_builder.py` — it was defined but never registered with `add_node()` and had been superseded by the three-layer tool system (Layer 1 prefilter → Layer 2 LLM-driven calling → Layer 3 schema validation)
+- **refactor** Removed helper infrastructure that was only used by the dead `node_route_tools`: `run_forced_tool`, `execute_semantic_scored_tools`, `build_semantic_tool_kwargs`, `prepare_scored_tools_with_forced_execution` (~300 lines across `semantic_execution.py` and `tool_preparation.py`)
+- **refactor** Deleted `universal_agentic_framework/tools/sandbox.py` (254 lines) and `universal_agentic_framework/tools/rate_limiter.py` (242 lines) — both were fully implemented but never integrated into any execution path; sandbox/rate-limit enforcement can be added at integration time if ever needed
+- **fix** `node_call_tools_native` no longer re-runs `detect_tool_routing_intents()` — it now reads `state["prefilter_intents"]` populated by `node_prefilter_tools` in Layer 1, eliminating a redundant embedding + regex pass per request
+- **fix** `url_in_query` regex tightened: requires full URL scheme (`https?://`), explicit `www.` prefix, or a path segment on a bare domain — version strings (`v1.2`), file extensions (`.py`, `.json`), and email domains no longer trigger URL extraction
+- **fix** `mentions_web_search` trigger narrowed: bare `search` and `find` removed; now requires explicit phrasing (`search the web`, `search for`, `look up`, `google`) to avoid false positives on `find the bug in my code` or generic `search` usage
+- **improve** Tool YAML descriptions enriched for `calculator_tool`, `datetime_tool`, and `file_ops_tool` — added natural-language trigger synonyms in EN/DE/FR to improve cosine similarity scoring at Layer 1
+- **test** Removed ~350 lines of dead tests: `TestSemanticKwargsBuilder`, `TestCalculatorExpressionExtraction`, `TestForcedToolExecutionHelper` (tested deleted functions); `TestToolSandbox`, `TestSlidingWindow`, `TestToolRateLimiter` (tested deleted files); `test_helper_namespace_exports.py` (tested deleted namespace distinction)
+- **test** Fixed 3 URL-fallback tests in `test_semantic_tool_routing.py` to supply `prefilter_intents` in state, matching the updated `node_call_tools_native` contract
+- **docs** Removed "Security: Sandbox & Rate Limiting" section from `docs/tool_development_guide.md` (referenced deleted `sandbox.py` and `rate_limiter.py` with dead code examples)
+
 ## [0.2.5] — probe-hardening-session-continuity
 
 - **fix** `resolve_effective_tool_calling_mode()` now requires an exact `(provider_id, model_name)` match from probe results; previously fell back to any probe for the same provider when no exact match existed, silently applying the wrong model's capabilities

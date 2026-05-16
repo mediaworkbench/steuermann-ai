@@ -108,11 +108,6 @@ from universal_agentic_framework.orchestration.helpers import (
     build_workspace_document_context_block,
     detect_tool_routing_intents,
     score_tool_similarity,
-    extract_calculator_expression,
-    build_semantic_tool_kwargs,
-    run_forced_tool,
-    execute_semantic_scored_tools,
-    prepare_scored_tools_with_forced_execution,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
     safe_get_model,
@@ -498,164 +493,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
     return state
 
 
-def node_route_tools(state: GraphState) -> GraphState:
-    """Semantic tool routing: score user query against tool descriptions and auto-execute matching tools.
-    
-    Model-agnostic approach: works with any LLM, regardless of native tool-calling support.
-    Uses cosine similarity + keyword heuristics for tool selection.
-    Results injected into context for LLM.
-    """
-    config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
-    
-    loaded_tools = state.get("loaded_tools", [])
-    user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
-    
-    if not loaded_tools or not user_msg:
-        state["tool_results"] = {}
-        state["tool_execution_results"] = {}
-        return state
-    
-    logger.info("Routing tools semantically", fork_name=fork_name, tools_count=len(loaded_tools), query_length=len(user_msg))
-    
-    with track_node_execution(fork_name, "route_tools"):
-        try:
-            import re
-
-            # Skip tool routing for short greeting-only inputs
-            greeting_pattern = r"^\s*(hi|hello|hey|hallo|servus|moin|guten\s+(tag|morgen|abend))\s*[!.?]*\s*$"
-            if re.match(greeting_pattern, user_msg.lower()):
-                logger.info("Skipping tool routing for greeting query")
-                state["tool_results"] = {}
-                state["tool_execution_results"] = {}
-                return state
-            
-            embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
-            
-            # Embed user query
-            query_embedding = embedding_provider.encode(user_msg)
-            logger.info("Tool routing: query embedded", embedding_size=len(query_embedding))
-            
-            tool_results: Dict[str, str] = {}
-            tool_execution_results: Dict[str, Dict[str, Any]] = {}
-            similarity_threshold = getattr(getattr(config, "tool_routing", None), "similarity_threshold", 0.3)
-            top_k = getattr(getattr(config, "tool_routing", None), "top_k", None)
-            timezone = getattr(getattr(config, "fork", None), "timezone", None)
-            routing_language = state.get("language") or getattr(config.fork, "language", "en")
-
-            intents = detect_tool_routing_intents(
-                user_msg=user_msg,
-                language=routing_language,
-            )
-            search_language = intents["search_language"]
-            search_region = intents["search_region"]
-            mentions_datetime = intents["mentions_datetime"]
-            mentions_calculation = intents["mentions_calculation"]
-            mentions_file_ops = intents["mentions_file_ops"]
-            mentions_web_search = intents.get("mentions_web_search", False)
-            url_in_query = intents["url_in_query"]
-            if intents["asks_about_tools"]:
-                logger.info("Meta-question detected: skipping tool execution", ask_topic="available_tools")
-                state["tool_results"] = {}
-                state["tool_execution_results"] = {}
-                return state
-            wants_save_to_rag = intents["wants_save_to_rag"]
-            enhanced_web_query = intents["enhanced_web_query"]
-            requested_web_results = intents["requested_web_results"]
-
-            # ── Tool scoring & execution ────────────────────────────────
-
-            executed_forced = set()
-            routing_metadata = {}  # Track why each tool was selected
-            def _score_tool_adapter(**kwargs):
-                return score_tool_similarity(
-                    embedding_model_name=kwargs.get("embedding_model_name", embedding_model_name),
-                    tool_name=kwargs.get("tool_name", "unknown"),
-                    tool_desc=kwargs.get("tool_desc", ""),
-                    embedding_provider=kwargs.get("embedding_provider", embedding_provider),
-                    query_embedding=kwargs.get("query_embedding", query_embedding),
-                )
-
-            scored_tools = prepare_scored_tools_with_forced_execution(
-                loaded_tools=loaded_tools,
-                config=config,
-                user_msg=user_msg,
-                embedding_model_name=embedding_model_name,
-                embedding_provider=embedding_provider,
-                query_embedding=query_embedding,
-                similarity_threshold=similarity_threshold,
-                mentions_datetime=mentions_datetime,
-                mentions_calculation=mentions_calculation,
-                mentions_file_ops=mentions_file_ops,
-                mentions_web_search=mentions_web_search,
-                enhanced_web_query=enhanced_web_query,
-                requested_web_results=requested_web_results,
-                search_region=search_region,
-                url_in_query=url_in_query,
-                wants_save_to_rag=wants_save_to_rag,
-                tool_results=tool_results,
-                tool_execution_results=tool_execution_results,
-                routing_metadata=routing_metadata,
-                executed_forced=executed_forced,
-                score_tool_func=_score_tool_adapter,
-            )
-
-            scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
-
-            # Score-spread gate: when all tools score similarly the query is
-            # not tool-specific (e.g. casual greetings).  Only apply the gate
-            # when no forced tool was already executed (forced tools bypass
-            # similarity entirely) and when there are enough tools to measure
-            # spread meaningfully.
-            if len(scored_tools) >= 3 and not executed_forced:
-                scores = [s for _, s in scored_tools]
-                max_score = max(scores)
-                mean_score = sum(scores) / len(scores)
-                spread = max_score - mean_score
-                min_spread = 0.05  # Empirically tuned: tool queries show spread > 0.08
-                if spread < min_spread:
-                    logger.info(
-                        "Score-spread gate: all tools scored similarly, skipping semantic execution",
-                        max_score=round(max_score, 4),
-                        mean_score=round(mean_score, 4),
-                        spread=round(spread, 4),
-                        min_spread=min_spread,
-                    )
-                    scored_tools = []
-
-            execute_semantic_scored_tools(
-                scored_tools=scored_tools,
-                similarity_threshold=similarity_threshold,
-                executed_forced=executed_forced,
-                mentions_calculation=mentions_calculation,
-                mentions_datetime=mentions_datetime,
-                mentions_file_ops=mentions_file_ops,
-                user_msg=user_msg,
-                url_in_query=url_in_query,
-                wants_save_to_rag=wants_save_to_rag,
-                enhanced_web_query=enhanced_web_query,
-                requested_web_results=requested_web_results,
-                search_language=search_language,
-                search_region=search_region,
-                timezone=timezone,
-                tool_results=tool_results,
-                tool_execution_results=tool_execution_results,
-                routing_metadata=routing_metadata,
-            )
-            
-            state["tool_results"] = tool_results
-            state["tool_execution_results"] = tool_execution_results
-            state["routing_metadata"] = routing_metadata
-            logger.info("Tool routing completed", tools_executed=len(tool_results))
-            
-        except Exception as e:
-            logger.error("Tool routing failed", error=str(e), exc_info=True)
-            state["tool_results"] = {}
-            state["tool_execution_results"] = {}
-    
-    return state
-
-
 def node_call_tools_native(state: GraphState) -> GraphState:
     """Layer 2 (native): Bind candidate tools to LLM, let model decide which to call.
 
@@ -691,9 +528,9 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     if not user_msg:
         return state
 
-    native_intents = detect_tool_routing_intents(user_msg, state.get("language", "en"))
-    url_in_query = native_intents.get("url_in_query")
-    wants_save_to_rag = bool(native_intents.get("wants_save_to_rag"))
+    prefilter_intents = state.get("prefilter_intents") or {}
+    url_in_query = prefilter_intents.get("url_in_query")
+    wants_save_to_rag = bool(prefilter_intents.get("wants_save_to_rag"))
 
     logger.info(
         "Layer 2 native tool calling",
