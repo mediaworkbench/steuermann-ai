@@ -208,42 +208,6 @@ function DocumentUsedBadges({
   );
 }
 
-function MemoryUsedList({
-  memories,
-}: {
-  memories?: Array<{
-    memory_id: string;
-    text?: string;
-    user_rating?: number | null;
-    importance_score?: number | null;
-    is_related?: boolean;
-  }>;
-}) {
-  if (!memories || memories.length === 0) return null;
-
-  return (
-    <div className="mt-2 px-1 w-full max-w-3xl">
-      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-evergreen/45">Memories used</div>
-      <div className="space-y-1.5">
-        {memories.map((memory) => (
-          <div
-            key={memory.memory_id}
-            className="rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-xs text-evergreen/70">{memory.text || memory.memory_id}</div>
-              <div className="mt-0.5 text-[11px] text-evergreen/45">
-                {memory.is_related ? "Related" : "Primary"}
-                {typeof memory.importance_score === "number" ? ` • score ${memory.importance_score.toFixed(2)}` : ""}
-                {typeof memory.user_rating === "number" ? ` • rated ${memory.user_rating}/5` : ""}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Generate a concise conversation title from the first user message. */
 function generateTitle(message: string): string {
@@ -982,9 +946,6 @@ function AssistantMessage({
 
         {/* Workspace document context badges */}
         <DocumentUsedBadges documents={message.metrics?.documents_used} />
-
-        {/* Memory context list + rating controls */}
-        <MemoryUsedList memories={message.metrics?.memories_used} />
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">

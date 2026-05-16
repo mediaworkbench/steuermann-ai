@@ -46,6 +46,20 @@ def test_live_memory_short_and_long_term_inference() -> None:
         return payload
 
     with httpx.Client(timeout=120.0) as client:
+        # Clear stale LONG_TOKEN memories from previous runs to prevent recall contamination.
+        stale = client.get(
+            f"{base_url}/api/memories",
+            headers={"x-chat-token": chat_token},
+            params={"query": "LONG_TOKEN", "limit": 50, "include_related": "false"},
+        )
+        if stale.status_code == 200:
+            for item in (stale.json().get("items") or []):
+                if "LONG_TOKEN" in str(item.get("text") or ""):
+                    client.delete(
+                        f"{base_url}/api/memories/{item['memory_id']}",
+                        headers={"x-chat-token": chat_token},
+                    )
+
         _ = chat(
             client,
             f"For short-term memory verification, remember this exact token: {short_token}. Reply only with ACK_SHORT.",
