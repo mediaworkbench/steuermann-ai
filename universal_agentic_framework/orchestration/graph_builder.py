@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from langgraph.graph import START, StateGraph
 
 from universal_agentic_framework.llm.budget import (
+    count_tokens_for_model,
     estimate_tokens,
     TokenBudgetExceeded,
     get_budget_context,
@@ -1475,7 +1476,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         if isinstance(msg, dict) and msg.get("role") == "user":
             user_msg = msg.get("content", "")
             break
-    input_tokens = estimate_tokens(user_msg)
+    input_tokens = count_tokens_for_model(model_name, user_msg)
     require_tokens(input_tokens, available_response_budget, "Response input")
     
     # Build context-aware prompt with clear role definition.
@@ -2259,7 +2260,7 @@ def node_summarize(state: GraphState) -> GraphState:
     enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
     available_budget = min(sum_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
 
-    input_tokens = estimate_tokens(prompt)
+    input_tokens = count_tokens_for_model(model_name, prompt)
     require_tokens(input_tokens, available_budget, "Summarization input")
 
     with track_node_execution(fork_name, "summarize"):

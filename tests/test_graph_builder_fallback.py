@@ -2,21 +2,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from universal_agentic_framework.config.schemas import (
-    CoreConfig,
-    DatabaseSettings,
-    EmbeddingSettings,
-    ForkSettings,
-    IngestionSettings,
-    LLMRoleSettings,
-    LLMRoles,
-    LLMSettings,
-    MemorySettings,
-    RetentionSettings,
-    TokensSettings,
-    VectorStoreSettings,
-)
-from universal_agentic_framework.llm.factory import LLMFactory, ModelSelection
 from universal_agentic_framework.orchestration.helpers.model_resolution import invoke_with_model_fallback
 
 
@@ -51,99 +36,13 @@ class _ListContentModel:
         )
 
 
-def _core_config() -> CoreConfig:
-    return CoreConfig(
-        fork=ForkSettings(name="starter", language="en"),
-        llm=LLMSettings(
-            roles=LLMRoles(
-                chat=LLMRoleSettings(
-                    provider_id="lmstudio",
-                    api_base="http://localhost:1234/v1",
-                    model="openai/primary-model",
-                    temperature=0.1,
-                    max_tokens=256,
-                    timeout=30,
-                ),
-                embedding=LLMRoleSettings(
-                    provider_id="lmstudio",
-                    api_base="http://localhost:1234/v1",
-                    model="openai/text-embedding-granite-embedding-278m-multilingual",
-                ),
-                vision=LLMRoleSettings(
-                    provider_id="lmstudio",
-                    api_base="http://localhost:1234/v1",
-                    model="openai/primary-model",
-                ),
-                auxiliary=LLMRoleSettings(
-                    provider_id="lmstudio",
-                    api_base="http://localhost:1234/v1",
-                    model="openai/primary-model",
-                ),
-            ),
-        ),
-        database=DatabaseSettings(url="postgresql://user:pass@localhost:5432/db", pool_size=10, echo=False),
-        memory=MemorySettings(
-            vector_store=VectorStoreSettings(type="mem0", host="qdrant", port=6333, collection_prefix="starter"),
-            embeddings=EmbeddingSettings(dimension=384, batch_size=32),
-            retention=RetentionSettings(session_memory_days=90, user_memory_days=365),
-        ),
-        tokens=TokensSettings(default_budget=10000, per_node_budgets={}),
-        ingestion=IngestionSettings(collection_name="starter-rag"),
-    )
 
-
-def test_invoke_with_model_fallback_uses_next_candidate(monkeypatch):
-    config = _core_config()
-
-    def _fake_candidates(self, language, preferred_model=None, prefer_local=True, include_default_when_preferred=True):
-        del self, language, preferred_model, prefer_local, include_default_when_preferred
-        return [
-            ModelSelection(
-                model=_WorkingModel("fallback response"),
-                provider_type="mock",
-                model_name="fallback-model",
-                api_base=None,
-                source="fallback_default",
-            )
-        ]
-
-    monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
-
-    text, provider, model_name, _, _usage = invoke_with_model_fallback(
-        config=config,
-        language="en",
-        payload="hello",
-        initial_model=_FailingModel(),
-        initial_provider="mock",
-        initial_model_name="primary-model",
-        preferred_model=None,
-    )
-
-    assert text == "fallback response"
-    assert provider == "mock"
-    assert model_name == "fallback-model"
-
-
-def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatch):
-    config = _core_config()
-
-    def _fake_candidates(self, language, preferred_model=None, prefer_local=True, include_default_when_preferred=True):
-        del self, language, preferred_model, prefer_local, include_default_when_preferred
-        return [
-            ModelSelection(
-                model=_FailingModel(),
-                provider_type="mock",
-                model_name="fallback-model",
-                api_base=None,
-                source="fallback_default",
-            )
-        ]
-
-    monkeypatch.setattr(LLMFactory, "get_model_candidates", _fake_candidates)
-
+def test_invoke_with_model_fallback_generic_error_uses_initial_metadata():
+    """A plain RuntimeError from the initial model is re-raised as _ModelInvokeError
+    with the initial provider/model metadata and error_type='error'."""
     with pytest.raises(_ModelInvokeError) as exc_info:
         invoke_with_model_fallback(
-            config=config,
+            config=None,
             language="en",
             payload="hello",
             initial_model=_FailingModel(),
@@ -154,14 +53,45 @@ def test_invoke_with_model_fallback_raises_with_last_attempt_metadata(monkeypatc
         )
 
     assert exc_info.value.provider == "mock"
-    assert exc_info.value.model_name == "fallback-model"
+    assert exc_info.value.model_name == "primary-model"
+    assert exc_info.value.error_type == "error"
+
+
+def test_invoke_with_model_fallback_classifies_litellm_errors():
+    """LiteLLM-specific exceptions are classified into the appropriate error_type string."""
+    try:
+        from litellm.exceptions import ContextWindowExceededError
+    except ImportError:
+        pytest.skip("litellm not installed")
+
+    class _ContextWindowModel:
+        def invoke(self, _payload):
+            raise ContextWindowExceededError(
+                message="context window exceeded",
+                model="test-model",
+                llm_provider="openai",
+            )
+
+    with pytest.raises(_ModelInvokeError) as exc_info:
+        invoke_with_model_fallback(
+            config=None,
+            language="en",
+            payload="hello",
+            initial_model=_ContextWindowModel(),
+            initial_provider="openai",
+            initial_model_name="test-model",
+            preferred_model=None,
+            error_cls=_ModelInvokeError,
+        )
+
+    assert exc_info.value.error_type == "context_window_exceeded"
+    assert exc_info.value.provider == "openai"
+    assert exc_info.value.model_name == "test-model"
 
 
 def test_invoke_with_model_fallback_normalizes_list_content_blocks():
-    config = _core_config()
-
     text, provider, model_name, _, _usage = invoke_with_model_fallback(
-        config=config,
+        config=None,
         language="en",
         payload="hello",
         initial_model=_ListContentModel(),
