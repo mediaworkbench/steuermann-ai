@@ -1502,13 +1502,13 @@ def node_generate_response(state: GraphState) -> GraphState:
     if tool_results:
         tool_context_lines = []
         for tool_name, result in tool_results.items():
-            # Add routing reason if available
             reason = routing_metadata.get(tool_name, "semantic match")
-            tool_header = f"[Tool: {tool_name} | Reason: {reason}]"
+            tool_header = f"Tool: {tool_name} (via {reason})\nResult:"
 
             envelope = tool_execution_results.get(tool_name, {})
-            summary = envelope.get("summary")
-            rendered = summary if summary else result
+            # Use full output_text (not the 300-char summary) so models have enough content
+            full_result = envelope.get("output_text") or result
+            rendered = str(full_result)[:8000]
             tool_context_lines.append(f"{tool_header}\n{rendered}")
         
         tool_context = "\n\n".join(tool_context_lines)
@@ -1741,6 +1741,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             original_text = response_text
             response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
             response_text = re.sub(r"<\|[^|>]+\|>", "", response_text)
+            # Strip bare "[Tool Result]" placeholder that some models emit when confused by tool headers
+            response_text = re.sub(r"^\s*\[Tool Result\]\s*$", "", response_text, flags=re.MULTILINE)
             response_text = response_text.strip()
 
             if response_text != original_text:
