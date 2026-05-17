@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.7] — tool-quality-improvements
+
+- **fix** `file_ops_tool` disabled in `config/tools.yaml` — `sandbox_dir: ""` resolved to `/app` in Docker, giving the LLM read/write access to the entire application codebase; `WorkspaceFileOpsTool` (instantiated per-conversation in `backend/routers/chat.py`) is the correct production path for file operations
+- **fix** `datetime_tool.convert_timezone` now accepts optional `time` (e.g. `"15:00"`) and `from_timezone` (e.g. `"Europe/Berlin"`) params — previously it silently duplicated `current_time` (both computed `datetime.now(ZoneInfo(tz))` and returned the same result); now supports real conversions like "what time is 3pm Berlin in New York?"
+- **fix** `requested_web_results` from intent detection now injected as `max_results` into `web_search_mcp` tool calls in all three calling modes (native, structured, react) when the LLM did not specify it — previously the value was computed but never forwarded, always defaulting to 10 results
+- **fix** `tool_name_map` hardcoding removed from `registry._get_description()` — now reads `default_tool` from the matching `config/tools.yaml` entry; adding a new multi-tool MCP entry no longer requires a registry code change
+- **fix** Stale `entry_point: "src.main:app"` and `docker:` section (wrong image `web-search-mcp:latest` on port 9100) removed from `universal_agentic_framework/tools/web_search/tool.yaml`; actual deployment uses `mcp/duckduckgo` on port 8000 via `docker-compose.yml`
+- **ops** Docker healthcheck added to `duckduckgo-mcp` service (`curl -sf http://localhost:8000/mcp`); LangGraph `depends_on` condition upgraded from `service_started` to `service_healthy`
+- **refactor** `mentions_file_ops` intent detection removed from `intent_detection.py` and `node_prefilter_tools` (boosted a disabled tool); `file_ops_tool` references removed from `utility_tool_names` set and tool-result fallback list in `graph_builder.py`
+- **test** `test_datetime_tool.py` updated for new `convert_timezone` output format (`"Time conversion:"` instead of `"Current time in ..."`); added tests for explicit `time` + `from_timezone` conversion and invalid time-string handling; added `DateTimeInput` schema test for new fields
+- **docs** Updated intent boost table in `docs/tool_development_guide.md`, `docs/technical_architecture.md`, and `CLAUDE.md` (removed `file_ops_tool` row); updated Quick Reference tools table; updated `README.md` built-in tools list
+
 ## [0.2.6] — tool-system-refactor
 
 - **refactor** Removed dead `node_route_tools` function (~155 lines) from `graph_builder.py` — it was defined but never registered with `add_node()` and had been superseded by the three-layer tool system (Layer 1 prefilter → Layer 2 LLM-driven calling → Layer 3 schema validation)

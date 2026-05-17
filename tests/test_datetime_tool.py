@@ -102,10 +102,11 @@ class TestConvertTimezoneOperation:
             operation="convert_timezone", timezone="America/New_York"
         )
 
-        assert "Current time in America/New_York:" in result
+        assert "Time conversion:" in result
+        assert "Source:" in result
+        assert "Target:" in result
         assert "Date:" in result
-        assert "Time:" in result
-        assert "Timezone:" in result
+        assert "America/New_York" in result
 
     def test_convert_timezone_to_multiple_zones(self, datetime_tool):
         """Test converting to various timezones."""
@@ -117,8 +118,31 @@ class TestConvertTimezoneOperation:
         )
 
         # Both should have proper structure
-        assert "Current time in" in result_ny
-        assert "Current time in" in result_tokyo
+        assert "Time conversion:" in result_ny
+        assert "Time conversion:" in result_tokyo
+
+    def test_convert_timezone_with_explicit_time_and_source(self, datetime_tool):
+        """Test converting a specific time between timezones."""
+        result = datetime_tool._run(
+            operation="convert_timezone",
+            timezone="America/New_York",
+            time="15:00",
+            from_timezone="Europe/Berlin",
+        )
+
+        assert "Time conversion:" in result
+        assert "Europe/Berlin" in result
+        assert "America/New_York" in result
+
+    def test_convert_timezone_invalid_time_format(self, datetime_tool):
+        """Test that an unparseable time string returns a helpful error."""
+        result = datetime_tool._run(
+            operation="convert_timezone",
+            timezone="America/New_York",
+            time="not-a-time",
+        )
+
+        assert "Could not parse time" in result or "Error" in result
 
     def test_convert_timezone_utc_offset_present(self, datetime_tool):
         """Test that UTC offset is included."""
@@ -146,7 +170,7 @@ class TestErrorHandling:
             operation="convert_timezone", timezone="NotAReal/Zone"
         )
 
-        assert "Error:" in result or "Invalid timezone" in result
+        assert "Error" in result
 
     def test_invalid_operation(self, datetime_tool):
         """Test handling of invalid operation."""
@@ -171,7 +195,7 @@ class TestAsyncExecution:
             operation="convert_timezone", timezone="America/New_York"
         )
 
-        assert "Current time in" in result
+        assert "Time conversion:" in result
 
 
 class TestInputSchema:
@@ -182,11 +206,24 @@ class TestInputSchema:
         input_data = DateTimeInput()
         assert input_data.operation == "current_time"
         assert input_data.timezone is None
+        assert input_data.time is None
+        assert input_data.from_timezone is None
 
     def test_datetime_input_with_timezone(self):
         """Test DateTimeInput with timezone."""
         input_data = DateTimeInput(timezone="Europe/Berlin")
         assert input_data.timezone == "Europe/Berlin"
+
+    def test_datetime_input_with_conversion_fields(self):
+        """Test DateTimeInput with explicit conversion params."""
+        input_data = DateTimeInput(
+            operation="convert_timezone",
+            timezone="America/New_York",
+            time="15:00",
+            from_timezone="Europe/Berlin",
+        )
+        assert input_data.time == "15:00"
+        assert input_data.from_timezone == "Europe/Berlin"
 
     def test_datetime_input_all_operations(self):
         """Test all valid operations."""
@@ -242,7 +279,7 @@ class TestTimezoneAccuracy:
         )
 
         # Both should be valid results
-        assert "Current time in" in ny_result
-        assert "Current time in" in tokyo_result
+        assert "Time conversion:" in ny_result
+        assert "Time conversion:" in tokyo_result
         # They should have different content (at least the timezone name)
         assert ny_result != tokyo_result

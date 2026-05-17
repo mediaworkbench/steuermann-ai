@@ -243,7 +243,7 @@ User Request (Next.js)
   │    ├──> prefilter_tools_node (LAYER 1 — Semantic Pre-filter)
   │    │    ├──> Embed user query
   │    │    ├──> Score query against tool descriptions (cosine similarity)
-  │    │    ├──> Apply intent boosting (datetime, calc, file, URL intents)
+  │    │    ├──> Apply intent boosting (datetime, calc, URL intents)
   │    │    ├──> Apply gates: min_top_score (0.7), min_spread (0.10)
   │    │    ├──> Filter by similarity_threshold (0.55), top-K (5)
   │    │    └──> Store candidate_tools in state (NO execution)
@@ -641,7 +641,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 1. Embed user query using configured embedding model
 2. Score query against all tool descriptions (cosine similarity)
-3. Apply intent boosting (+0.2 for detected datetime, calculation, file ops, URL intents)
+3. Apply intent boosting (+0.2 for detected datetime, calculation, URL intents)
 4. Apply gates: min_top_score (0.7) and min_spread (0.10)
 5. Filter candidates by similarity_threshold (0.55) and top-K (5)
 6. Store candidates in state — NO tools are executed at this layer

@@ -126,8 +126,7 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **Built-in tools**:
   - **DateTime** — current time, timezone conversions
   - **Calculator** — math operations, unit conversions, statistics
-  - **File Operations** — sandboxed file read/write/list with permission controls
-  - **Workspace File Operations** — workspace-specific file handling with intent detection
+  - **Workspace File Operations** — per-conversation sandboxed file read/write/list with intent verification
   - **Web Search** — DuckDuckGo search via MCP server
   - **Webpage Extraction** — fetch and parse web page content via MCP
 - **MCP server integration** — connect any MCP-compatible tool server using the official SDK with streamable HTTP transport

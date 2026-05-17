@@ -113,18 +113,6 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         ])
     )
 
-    # File operations: file/directory keywords
-    mentions_file_ops = bool(
-        any(k in user_msg_lower for k in [
-            "read file", "datei lesen", "lire fichier",
-            "write file", "datei schreiben", "ecrire fichier",
-            "list files", "dateien auflisten", "lister fichiers",
-            "list directory", "verzeichnis", "directory listing",
-            "file size", "dateigroesse", "file exists", "datei existiert",
-            "file info", "dateiinfo",
-        ])
-    )
-
     # Explicit web-search intent: require unambiguous "search the web" phrasing.
     # Bare "search" or "find" are too common in non-web contexts (code search, file search).
     mentions_web_search = bool(
@@ -179,7 +167,6 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "search_region": search_region,
         "mentions_datetime": mentions_datetime,
         "mentions_calculation": mentions_calculation,
-        "mentions_file_ops": mentions_file_ops,
         "mentions_web_search": mentions_web_search,
         "url_in_query": url_in_query,
         "asks_about_tools": asks_about_tools,

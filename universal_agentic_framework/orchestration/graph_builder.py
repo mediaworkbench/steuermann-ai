@@ -394,8 +394,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                     similarity += intent_boost
                 elif tool_name == "calculator_tool" and intents["mentions_calculation"]:
                     similarity += intent_boost
-                elif tool_name == "file_ops_tool" and intents["mentions_file_ops"]:
-                    similarity += intent_boost
                 elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
                     similarity += intent_boost
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
@@ -607,9 +605,14 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     break
 
                 parse_error = False
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
                 for tc in tool_calls:
                     tool_name = tc.get("name", "")
                     tool_args = tc.get("args", {})
+
+                    if tool_name == "web_search_mcp" and _requested_results and "max_results" not in (tool_args or {}):
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
 
                     if tool_name == "extract_webpage_mcp" and isinstance(tool_args, dict):
                         def _contains_url_arg(value: Any) -> bool:
@@ -838,6 +841,13 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
+
+                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
+                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                    if _requested_results:
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
+
                 tool_obj = tool_lookup.get(tool_name)
 
                 if not tool_obj:
@@ -1009,6 +1019,13 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
+
+                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
+                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                    if _requested_results:
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
+
                 tool_obj = tool_lookup.get(tool_name)
 
                 if not tool_obj:
@@ -1391,7 +1408,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     tool_results = state.get("tool_results", {})
     tool_execution_results = state.get("tool_execution_results", {})
     routing_metadata = state.get("routing_metadata", {})
-    utility_tool_names = {"datetime_tool", "calculator_tool", "file_ops_tool"}
+    utility_tool_names = {"datetime_tool", "calculator_tool"}
     used_tool_names = set(tool_results.keys())
     utility_only_response = bool(used_tool_names) and used_tool_names.issubset(utility_tool_names)
 
@@ -1944,7 +1961,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
                 if tool_based_text is None:
                     # Prioritize utility tools over web search in fallback
-                    for tool_name in ["calculator_tool", "datetime_tool", "file_ops_tool", "extract_webpage_mcp", "web_search_mcp"]:
+                    for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
                         candidate = str(tool_results.get(tool_name, "")).strip()
                         if candidate and not candidate.lower().startswith("tool execution failed"):
                             tool_based_text = candidate

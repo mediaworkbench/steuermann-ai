@@ -53,7 +53,7 @@ services:
       redis:
         condition: service_healthy
       duckduckgo-mcp:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   fastapi:
@@ -229,6 +229,12 @@ services:
       - DDG_REGION=${SEARCH_REGION:-de-de}
     volumes:
       - ${RAG_DATA_PATH:-./data/rag-data}/web:/data/rag-web
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost', 8000)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
 
 volumes:

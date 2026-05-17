@@ -254,7 +254,6 @@ For common patterns, intent detection **boosts** a tool's similarity score (does
 | ------ | ----------------- | ------- |
 | `datetime_tool` | Date patterns (`12.05.2026`), time (`14:30`), keywords (`heute`, `time`, `date`) | +0.2 |
 | `calculator_tool` | Math expressions (`2 + 3`), functions (`sqrt(16)`), keywords (`berechne`, `calculate`) | +0.2 |
-| `file_ops_tool` | Keywords (`read file`, `list directory`, `datei lesen`) | +0.2 |
 | `extract_webpage_mcp` | URL present (`https://...`) | +0.2 |
 
 ### Writing good descriptions
@@ -337,7 +336,7 @@ Standard tools are deployment-oriented integrations provided by the template for
 | Category | Tools | Status |
 | ---------- | ------- | -------- |
 | **Information Retrieval** | Web Search, Knowledge Base (RAG) | Implemented |
-| **Utilities** | Date/Time, File Operations, Data Processing, Calculator | Implemented |
+| **Utilities** | Date/Time, Calculator | Implemented |
 | **Communication** | Email, Notifications (Slack, Teams) | Future |
 | **Domain-Specific** | Code Execution, API Integrations | Future |
 
@@ -402,11 +401,11 @@ SEARXNG_ENDPOINT=http://searxng:8080  # If self-hosted
 
 | Tool | Type | Category | Operations |
 | ------ | ------ | ---------- | ----------- |
-| `datetime_tool` | LangChain | Utilities | current_time, convert_timezone |
+| `datetime_tool` | LangChain | Utilities | current_time, convert_timezone (with optional `time` + `from_timezone` for explicit conversion) |
 | `calculator_tool` | LangChain | Utilities | evaluate, convert, statistics, percentage |
-| `file_ops_tool` | LangChain | Utilities | read, write, list, info, exists |
-| `web_search_mcp` | MCP | Information | web_search ([DuckDuckGo MCP server](https://github.com/nickclyde/duckduckgo-mcp-server)) |
-| `extract_webpage_mcp` | MCP | Information | extract_webpage_content |
+| `file_ops_tool` | LangChain | Utilities | read, write, list, info, exists — **disabled** in default config; use `WorkspaceFileOpsTool` for per-conversation file access |
+| `web_search_mcp` | MCP | Information | search ([DuckDuckGo MCP server](https://github.com/nickclyde/duckduckgo-mcp-server)) |
+| `extract_webpage_mcp` | MCP | Information | fetch_content |
 
 ### Config files
 
