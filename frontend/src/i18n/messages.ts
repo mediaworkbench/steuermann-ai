@@ -655,8 +655,7 @@ export const messages: Record<Locale, Messages> = {
       deleteDocumentFailed: "Failed to delete document",
       saveChangesFailed: "Failed to save changes",
       uploaded: "Uploaded",
-      commandReferenceTemplate:
-        "Reference workspace document \"{filename}\" (id: {id}) in your analysis.",
+      commandReferenceTemplate: "\"{filename}\" (id: {id})",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1073,8 +1072,7 @@ export const messages: Record<Locale, Messages> = {
       deleteDocumentFailed: "Dokument konnte nicht gelöscht werden",
       saveChangesFailed: "Änderungen konnten nicht gespeichert werden",
       uploaded: "Hochgeladen",
-      commandReferenceTemplate:
-        "Beziehe dich in deiner Analyse auf das Workspace-Dokument \"{filename}\" (ID: {id}).",
+      commandReferenceTemplate: "\"{filename}\" (ID: {id})",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

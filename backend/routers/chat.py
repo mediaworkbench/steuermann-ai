@@ -548,9 +548,9 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
 def _extract_writeback_summary(content: str) -> Optional[str]:
     """Extract the SUMMARY: section from a structured writeback response."""
     m = re.search(
-        r"^SUMMARY:\s*\n(.*?)(?:\n\nDOCUMENT:|$)",
+        r"SUMMARY:\s*\n(.*?)(?:\n\nDOCUMENT:|\Z)",
         (content or "").strip(),
-        flags=re.DOTALL | re.MULTILINE,
+        flags=re.DOTALL,
     )
     if m:
         return m.group(1).strip() or None
@@ -1402,6 +1402,11 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             wb_version = workspace_document_writeback.get("version")
             wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
             wb_summary = _extract_writeback_summary(original_assistant_msg)
+            logger.info(
+                "Writeback summary extraction",
+                has_summary=bool(wb_summary),
+                model_response_preview=original_assistant_msg[:200],
+            )
             summary_line = f"\n\n{wb_summary}" if wb_summary else ""
             assistant_msg = (
                 f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"

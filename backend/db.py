@@ -1825,7 +1825,7 @@ class WorkspaceDocumentStore:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, (document_id, user_id, limit))
                 rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        return [_normalize_version_row(dict(row)) for row in rows]
 
     def get_document_version(self, *, document_id: str, user_id: str, version: int) -> Optional[Dict[str, Any]]:
         statement = """
@@ -1838,7 +1838,7 @@ class WorkspaceDocumentStore:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, (document_id, user_id, version))
                 row = cur.fetchone()
-        return dict(row) if row else None
+        return _normalize_version_row(dict(row)) if row else None
 
     def rename_document(self, document_id: str, user_id: str, filename: str) -> Optional[Dict[str, Any]]:
         statement = """
@@ -2011,6 +2011,12 @@ def _normalize_workspace_operation_row(row: Optional[Dict[str, Any]]) -> Dict[st
         "target_path": row.get("target_path"),
         "created_at": created.isoformat() if isinstance(created, datetime) else str(created) if created else None,
     }
+
+
+def _normalize_version_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    created = row.get("created_at")
+    row["created_at"] = created.isoformat() if isinstance(created, datetime) else str(created) if created else None
+    return row
 
 
 def _normalize_workspace_document_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
