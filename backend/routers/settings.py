@@ -713,6 +713,96 @@ def trigger_reingest_all_documents() -> Dict[str, Any]:
 
 
 
+@router.post("/admin/reset-all-databases")
+def reset_all_databases(request: Request) -> Dict[str, Any]:
+    """Truncate all application data in Postgres and delete all Qdrant collections.
+
+    This is a destructive, irreversible operation. Workspace files on disk are
+    also removed. The schema is preserved so the service continues running.
+    """
+    import shutil
+
+    results: Dict[str, Any] = {
+        "postgres": {"status": "ok", "tables_truncated": []},
+        "qdrant": {"status": "ok", "collections_deleted": []},
+        "workspace_files": {"status": "ok", "bytes_freed": 0},
+    }
+    errors: list[str] = []
+
+    # ── 1. Postgres ───────────────────────────────────────────────────────────
+    # Truncate all user-data tables; CASCADE handles FK dependencies.
+    # user_settings intentionally excluded so the user doesn't need to
+    # reconfigure language/model preferences after a reset.
+    _TABLES_TO_TRUNCATE = [
+        "workspace_document_versions",
+        "workspace_documents",
+        "chat_document_refs",
+        "co_occurrence_edges",
+        "conversation_workspace_operations",
+        "conversation_workspaces",
+        "conversation_attachments",
+        "messages",
+        "conversations",
+        "llm_capability_probes",
+        "analytics_events",
+        "daily_analytics_stats",
+    ]
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None:
+        errors.append("postgres: db_pool unavailable")
+        results["postgres"]["status"] = "error"
+    else:
+        try:
+            with db_pool.connection() as conn:
+                with conn.cursor() as cur:
+                    for table in _TABLES_TO_TRUNCATE:
+                        cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
+                        results["postgres"]["tables_truncated"].append(table)
+                conn.commit()
+        except Exception as exc:
+            errors.append(f"postgres: {exc}")
+            results["postgres"]["status"] = "error"
+
+    # ── 2. Qdrant ─────────────────────────────────────────────────────────────
+    try:
+        from qdrant_client import QdrantClient  # type: ignore[import-untyped]
+
+        qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
+        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+        qc = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
+        collections = [c.name for c in qc.get_collections().collections]
+        for name in collections:
+            qc.delete_collection(name)
+            results["qdrant"]["collections_deleted"].append(name)
+    except Exception as exc:
+        errors.append(f"qdrant: {exc}")
+        results["qdrant"]["status"] = "error"
+
+    # ── 3. Workspace files on disk ────────────────────────────────────────────
+    try:
+        from backend.attachments import WorkspaceManagerConfig, AttachmentManagerConfig
+
+        ws_config = WorkspaceManagerConfig.from_env()
+        attach_config = AttachmentManagerConfig.from_env()
+        freed = 0
+        for root in {ws_config.root_dir, attach_config.root_dir}:
+            if root.exists():
+                freed += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+                shutil.rmtree(root, ignore_errors=True)
+                root.mkdir(parents=True, exist_ok=True)
+        results["workspace_files"]["bytes_freed"] = freed
+    except Exception as exc:
+        errors.append(f"workspace_files: {exc}")
+        results["workspace_files"]["status"] = "error"
+
+    if errors:
+        logger.warning("reset_all_databases completed with errors", errors=errors)
+        return {"status": "partial", "errors": errors, **results}
+
+    logger.info("reset_all_databases completed successfully", results=results)
+    return {"status": "ok", "errors": [], **results}
+
+
 def _format_tool_name(name: str) -> str:
     """Convert tool name from snake_case to Title Case."""
     pretty = name.replace("_tool", "").replace("_mcp", "").replace("_", " ").strip()
