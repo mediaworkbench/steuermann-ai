@@ -269,6 +269,7 @@ export function ChatInterface() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
+  const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -447,6 +448,7 @@ export function ChatInterface() {
             user_id: CURRENT_USER_ID,
             conversation_id: convId,
             attachment_ids: selectedAttachmentIds,
+            document_ids: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
           }),
         });
 
@@ -878,6 +880,7 @@ export function ChatInterface() {
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
         writebackSavedDocId={writebackSavedDocId}
+        onActiveDocumentChange={setActiveWorkspaceDocId}
         onInsertCommand={(command) => {
           setInput(command);
           requestAnimationFrame(() => {

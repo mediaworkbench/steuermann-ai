@@ -81,10 +81,17 @@ _EXPLICIT_EDIT_INTENT_PATTERNS = [
     re.compile(r"\berstelle\b.*\b(uberarbeitete|revidierte)\b.*\b(version|kopie)\b", re.IGNORECASE),
 ]
 _WORKSPACE_SAVE_INTENT_PATTERNS = [
-    re.compile(r"\b(save|write\s+back|overwrite|replace|persist|update)\b.*\b(workspace|document|file)\b", re.IGNORECASE),
-    re.compile(r"\b(save|overwrite|replace)\s+it\s+back\b", re.IGNORECASE),
+    # English — explicit save/write-back with any object
+    re.compile(r"\b(save|write\s+back|overwrite|replace|persist)\b.*\b(workspace|document|file|it|this|version)\b", re.IGNORECASE),
+    re.compile(r"\bsave\s+(it|this|the\s+(document|file|text|result|version))\b", re.IGNORECASE),
+    re.compile(r"\bsave\s+(and|as)\b", re.IGNORECASE),
+    re.compile(r"\bwrite\s+(it\s+)?back\b", re.IGNORECASE),
+    re.compile(r"\b(save|store|create|make|generate)\s+(a\s+)?(new|updated|improved|revised)\s+version\b", re.IGNORECASE),
+    re.compile(r"\bupdate\s+(the\s+)?(document|file|workspace)\b", re.IGNORECASE),
+    # German
+    re.compile(r"\b(speicher|speichern|ueberschreibe|überschreibe|aktualisiere|schreib\s+zurück|zurückschreiben)\b", re.IGNORECASE),
     re.compile(r"\b(im\s+workspace\s+speichern|im\s+workspace\s+ueberschreiben|im\s+workspace\s+überschreiben)\b", re.IGNORECASE),
-    re.compile(r"\b(speicher|speichern|ueberschreibe|überschreibe|aktualisiere)\b.*\b(workspace|dokument|datei)\b", re.IGNORECASE),
+    re.compile(r"\b(neue|aktualisierte|verbesserte)\s+version\s+speichern\b", re.IGNORECASE),
 ]
 
 # MIME types accepted by the workspace document system (used for intent-check fast path)
@@ -96,11 +103,21 @@ _WORKSPACE_MIME_TYPES: frozenset[str] = frozenset({
 })
 
 _INTENT_CLASSIFICATION_PROMPT = (
-    "You detect workspace document intent from user messages.\n"
-    "Respond with JSON only, no other text:\n"
-    '{{"edit": <true if user wants to edit/improve/rewrite/revise/translate a document>, '
-    '"save": <true if user wants to save/persist/overwrite the result as a new version or update the existing document>, '
-    '"new_version": <true if user explicitly mentions creating a new version>}}\n\n'
+    "You classify workspace document intent. A workspace document is already open.\n"
+    "Rules:\n"
+    '- "edit": true when the user asks to improve, rewrite, revise, translate, fix, polish, expand, shorten, or otherwise transform the document content.\n'
+    '- "save": true when the result should be written back to the document — this includes ANY request to edit/improve/rewrite/translate the document, because the user expects the improved version to replace or version the original. Exception: pure review or feedback requests ("what do you think?", "review this", "give me suggestions") where no new version is expected.\n'
+    '- "new_version": true only when the user explicitly mentions creating a new version or saving as a new file.\n'
+    "Respond with JSON only, no other text.\n\n"
+    "Examples:\n"
+    'Message: "improve this document" -> {{"edit": true, "save": true, "new_version": false}}\n'
+    'Message: "rewrite this in a more professional tone" -> {{"edit": true, "save": true, "new_version": false}}\n'
+    'Message: "translate this to German" -> {{"edit": true, "save": true, "new_version": false}}\n'
+    'Message: "fix the grammar and save it" -> {{"edit": true, "save": true, "new_version": false}}\n'
+    'Message: "improve and save as a new version" -> {{"edit": true, "save": true, "new_version": true}}\n'
+    'Message: "what do you think of this document?" -> {{"edit": false, "save": false, "new_version": false}}\n'
+    'Message: "review this and give me feedback" -> {{"edit": false, "save": false, "new_version": false}}\n'
+    'Message: "summarize the key points for me" -> {{"edit": false, "save": false, "new_version": false}}\n\n'
     'User message: "{message}"'
 )
 
@@ -507,11 +524,17 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
             parsed = extract_json_object(content)
-            if parsed and isinstance(parsed.get("save"), bool):
+            if parsed and parsed.get("save") is not None:
+                def _to_bool(v: Any) -> bool:
+                    if isinstance(v, bool):
+                        return v
+                    if isinstance(v, str):
+                        return v.strip().lower() in ("true", "yes", "1")
+                    return bool(v)
                 return {
-                    "edit": bool(parsed.get("edit", False)),
-                    "save": bool(parsed.get("save", False)),
-                    "new_version": bool(parsed.get("new_version", False)),
+                    "edit": _to_bool(parsed.get("edit", False)),
+                    "save": _to_bool(parsed.get("save", False)),
+                    "new_version": _to_bool(parsed.get("new_version", False)),
                 }
     except Exception as exc:
         logger.warning("Workspace intent LLM classification failed, falling back to regex: %s", exc)
@@ -522,10 +545,27 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
     }
 
 
+def _extract_writeback_summary(content: str) -> Optional[str]:
+    """Extract the SUMMARY: section from a structured writeback response."""
+    m = re.search(
+        r"^SUMMARY:\s*\n(.*?)(?:\n\nDOCUMENT:|$)",
+        (content or "").strip(),
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    if m:
+        return m.group(1).strip() or None
+    return None
+
+
 def _normalize_workspace_writeback_content(content: str) -> str:
     text = (content or "").strip()
     if not text:
         return ""
+
+    # Structured SUMMARY:/DOCUMENT: format (primary path for new writeback mode)
+    doc_match = re.search(r"^DOCUMENT:\s*\n(.*)", text, flags=re.DOTALL | re.MULTILINE)
+    if doc_match:
+        return doc_match.group(1).strip()
 
     # re.search instead of re.fullmatch so preamble prose before the fence is handled
     fenced_match = re.search(r"```(?:[a-zA-Z0-9_-]*)?\n?(.*?)\n?```", text, flags=re.DOTALL)
@@ -1207,10 +1247,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
     workspace_writeback_requested = False
     if _should_check_workspace_intent(documents, attachments):
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
-        workspace_writeback_requested = (
-            _intent.get("save", False)
-            or (_intent.get("edit", False) and _intent.get("new_version", False))
-        )
+        workspace_writeback_requested = bool(_intent.get("save", False))
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     
     state = {
@@ -1353,6 +1390,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
     workspace_document_writeback = None
 
     if workspace_writeback_requested and len(documents) == 1:
+        original_assistant_msg = assistant_msg
         workspace_document_writeback = _write_response_back_to_workspace_document(
             request,
             effective_user_id=effective_user_id,
@@ -1363,8 +1401,10 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             wb_filename = workspace_document_writeback.get("filename", "document")
             wb_version = workspace_document_writeback.get("version")
             wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
+            wb_summary = _extract_writeback_summary(original_assistant_msg)
+            summary_line = f"\n\n{wb_summary}" if wb_summary else ""
             assistant_msg = (
-                f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}). "
+                f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
                 "You can view and restore previous versions in the sidebar History tab."
             )
         documents_used = [

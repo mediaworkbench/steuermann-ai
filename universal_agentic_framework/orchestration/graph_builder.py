@@ -1614,10 +1614,12 @@ def node_generate_response(state: GraphState) -> GraphState:
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"
-            "Return ONLY the complete revised file content — nothing else.\n"
-            "Do NOT add explanations, change summaries, preambles, comparisons to the previous "
-            "version, or markdown code fences. Your entire response is stored verbatim as the "
-            "new document content.\n"
+            "Structure your response EXACTLY as two sections:\n\n"
+            "SUMMARY:\n"
+            "<One or two sentences describing what you changed and why.>\n\n"
+            "DOCUMENT:\n"
+            "<Complete revised file content — no code fences, no preamble, no commentary.>\n\n"
+            "IMPORTANT: The DOCUMENT section is saved verbatim. Do not wrap it in code fences.\n"
             "=== END WORKSPACE WRITEBACK MODE ==="
         )
     
@@ -2132,7 +2134,14 @@ def node_summarize(state: GraphState) -> GraphState:
     available_budget = min(sum_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
 
     input_tokens = count_tokens_for_model(model_name, prompt)
-    require_tokens(input_tokens, available_budget, "Summarization input")
+    if input_tokens > available_budget:
+        logger.warning(
+            "summarize skipped: budget exhausted",
+            required=input_tokens,
+            available=available_budget,
+            fork=fork_name,
+        )
+        return state
 
     with track_node_execution(fork_name, "summarize"):
         try:
@@ -2164,11 +2173,22 @@ def node_summarize(state: GraphState) -> GraphState:
 
         _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
         node_tokens = input_tokens + output_tokens
-        require_tokens(node_tokens, available_budget, "Summarization node")
-        if enforce_node_hard_limit and node_tokens > sum_budget:
-            raise TokenBudgetExceeded(
-                f"Summarization node exceeds per-node budget: {node_tokens}/{sum_budget}"
+        if node_tokens > available_budget:
+            logger.warning(
+                "summarize skipped: total tokens exceed turn budget",
+                total=node_tokens,
+                available=available_budget,
+                fork=fork_name,
             )
+            return state
+        if enforce_node_hard_limit and node_tokens > sum_budget:
+            logger.warning(
+                "summarize skipped: exceeds per-node budget",
+                total=node_tokens,
+                node_budget=sum_budget,
+                fork=fork_name,
+            )
+            return state
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
@@ -2249,11 +2269,22 @@ def node_update_memory(state: GraphState) -> GraphState:
     enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
     update_tokens = estimate_tokens(summary_text)
     available_budget = min(upd_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
-    require_tokens(update_tokens, available_budget, "Update memory")
-    if enforce_node_hard_limit and update_tokens > upd_budget:
-        raise TokenBudgetExceeded(
-            f"Update memory exceeds per-node budget: {update_tokens}/{upd_budget}"
+    if update_tokens > available_budget:
+        logger.warning(
+            "update_memory skipped: budget exhausted",
+            required=update_tokens,
+            available=available_budget,
+            user_id=user_id,
         )
+        return state
+    if enforce_node_hard_limit and update_tokens > upd_budget:
+        logger.warning(
+            "update_memory skipped: exceeds per-node budget",
+            required=update_tokens,
+            node_budget=upd_budget,
+            user_id=user_id,
+        )
+        return state
 
     with track_node_execution(fork_name, "update_memory"):
         try:

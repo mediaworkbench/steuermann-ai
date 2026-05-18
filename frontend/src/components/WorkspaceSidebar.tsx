@@ -37,6 +37,7 @@ export interface WorkspaceSidebarProps {
   onInsertCommand?: (command: string) => void;
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
   writebackSavedDocId?: string | null;
+  onActiveDocumentChange?: (docId: string | null) => void;
 }
 
 function formatFileSize(bytes: number): string {
@@ -57,11 +58,16 @@ export function WorkspaceSidebar({
   onInsertCommand,
   onAttachmentUploaded,
   writebackSavedDocId,
+  onActiveDocumentChange,
 }: WorkspaceSidebarProps) {
   const { t } = useI18n();
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
-  const [editorDocId, setEditorDocId] = useState<string | null>(null);
+  const [editorDocId, setEditorDocIdRaw] = useState<string | null>(null);
+  const setEditorDocId = useCallback((docId: string | null) => {
+    setEditorDocIdRaw(docId);
+    onActiveDocumentChange?.(docId);
+  }, [onActiveDocumentChange]);
   const [editorContent, setEditorContent] = useState("");
   const [editorHeight, setEditorHeight] = useState(220);
   const [uploadingFile, setUploadingFile] = useState(false);
