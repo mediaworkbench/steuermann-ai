@@ -320,12 +320,11 @@ async def update_user_settings(user_id: str, settings: UserSettings, request: Re
     language = _resolved_value("language", "en")
 
     has_preferred_model_update = "preferred_model" in fields_set
-    has_preferred_models_update = "preferred_models" in fields_set
 
     preferred_model = _normalize_preferred_model_value(_resolved_value("preferred_model", None))
 
     raw_preferred_models = _resolved_value("preferred_models", {}) or {}
-    if not has_preferred_models_update and has_preferred_model_update:
+    if "preferred_models" not in fields_set and has_preferred_model_update:
         raw_preferred_models = {
             role: model_name
             for role, model_name in raw_preferred_models.items()
@@ -345,11 +344,7 @@ async def update_user_settings(user_id: str, settings: UserSettings, request: Re
     elif preferred_model:
         preferred_models["chat"] = preferred_model
 
-    should_validate_chat_preference = has_preferred_model_update or (
-        has_preferred_models_update and "chat" in raw_preferred_models
-    )
-
-    if should_validate_chat_preference and preferred_model:
+    if preferred_model:
         validated_model, validation_warning = await _validate_chat_preference(preferred_model)
         if (
             validation_warning

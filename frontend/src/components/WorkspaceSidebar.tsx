@@ -1,12 +1,21 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Icon } from "./Icon";
 import { uploadConversationAttachment } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { ConversationAttachment } from "@/lib/types";
+
+interface VersionEntry {
+  id: string;
+  document_id: string;
+  version: number;
+  size_bytes: number;
+  sha256: string;
+  created_at?: string;
+}
 
 export interface WorkspaceDocument {
   id: string;
@@ -27,6 +36,7 @@ export interface WorkspaceSidebarProps {
   onDocumentsRefresh?: () => void;
   onInsertCommand?: (command: string) => void;
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
+  writebackSavedDocId?: string | null;
 }
 
 function formatFileSize(bytes: number): string {
@@ -46,6 +56,7 @@ export function WorkspaceSidebar({
   onDocumentsRefresh,
   onInsertCommand,
   onAttachmentUploaded,
+  writebackSavedDocId,
 }: WorkspaceSidebarProps) {
   const { t } = useI18n();
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
@@ -54,8 +65,23 @@ export function WorkspaceSidebar({
   const [editorContent, setEditorContent] = useState("");
   const [editorHeight, setEditorHeight] = useState(220);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [historyDocId, setHistoryDocId] = useState<string | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<VersionEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDraggingRef = useRef(false);
+
+  // When the LLM has saved a new version via writeback, reload the editor if that doc is open
+  useEffect(() => {
+    if (writebackSavedDocId && editorDocId === writebackSavedDocId) {
+      loadDocumentIntoEditor(writebackSavedDocId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [writebackSavedDocId]);
 
   const getDocumentName = useCallback(
     (docId: string) => {
@@ -181,6 +207,35 @@ export function WorkspaceSidebar({
     }
   }, [editorDocId, getDocumentName, onDocumentsRefresh, t]);
 
+  const handleRenameDocument = useCallback(async (docId: string, newFilename: string) => {
+    const trimmed = newFilename.trim();
+    if (!trimmed) return;
+    setProcessingAction(docId);
+    try {
+      const response = await fetch(`/api/proxy/api/workspace/documents/${docId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "",
+        },
+        body: JSON.stringify({ filename: trimmed }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || `Rename failed: ${response.statusText}`);
+      }
+      setRenamingDocId(null);
+      setRenameValue("");
+      toast.success("Renamed", { description: trimmed });
+      onDocumentsRefresh?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Rename failed";
+      toast.error("Rename failed", { description: message });
+    } finally {
+      setProcessingAction(null);
+    }
+  }, [onDocumentsRefresh]);
+
   const handleDownloadDocument = useCallback((docId: string) => {
     const docName = getDocumentName(docId);
     const url = `/api/proxy/api/workspace/documents/${docId}/download`;
@@ -197,7 +252,13 @@ export function WorkspaceSidebar({
     if (!editorDocId || !editorContent.trim()) return;
     const docName = getDocumentName(editorDocId);
     const file = new File([editorContent], docName, {
-      type: docName.endsWith(".md") ? "text/markdown" : "text/plain",
+      type: docName.endsWith(".md") || docName.endsWith(".markdown") ? "text/markdown"
+        : docName.endsWith(".json") ? "application/json"
+        : docName.endsWith(".yaml") || docName.endsWith(".yml") ? "application/yaml"
+        : docName.endsWith(".csv") ? "text/csv"
+        : docName.endsWith(".html") ? "text/html"
+        : docName.endsWith(".xml") ? "text/xml"
+        : "text/plain",
     });
     
     if (!conversationId) {
@@ -282,6 +343,64 @@ export function WorkspaceSidebar({
     [onInsertCommand, t]
   );
 
+  const handleLoadHistory = useCallback(async (docId: string) => {
+    setHistoryDocId(docId);
+    setHistoryLoading(true);
+    setHistoryVersions([]);
+    setPreviewVersionId(null);
+    setPreviewContent("");
+    try {
+      const res = await fetch(`/api/proxy/api/workspace/documents/${docId}/versions`, {
+        headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      const data: VersionEntry[] = await res.json();
+      setHistoryVersions(data);
+    } catch {
+      toast.error("Failed to load version history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const handlePreviewVersion = useCallback(async (docId: string, version: number, versionId: string) => {
+    if (previewVersionId === versionId) { setPreviewVersionId(null); setPreviewContent(""); return; }
+    try {
+      const res = await fetch(`/api/proxy/api/workspace/documents/${docId}/versions/${version}`, {
+        headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      setPreviewVersionId(versionId);
+      setPreviewContent(data.content_text || "");
+    } catch {
+      toast.error("Failed to load version preview");
+    }
+  }, [previewVersionId]);
+
+  const handleRestoreVersion = useCallback(async (docId: string, version: number) => {
+    setProcessingAction(`restore-${docId}-${version}`);
+    try {
+      const res = await fetch(
+        `/api/proxy/api/workspace/documents/${docId}/versions/${version}/restore`,
+        { method: "POST", headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" } }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || res.statusText);
+      }
+      toast.success(`Restored to v${version}`);
+      setHistoryDocId(null);
+      setHistoryVersions([]);
+      onDocumentsRefresh?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Restore failed";
+      toast.error("Restore failed", { description: message });
+    } finally {
+      setProcessingAction(null);
+    }
+  }, [onDocumentsRefresh]);
+
   return (
     <>
       {/* Toggle button (visible on mobile/tablet) */}
@@ -334,7 +453,7 @@ export function WorkspaceSidebar({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.markdown"
+              accept=".txt,.md,.markdown,.json,.yaml,.yml,.csv,.html,.xml"
               onChange={handleUploadFile}
               disabled={uploadingFile || isLoading}
               className="hidden"
@@ -403,6 +522,37 @@ export function WorkspaceSidebar({
                     {/* Expanded actions */}
                     {expandedDoc === doc.id && (
                       <div className="px-3 py-2 border-t border-gray-200 bg-white flex gap-1.5 flex-wrap">
+                        {renamingDocId === doc.id ? (
+                          <div className="w-full flex gap-1.5">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleRenameDocument(doc.id, renameValue);
+                                if (e.key === "Escape") { setRenamingDocId(null); setRenameValue(""); }
+                              }}
+                              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:border-pacific-blue"
+                              placeholder={doc.filename}
+                            />
+                            <button
+                              onClick={() => handleRenameDocument(doc.id, renameValue)}
+                              disabled={!renameValue.trim() || processingAction === doc.id}
+                              className="px-2 py-1 rounded text-xs font-medium bg-pacific-blue text-white
+                                         hover:bg-pacific-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <Icon name="check" size={14} />
+                            </button>
+                            <button
+                              onClick={() => { setRenamingDocId(null); setRenameValue(""); }}
+                              className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600
+                                         hover:bg-gray-200"
+                            >
+                              <Icon name="close" size={14} />
+                            </button>
+                          </div>
+                        ) : null}
                         <button
                           onClick={() => loadDocumentIntoEditor(doc.id)}
                           disabled={processingAction === doc.id || isLoading}
@@ -440,6 +590,30 @@ export function WorkspaceSidebar({
                           {t("workspace.download")}
                         </button>
                         <button
+                          onClick={() => handleLoadHistory(doc.id)}
+                          disabled={processingAction === doc.id || isLoading}
+                          className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                                     bg-gray-50 text-gray-600 border border-gray-200
+                                     hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
+                                     transition-colors"
+                          title="Version history"
+                        >
+                          <Icon name="history" size={14} className="mr-1 inline" />
+                          History
+                        </button>
+                        <button
+                          onClick={() => { setRenamingDocId(doc.id); setRenameValue(doc.filename); }}
+                          disabled={processingAction === doc.id || isLoading}
+                          className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                                     bg-gray-50 text-gray-600 border border-gray-200
+                                     hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
+                                     transition-colors"
+                          title="Rename"
+                        >
+                          <Icon name="drive_file_rename_outline" size={14} className="mr-1 inline" />
+                          Rename
+                        </button>
+                        <button
                           onClick={() => handleDeleteDocument(doc.id)}
                           disabled={processingAction === doc.id || isLoading}
                           className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
@@ -456,6 +630,66 @@ export function WorkspaceSidebar({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Version history panel */}
+          {historyDocId && (
+            <div className="px-3 py-3 border-t border-gray-100 bg-white">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide">
+                  Version History — {getDocumentName(historyDocId)}
+                </p>
+                <button
+                  onClick={() => { setHistoryDocId(null); setHistoryVersions([]); setPreviewVersionId(null); setPreviewContent(""); }}
+                  className="text-evergreen/45 hover:text-evergreen"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              </div>
+              {historyLoading ? (
+                <p className="text-xs text-evergreen/50 py-2">Loading…</p>
+              ) : historyVersions.length === 0 ? (
+                <p className="text-xs text-evergreen/50 py-2">No saved versions yet.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {historyVersions.map((v) => (
+                    <div key={v.id} className="rounded border border-gray-200 bg-gray-50">
+                      <div className="flex items-center justify-between px-2 py-1.5">
+                        <div>
+                          <span className="text-xs font-medium text-evergreen">v{v.version}</span>
+                          <span className="text-xs text-evergreen/50 ml-2">
+                            {formatFileSize(v.size_bytes)}
+                            {v.created_at && ` · ${new Date(v.created_at).toLocaleDateString()}`}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handlePreviewVersion(historyDocId, v.version, v.id)}
+                            className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          >
+                            {previewVersionId === v.id ? "Hide" : "Preview"}
+                          </button>
+                          <button
+                            onClick={() => handleRestoreVersion(historyDocId, v.version)}
+                            disabled={processingAction === `restore-${historyDocId}-${v.version}`}
+                            className="px-1.5 py-0.5 rounded text-xs bg-pacific-blue/10 text-pacific-blue hover:bg-pacific-blue/20 disabled:opacity-40"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </div>
+                      {previewVersionId === v.id && previewContent && (
+                        <div className="px-2 pb-2">
+                          <pre className="text-xs bg-white border border-gray-200 rounded p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono">
+                            {previewContent.slice(0, 2000)}{previewContent.length > 2000 ? "\n…" : ""}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

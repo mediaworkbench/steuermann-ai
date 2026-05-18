@@ -166,7 +166,9 @@ def test_update_document_content_with_expected_version_returns_none_on_mismatch(
 
     assert updated is None
     assert connection.committed is True
-    assert "AND version = %s" in cursor.executed[0][0]
+    # The snapshot INSERT runs first (executed[0]), the version-filtered UPDATE is executed[1]
+    update_sqls = [sql for sql, _ in cursor.executed if "AND version = %s" in sql]
+    assert update_sqls, "Expected UPDATE with AND version = %s to be executed"
 
 
 def test_delete_document_returns_true_when_row_updated() -> None:

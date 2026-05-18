@@ -20,6 +20,7 @@ from backend.db import SettingsStore
 from backend.rate_limit import limiter
 from backend.single_user import get_effective_user_id, require_api_access
 from universal_agentic_framework.config import load_core_config
+from universal_agentic_framework.llm.factory import build_litellm_chat
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
     track_workspace_intent_denied,
@@ -30,6 +31,7 @@ from universal_agentic_framework.monitoring.metrics import (
     track_workspace_write_denied,
     track_memory_retrieval_signal,
 )
+from universal_agentic_framework.orchestration.helpers.text_processing import extract_json_object
 from universal_agentic_framework.tools.file_ops.tool import WorkspaceFileOpsTool
 
 logger = logging.getLogger(__name__)
@@ -85,6 +87,23 @@ _WORKSPACE_SAVE_INTENT_PATTERNS = [
     re.compile(r"\b(im\s+workspace\s+speichern|im\s+workspace\s+ueberschreiben|im\s+workspace\s+überschreiben)\b", re.IGNORECASE),
     re.compile(r"\b(speicher|speichern|ueberschreibe|überschreibe|aktualisiere)\b.*\b(workspace|dokument|datei)\b", re.IGNORECASE),
 ]
+
+# MIME types accepted by the workspace document system (used for intent-check fast path)
+_WORKSPACE_MIME_TYPES: frozenset[str] = frozenset({
+    "text/plain", "text/markdown", "text/x-markdown",
+    "application/json", "application/yaml", "application/x-yaml",
+    "text/yaml", "text/x-yaml", "text/csv", "text/html",
+    "text/xml", "application/xml",
+})
+
+_INTENT_CLASSIFICATION_PROMPT = (
+    "You detect workspace document intent from user messages.\n"
+    "Respond with JSON only, no other text:\n"
+    '{{"edit": <true if user wants to edit/improve/rewrite/revise/translate a document>, '
+    '"save": <true if user wants to save/persist/overwrite the result as a new version or update the existing document>, '
+    '"new_version": <true if user explicitly mentions creating a new version>}}\n\n'
+    'User message: "{message}"'
+)
 
 
 def _resolve_provider_endpoint(provider_prefix: str) -> str:
@@ -327,6 +346,15 @@ def _infer_workspace_document_ids_from_recent_conversation_context(
     return []
 
 
+_HAS_POTENTIAL_DOC_REF_RE = re.compile(
+    r"[0-9a-fA-F]{8}-"  # UUID fragment
+    r"|[`\"'][^`\"'\n]{1,255}\.[a-zA-Z]{1,10}[`\"']"  # quoted filename.ext
+    r"|\bworkspace\s+document\b"  # explicit phrase
+    r"|\b[A-Za-z0-9_\-]{1,100}\.[a-zA-Z]{2,10}\b",  # bare filename.ext (e.g. flatsplit.md)
+    re.IGNORECASE,
+)
+
+
 def _infer_workspace_document_ids_from_message(
     message: str,
     user_id: str,
@@ -334,6 +362,10 @@ def _infer_workspace_document_ids_from_message(
 ) -> list[str]:
     text = (message or "").strip()
     if not text:
+        return []
+
+    # Fast exit: skip the DB query if no UUID, quoted filename, or explicit phrase found
+    if not _HAS_POTENTIAL_DOC_REF_RE.search(text):
         return []
 
     documents = document_store.list_documents(user_id=user_id, limit=200, offset=0)
@@ -436,16 +468,80 @@ def _has_workspace_save_intent(message: str) -> bool:
     return any(pattern.search(text) for pattern in _WORKSPACE_SAVE_INTENT_PATTERNS)
 
 
+def _should_check_workspace_intent(
+    documents: List[Dict[str, Any]],
+    attachments: List[Dict[str, Any]],
+) -> bool:
+    """Return True only when a workspace document or text-format attachment is in context."""
+    if documents:
+        return True
+    return any(a.get("mime_type") in _WORKSPACE_MIME_TYPES for a in attachments)
+
+
+def _build_auxiliary_llm(language: str = "en"):
+    """Build an LLM instance using the auxiliary role config."""
+    config = load_core_config()
+    provider = config.llm.get_role_provider("auxiliary")
+    model_name = config.llm.get_role_model_name("auxiliary", language)
+    return build_litellm_chat(provider, model_name)
+
+
+async def _classify_workspace_intent_llm(message: str, language: str = "en") -> Dict[str, bool]:
+    """Classify workspace intent via a structured auxiliary LLM call.
+
+    Language-agnostic: works for any language the model understands.
+    Falls back to the existing regex patterns if the LLM call fails.
+    """
+    try:
+        llm = _build_auxiliary_llm(language)
+        safe_message = message.replace('"', '\\"')
+        prompt = _INTENT_CLASSIFICATION_PROMPT.format(message=safe_message)
+        result = await llm.ainvoke(prompt)
+        content = result.content if hasattr(result, "content") else str(result)
+        parsed = extract_json_object(content)
+        if parsed and isinstance(parsed.get("save"), bool):
+            return {
+                "edit": bool(parsed.get("edit", False)),
+                "save": bool(parsed.get("save", False)),
+                "new_version": bool(parsed.get("new_version", False)),
+            }
+    except Exception as exc:
+        logger.warning("Workspace intent LLM classification failed, falling back to regex: %s", exc)
+    return {
+        "edit": _has_explicit_workspace_edit_intent(message),
+        "save": _has_workspace_save_intent(message),
+        "new_version": False,
+    }
+
+
 def _normalize_workspace_writeback_content(content: str) -> str:
     text = (content or "").strip()
     if not text:
         return ""
 
-    fenced_match = re.fullmatch(r"```(?:[a-zA-Z0-9_-]+)?\n?(.*?)\n?```", text, flags=re.DOTALL)
+    # re.search instead of re.fullmatch so preamble prose before the fence is handled
+    fenced_match = re.search(r"```(?:[a-zA-Z0-9_-]*)?\n?(.*?)\n?```", text, flags=re.DOTALL)
     if fenced_match:
         return fenced_match.group(1).strip()
 
-    return text
+    # Strip common single-line LLM preamble before the actual document content (EN + DE)
+    _preamble_re = re.compile(
+        r"^(?:"
+        # English
+        r"here\s+(?:is|are)\s+(?:the\s+)?(?:improved|revised|updated|rewritten|enhanced|polished|corrected)"
+        r"\s+(?:document|version|content|text)[:\s]*"
+        r"|i(?:'ve|\s+have)\s+(?:improved|revised|updated|rewritten|enhanced|corrected)[^.]*\.\s*"
+        r"|(?:improved|revised|updated|rewritten|enhanced|corrected)\s+(?:version|document|content)[:\s]*"
+        # German
+        r"|hier\s+(?:ist|sind)\s+(?:das|die|der)\s+(?:verbesserte|überarbeitete|aktualisierte|korrigierte|optimierte)"
+        r"\s+(?:dokument|version|text|inhalt)[:\s]*"
+        r"|ich\s+habe\s+(?:das|die|den)[^.]*(?:verbessert|überarbeitet|aktualisiert|korrigiert)[^.]*\.\s*"
+        r"|(?:verbesserte|überarbeitete|aktualisierte|korrigierte|optimierte)\s+(?:version|dokument|text|inhalt)[:\s]*"
+        r")\n+",
+        re.IGNORECASE,
+    )
+    text = _preamble_re.sub("", text, count=1)
+    return text.strip()
 
 
 def _get_user_workspace_file_manager(request: Request) -> UserWorkspaceFileManager:
@@ -1100,7 +1196,13 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
     effective_language = user_settings.get("language") or request_body.language or "en"
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
     documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
-    workspace_writeback_requested = _has_workspace_save_intent(request_body.message)
+    workspace_writeback_requested = False
+    if _should_check_workspace_intent(documents, attachments):
+        _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
+        workspace_writeback_requested = (
+            _intent.get("save", False)
+            or (_intent.get("edit", False) and _intent.get("new_version", False))
+        )
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     
     state = {
@@ -1133,6 +1235,15 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             for doc in documents
         ],
         "workspace_writeback_requested": workspace_writeback_requested,
+        "workspace_writeback_document": (
+            {
+                "filename": documents[0]["filename"],
+                "content_text": documents[0]["content_text"],
+                "version": documents[0]["version"],
+            }
+            if workspace_writeback_requested and len(documents) == 1
+            else None
+        ),
     }
 
     logger.info(f"Routing chat request to {LANGGRAPH_URL}/invoke", extra={

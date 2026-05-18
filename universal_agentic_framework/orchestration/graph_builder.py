@@ -155,6 +155,7 @@ class GraphState(TypedDict, total=False):
     workspace_documents: List[Dict[str, Any]]  # User workspace documents resolved by adapter
     workspace_document_context: List[Dict[str, Any]]  # Prompt-ready normalized workspace snippets
     workspace_writeback_requested: bool
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (bypasses 600-token truncation)
     user_id: str
     session_id: str  # Session identifier for co-occurrence tracking
     language: str
@@ -1606,10 +1607,10 @@ def node_generate_response(state: GraphState) -> GraphState:
             )
             logger.info("Crew result injected into context", crew=crew_name, result_length=len(crew_result["result"]))
 
+    workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
-    if state.get("workspace_writeback_requested") and len(workspace_document_context) == 1:
-        target = workspace_document_context[0]
-        filename = target.get("filename") or "document.txt"
+    if state.get("workspace_writeback_requested") and len(workspace_docs_raw) == 1:
+        filename = workspace_docs_raw[0].get("filename") or "document.txt"
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"
@@ -1673,7 +1674,19 @@ def node_generate_response(state: GraphState) -> GraphState:
             workspace_lines.append(f"{label}\n{text}")
         if len(workspace_lines) > 1:
             messages.append(HumanMessage(content="\n\n".join(workspace_lines)))
-    
+
+    # In writeback mode inject the FULL document content (bypasses the 600-token context truncation)
+    writeback_doc = state.get("workspace_writeback_document")
+    if writeback_doc and state.get("workspace_writeback_requested"):
+        full_text = str(writeback_doc.get("content_text") or "").strip()
+        fname = writeback_doc.get("filename") or "document"
+        ver = writeback_doc.get("version")
+        if full_text:
+            ver_label = f" | v{ver}" if ver is not None else ""
+            messages.append(HumanMessage(
+                content=f"[Document to revise: {fname}{ver_label}]\n\n{full_text}"
+            ))
+
     # Debug: log what we're sending to the model
     tool_results = state.get("tool_results", {})
     logger.info("Sending to LLM", 

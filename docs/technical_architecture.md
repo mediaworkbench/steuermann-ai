@@ -1273,12 +1273,13 @@ services:
 **Chat attachments and workspace documents (current implementation):**
 
 - Conversation uploads are handled by `POST /api/conversations/{conversation_id}/attachments`.
-- Uploads are validated as UTF-8 text (`.txt`, `.md`, `.markdown`) and stored as user-scoped workspace documents.
+- Uploads are validated as UTF-8 text; accepted formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. MIME type is validated per extension.
 - Conversation attachment rows are references to those canonical workspace documents (same document ID is reused).
-- Persistent workspace document APIs are exposed under `POST/GET/PUT/DELETE /api/workspace/documents` and `GET /api/workspace/documents/{id}/download`.
+- Persistent workspace document APIs: `POST/GET/PUT/PATCH/DELETE /api/workspace/documents`, `GET .../download`, `GET/POST .../versions`, `GET .../versions/{ver}`, `POST .../versions/{ver}/restore`.
+- Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
 - Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
-- LangGraph injects both attachment context and workspace document context into prompt construction.
-- If the user message includes save-back intent and exactly one workspace document is in context, assistant output is written back to that document (version increment, metadata returned as `workspace_document_writeback`).
+- LangGraph injects both attachment context and workspace document context into prompt construction. In writeback mode the full document content (not truncated) is injected as a `HumanMessage` via `workspace_writeback_document` state field.
+- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. When intent is confirmed and exactly one document is in context, the assistant output is written back as a new version (`workspace_document_writeback` in response metadata).
 
 **Legacy workspace editing path (still present, opt-in):**
 

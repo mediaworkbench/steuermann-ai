@@ -291,6 +291,12 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     app.state.settings_store = _FakeSettingsStore()
     client = TestClient(app)
 
+    # Simulate that "openai/existing-model" is available at the LLM endpoint
+    async def _valid_model(model_name):
+        return model_name, None
+
+    monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _valid_model)
+
     response = client.post(
         "/api/settings/user/u1",
         json={

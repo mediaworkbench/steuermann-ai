@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.7] — tool-quality-improvements
+## [0.2.6] — tool-system-refactor-and-quality
 
 - **fix** `file_ops_tool` disabled in `config/tools.yaml` — `sandbox_dir: ""` resolved to `/app` in Docker, giving the LLM read/write access to the entire application codebase; `WorkspaceFileOpsTool` (instantiated per-conversation in `backend/routers/chat.py`) is the correct production path for file operations
 - **fix** `datetime_tool.convert_timezone` now accepts optional `time` (e.g. `"15:00"`) and `from_timezone` (e.g. `"Europe/Berlin"`) params — previously it silently duplicated `current_time` (both computed `datetime.now(ZoneInfo(tz))` and returned the same result); now supports real conversions like "what time is 3pm Berlin in New York?"
@@ -11,9 +11,6 @@
 - **refactor** `mentions_file_ops` intent detection removed from `intent_detection.py` and `node_prefilter_tools` (boosted a disabled tool); `file_ops_tool` references removed from `utility_tool_names` set and tool-result fallback list in `graph_builder.py`
 - **test** `test_datetime_tool.py` updated for new `convert_timezone` output format (`"Time conversion:"` instead of `"Current time in ..."`); added tests for explicit `time` + `from_timezone` conversion and invalid time-string handling; added `DateTimeInput` schema test for new fields
 - **docs** Updated intent boost table in `docs/tool_development_guide.md`, `docs/technical_architecture.md`, and `CLAUDE.md` (removed `file_ops_tool` row); updated Quick Reference tools table; updated `README.md` built-in tools list
-
-## [0.2.6] — tool-system-refactor
-
 - **refactor** Removed dead `node_route_tools` function (~155 lines) from `graph_builder.py` — it was defined but never registered with `add_node()` and had been superseded by the three-layer tool system (Layer 1 prefilter → Layer 2 LLM-driven calling → Layer 3 schema validation)
 - **refactor** Removed helper infrastructure that was only used by the dead `node_route_tools`: `run_forced_tool`, `execute_semantic_scored_tools`, `build_semantic_tool_kwargs`, `prepare_scored_tools_with_forced_execution` (~300 lines across `semantic_execution.py` and `tool_preparation.py`)
 - **refactor** Deleted `universal_agentic_framework/tools/sandbox.py` (254 lines) and `universal_agentic_framework/tools/rate_limiter.py` (242 lines) — both were fully implemented but never integrated into any execution path; sandbox/rate-limit enforcement can be added at integration time if ever needed

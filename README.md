@@ -158,7 +158,7 @@ A production-oriented Next.js application — not a demo chat widget — with re
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
   - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, message quality panel, summary cards, CSV export
 - **Memory management** at `/memories` — browse, rate, and delete individual memories with full filtering and sorting
-- **Workspace sidebar** for managing uploaded documents per conversation
+- **Workspace document tool** — upload and manage persistent documents per user; accepted formats: `.txt`, `.md`, `.json`, `.yaml`, `.csv`, `.html`, `.xml`; full version history with restore; inline rename; AI-driven save-back (ask the model to improve a document and save it — detected via language-agnostic LLM intent classifier)
 - **Dark/light theme** with system preference detection
 - **Profile-aware branding** — colors, logos, and labels adapt to the active deployment profile
 - **Optional authentication** — session-based login via `AUTH_ENABLED=true` with scrypt password hashing

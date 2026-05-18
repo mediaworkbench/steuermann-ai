@@ -268,6 +268,7 @@ export function ChatInterface() {
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
+  const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -480,7 +481,11 @@ export function ChatInterface() {
         ]);
 
         if (data.metadata?.workspace_document_writeback?.status === "saved") {
+          const savedDocId = data.metadata.workspace_document_writeback.document_id ?? null;
           fetchWorkspaceDocuments();
+          setWritebackSavedDocId(savedDocId);
+          // Clear the marker after a tick so the effect re-fires on next save of the same doc
+          setTimeout(() => setWritebackSavedDocId(null), 200);
           toast.success(t("chat.workspaceDocumentSaved"), {
             description: `${data.metadata.workspace_document_writeback.filename} updated to v${data.metadata.workspace_document_writeback.version}`,
           });
@@ -872,6 +877,7 @@ export function ChatInterface() {
         documents={documents}
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
+        writebackSavedDocId={writebackSavedDocId}
         onInsertCommand={(command) => {
           setInput(command);
           requestAnimationFrame(() => {

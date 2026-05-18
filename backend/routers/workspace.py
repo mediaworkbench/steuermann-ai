@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -75,6 +75,35 @@ class WorkspaceDocumentUpdateResponse(BaseModel):
     document: WorkspaceDocumentResponse
 
 
+class WorkspaceDocumentPatch(BaseModel):
+    """Partial update for a workspace document (currently: rename only)."""
+
+    filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
+
+
+class WorkspaceDocumentVersionResponse(BaseModel):
+    """A historical version snapshot (no content_text)."""
+
+    id: str
+    document_id: str
+    version: int
+    size_bytes: int
+    sha256: str
+    created_at: Optional[str] = None
+
+
+class WorkspaceDocumentVersionWithContentResponse(BaseModel):
+    """A historical version snapshot with full content."""
+
+    id: str
+    document_id: str
+    version: int
+    content_text: str
+    size_bytes: int
+    sha256: str
+    created_at: Optional[str] = None
+
+
 # ── Helper Functions ────────────────────────────────────────────────────
 
 
@@ -94,35 +123,63 @@ def _get_document_store(request: Request) -> WorkspaceDocumentStore:
     return store
 
 
+_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({
+    ".txt", ".md", ".markdown",
+    ".json", ".yaml", ".yml",
+    ".csv", ".html", ".xml",
+})
+
+_EXT_TO_MIME: dict[str, str] = {
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".json": "application/json",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".csv": "text/csv",
+    ".html": "text/html",
+    ".xml": "text/xml",
+}
+
+# Per-extension allowed MIME types — text/plain is accepted universally as a browser fallback
+_EXT_ALLOWED_MIMES: dict[str, frozenset[str]] = {
+    ".txt": frozenset({"text/plain"}),
+    ".md": frozenset({"text/markdown", "text/x-markdown", "text/plain"}),
+    ".markdown": frozenset({"text/markdown", "text/x-markdown", "text/plain"}),
+    ".json": frozenset({"application/json", "text/plain"}),
+    ".yaml": frozenset({"application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml", "text/plain"}),
+    ".yml": frozenset({"application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml", "text/plain"}),
+    ".csv": frozenset({"text/csv", "text/plain"}),
+    ".html": frozenset({"text/html", "text/plain"}),
+    ".xml": frozenset({"text/xml", "application/xml", "text/plain"}),
+}
+
+
 def _validate_text_file(filename: str, content_type: Optional[str] = None) -> str:
     """Validate text file format (extension + mime type).
-    
+
     Returns:
         Normalized MIME type
-    
+
     Raises:
         AttachmentValidationError: If file format is invalid
     """
-    allowed_extensions = (".txt", ".md", ".markdown")
-    allowed_mime_types = ("text/plain", "text/markdown", "text/x-markdown")
-    
     from pathlib import Path
     ext = Path(filename).suffix.lower()
-    
-    if ext not in allowed_extensions:
+
+    if ext not in _ALLOWED_EXTENSIONS:
         raise AttachmentValidationError(
-            f"File type '{ext or '(none)'}' not supported. Allowed: {', '.join(allowed_extensions)}"
+            f"File type '{ext or '(none)'}' not supported. "
+            f"Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}"
         )
-    
-    normalized_content_type = (content_type or "").strip().lower()
+
+    normalized_content_type = (content_type or "").strip().lower().split(";")[0].strip()
     if not normalized_content_type:
-        normalized_content_type = "text/markdown" if ext == ".md" else "text/plain"
-    
-    if normalized_content_type not in allowed_mime_types:
+        normalized_content_type = _EXT_TO_MIME.get(ext, "text/plain")
+    elif normalized_content_type not in _EXT_ALLOWED_MIMES.get(ext, frozenset()):
         raise AttachmentValidationError(
-            f"Content type '{normalized_content_type}' not allowed. Allowed: {', '.join(allowed_mime_types)}"
+            f"Content type '{normalized_content_type}' is not allowed for '{ext}' files."
         )
-    
+
     return normalized_content_type
 
 
@@ -287,13 +344,12 @@ async def update_document(
         )
         
         # Update database record (overwrite + version increment)
-        new_sha256 = hashlib.sha256(content).hexdigest()
         updated_doc = document_store.update_document_content(
             document_id=document_id,
             user_id=effective_user_id,
             content_text=content_text,
             size_bytes=int(updated_metadata["size_bytes"]),
-            sha256=new_sha256,
+            sha256=str(updated_metadata["sha256"]),
         )
         
         if not updated_doc:
@@ -310,6 +366,49 @@ async def update_document(
     except Exception as exc:
         logger.error(f"Failed to update document: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+_SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-. ]{1,255}$")
+
+
+@router.patch("/documents/{document_id}", response_model=WorkspaceDocumentResponse)
+async def patch_document(
+    document_id: str,
+    body: WorkspaceDocumentPatch,
+    request: Request,
+) -> WorkspaceDocumentResponse:
+    """Rename a workspace document."""
+    effective_user_id = get_effective_user_id(request)
+    document_store = _get_document_store(request)
+
+    if not body.filename:
+        raise HTTPException(status_code=400, detail="filename is required")
+
+    new_filename = body.filename.strip()
+    if not _SAFE_FILENAME_RE.match(new_filename):
+        raise HTTPException(status_code=400, detail="Invalid filename: only letters, digits, spaces, hyphens, underscores, and dots are allowed")
+
+    from pathlib import Path
+    ext = Path(new_filename).suffix.lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File extension '{ext or '(none)'}' not supported. Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}",
+        )
+
+    existing = document_store.get_document(document_id=document_id, user_id=effective_user_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    updated = document_store.rename_document(
+        document_id=document_id,
+        user_id=effective_user_id,
+        filename=new_filename,
+    )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to rename document")
+
+    return WorkspaceDocumentResponse(**updated)
 
 
 @router.delete("/documents/{document_id}", status_code=204, response_class=Response)
@@ -394,3 +493,98 @@ async def download_document(
     except Exception as exc:
         logger.error(f"Failed to download document: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ── Version History Endpoints ─────────────────────────────────────────────
+
+
+@router.get(
+    "/documents/{document_id}/versions",
+    response_model=List[WorkspaceDocumentVersionResponse],
+)
+async def list_document_versions(
+    document_id: str,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> List[WorkspaceDocumentVersionResponse]:
+    """List historical version snapshots for a document (no content_text)."""
+    effective_user_id = get_effective_user_id(request)
+    document_store = _get_document_store(request)
+
+    existing = document_store.get_document(document_id=document_id, user_id=effective_user_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    versions = document_store.list_document_versions(
+        document_id=document_id, user_id=effective_user_id, limit=limit
+    )
+    return [WorkspaceDocumentVersionResponse(**v) for v in versions]
+
+
+@router.get(
+    "/documents/{document_id}/versions/{version}",
+    response_model=WorkspaceDocumentVersionWithContentResponse,
+)
+async def get_document_version(
+    document_id: str,
+    version: int,
+    request: Request,
+) -> WorkspaceDocumentVersionWithContentResponse:
+    """Get a specific historical version with full content_text."""
+    effective_user_id = get_effective_user_id(request)
+    document_store = _get_document_store(request)
+
+    row = document_store.get_document_version(
+        document_id=document_id, user_id=effective_user_id, version=version
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found")
+    return WorkspaceDocumentVersionWithContentResponse(**row)
+
+
+@router.post(
+    "/documents/{document_id}/versions/{version}/restore",
+    response_model=WorkspaceDocumentResponse,
+)
+async def restore_document_version(
+    document_id: str,
+    version: int,
+    request: Request,
+) -> WorkspaceDocumentResponse:
+    """Restore a historical version: saves current state as a snapshot, then applies old content as new version."""
+    effective_user_id = get_effective_user_id(request)
+    document_store = _get_document_store(request)
+    file_manager = _get_file_manager(request)
+
+    existing = document_store.get_document(document_id=document_id, user_id=effective_user_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    old_version = document_store.get_document_version(
+        document_id=document_id, user_id=effective_user_id, version=version
+    )
+    if not old_version:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found")
+
+    content_bytes = old_version["content_text"].encode("utf-8")
+    try:
+        updated_metadata = file_manager.update_document_file(
+            user_id=effective_user_id,
+            document_id=document_id,
+            stored_path=existing["stored_path"],
+            content=content_bytes,
+        )
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated = document_store.update_document_content(
+        document_id=document_id,
+        user_id=effective_user_id,
+        content_text=old_version["content_text"],
+        size_bytes=int(updated_metadata["size_bytes"]),
+        sha256=str(updated_metadata["sha256"]),
+    )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to restore version")
+
+    return WorkspaceDocumentResponse(**{k: v for k, v in updated.items() if k in WorkspaceDocumentResponse.model_fields})
