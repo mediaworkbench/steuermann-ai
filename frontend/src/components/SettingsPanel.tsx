@@ -318,6 +318,18 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {configLoading && <div className="text-gray-500 text-sm">{t("settingsPanel.loadingDefaults")}</div>}
         <div className="space-y-4">
           <div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={(ragConfig.enabled as boolean) !== false}
+                onChange={(e) => handleRagConfigChange("enabled", e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-700">{t("settingsPanel.ragEnabled")}</span>
+            </label>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
             </label>

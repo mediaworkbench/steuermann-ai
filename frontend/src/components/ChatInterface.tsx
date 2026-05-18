@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Database } from "lucide-react";
 import { Icon } from "./Icon";
 import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
@@ -270,6 +271,8 @@ export function ChatInterface() {
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
+  const [ragEnabled, setRagEnabled] = useState<boolean>(true);
+  const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -381,6 +384,32 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages, loading]);
 
+  // Load RAG preference from user settings on mount
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
+    fetch(`${apiBase}/api/settings/user/${CURRENT_USER_ID}`)
+      .then((r) => r.json())
+      .then((s) => {
+        const cfg = s?.rag_config || { collection: "", top_k: 5, enabled: true };
+        setRagConfig(cfg);
+        setRagEnabled(cfg.enabled !== false);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRagToggle = useCallback(async () => {
+    const next = !ragEnabled;
+    const updated = { ...ragConfig, enabled: next };
+    setRagEnabled(next);
+    setRagConfig(updated);
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
+    await fetch(`${apiBase}/api/settings/user/${CURRENT_USER_ID}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rag_config: updated }),
+    });
+  }, [ragEnabled, ragConfig]);
+
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -449,6 +478,7 @@ export function ChatInterface() {
             conversation_id: convId,
             attachment_ids: selectedAttachmentIds,
             document_ids: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
+            rag_enabled: ragEnabled,
           }),
         });
 
@@ -478,6 +508,8 @@ export function ChatInterface() {
               attachments_used: data.metadata?.attachments_used,
               documents_used: data.metadata?.documents_used,
               memories_used: data.metadata?.memories_used,
+              rag_attempted: data.metadata?.rag_attempted,
+              rag_doc_count: data.metadata?.rag_doc_count,
             },
           },
         ]);
@@ -822,6 +854,18 @@ export function ChatInterface() {
             >
               <Icon name="attach_file" size={20} />
             </button>
+            <button
+              type="button"
+              onClick={handleRagToggle}
+              title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+              className={`shrink-0 rounded px-2 py-2 transition-colors ${
+                ragEnabled
+                  ? "text-pacific-blue hover:bg-pacific-blue/5"
+                  : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
+              }`}
+            >
+              <Database size={18} />
+            </button>
             <label htmlFor="message-input" className="sr-only">
               {t("chat.message")}
             </label>
@@ -947,8 +991,12 @@ function AssistantMessage({
           <MarkdownMessage content={message.content} sources={message.metrics?.sources} />
         </div>
 
-        {/* Source badges */}
-        <SourceBadges sources={message.metrics?.sources} />
+        {/* Source badges — only show RAG sources when docs were actually injected */}
+        <SourceBadges
+          sources={message.metrics?.sources?.filter(
+            (s) => s.type !== "rag" || (message.metrics?.rag_doc_count ?? 0) > 0,
+          )}
+        />
 
         {/* Attachment context badges */}
         <AttachmentUsedBadges attachments={message.metrics?.attachments_used} />

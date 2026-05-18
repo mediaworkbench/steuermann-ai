@@ -3,6 +3,10 @@
 import re
 from typing import Any, Dict
 
+# Queries shorter than this character count are candidates for the trivial-query RAG skip
+# heuristic. Tune here if false positives emerge — do not inline this threshold.
+_RAG_SKIP_SHORT_QUERY_CHARS: int = 35
+
 
 def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
     """Detect routing intents and query enrichments in one place.
@@ -161,6 +165,24 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
     if has_sentiment_intent and ticker:
         enhanced_web_query = f"{ticker} coin crypto sentiment market outlook social media news"
 
+    # RAG short-circuit: skip Qdrant entirely for trivial queries that cannot benefit
+    # from knowledge retrieval regardless of what the knowledge base contains.
+    _short = len(user_msg_lower.strip()) < _RAG_SKIP_SHORT_QUERY_CHARS
+    _is_greeting = bool(re.search(
+        r"^(hello|hi|hey|hallo|guten\s*tag|guten\s*morgen|bonjour|salut|ciao|yo)\b",
+        user_msg_lower.strip(),
+    ))
+    skip_rag = bool(
+        _is_greeting
+        or (_short and mentions_calculation and not mentions_web_search)
+        or (_short and mentions_datetime and not mentions_web_search)
+        or asks_about_tools
+    )
+
+    # Force-tool-use: structured-mode models must not be allowed to opt out when
+    # the user has clearly requested a web search.
+    force_tool_use = bool(mentions_web_search)
+
     return {
         "user_msg_lower": user_msg_lower,
         "search_language": search_language,
@@ -173,4 +195,6 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "wants_save_to_rag": wants_save_to_rag,
         "enhanced_web_query": enhanced_web_query,
         "requested_web_results": requested_web_results,
+        "skip_rag": skip_rag,
+        "force_tool_use": force_tool_use,
     }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.9] — adaptive-rag-and-knowledge-base-toggle
+
+- **feat** Intent-based RAG short-circuit: `retrieve_knowledge` is skipped for greetings, pure math/datetime queries (short + no web intent), and tool meta-questions — saves 50–80ms embedding + Qdrant round-trip per trivial turn; controlled by `skip_rag` key added to `detect_tool_routing_intents()`
+- **feat** Per-session Knowledge Base toggle button in the chat bar — `Database` icon next to the attach button; state initialised from stored settings on mount; toggling persists to `POST /api/settings/user/{id}` without wiping `collection` or `top_k` values
+- **feat** "Enable Knowledge Base" checkbox added to Settings RAG Configuration section — same `rag_config.enabled` field; save propagates to all subsequent chat turns via `rag_enabled` in `POST /api/chat`
+- **feat** RAG activity row in collapsible per-message MetricsPanel: shows "N documents used" when docs were injected, or "searched · no relevant results" when Qdrant was queried but nothing passed the threshold; row absent when RAG was skipped entirely
+- **fix** RAG document pill no longer appears when retrieved docs did not influence the answer — `SourceBadges` now gates `type === "rag"` sources on `rag_doc_count > 0`
+- **improve** `_RAG_SKIP_SHORT_QUERY_CHARS: int = 35` named module-level constant replaces inline magic number in `intent_detection.py`
+- **improve** `rag_config` user settings default extended to `{"collection": "", "top_k": 5, "enabled": True}` in all three locations in `backend/routers/settings.py` — prevents `enabled` being absent on first-run settings fetch
+- **fix** Web search no longer silently skipped when a structured-mode model declines in plain text — `node_call_tools_structured` now injects a mandatory "MUST call" footer when `force_tool_use=True` (explicit web search intent or top candidate score ≥ 0.75) and retries with a stricter prompt when the model responds with text instead of a JSON tool call; up to `max_retries` (2) retry attempts before graceful exit
+- **improve** `force_tool_use` flag added to `detect_tool_routing_intents()` return dict; set to `True` when `mentions_web_search=True` — keeps forced-execution policy centralised alongside other routing intents
+
 ## [0.2.8] — workspace-writeback-quality-and-admin-reset
 
 - **fix** Workspace writeback LLM intent classifier rewritten to use a direct `httpx.AsyncClient` POST to the auxiliary provider's `/chat/completions` endpoint — `ChatLiteLLM.ainvoke()` silently dropped `api_base` in async context, causing every classification call to fall back to regex

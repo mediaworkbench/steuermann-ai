@@ -167,6 +167,8 @@ class GraphState(TypedDict, total=False):
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
+    rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
+    rag_doc_count: int   # Number of docs above threshold that were injected into the prompt
     loaded_tools: List[Any]  # BaseTool instances from registry
     candidate_tools: List[Dict[str, Any]]  # Layer 1 pre-filter output: [{tool, name, score}]
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
@@ -741,10 +743,18 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     if not user_msg:
         return state
 
+    # Determine whether this turn requires the model to call a tool.
+    # High-confidence web search intents (explicit "search the web" phrasing) and
+    # any candidate scoring ≥ 0.75 both count as obligation signals.
+    intents = state.get("prefilter_intents") or {}
+    top_score = candidates[0].get("score", 0.0) if candidates else 0.0
+    force_tool_use = bool(intents.get("force_tool_use") or top_score >= 0.75)
+
     logger.info(
         "Layer 2 structured tool calling",
         fork_name=fork_name,
         candidates=len(candidates),
+        force_tool_use=force_tool_use,
     )
 
     with track_node_execution(fork_name, "call_tools_structured"):
@@ -783,11 +793,20 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_schemas.append(f"- {name}: {desc}\n  Args: {args_desc}")
 
             tool_block = "\n".join(tool_schemas)
+            # When the user clearly wants a tool (web search or high-confidence candidate),
+            # replace the opt-out footer with a mandatory instruction so the model cannot
+            # silently skip the call.
+            tool_footer = (
+                "You MUST call one of the available tools listed above. "
+                "Do not respond with plain text — output ONLY the JSON tool call."
+                if force_tool_use
+                else "If no tool is needed, respond normally in plain text."
+            )
             system_content = (
                 "You are a helpful assistant with access to tools.\n"
                 "If a tool would help answer the user's question, respond with ONLY a JSON object:\n"
                 '{"tool": "<tool_name>", "args": {<arguments>}}\n'
-                "If no tool is needed, respond normally in plain text.\n\n"
+                f"{tool_footer}\n\n"
                 f"Available tools:\n{tool_block}"
             )
 
@@ -837,6 +856,22 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_call = extract_json_object(response_text)
 
                 if not tool_call or "tool" not in tool_call:
+                    if force_tool_use and attempt < max_retries:
+                        logger.info(
+                            "Model declined tool call despite force_tool_use; retrying with stricter prompt",
+                            attempt=attempt,
+                            fork_name=fork_name,
+                        )
+                        from langchain_core.messages import AIMessage
+                        messages.append(AIMessage(content=response_text))
+                        messages.append(HumanMessage(
+                            content=(
+                                "You did not call a tool. You MUST call one of the listed tools now. "
+                                "Output ONLY the JSON tool call — nothing else:\n"
+                                '{"tool": "<tool_name>", "args": {<arguments>}}'
+                            )
+                        ))
+                        continue
                     logger.info("Model chose not to call tools (structured)", attempt=attempt)
                     break
 
@@ -1146,13 +1181,31 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
         logger.info("RAG disabled via config", fork_name=fork_name)
         state["knowledge_context"] = []
         return state
-    
+
+    # Per-session user toggle: check before intent skip so the user override is explicit
+    user_settings = state.get("user_settings", {})
+    user_rag_config = user_settings.get("rag_config", {})
+    if user_rag_config and not user_rag_config.get("enabled", True):
+        logger.info("RAG disabled by user setting", fork_name=fork_name)
+        state["knowledge_context"] = []
+        return state
+
+    # Intent-based short-circuit: skip Qdrant entirely for trivial queries
+    intents = state.get("prefilter_intents") or {}
+    if intents.get("skip_rag"):
+        logger.info("RAG skipped (trivial intent)", fork_name=fork_name)
+        state["knowledge_context"] = []
+        return state
+
     logger.info("Retrieving knowledge", fork_name=fork_name, query_length=len(user_msg))
-    
+
+    # All skip paths passed — RAG will actually query Qdrant this turn
+    state["rag_attempted"] = True
+
     with track_node_execution(fork_name, "retrieve_knowledge"):
         try:
             import httpx
-            
+
             # Generate query embedding
             embedding_model_name = config.llm.get_role_model_name("embedding", config.fork.language)
             embedding_dimension = config.memory.embeddings.dimension
@@ -1171,9 +1224,9 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
                 remote_endpoint=embedding_remote_endpoint,
             )
             query_embedding = embedder.encode(user_msg)
-            
+
             logger.info("RAG: Generated embedding", embedding_size=len(query_embedding))
-            
+
             # Use Qdrant REST API directly for compatibility
             qdrant_url = f"http://{config.memory.vector_store.host}:{config.memory.vector_store.port}"
             collection_name = "framework"
@@ -1184,9 +1237,6 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
             timeout_seconds = 30
 
             # First check user settings, then fall back to config
-            user_settings = state.get("user_settings", {})
-            user_rag_config = user_settings.get("rag_config", {})
-            
             if user_rag_config:
                 # User has custom RAG settings
                 if user_rag_config.get("collection"):
@@ -1281,18 +1331,20 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
                 knowledge_docs = sorted(knowledge_docs, key=lambda d: d.get("score", 0.0), reverse=True)[:top_k]
             
             state["knowledge_context"] = knowledge_docs
-            
+            state["rag_doc_count"] = len(knowledge_docs)
+
             logger.info(
                 "Knowledge retrieved successfully",
                 fork_name=fork_name,
                 results_count=len(knowledge_docs),
-                top_score=knowledge_docs[0]["score"] if knowledge_docs else 0.0
+                top_score=knowledge_docs[0]["score"] if knowledge_docs else 0.0,
             )
-            
+
         except Exception as e:
             logger.error("Knowledge retrieval failed", error=str(e), fork_name=fork_name, exc_info=True)
             state["knowledge_context"] = []
-    
+            state["rag_doc_count"] = 0
+
     return state
 
 

@@ -11,6 +11,18 @@ os.environ.setdefault("QDRANT_HOST", "localhost")
 
 
 @pytest.fixture(autouse=True)
+def _disable_redis_for_tests(monkeypatch):
+    """Remove REDIS_URL so performance_nodes uses MemoryCacheBackend silently.
+
+    In the Docker Compose environment REDIS_URL=redis://redis:6379/0 is set, but
+    the 'redis' hostname does not resolve outside the compose network.  Without this
+    fixture every test session logs an ERROR from manager.py followed by a WARNING
+    from performance_nodes.py before falling back to the in-memory cache.
+    """
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _disable_checkpointer_for_tests(monkeypatch):
     """Disable checkpointing globally in tests.
 

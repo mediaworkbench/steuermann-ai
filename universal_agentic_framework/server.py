@@ -207,6 +207,8 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     "profile_id": result.get("profile_id", profile_id),
                     "summary_text": result.get("summary_text", ""),
                     "sources": result.get("sources", []),
+                    "rag_attempted": result.get("rag_attempted", False),
+                    "rag_doc_count": result.get("rag_doc_count", 0),
                 }
                 
             except Exception as e:

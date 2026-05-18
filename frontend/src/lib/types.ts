@@ -30,6 +30,8 @@ export interface MessageMetrics {
   attachments_used?: Array<{ id: string; original_name: string }>;
   documents_used?: Array<{ id: string; filename: string; version: number }>;
   memories_used?: MemoryReference[];
+  rag_attempted?: boolean;
+  rag_doc_count?: number;
 }
 
 export interface Message {
@@ -95,6 +97,8 @@ export interface ChatResponse {
       revised_path?: string | null;
     };
     model_warning?: string;
+    rag_attempted?: boolean;
+    rag_doc_count?: number;
   };
 }
 

@@ -97,6 +97,7 @@ export type Messages = {
     toolSettings: string;
     loadingTools: string;
     ragConfiguration: string;
+    ragEnabled: string;
     loadingDefaults: string;
     knowledgeCollection: string;
     topKResults: string;
@@ -195,6 +196,8 @@ export type Messages = {
     attachmentUploaded: string;
     attachmentDeleteFailed: string;
     attachmentRemoved: string;
+    knowledgeBaseOn: string;
+    knowledgeBaseOff: string;
     templates: {
       explainConcept: string;
       helpCode: string;
@@ -523,6 +526,7 @@ export const messages: Record<Locale, Messages> = {
       toolSettings: "Tool Settings",
       loadingTools: "Loading tools...",
       ragConfiguration: "RAG Configuration",
+      ragEnabled: "Enable Knowledge Base",
       loadingDefaults: "Loading defaults...",
       knowledgeCollection: "Knowledge Collection (System default: {value})",
       topKResults: "Top-K Results (System default: {default}): {value}",
@@ -621,6 +625,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentUploaded: "Attachment uploaded",
       attachmentDeleteFailed: "Attachment delete failed",
       attachmentRemoved: "Attachment removed",
+      knowledgeBaseOn: "Knowledge Base: On",
+      knowledgeBaseOff: "Knowledge Base: Off",
       templates: {
         explainConcept: "Explain a concept",
         helpCode: "Help me code",
@@ -947,6 +953,7 @@ export const messages: Record<Locale, Messages> = {
       toolSettings: "Werkzeug-Einstellungen",
       loadingTools: "Werkzeuge werden geladen...",
       ragConfiguration: "RAG-Konfiguration",
+      ragEnabled: "Wissensdatenbank aktivieren",
       loadingDefaults: "Standardwerte werden geladen...",
       knowledgeCollection: "Wissenssammlung (Systemstandard: {value})",
       topKResults: "Top-K-Ergebnisse (Systemstandard: {default}): {value}",
@@ -1045,6 +1052,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentUploaded: "Anhang hochgeladen",
       attachmentDeleteFailed: "Löschen des Anhangs fehlgeschlagen",
       attachmentRemoved: "Anhang entfernt",
+      knowledgeBaseOn: "Wissensdatenbank: An",
+      knowledgeBaseOff: "Wissensdatenbank: Aus",
       templates: {
         explainConcept: "Konzept erklären",
         helpCode: "Beim Coden helfen",

@@ -157,6 +157,7 @@ class ChatRequest(BaseModel):
     attachment_ids: List[str] = Field(default_factory=list, max_length=20)
     document_ids: List[str] = Field(default_factory=list, max_length=20)
     preferred_model: Optional[str] = Field(default=None, max_length=256)
+    rag_enabled: Optional[bool] = None  # Per-message override; None = use stored user setting
     workspace_action: Optional["WorkspaceActionRequest"] = None
 
     @field_validator("user_id")
@@ -1003,7 +1004,7 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
         # Return defaults
         settings = {
             "tool_toggles": {},
-            "rag_config": {"collection": "", "top_k": 5},
+            "rag_config": {"collection": "", "top_k": 5, "enabled": True},
             "preferred_model": None,
             "theme": "auto",
             "language": "en",
@@ -1240,6 +1241,13 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             # Update settings with validated model (or None if invalid)
             user_settings["preferred_model"] = validated_model
     
+    # Per-message RAG toggle: merge into user_settings before forwarding to LangGraph
+    if request_body.rag_enabled is not None:
+        user_settings = dict(user_settings)
+        rag_cfg = dict(user_settings.get("rag_config") or {})
+        rag_cfg["enabled"] = request_body.rag_enabled
+        user_settings["rag_config"] = rag_cfg
+
     # Language source of truth: user settings → API request fallback → profile default
     effective_language = user_settings.get("language") or request_body.language or "en"
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
@@ -1363,6 +1371,8 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         tools_executed.append("knowledge_base")
 
     sources = result.get("sources") or []
+    rag_attempted = result.get("rag_attempted", False)
+    rag_doc_count = result.get("rag_doc_count", 0)
     attachments_used = [
         {
             "id": attachment["id"],
@@ -1495,6 +1505,8 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             "profile_id": profile_id,
             "tools_executed": tools_executed,
             "sources": sources,
+            "rag_attempted": rag_attempted,
+            "rag_doc_count": rag_doc_count,
             "attachments_used": attachments_used,
             "documents_used": documents_used,
             "memories_used": memories_used,

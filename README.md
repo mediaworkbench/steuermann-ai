@@ -118,6 +118,8 @@ A containerized ingestion service watches your document directories and automati
 - **Auto-deletion** — removing a source file automatically purges its chunks from Qdrant
 - **Configurable chunking** with overlap, batch embedding, and concurrent file processing
 - **Phase timing metrics** — per-file performance breakdown (parse, chunk, embed, upsert)
+- **Adaptive RAG short-circuit** — RAG is automatically skipped for trivial queries (greetings, pure math, datetime, tool meta-questions) to save the embedding + Qdrant round-trip on non-knowledge turns
+- **Per-session Knowledge Base toggle** — `Database` icon button in the chat bar lets users enable or disable RAG retrieval per session; persists to user settings without wiping collection or top-k configuration
 
 ### Extensible Tool System
 

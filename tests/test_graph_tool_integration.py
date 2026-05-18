@@ -180,8 +180,11 @@ def test_graph_injects_tool_and_knowledge_context(
 
     graph = build_graph()
 
+    # Message must be ≥ 35 chars so skip_rag=False (short+datetime heuristic would otherwise
+    # skip RAG for a terse datetime query, which is correct production behaviour but defeats
+    # this test's goal of verifying that both tool results AND RAG context are injected).
     state = {
-        "messages": [{"role": "user", "content": "what time is it today?"}],
+        "messages": [{"role": "user", "content": "What time is it today? Please also check the documentation."}],
         "user_id": "u123",
         "language": "en",
     }
