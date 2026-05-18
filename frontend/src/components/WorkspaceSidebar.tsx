@@ -399,13 +399,16 @@ export function WorkspaceSidebar({
       setHistoryDocId(null);
       setHistoryVersions([]);
       onDocumentsRefresh?.();
+      if (editorDocId === docId) {
+        loadDocumentIntoEditor(docId);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Restore failed";
       toast.error("Restore failed", { description: message });
     } finally {
       setProcessingAction(null);
     }
-  }, [onDocumentsRefresh]);
+  }, [onDocumentsRefresh, editorDocId, loadDocumentIntoEditor]);
 
   return (
     <>
