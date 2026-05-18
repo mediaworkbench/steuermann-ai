@@ -153,7 +153,7 @@ The framework is language-aware at every layer — from LLM model selection to p
 A production-oriented Next.js application — not a demo chat widget — with real settings management, analytics, and operational dashboards.
 
 - **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history
-- **Settings panel** — model selection, language preferences, tool toggles, RAG configuration
+- **Settings panel** — model selection, language preferences, tool toggles, RAG configuration, knowledge re-ingestion, and a "Reset All Databases" operation (truncates Postgres user data, deletes all Qdrant collections, wipes workspace files)
 - **Metrics dashboard** at `/metrics` with two views:
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
   - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, message quality panel, summary cards, CSV export

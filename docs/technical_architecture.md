@@ -1279,7 +1279,7 @@ services:
 - Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
 - Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
 - LangGraph injects both attachment context and workspace document context into prompt construction. In writeback mode the full document content (not truncated) is injected as a `HumanMessage` via `workspace_writeback_document` state field.
-- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. When intent is confirmed and exactly one document is in context, the assistant output is written back as a new version (`workspace_document_writeback` in response metadata).
+- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. The classifier uses a direct `httpx` POST to the auxiliary provider (not `ChatLiteLLM.ainvoke()` which drops `api_base` in async context). When intent is confirmed and exactly one document is in context, the model produces a structured `SUMMARY:` / `DOCUMENT:` two-section response — the document content is stored as the new version and the summary is shown in the chat confirmation message (`workspace_document_writeback` in response metadata).
 
 **Legacy workspace editing path (still present, opt-in):**
 

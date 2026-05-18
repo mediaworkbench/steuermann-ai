@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.8] — workspace-writeback-quality-and-admin-reset
+
+- **fix** Workspace writeback LLM intent classifier rewritten to use a direct `httpx.AsyncClient` POST to the auxiliary provider's `/chat/completions` endpoint — `ChatLiteLLM.ainvoke()` silently dropped `api_base` in async context, causing every classification call to fall back to regex
+- **feat** Writeback mode now uses a structured `SUMMARY:` / `DOCUMENT:` two-section response format — the model describes what changed in `SUMMARY:`, stores only the document body in `DOCUMENT:`; the chat confirmation message now includes the change summary; `_extract_writeback_summary()` and `_normalize_workspace_writeback_content()` updated accordingly
+- **fix** `node_summarize` and `node_update_memory` now log a warning and return state gracefully instead of raising `TokenBudgetExceeded` — prevents 500 crashes when large writeback responses exhaust the per-turn budget before these downstream nodes run
+- **fix** `list_document_versions` / `get_document_version` in `WorkspaceDocumentStore` now normalise `created_at` via `_normalize_version_row()` before returning — raw `datetime` objects caused a Pydantic validation 500 on every History panel open
+- **fix** `handleRestoreVersion` in `WorkspaceSidebar` now calls `loadDocumentIntoEditor(docId)` after a successful restore if that document is currently open in the editor
+- **fix** Reference button in workspace sidebar now inserts `"filename" (id: …)` instead of a full natural-language sentence, making it easier to embed in any prompt phrasing
+- **feat** `POST /api/admin/reset-all-databases` endpoint added to `backend/routers/settings.py` — truncates 12 user-data Postgres tables (schema preserved; `user_settings` kept), deletes all Qdrant collections, and wipes workspace/attachment files from disk; returns per-subsystem status and error list
+- **feat** "Reset All Databases" section added to the Settings page below "Knowledge Re-ingestion" — red button, requires typing `RESET` in a prompt dialog to confirm; EN + DE i18n
+
+## [0.2.7] — workspace-tool-gold-standard
+
+- **feat** Workspace intent detection replaced with a language-agnostic hybrid LLM classifier (`_classify_workspace_intent_llm`); fires only when workspace documents or text-MIME attachments are present; falls back to EN+DE regex
+- **feat** Full document content injected into LangGraph in writeback mode via `workspace_writeback_document` state field, bypassing the 600-token context truncation
+- **fix** `_normalize_workspace_writeback_content` changed from `re.fullmatch` to `re.search` so LLM preamble before a code fence is handled correctly
+- **fix** Writeback system-prompt condition gated on raw `workspace_documents` list count, not the filtered context list — prevents empty documents from receiving writeback instructions without a content injection
+- **fix** `_infer_workspace_document_ids_from_message` now skips the `list_documents` DB query when the message contains no UUID fragment, quoted filename, or "workspace document" hint
+- **fix** `update_document` endpoint no longer recomputes SHA256 manually — uses `updated_metadata["sha256"]` returned by the file manager
+- **feat** Version history: `workspace_document_versions` table added; `update_document_content()` auto-snapshots current content before overwriting; `GET /versions`, `GET /versions/{ver}`, `POST /versions/{ver}/restore` endpoints added
+- **feat** Accepted file types expanded to `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml` with per-extension MIME validation
+- **feat** `PATCH /api/workspace/documents/{id}` rename endpoint added
+- **feat** Frontend: version history panel with preview and restore; inline rename control; editor auto-reload after AI writeback save; active document propagated as `document_ids` in every chat request
+- **fix** Settings `preferred_model` validation now runs on every save (not only when the field changes) — prevents stale unavailable models surviving partial settings updates
+
 ## [0.2.6] — tool-system-refactor-and-quality
 
 - **fix** `file_ops_tool` disabled in `config/tools.yaml` — `sandbox_dir: ""` resolved to `/app` in Docker, giving the LLM read/write access to the entire application codebase; `WorkspaceFileOpsTool` (instantiated per-conversation in `backend/routers/chat.py`) is the correct production path for file operations
