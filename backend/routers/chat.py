@@ -20,7 +20,6 @@ from backend.db import SettingsStore
 from backend.rate_limit import limiter
 from backend.single_user import get_effective_user_id, require_api_access
 from universal_agentic_framework.config import load_core_config
-from universal_agentic_framework.llm.factory import build_litellm_chat
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
     track_workspace_intent_denied,
@@ -478,33 +477,42 @@ def _should_check_workspace_intent(
     return any(a.get("mime_type") in _WORKSPACE_MIME_TYPES for a in attachments)
 
 
-def _build_auxiliary_llm(language: str = "en"):
-    """Build an LLM instance using the auxiliary role config."""
-    config = load_core_config()
-    provider = config.llm.get_role_provider("auxiliary")
-    model_name = config.llm.get_role_model_name("auxiliary", language)
-    return build_litellm_chat(provider, model_name)
-
-
 async def _classify_workspace_intent_llm(message: str, language: str = "en") -> Dict[str, bool]:
-    """Classify workspace intent via a structured auxiliary LLM call.
+    """Classify workspace intent via a direct HTTP call to the auxiliary LLM provider.
 
-    Language-agnostic: works for any language the model understands.
-    Falls back to the existing regex patterns if the LLM call fails.
+    Uses httpx directly to avoid ChatLiteLLM async api_base forwarding issues.
+    Language-agnostic; falls back to regex patterns when the LLM call fails.
     """
     try:
-        llm = _build_auxiliary_llm(language)
+        config = load_core_config()
+        provider = config.llm.get_role_provider("auxiliary")
+        api_base = str(provider.api_base or "").rstrip("/")
+        model_name = config.llm.get_role_model_name("auxiliary", language)
+        if not api_base:
+            raise ValueError("Auxiliary LLM api_base not configured")
+        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         safe_message = message.replace('"', '\\"')
         prompt = _INTENT_CLASSIFICATION_PROMPT.format(message=safe_message)
-        result = await llm.ainvoke(prompt)
-        content = result.content if hasattr(result, "content") else str(result)
-        parsed = extract_json_object(content)
-        if parsed and isinstance(parsed.get("save"), bool):
-            return {
-                "edit": bool(parsed.get("edit", False)),
-                "save": bool(parsed.get("save", False)),
-                "new_version": bool(parsed.get("new_version", False)),
-            }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                json={
+                    "model": bare_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 64,
+                },
+                headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            parsed = extract_json_object(content)
+            if parsed and isinstance(parsed.get("save"), bool):
+                return {
+                    "edit": bool(parsed.get("edit", False)),
+                    "save": bool(parsed.get("save", False)),
+                    "new_version": bool(parsed.get("new_version", False)),
+                }
     except Exception as exc:
         logger.warning("Workspace intent LLM classification failed, falling back to regex: %s", exc)
     return {
@@ -1351,6 +1359,14 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
             document=documents[0],
             content_text=assistant_msg,
         )
+        if workspace_document_writeback:
+            wb_filename = workspace_document_writeback.get("filename", "document")
+            wb_version = workspace_document_writeback.get("version")
+            wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
+            assistant_msg = (
+                f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}). "
+                "You can view and restore previous versions in the sidebar History tab."
+            )
         documents_used = [
             {
                 "id": workspace_document_writeback["document_id"],

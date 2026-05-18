@@ -1614,9 +1614,11 @@ def node_generate_response(state: GraphState) -> GraphState:
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"
-            "Return ONLY the complete revised file content to be saved.\n"
-            "Do not add explanations, preambles, commentary, or markdown code fences.\n"
-            "=== END WORKSPACE WRITEBACK MODE ===\n"
+            "Return ONLY the complete revised file content — nothing else.\n"
+            "Do NOT add explanations, change summaries, preambles, comparisons to the previous "
+            "version, or markdown code fences. Your entire response is stored verbatim as the "
+            "new document content.\n"
+            "=== END WORKSPACE WRITEBACK MODE ==="
         )
     
     # Build messages in proper chat format for LangChain
