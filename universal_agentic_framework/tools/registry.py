@@ -507,23 +507,18 @@ class ToolRegistry:
         # Get fork language from loaded config
         fork_language = self._get_fork_language()
         
-        # Check config entry for override
+        # Check config entry for override; also capture default_tool for sub-tool description lookup
+        tool_specific_key = None
         for entry in self._tools_entries():
             if entry.get("name") == manifest.name:
                 if entry.get("description"):
                     return entry["description"]
+                tool_specific_key = entry.get("default_tool")
                 break
-        
-        # Special handling for tools that expose multiple sub-tools via different entries
-        tool_name_map = {
-            "web_search_mcp": "search",
-            "extract_webpage_mcp": "fetch_content",
-        }
-        
+
         # Check manifest for tool-specific language descriptions
         manifest_data = manifest.config
         if isinstance(manifest_data, dict):
-            tool_specific_key = tool_name_map.get(manifest.name)
             if tool_specific_key:
                 tool_descriptions = manifest_data.get("tool_descriptions", {})
                 if isinstance(tool_descriptions, dict):

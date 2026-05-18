@@ -108,11 +108,6 @@ from universal_agentic_framework.orchestration.helpers import (
     build_workspace_document_context_block,
     detect_tool_routing_intents,
     score_tool_similarity,
-    extract_calculator_expression,
-    build_semantic_tool_kwargs,
-    run_forced_tool,
-    execute_semantic_scored_tools,
-    prepare_scored_tools_with_forced_execution,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
     safe_get_model,
@@ -160,6 +155,7 @@ class GraphState(TypedDict, total=False):
     workspace_documents: List[Dict[str, Any]]  # User workspace documents resolved by adapter
     workspace_document_context: List[Dict[str, Any]]  # Prompt-ready normalized workspace snippets
     workspace_writeback_requested: bool
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (bypasses 600-token truncation)
     user_id: str
     session_id: str  # Session identifier for co-occurrence tracking
     language: str
@@ -399,8 +395,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                     similarity += intent_boost
                 elif tool_name == "calculator_tool" and intents["mentions_calculation"]:
                     similarity += intent_boost
-                elif tool_name == "file_ops_tool" and intents["mentions_file_ops"]:
-                    similarity += intent_boost
                 elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
                     similarity += intent_boost
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
@@ -498,164 +492,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
     return state
 
 
-def node_route_tools(state: GraphState) -> GraphState:
-    """Semantic tool routing: score user query against tool descriptions and auto-execute matching tools.
-    
-    Model-agnostic approach: works with any LLM, regardless of native tool-calling support.
-    Uses cosine similarity + keyword heuristics for tool selection.
-    Results injected into context for LLM.
-    """
-    config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
-    
-    loaded_tools = state.get("loaded_tools", [])
-    user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
-    
-    if not loaded_tools or not user_msg:
-        state["tool_results"] = {}
-        state["tool_execution_results"] = {}
-        return state
-    
-    logger.info("Routing tools semantically", fork_name=fork_name, tools_count=len(loaded_tools), query_length=len(user_msg))
-    
-    with track_node_execution(fork_name, "route_tools"):
-        try:
-            import re
-
-            # Skip tool routing for short greeting-only inputs
-            greeting_pattern = r"^\s*(hi|hello|hey|hallo|servus|moin|guten\s+(tag|morgen|abend))\s*[!.?]*\s*$"
-            if re.match(greeting_pattern, user_msg.lower()):
-                logger.info("Skipping tool routing for greeting query")
-                state["tool_results"] = {}
-                state["tool_execution_results"] = {}
-                return state
-            
-            embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
-            
-            # Embed user query
-            query_embedding = embedding_provider.encode(user_msg)
-            logger.info("Tool routing: query embedded", embedding_size=len(query_embedding))
-            
-            tool_results: Dict[str, str] = {}
-            tool_execution_results: Dict[str, Dict[str, Any]] = {}
-            similarity_threshold = getattr(getattr(config, "tool_routing", None), "similarity_threshold", 0.3)
-            top_k = getattr(getattr(config, "tool_routing", None), "top_k", None)
-            timezone = getattr(getattr(config, "fork", None), "timezone", None)
-            routing_language = state.get("language") or getattr(config.fork, "language", "en")
-
-            intents = detect_tool_routing_intents(
-                user_msg=user_msg,
-                language=routing_language,
-            )
-            search_language = intents["search_language"]
-            search_region = intents["search_region"]
-            mentions_datetime = intents["mentions_datetime"]
-            mentions_calculation = intents["mentions_calculation"]
-            mentions_file_ops = intents["mentions_file_ops"]
-            mentions_web_search = intents.get("mentions_web_search", False)
-            url_in_query = intents["url_in_query"]
-            if intents["asks_about_tools"]:
-                logger.info("Meta-question detected: skipping tool execution", ask_topic="available_tools")
-                state["tool_results"] = {}
-                state["tool_execution_results"] = {}
-                return state
-            wants_save_to_rag = intents["wants_save_to_rag"]
-            enhanced_web_query = intents["enhanced_web_query"]
-            requested_web_results = intents["requested_web_results"]
-
-            # ── Tool scoring & execution ────────────────────────────────
-
-            executed_forced = set()
-            routing_metadata = {}  # Track why each tool was selected
-            def _score_tool_adapter(**kwargs):
-                return score_tool_similarity(
-                    embedding_model_name=kwargs.get("embedding_model_name", embedding_model_name),
-                    tool_name=kwargs.get("tool_name", "unknown"),
-                    tool_desc=kwargs.get("tool_desc", ""),
-                    embedding_provider=kwargs.get("embedding_provider", embedding_provider),
-                    query_embedding=kwargs.get("query_embedding", query_embedding),
-                )
-
-            scored_tools = prepare_scored_tools_with_forced_execution(
-                loaded_tools=loaded_tools,
-                config=config,
-                user_msg=user_msg,
-                embedding_model_name=embedding_model_name,
-                embedding_provider=embedding_provider,
-                query_embedding=query_embedding,
-                similarity_threshold=similarity_threshold,
-                mentions_datetime=mentions_datetime,
-                mentions_calculation=mentions_calculation,
-                mentions_file_ops=mentions_file_ops,
-                mentions_web_search=mentions_web_search,
-                enhanced_web_query=enhanced_web_query,
-                requested_web_results=requested_web_results,
-                search_region=search_region,
-                url_in_query=url_in_query,
-                wants_save_to_rag=wants_save_to_rag,
-                tool_results=tool_results,
-                tool_execution_results=tool_execution_results,
-                routing_metadata=routing_metadata,
-                executed_forced=executed_forced,
-                score_tool_func=_score_tool_adapter,
-            )
-
-            scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
-
-            # Score-spread gate: when all tools score similarly the query is
-            # not tool-specific (e.g. casual greetings).  Only apply the gate
-            # when no forced tool was already executed (forced tools bypass
-            # similarity entirely) and when there are enough tools to measure
-            # spread meaningfully.
-            if len(scored_tools) >= 3 and not executed_forced:
-                scores = [s for _, s in scored_tools]
-                max_score = max(scores)
-                mean_score = sum(scores) / len(scores)
-                spread = max_score - mean_score
-                min_spread = 0.05  # Empirically tuned: tool queries show spread > 0.08
-                if spread < min_spread:
-                    logger.info(
-                        "Score-spread gate: all tools scored similarly, skipping semantic execution",
-                        max_score=round(max_score, 4),
-                        mean_score=round(mean_score, 4),
-                        spread=round(spread, 4),
-                        min_spread=min_spread,
-                    )
-                    scored_tools = []
-
-            execute_semantic_scored_tools(
-                scored_tools=scored_tools,
-                similarity_threshold=similarity_threshold,
-                executed_forced=executed_forced,
-                mentions_calculation=mentions_calculation,
-                mentions_datetime=mentions_datetime,
-                mentions_file_ops=mentions_file_ops,
-                user_msg=user_msg,
-                url_in_query=url_in_query,
-                wants_save_to_rag=wants_save_to_rag,
-                enhanced_web_query=enhanced_web_query,
-                requested_web_results=requested_web_results,
-                search_language=search_language,
-                search_region=search_region,
-                timezone=timezone,
-                tool_results=tool_results,
-                tool_execution_results=tool_execution_results,
-                routing_metadata=routing_metadata,
-            )
-            
-            state["tool_results"] = tool_results
-            state["tool_execution_results"] = tool_execution_results
-            state["routing_metadata"] = routing_metadata
-            logger.info("Tool routing completed", tools_executed=len(tool_results))
-            
-        except Exception as e:
-            logger.error("Tool routing failed", error=str(e), exc_info=True)
-            state["tool_results"] = {}
-            state["tool_execution_results"] = {}
-    
-    return state
-
-
 def node_call_tools_native(state: GraphState) -> GraphState:
     """Layer 2 (native): Bind candidate tools to LLM, let model decide which to call.
 
@@ -691,9 +527,9 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     if not user_msg:
         return state
 
-    native_intents = detect_tool_routing_intents(user_msg, state.get("language", "en"))
-    url_in_query = native_intents.get("url_in_query")
-    wants_save_to_rag = bool(native_intents.get("wants_save_to_rag"))
+    prefilter_intents = state.get("prefilter_intents") or {}
+    url_in_query = prefilter_intents.get("url_in_query")
+    wants_save_to_rag = bool(prefilter_intents.get("wants_save_to_rag"))
 
     logger.info(
         "Layer 2 native tool calling",
@@ -770,9 +606,14 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     break
 
                 parse_error = False
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
                 for tc in tool_calls:
                     tool_name = tc.get("name", "")
                     tool_args = tc.get("args", {})
+
+                    if tool_name == "web_search_mcp" and _requested_results and "max_results" not in (tool_args or {}):
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
 
                     if tool_name == "extract_webpage_mcp" and isinstance(tool_args, dict):
                         def _contains_url_arg(value: Any) -> bool:
@@ -1001,6 +842,13 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
+
+                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
+                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                    if _requested_results:
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
+
                 tool_obj = tool_lookup.get(tool_name)
 
                 if not tool_obj:
@@ -1172,6 +1020,13 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
+
+                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
+                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                    if _requested_results:
+                        tool_args = dict(tool_args)
+                        tool_args["max_results"] = _requested_results
+
                 tool_obj = tool_lookup.get(tool_name)
 
                 if not tool_obj:
@@ -1554,7 +1409,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     tool_results = state.get("tool_results", {})
     tool_execution_results = state.get("tool_execution_results", {})
     routing_metadata = state.get("routing_metadata", {})
-    utility_tool_names = {"datetime_tool", "calculator_tool", "file_ops_tool"}
+    utility_tool_names = {"datetime_tool", "calculator_tool"}
     used_tool_names = set(tool_results.keys())
     utility_only_response = bool(used_tool_names) and used_tool_names.issubset(utility_tool_names)
 
@@ -1648,13 +1503,13 @@ def node_generate_response(state: GraphState) -> GraphState:
     if tool_results:
         tool_context_lines = []
         for tool_name, result in tool_results.items():
-            # Add routing reason if available
             reason = routing_metadata.get(tool_name, "semantic match")
-            tool_header = f"[Tool: {tool_name} | Reason: {reason}]"
+            tool_header = f"Tool: {tool_name} (via {reason})\nResult:"
 
             envelope = tool_execution_results.get(tool_name, {})
-            summary = envelope.get("summary")
-            rendered = summary if summary else result
+            # Use full output_text (not the 300-char summary) so models have enough content
+            full_result = envelope.get("output_text") or result
+            rendered = str(full_result)[:8000]
             tool_context_lines.append(f"{tool_header}\n{rendered}")
         
         tool_context = "\n\n".join(tool_context_lines)
@@ -1752,16 +1607,20 @@ def node_generate_response(state: GraphState) -> GraphState:
             )
             logger.info("Crew result injected into context", crew=crew_name, result_length=len(crew_result["result"]))
 
+    workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
-    if state.get("workspace_writeback_requested") and len(workspace_document_context) == 1:
-        target = workspace_document_context[0]
-        filename = target.get("filename") or "document.txt"
+    if state.get("workspace_writeback_requested") and len(workspace_docs_raw) == 1:
+        filename = workspace_docs_raw[0].get("filename") or "document.txt"
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"
-            "Return ONLY the complete revised file content to be saved.\n"
-            "Do not add explanations, preambles, commentary, or markdown code fences.\n"
-            "=== END WORKSPACE WRITEBACK MODE ===\n"
+            "Structure your response EXACTLY as two sections:\n\n"
+            "SUMMARY:\n"
+            "<One or two sentences describing what you changed and why.>\n\n"
+            "DOCUMENT:\n"
+            "<Complete revised file content — no code fences, no preamble, no commentary.>\n\n"
+            "IMPORTANT: The DOCUMENT section is saved verbatim. Do not wrap it in code fences.\n"
+            "=== END WORKSPACE WRITEBACK MODE ==="
         )
     
     # Build messages in proper chat format for LangChain
@@ -1819,7 +1678,19 @@ def node_generate_response(state: GraphState) -> GraphState:
             workspace_lines.append(f"{label}\n{text}")
         if len(workspace_lines) > 1:
             messages.append(HumanMessage(content="\n\n".join(workspace_lines)))
-    
+
+    # In writeback mode inject the FULL document content (bypasses the 600-token context truncation)
+    writeback_doc = state.get("workspace_writeback_document")
+    if writeback_doc and state.get("workspace_writeback_requested"):
+        full_text = str(writeback_doc.get("content_text") or "").strip()
+        fname = writeback_doc.get("filename") or "document"
+        ver = writeback_doc.get("version")
+        if full_text:
+            ver_label = f" | v{ver}" if ver is not None else ""
+            messages.append(HumanMessage(
+                content=f"[Document to revise: {fname}{ver_label}]\n\n{full_text}"
+            ))
+
     # Debug: log what we're sending to the model
     tool_results = state.get("tool_results", {})
     logger.info("Sending to LLM", 
@@ -1887,6 +1758,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             original_text = response_text
             response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
             response_text = re.sub(r"<\|[^|>]+\|>", "", response_text)
+            # Strip bare "[Tool Result]" placeholder that some models emit when confused by tool headers
+            response_text = re.sub(r"^\s*\[Tool Result\]\s*$", "", response_text, flags=re.MULTILINE)
             response_text = response_text.strip()
 
             if response_text != original_text:
@@ -2107,7 +1980,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
                 if tool_based_text is None:
                     # Prioritize utility tools over web search in fallback
-                    for tool_name in ["calculator_tool", "datetime_tool", "file_ops_tool", "extract_webpage_mcp", "web_search_mcp"]:
+                    for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
                         candidate = str(tool_results.get(tool_name, "")).strip()
                         if candidate and not candidate.lower().startswith("tool execution failed"):
                             tool_based_text = candidate
@@ -2261,7 +2134,14 @@ def node_summarize(state: GraphState) -> GraphState:
     available_budget = min(sum_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
 
     input_tokens = count_tokens_for_model(model_name, prompt)
-    require_tokens(input_tokens, available_budget, "Summarization input")
+    if input_tokens > available_budget:
+        logger.warning(
+            "summarize skipped: budget exhausted",
+            required=input_tokens,
+            available=available_budget,
+            fork=fork_name,
+        )
+        return state
 
     with track_node_execution(fork_name, "summarize"):
         try:
@@ -2293,11 +2173,22 @@ def node_summarize(state: GraphState) -> GraphState:
 
         _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
         node_tokens = input_tokens + output_tokens
-        require_tokens(node_tokens, available_budget, "Summarization node")
-        if enforce_node_hard_limit and node_tokens > sum_budget:
-            raise TokenBudgetExceeded(
-                f"Summarization node exceeds per-node budget: {node_tokens}/{sum_budget}"
+        if node_tokens > available_budget:
+            logger.warning(
+                "summarize skipped: total tokens exceed turn budget",
+                total=node_tokens,
+                available=available_budget,
+                fork=fork_name,
             )
+            return state
+        if enforce_node_hard_limit and node_tokens > sum_budget:
+            logger.warning(
+                "summarize skipped: exceeds per-node budget",
+                total=node_tokens,
+                node_budget=sum_budget,
+                fork=fork_name,
+            )
+            return state
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
@@ -2378,11 +2269,22 @@ def node_update_memory(state: GraphState) -> GraphState:
     enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
     update_tokens = estimate_tokens(summary_text)
     available_budget = min(upd_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
-    require_tokens(update_tokens, available_budget, "Update memory")
-    if enforce_node_hard_limit and update_tokens > upd_budget:
-        raise TokenBudgetExceeded(
-            f"Update memory exceeds per-node budget: {update_tokens}/{upd_budget}"
+    if update_tokens > available_budget:
+        logger.warning(
+            "update_memory skipped: budget exhausted",
+            required=update_tokens,
+            available=available_budget,
+            user_id=user_id,
         )
+        return state
+    if enforce_node_hard_limit and update_tokens > upd_budget:
+        logger.warning(
+            "update_memory skipped: exceeds per-node budget",
+            required=update_tokens,
+            node_budget=upd_budget,
+            user_id=user_id,
+        )
+        return state
 
     with track_node_execution(fork_name, "update_memory"):
         try:

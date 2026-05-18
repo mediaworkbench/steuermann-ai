@@ -794,6 +794,22 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
+    workspace_document_versions_statement = """
+        CREATE TABLE IF NOT EXISTS workspace_document_versions (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL REFERENCES workspace_documents(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            content_text TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+            sha256 TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_doc_versions_doc_version
+            ON workspace_document_versions(document_id, version);
+        CREATE INDEX IF NOT EXISTS idx_ws_doc_versions_document_id
+            ON workspace_document_versions(document_id);
+    """
     chat_document_refs_statement = """
         CREATE TABLE IF NOT EXISTS chat_document_refs (
             id BIGSERIAL PRIMARY KEY,
@@ -838,6 +854,9 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             cur.execute(workspaces_statement)
             cur.execute(workspace_operations_statement)
             cur.execute(workspace_documents_statement)
+            for sql in workspace_document_versions_statement.split(';'):
+                if sql.strip():
+                    cur.execute(sql)
             cur.execute(chat_document_refs_statement)
             for sql in indices_statement.split(';'):
                 if sql.strip():
@@ -1732,6 +1751,8 @@ class WorkspaceDocumentStore:
         sha256: str,
         expected_version: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
+        import uuid as _uuid
+
         if expected_version is None:
             where_version = ""
             params: list[Any] = [content_text, size_bytes, sha256, document_id, user_id]
@@ -1739,7 +1760,7 @@ class WorkspaceDocumentStore:
             where_version = " AND version = %s"
             params = [content_text, size_bytes, sha256, document_id, user_id, expected_version]
 
-        statement = f"""
+        update_statement = f"""
             UPDATE workspace_documents
             SET content_text = %s,
                 size_bytes = %s,
@@ -1751,12 +1772,73 @@ class WorkspaceDocumentStore:
                       size_bytes, sha256, content_text, version,
                       created_at, updated_at;
         """
+        snapshot_statement = """
+            INSERT INTO workspace_document_versions
+                (id, document_id, user_id, version, content_text, size_bytes, sha256, created_at)
+            SELECT %s, id, user_id, version, content_text, size_bytes, sha256, NOW()
+            FROM workspace_documents
+            WHERE id = %s AND user_id = %s
+            ON CONFLICT (document_id, version) DO NOTHING;
+        """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, tuple(params))
+                # Snapshot CURRENT state before overwriting
+                cur.execute(snapshot_statement, (str(_uuid.uuid4()), document_id, user_id))
+                cur.execute(update_statement, tuple(params))
                 row = cur.fetchone()
             conn.commit()
         return _normalize_workspace_document_row(row) if row else None
+
+    def save_document_version_snapshot(
+        self,
+        *,
+        document_id: str,
+        user_id: str,
+        version: int,
+        content_text: str,
+        size_bytes: int,
+        sha256: str,
+    ) -> None:
+        import uuid as _uuid
+
+        statement = """
+            INSERT INTO workspace_document_versions
+                (id, document_id, user_id, version, content_text, size_bytes, sha256, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (document_id, version) DO NOTHING;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (str(_uuid.uuid4()), document_id, user_id, version, content_text, size_bytes, sha256))
+            conn.commit()
+
+    def list_document_versions(self, *, document_id: str, user_id: str, limit: int = 50) -> list[Dict[str, Any]]:
+        statement = """
+            SELECT v.id, v.document_id, v.version, v.size_bytes, v.sha256, v.created_at
+            FROM workspace_document_versions v
+            JOIN workspace_documents d ON d.id = v.document_id
+            WHERE v.document_id = %s AND d.user_id = %s
+            ORDER BY v.version DESC
+            LIMIT %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (document_id, user_id, limit))
+                rows = cur.fetchall()
+        return [_normalize_version_row(dict(row)) for row in rows]
+
+    def get_document_version(self, *, document_id: str, user_id: str, version: int) -> Optional[Dict[str, Any]]:
+        statement = """
+            SELECT v.id, v.document_id, v.version, v.content_text, v.size_bytes, v.sha256, v.created_at
+            FROM workspace_document_versions v
+            JOIN workspace_documents d ON d.id = v.document_id
+            WHERE v.document_id = %s AND d.user_id = %s AND v.version = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (document_id, user_id, version))
+                row = cur.fetchone()
+        return _normalize_version_row(dict(row)) if row else None
 
     def rename_document(self, document_id: str, user_id: str, filename: str) -> Optional[Dict[str, Any]]:
         statement = """
@@ -1929,6 +2011,12 @@ def _normalize_workspace_operation_row(row: Optional[Dict[str, Any]]) -> Dict[st
         "target_path": row.get("target_path"),
         "created_at": created.isoformat() if isinstance(created, datetime) else str(created) if created else None,
     }
+
+
+def _normalize_version_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    created = row.get("created_at")
+    row["created_at"] = created.isoformat() if isinstance(created, datetime) else str(created) if created else None
+    return row
 
 
 def _normalize_workspace_document_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:

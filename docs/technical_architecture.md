@@ -202,6 +202,7 @@ class GraphState(TypedDict, total=False):
 - Runtime selection: `checkpointing` config block plus `CHECKPOINTER_*` env overrides
 - Enables conversation resumption across restarts
 - Per-session continuity via `configurable.thread_id = session_id` in `/invoke`
+- `session_id` is populated from the `conversation_id` field in `POST /api/chat` — the FastAPI adapter forwards it as `session_id` in the LangGraph request body; when no `conversation_id` is provided, the server generates `"{user_id}_{timestamp}"` as a single-use thread
 
 **Configuration:**
 
@@ -242,7 +243,7 @@ User Request (Next.js)
   │    ├──> prefilter_tools_node (LAYER 1 — Semantic Pre-filter)
   │    │    ├──> Embed user query
   │    │    ├──> Score query against tool descriptions (cosine similarity)
-  │    │    ├──> Apply intent boosting (datetime, calc, file, URL intents)
+  │    │    ├──> Apply intent boosting (datetime, calc, URL intents)
   │    │    ├──> Apply gates: min_top_score (0.7), min_spread (0.10)
   │    │    ├──> Filter by similarity_threshold (0.55), top-K (5)
   │    │    └──> Store candidate_tools in state (NO execution)
@@ -347,6 +348,10 @@ def _validate_and_log_tool_calling_mode(
     return is_valid, reason
 ```
 
+**Probe Lookup — Exact Match Required:**
+
+`resolve_effective_tool_calling_mode()` requires an exact `(provider_id, model_name)` match from the probe results table. If probe data exists for the provider but not for the specific model, it falls back to `structured` rather than silently using a different model's probe results.
+
 **Downgrade Logic:**
 
 Mode is downgraded from native → structured when:
@@ -354,7 +359,7 @@ Mode is downgraded from native → structured when:
 - `capability_mismatch` = true (probe detected `bind_tools()` not supported)
 - `status` ∈ {"warning", "error"} (probe execution failed or found issues)
 - `supports_bind_tools` = false (model doesn't support native tool binding)
-- No probe data available for configured provider (fallback to no-downgrade)
+- No probe data available for the exact `(provider_id, model_name)` pair
 
 Downgrade reason: `probe_capability_mismatch_downgrade`
 
@@ -367,6 +372,11 @@ Reason field propagates through entire pipeline:
 - `configured_native_no_probe` — native configured but no probe data (risky, proceed cautiously)
 - `probe_capability_mismatch_downgrade` — probe detected mismatch, downgraded to structured
 - `configured_native_probe_provider_not_found` — provider not found in probe results
+- `probe_model_not_found_forced_structured` — provider found in probe results but not the specific model
+
+**Curated Reprobe:**
+
+`LLMCapabilityProbeRunner.reprobe_for_model(model_name)` reprobes only the providers whose configured model matches the given name. The settings model-change trigger calls this instead of a full `run()`, avoiding unnecessary probes of unrelated models.
 
 **Benefits:**
 
@@ -591,6 +601,10 @@ def get_router_model(self, language: str) -> ChatLiteLLMRouter:
 
 ### **7.3 Token Budgeting**
 
+**Model-Aware Input Counting:**
+
+`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond and summarize nodes call this function (with the resolved model name) to account for pre-call input tokens before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+
 **Per-Node Budget Enforcement:**
 
 ```python
@@ -627,7 +641,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 1. Embed user query using configured embedding model
 2. Score query against all tool descriptions (cosine similarity)
-3. Apply intent boosting (+0.2 for detected datetime, calculation, file ops, URL intents)
+3. Apply intent boosting (+0.2 for detected datetime, calculation, URL intents)
 4. Apply gates: min_top_score (0.7) and min_spread (0.10)
 5. Filter candidates by similarity_threshold (0.55) and top-K (5)
 6. Store candidates in state — NO tools are executed at this layer
@@ -688,7 +702,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
 - **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt; Research Crew Searcher task receives `current_date` / `current_year` as kickoff inputs.
 
-→ **Implementation details, security sandbox, rate limiter:** [Tool Development Guide](tool_development_guide.md)
+→ **Implementation details:** [Tool Development Guide](tool_development_guide.md)
 
 ---
 
@@ -702,7 +716,7 @@ Tools are discovered via a hybrid approach:
 
 Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, permissions, and cost estimates in its `tool.yaml` manifest.
 
-→ **Full guide (creating tools, manifests, MCP servers, routing, sandbox, testing):** [Tool Development Guide](tool_development_guide.md)
+→ **Full guide (creating tools, manifests, MCP servers, routing, testing):** [Tool Development Guide](tool_development_guide.md)
 
 ---
 
@@ -1259,12 +1273,13 @@ services:
 **Chat attachments and workspace documents (current implementation):**
 
 - Conversation uploads are handled by `POST /api/conversations/{conversation_id}/attachments`.
-- Uploads are validated as UTF-8 text (`.txt`, `.md`, `.markdown`) and stored as user-scoped workspace documents.
+- Uploads are validated as UTF-8 text; accepted formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. MIME type is validated per extension.
 - Conversation attachment rows are references to those canonical workspace documents (same document ID is reused).
-- Persistent workspace document APIs are exposed under `POST/GET/PUT/DELETE /api/workspace/documents` and `GET /api/workspace/documents/{id}/download`.
+- Persistent workspace document APIs: `POST/GET/PUT/PATCH/DELETE /api/workspace/documents`, `GET .../download`, `GET/POST .../versions`, `GET .../versions/{ver}`, `POST .../versions/{ver}/restore`.
+- Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
 - Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
-- LangGraph injects both attachment context and workspace document context into prompt construction.
-- If the user message includes save-back intent and exactly one workspace document is in context, assistant output is written back to that document (version increment, metadata returned as `workspace_document_writeback`).
+- LangGraph injects both attachment context and workspace document context into prompt construction. In writeback mode the full document content (not truncated) is injected as a `HumanMessage` via `workspace_writeback_document` state field.
+- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. When intent is confirmed and exactly one document is in context, the assistant output is written back as a new version (`workspace_document_writeback` in response metadata).
 
 **Legacy workspace editing path (still present, opt-in):**
 

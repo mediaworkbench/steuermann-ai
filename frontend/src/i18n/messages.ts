@@ -118,6 +118,13 @@ export type Messages = {
     confirmReingestAll: string;
     reingestSuccess: string;
     reingestFailed: string;
+    resetSectionTitle: string;
+    resetDescription: string;
+    resetAllDatabases: string;
+    resetting: string;
+    confirmReset: string;
+    resetSuccess: string;
+    resetFailed: string;
     capabilitiesTitle: string;
     capabilitiesSubtitle: string;
     capabilitiesTtl: string;
@@ -537,6 +544,13 @@ export const messages: Record<Locale, Messages> = {
       confirmReingestAll: "This will clear and re-index the configured collection. Continue?",
       reingestSuccess: "Re-ingestion completed: {processed} files, {chunks} chunks",
       reingestFailed: "Failed to re-ingest documents",
+      resetSectionTitle: "Reset All Databases",
+      resetDescription: "Permanently deletes all conversations, memories, workspace documents, analytics, and Qdrant collections. The schema is preserved. This cannot be undone.",
+      resetAllDatabases: "Reset All Databases",
+      resetting: "Resetting...",
+      confirmReset: "Type RESET to confirm permanent deletion of all data",
+      resetSuccess: "All databases reset successfully",
+      resetFailed: "Reset failed",
       capabilitiesTitle: "Model Tool-Calling Capabilities",
       capabilitiesSubtitle: "Desired vs effective mode based on probe results. ",
       capabilitiesTtl: "Probe TTL: {value}s",
@@ -655,8 +669,7 @@ export const messages: Record<Locale, Messages> = {
       deleteDocumentFailed: "Failed to delete document",
       saveChangesFailed: "Failed to save changes",
       uploaded: "Uploaded",
-      commandReferenceTemplate:
-        "Reference workspace document \"{filename}\" (id: {id}) in your analysis.",
+      commandReferenceTemplate: "\"{filename}\" (id: {id})",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -955,6 +968,13 @@ export const messages: Record<Locale, Messages> = {
       confirmReingestAll: "Dies leert die konfigurierte Collection und indiziert sie neu. Fortfahren?",
       reingestSuccess: "Neuindizierung abgeschlossen: {processed} Dateien, {chunks} Chunks",
       reingestFailed: "Neuindizierung der Dokumente fehlgeschlagen",
+      resetSectionTitle: "Alle Datenbanken zurücksetzen",
+      resetDescription: "Löscht dauerhaft alle Konversationen, Erinnerungen, Workspace-Dokumente, Analysen und Qdrant-Collections. Das Schema bleibt erhalten. Diese Aktion kann nicht rückgängig gemacht werden.",
+      resetAllDatabases: "Alle Datenbanken zurücksetzen",
+      resetting: "Wird zurückgesetzt...",
+      confirmReset: "Gib RESET ein, um die dauerhafte Löschung aller Daten zu bestätigen",
+      resetSuccess: "Alle Datenbanken erfolgreich zurückgesetzt",
+      resetFailed: "Zurücksetzen fehlgeschlagen",
       capabilitiesTitle: "Modell Tool-Calling-Fahigkeiten",
       capabilitiesSubtitle: "Gewunschter vs effektiver Modus basierend auf Probe-Ergebnissen. ",
       capabilitiesTtl: "Probe-TTL: {value}s",
@@ -1073,8 +1093,7 @@ export const messages: Record<Locale, Messages> = {
       deleteDocumentFailed: "Dokument konnte nicht gelöscht werden",
       saveChangesFailed: "Änderungen konnten nicht gespeichert werden",
       uploaded: "Hochgeladen",
-      commandReferenceTemplate:
-        "Beziehe dich in deiner Analyse auf das Workspace-Dokument \"{filename}\" (ID: {id}).",
+      commandReferenceTemplate: "\"{filename}\" (ID: {id})",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

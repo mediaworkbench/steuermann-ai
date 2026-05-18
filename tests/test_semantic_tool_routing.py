@@ -8,7 +8,6 @@ import numpy as np
 
 from universal_agentic_framework.orchestration.graph_builder import (
     node_prefilter_tools,
-    node_route_tools,
     node_call_tools_native,
     node_call_tools_structured,
     node_generate_response,
@@ -18,11 +17,6 @@ from universal_agentic_framework.orchestration.helpers.embedding_provider import
 )
 from universal_agentic_framework.orchestration.helpers.intent_detection import (
     detect_tool_routing_intents as _detect_tool_routing_intents,
-)
-from universal_agentic_framework.orchestration.helpers.semantic_execution import (
-    build_semantic_tool_kwargs as _build_semantic_tool_kwargs,
-    extract_calculator_expression as _extract_calculator_expression,
-    run_forced_tool as _run_forced_tool,
 )
 from universal_agentic_framework.orchestration.helpers.tool_preparation import (
     apply_top_k_scored_tools as _apply_top_k_scored_tools,
@@ -195,303 +189,8 @@ def set_mock_config(
     return config
 
 
-class TestSemanticToolRouting:
-    """Tests for semantic tool routing logic."""
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    def test_empty_query_no_tools_executed(self, mock_config):
-        """Test tool routing with empty query (no tools executed)."""
-        set_mock_config(mock_config)
-        
-        state = {
-            "messages": [],
-            "loaded_tools": [FakeTool("tool1", "Tool for X"), FakeTool("tool2", "Tool for Y")]
-        }
-        
-        result = node_route_tools(state)
-        assert result["tool_results"] == {}
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_similarity_scoring_selects_relevant_tools(self, mock_provider_factory, mock_config):
-        """Test tool scoring by cosine similarity."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        # High similarity to tool1, low to tool2
-        query_emb = np.array([1.0, 0.0, 0.0])
-        tool1_emb = np.array([0.95, 0.1, 0.0])
-        tool2_emb = np.array([0.1, 0.9, 0.0])
-        
-        mock_embedder.encode.side_effect = [query_emb, tool1_emb, tool2_emb]
-        
-        tool1 = FakeTool("web_search", "Search the internet")
-        tool2 = FakeTool("db_query", "Query database")
-        
-        state = {
-            "messages": [{"role": "user", "content": "search the web"}],
-            "loaded_tools": [tool1, tool2]
-        }
-        
-        result = node_route_tools(state)
-        
-        # High similarity tool should be executed, low similarity should not
-        assert "web_search" in result["tool_results"]
-        assert "db_query" not in result["tool_results"]
-        assert "tool_execution_results" in result
-        assert result["tool_execution_results"]["web_search"]["status"] == "success"
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_threshold_prevents_low_similarity_tools(self, mock_provider_factory, mock_config):
-        """Test that tools below similarity threshold are not executed."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        # Very low similarity (below 0.3 threshold)
-        query_emb = np.array([1.0, 0.0])
-        tool_emb = np.array([0.05, 0.999])
-        
-        mock_embedder.encode.side_effect = [query_emb, tool_emb]
-        
-        tool = FakeTool("unrelated", "Unrelated tool")
-        state = {"messages": [{"role": "user", "content": "help"}], "loaded_tools": [tool]}
-        
-        result = node_route_tools(state)
-        assert "unrelated" not in result["tool_results"]
-
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_high_threshold_blocks_tools(self, mock_provider_factory, mock_config):
-        """High similarity threshold should block moderately similar tools."""
-        set_mock_config(mock_config, similarity_threshold=0.95)
-
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-
-        query_emb = np.array([1.0, 0.0])
-        tool_emb = np.array([0.7, 0.7])  # cosine ~0.7 < 0.95 threshold
-        mock_embedder.encode.side_effect = [query_emb, tool_emb]
-
-        tool = FakeTool("maybe", "Maybe relevant")
-        state = {"messages": [{"role": "user", "content": "something"}], "loaded_tools": [tool]}
-
-        result = node_route_tools(state)
-        assert result["tool_results"] == {}
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_forced_datetime_on_date_patterns(self, mock_provider_factory, mock_config):
-        """Test forced execution of datetime_tool when date patterns detected."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        dt_tool = DateTimeTool()
-        state = {
-            "messages": [{"role": "user", "content": "ich bin am 24.05.1974 geboren"}],
-            "loaded_tools": [dt_tool]
-        }
-        
-        result = node_route_tools(state)
-        
-        # datetime_tool should be force-executed due to date pattern
-        assert "datetime_tool" in result["tool_results"]
-        assert "UTC" in result["tool_results"]["datetime_tool"]
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_forced_datetime_on_keywords(self, mock_provider_factory, mock_config):
-        """Test forced execution of datetime_tool when time keywords detected."""
-        set_mock_config(mock_config, timezone="Europe/Berlin")
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        dt_tool = DateTimeTool()
-        
-        # Test each keyword
-        for keyword in ["today", "today", "what time is it", "how old am i"]:
-            mock_embedder.reset_mock()
-            mock_embedder.encode.side_effect = [np.ones(384), np.ones(384)]
-            
-            state = {
-                "messages": [{"role": "user", "content": keyword}],
-                "loaded_tools": [dt_tool]
-            }
-            
-            result = node_route_tools(state)
-            
-            # Datetime tool should be in results for time keywords
-            if keyword in ["what time is it", "how old am i", "today"]:
-                assert "datetime_tool" in result["tool_results"], f"Failed for: {keyword}"
-
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_forced_web_search_on_explicit_query(self, mock_provider_factory, mock_config):
-        """Explicit web-search wording should force-run web_search_mcp."""
-        set_mock_config(mock_config)
-
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        mock_embedder.encode.side_effect = [np.array([1.0, 0.0])]
-
-        web_tool = FakeTool("web_search_mcp", "Search the web", return_value="search results")
-        state = {
-            "messages": [{"role": "user", "content": "search the web for rosuvastatin"}],
-            "loaded_tools": [web_tool],
-        }
-
-        result = node_route_tools(state)
-
-        assert "web_search_mcp" in result["tool_results"]
-        assert result["tool_results"]["web_search_mcp"] == "search results"
-        assert "routing_metadata" in result
-        assert "explicit web-search request detected" in result["routing_metadata"]["web_search_mcp"]
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_multiple_tools_executed(self, mock_provider_factory, mock_config):
-        """Test execution of multiple similar tools."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        # All embeddings similar
-        query_emb = np.array([1.0, 0.0])
-        tool1_emb = np.array([0.95, 0.1])
-        tool2_emb = np.array([0.9, 0.05])
-        
-        mock_embedder.encode.side_effect = [query_emb, tool1_emb, tool2_emb]
-        
-        tool1 = FakeTool("search", "Search", return_value="results")
-        tool2 = FakeTool("analyze", "Analyze", return_value="analysis")
-        
-        state = {
-            "messages": [{"role": "user", "content": "search and analyze"}],
-            "loaded_tools": [tool1, tool2]
-        }
-        
-        result = node_route_tools(state)
-        
-        assert "search" in result["tool_results"]
-        assert "analyze" in result["tool_results"]
-        assert result["tool_results"]["search"] == "results"
-        assert result["tool_results"]["analyze"] == "analysis"
-
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_top_k_limits_executed_tools(self, mock_provider_factory, mock_config):
-        """Configured top_k should limit the number of executed tools."""
-        set_mock_config(mock_config, top_k=1)
-
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-
-        query_emb = np.array([1.0, 0.0])
-        tool_high = np.array([0.99, 0.01])
-        tool_mid = np.array([0.9, 0.1])
-        tool_low = np.array([0.8, 0.2])
-
-        mock_embedder.encode.side_effect = [query_emb, tool_high, tool_mid, tool_low]
-
-        tools = [
-            FakeTool("top", "Top match"),
-            FakeTool("mid", "Mid match"),
-            FakeTool("low", "Low match"),
-        ]
-
-        state = {"messages": [{"role": "user", "content": "do stuff"}], "loaded_tools": tools}
-
-        result = node_route_tools(state)
-
-        assert set(result["tool_results"].keys()) == {"top"}
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_tool_execution_error_handling(self, mock_provider_factory, mock_config):
-        """Test graceful handling of tool execution errors."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        
-        query_emb = np.array([1.0])
-        tool_emb = np.array([0.95])
-        mock_embedder.encode.side_effect = [query_emb, tool_emb]
-        
-        error_tool = Mock()
-        error_tool.name = "error_tool"
-        error_tool.description = "Tool that fails"
-        error_tool._run.side_effect = ValueError("Tool failed")
-        
-        state = {
-            "messages": [{"role": "user", "content": "do something"}],
-            "loaded_tools": [error_tool]
-        }
-        
-        result = node_route_tools(state)
-        
-        # Error should be captured in result
-        assert "error_tool" in result["tool_results"]
-        assert "Tool failed" in result["tool_results"]["error_tool"]
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    def test_missing_loaded_tools_field(self, mock_config):
-        """Test handling of missing loaded_tools field."""
-        set_mock_config(mock_config)
-        
-        state = {"messages": [{"role": "user", "content": "do something"}]}
-        
-        result = node_route_tools(state)
-        assert result["tool_results"] == {}
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    def test_empty_tools_list(self, mock_config):
-        """Test handling of empty tools list."""
-        set_mock_config(mock_config)
-        
-        state = {
-            "messages": [{"role": "user", "content": "do something"}],
-            "loaded_tools": []
-        }
-        
-        result = node_route_tools(state)
-        assert result["tool_results"] == {}
-    
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-    def test_state_preservation(self, mock_provider_factory, mock_config):
-        """Test that tool routing preserves other state fields."""
-        set_mock_config(mock_config)
-        
-        mock_embedder = MagicMock()
-        mock_provider_factory.return_value = mock_embedder
-        mock_embedder.encode.side_effect = [np.ones(384), np.ones(384)]
-        
-        tool = FakeTool("tool1", "Tool", return_value="output")
-        
-        state = {
-            "messages": [{"role": "user", "content": "test"}],
-            "loaded_tools": [tool],
-            "user_id": "user123",
-            "other_field": "preserved"
-        }
-        
-        result = node_route_tools(state)
-        
-        # All original fields should be preserved
-        assert result["user_id"] == "user123"
-        assert result["other_field"] == "preserved"
-        assert result["loaded_tools"] == [tool]
-        assert "tool_results" in result
-        assert "tool_execution_results" in result
+class TestToolResultInjection:
+    """Tests for tool result and knowledge injection into the response node."""
 
     @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
@@ -757,6 +456,7 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
         "tool_execution_results": {},
         "routing_metadata": {},
         "language": "en",
+        "prefilter_intents": {"url_in_query": "https://www.tagesschau.de/", "wants_save_to_rag": False},
     }
 
     result = node_call_tools_native(state)
@@ -907,6 +607,7 @@ def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, m
         "tool_execution_results": {},
         "routing_metadata": {},
         "language": "en",
+        "prefilter_intents": {"url_in_query": "https://www.mediaworkbench.com", "wants_save_to_rag": False},
     }
 
     result = node_call_tools_native(state)
@@ -951,6 +652,7 @@ def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_conf
         "tool_execution_results": {},
         "routing_metadata": {},
         "language": "en",
+        "prefilter_intents": {"url_in_query": "https://www.mediaworkbench.com", "wants_save_to_rag": False},
     }
 
     result = node_call_tools_native(state)
@@ -1030,119 +732,6 @@ def test_structured_tool_call_parses_mixed_content_blocks(mock_config, mock_mode
     result = node_call_tools_structured(state)
 
     assert "datetime_tool" in result["tool_results"]
-
-
-class TestSemanticKwargsBuilder:
-    """Focused tests for semantic kwargs helper."""
-
-    def test_web_search_kwargs_include_region_and_save(self):
-        tool = SimpleNamespace(server_url="http://localhost:8000")
-        should_skip, kwargs = _build_semantic_tool_kwargs(
-            tool=tool,
-            tool_name="web_search_mcp",
-            user_msg="search this",
-            url_in_query=None,
-            wants_save_to_rag=True,
-            enhanced_web_query="BTC sentiment",
-            web_max_results=3,
-            search_language="de",
-            search_region="de-de",
-            timezone="UTC",
-        )
-
-        assert should_skip is False
-        assert kwargs["query"] == "BTC sentiment"
-        assert "language" not in kwargs  # DuckDuckGo MCP uses region only
-        assert kwargs["region"] == "de-de"
-        assert kwargs["max_results"] == 3
-        assert kwargs["save_to_rag"] is True
-
-    def test_extract_webpage_without_url_skips(self):
-        tool = SimpleNamespace(server_url="http://localhost:8000")
-        should_skip, kwargs = _build_semantic_tool_kwargs(
-            tool=tool,
-            tool_name="extract_webpage_mcp",
-            user_msg="extract content",
-            url_in_query=None,
-            wants_save_to_rag=False,
-            enhanced_web_query="ignored",
-            web_max_results=8,
-            search_language="en",
-            search_region="us-en",
-            timezone="UTC",
-        )
-
-        assert should_skip is True
-        assert kwargs == {}
-
-
-class TestCalculatorExpressionExtraction:
-    """Focused tests for calculator expression extraction helper."""
-
-    def test_extracts_infix_expression(self):
-        expression = _extract_calculator_expression("can you calculate 12 * (4 + 3) for me?")
-        assert expression == "12 * (4 + 3)"
-
-    def test_extracts_function_expression(self):
-        expression = _extract_calculator_expression("please compute sqrt(16) now")
-        assert expression == "sqrt(16)"
-
-    def test_falls_back_to_full_message_when_no_expression(self):
-        user_msg = "what is the weather today"
-        expression = _extract_calculator_expression(user_msg)
-        assert expression == user_msg
-
-
-class TestForcedToolExecutionHelper:
-    """Focused tests for forced-tool execution helper."""
-
-    def test_run_forced_tool_success_records_outputs(self):
-        tool = FakeTool("datetime_tool", "datetime", return_value="UTC 2026-03-13")
-        tool_results = {}
-        tool_execution_results = {}
-        routing_metadata = {}
-        executed_forced = set()
-
-        _run_forced_tool(
-            tool=tool,
-            tool_name="datetime_tool",
-            run_kwargs={"timezone": "UTC"},
-            reason="date/time pattern detected",
-            log_label="forced datetime",
-            tool_results=tool_results,
-            tool_execution_results=tool_execution_results,
-            routing_metadata=routing_metadata,
-            executed_forced=executed_forced,
-        )
-
-        assert tool_results["datetime_tool"] == "UTC 2026-03-13"
-        assert tool_execution_results["datetime_tool"]["status"] == "success"
-        assert routing_metadata["datetime_tool"] == "date/time pattern detected"
-        assert "datetime_tool" in executed_forced
-
-    def test_run_forced_tool_error_records_error_envelope(self):
-        failing_tool = Mock()
-        failing_tool._run.side_effect = ValueError("boom")
-        tool_results = {}
-        tool_execution_results = {}
-        routing_metadata = {}
-        executed_forced = set()
-
-        _run_forced_tool(
-            tool=failing_tool,
-            tool_name="datetime_tool",
-            run_kwargs={"timezone": "UTC"},
-            reason="date/time pattern detected",
-            log_label="forced datetime",
-            tool_results=tool_results,
-            tool_execution_results=tool_execution_results,
-            routing_metadata=routing_metadata,
-            executed_forced=executed_forced,
-        )
-
-        assert "Tool execution failed: boom" in tool_results["datetime_tool"]
-        assert tool_execution_results["datetime_tool"]["status"] == "error"
-        assert "datetime_tool" not in executed_forced
 
 
 class TestTopKScoredToolsHelper:

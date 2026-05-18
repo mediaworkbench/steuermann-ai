@@ -11,7 +11,7 @@ tools:
 
   - name: file_ops_tool
     path: universal_agentic_framework/tools/file_ops
-    enabled: true
+    enabled: false
     config:
       sandbox_dir: ""
       max_read_size_bytes: 1048576

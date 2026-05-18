@@ -99,18 +99,3 @@ permissions:
   - "network:outbound"  # HTTP requests to web via DuckDuckGo
   - "rate_limited"      # Built-in rate limiting (30 search / 20 fetch per minute)
 
-# Entry point
-entry_point: "src.main:app"
-
-# Docker configuration
-docker:
-  image: "web-search-mcp:latest"
-  build_context: "."
-  dockerfile: "Dockerfile"
-  ports:
-    - "9100:9100"
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
-    interval: "30s"
-    timeout: "10s"
-    retries: 3

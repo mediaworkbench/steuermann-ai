@@ -1,10 +1,8 @@
 """Tool scoring and semantic selection helpers."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 
 import numpy as np
-
-from langchain.tools import BaseTool
 _tool_embedding_cache: Dict[str, Any] = {}
 
 
@@ -64,32 +62,3 @@ def score_tool_similarity(*args, **kwargs) -> float:
     return base_score
 
 
-def build_semantic_tool_kwargs(
-    state: Any,
-    embedding_provider,
-    embedding_config_key: str,
-    all_tools: List[BaseTool],
-    intent_hints: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Build tool-calling kwargs for semantic-scored tool selection."""
-    intent_hints = intent_hints or {}
-    user_msg_lower = state.get("user_msg_lower", "").lower()
-
-    # Rank all tools by semantic + intent relevance
-    tool_scores = [
-        (tool, score_tool_similarity(user_msg_lower, tool, embedding_provider, embedding_config_key, intent_hints))
-        for tool in all_tools
-    ]
-    tool_scores.sort(key=lambda x: x[1], reverse=True)
-
-    # Select top-K tools (default 5) for presentation to model
-    top_k = 5
-    selected_tools = [tool for tool, _ in tool_scores[:top_k]]
-
-    return {
-        "tools": selected_tools,
-        "scoring_metadata": {
-            f"{tool.name}": {"score": score, "rank": i + 1}
-            for i, (tool, score) in enumerate(tool_scores[:10])
-        },
-    }

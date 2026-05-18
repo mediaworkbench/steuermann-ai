@@ -113,27 +113,20 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         ])
     )
 
-    # File operations: file/directory keywords
-    mentions_file_ops = bool(
-        any(k in user_msg_lower for k in [
-            "read file", "datei lesen", "lire fichier",
-            "write file", "datei schreiben", "ecrire fichier",
-            "list files", "dateien auflisten", "lister fichiers",
-            "list directory", "verzeichnis", "directory listing",
-            "file size", "dateigroesse", "file exists", "datei existiert",
-            "file info", "dateiinfo",
-        ])
-    )
-
-    # Explicit web-search intent: force/boost web search when user clearly asks for live lookup
+    # Explicit web-search intent: require unambiguous "search the web" phrasing.
+    # Bare "search" or "find" are too common in non-web contexts (code search, file search).
     mentions_web_search = bool(
-        re.search(r"\b(search|find|look\s*up|google|web\s*search|search\s+the\s+web)\b", user_msg_lower)
+        re.search(r"\b(search\s+(?:the\s+)?(?:web|internet)|web\s*search|look\s*up|google|search\s+for)\b", user_msg_lower)
         or re.search(r"\b(im\s+web|im\s+internet|online\s+suchen|web\s+suchen)\b", user_msg_lower)
         or re.search(r"\b(recherche|rechercher|chercher\s+sur\s+le\s+web)\b", user_msg_lower)
     )
 
-    # URL extraction: detect full URLs and bare domains (e.g., www.example.com)
-    url_match = re.search(r"(https?://\S+|\b(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/\S*)?\b)", user_msg)
+    # URL extraction: require full URL scheme, explicit www. prefix, or a path segment on a
+    # bare domain to avoid false positives from file extensions, version strings, and emails.
+    url_match = re.search(
+        r"(https?://\S+|www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/\S*)?|\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/\S+)",
+        user_msg,
+    )
     url_in_query = url_match.group(1) if url_match else None
     if url_in_query and not url_in_query.startswith(("http://", "https://")):
         url_in_query = f"https://{url_in_query}"
@@ -174,7 +167,6 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "search_region": search_region,
         "mentions_datetime": mentions_datetime,
         "mentions_calculation": mentions_calculation,
-        "mentions_file_ops": mentions_file_ops,
         "mentions_web_search": mentions_web_search,
         "url_in_query": url_in_query,
         "asks_about_tools": asks_about_tools,

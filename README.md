@@ -126,8 +126,7 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **Built-in tools**:
   - **DateTime** — current time, timezone conversions
   - **Calculator** — math operations, unit conversions, statistics
-  - **File Operations** — sandboxed file read/write/list with permission controls
-  - **Workspace File Operations** — workspace-specific file handling with intent detection
+  - **Workspace File Operations** — per-conversation sandboxed file read/write/list with intent verification
   - **Web Search** — DuckDuckGo search via MCP server
   - **Webpage Extraction** — fetch and parse web page content via MCP
 - **MCP server integration** — connect any MCP-compatible tool server using the official SDK with streamable HTTP transport
@@ -136,8 +135,6 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
 - **Automatic mode downgrade** — detects if a model doesn't support native tool calling and automatically falls back to structured mode without breaking the conversation flow
 - **Multi-provider LLM support** — role-based provider chains with automatic fallback and LiteLLM router policy, owned by `config/profiles/<profile_id>/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
 - **Tool-calling mode enforcement** — mode validation ensures consistency across all tool routing layers (prefilter, routing decision, and Layer 2 invocation nodes)
-- **Tool sandboxing** with permission-based access control
-- **Per-tool rate limiting** with sliding window enforcement
 - **Profile-level tool configuration** — enable, disable, or reconfigure tools per deployment profile
 
 ### Multilingual Support
@@ -161,7 +158,7 @@ A production-oriented Next.js application — not a demo chat widget — with re
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
   - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, message quality panel, summary cards, CSV export
 - **Memory management** at `/memories` — browse, rate, and delete individual memories with full filtering and sorting
-- **Workspace sidebar** for managing uploaded documents per conversation
+- **Workspace document tool** — upload and manage persistent documents per user; accepted formats: `.txt`, `.md`, `.json`, `.yaml`, `.csv`, `.html`, `.xml`; full version history with restore; inline rename; AI-driven save-back (ask the model to improve a document and save it — detected via language-agnostic LLM intent classifier)
 - **Dark/light theme** with system preference detection
 - **Profile-aware branding** — colors, logos, and labels adapt to the active deployment profile
 - **Optional authentication** — session-based login via `AUTH_ENABLED=true` with scrypt password hashing
@@ -203,7 +200,6 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 - **Bearer token boundary** between Next.js and FastAPI (`CHAT_ACCESS_TOKEN`)
 - **Network isolation by default** — Qdrant, Prometheus, PostgreSQL, and Redis are only accessible within the Docker network; only the frontend and API are exposed to the host
 - **Per-user rate limiting** enabled by default
-- **Tool sandboxing** with permission-based access control
 - **No implicit data exfiltration** — all provider endpoints are explicit profile configuration; local-only operation is supported
 - **CORS configuration** with allowlisted origins
 

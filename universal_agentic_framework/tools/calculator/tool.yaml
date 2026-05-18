@@ -5,9 +5,9 @@ description: "Perform mathematical calculations, unit conversions, and statistic
 
 # Language-specific descriptions (used by semantic tool routing)
 descriptions:
-  en: "Perform mathematical calculations, arithmetic, algebra, unit conversions, and statistics. Use for questions involving numbers, formulas, percentages, averages, or 'calculate', 'compute', 'how much'."
-  de: "Mathematische Berechnungen, Arithmetik, Algebra, Einheitenumrechnungen und Statistik durchführen. Verwenden für Fragen mit Zahlen, Formeln, Prozenten, Durchschnitten oder 'berechne', 'rechne', 'wie viel'."
-  fr: "Effectuer des calculs mathématiques, de l'arithmétique, de l'algèbre, des conversions d'unités et des statistiques. À utiliser pour les questions impliquant des nombres, formules, pourcentages, moyennes ou 'calculer', 'combien'."
+  en: "Perform mathematical calculations, unit conversions, and statistical operations. Use for: arithmetic expressions (add, subtract, multiply, divide), percentages, square root, logarithm, trigonometry (sin, cos, tan), mean, median, standard deviation, unit conversion (km to miles, kg to lbs, Celsius to Fahrenheit, bytes to MB, hours to seconds). Trigger phrases: calculate, compute, how much is, what is X times Y, convert X to Y, average of, sum of, percentage of, square root of."
+  de: "Mathematische Berechnungen, Einheitenumrechnungen und statistische Operationen durchführen. Verwenden für: arithmetische Ausdrücke (addieren, subtrahieren, multiplizieren, dividieren), Prozente, Quadratwurzel, Logarithmus, Trigonometrie, Mittelwert, Median, Standardabweichung, Einheitenumrechnung (km zu Meilen, kg zu Pfund, Celsius zu Fahrenheit). Auslösephrasen: berechne, rechne, wie viel ist, umrechnen, Durchschnitt, Summe, Prozent, Quadratwurzel."
+  fr: "Effectuer des calculs mathématiques, conversions d'unités et opérations statistiques. Pour: expressions arithmétiques (addition, soustraction, multiplication, division), pourcentages, racine carrée, logarithme, trigonométrie, moyenne, médiane, écart-type, conversion d'unités. Phrases déclencheurs: calculer, combien vaut, convertir, moyenne de, somme de, pourcentage."
 
 type: "langchain_tool"
 entry_point: "universal_agentic_framework.tools.calculator.tool:CalculatorTool"

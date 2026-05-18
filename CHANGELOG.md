@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.6] — tool-system-refactor-and-quality
+
+- **fix** `file_ops_tool` disabled in `config/tools.yaml` — `sandbox_dir: ""` resolved to `/app` in Docker, giving the LLM read/write access to the entire application codebase; `WorkspaceFileOpsTool` (instantiated per-conversation in `backend/routers/chat.py`) is the correct production path for file operations
+- **fix** `datetime_tool.convert_timezone` now accepts optional `time` (e.g. `"15:00"`) and `from_timezone` (e.g. `"Europe/Berlin"`) params — previously it silently duplicated `current_time` (both computed `datetime.now(ZoneInfo(tz))` and returned the same result); now supports real conversions like "what time is 3pm Berlin in New York?"
+- **fix** `requested_web_results` from intent detection now injected as `max_results` into `web_search_mcp` tool calls in all three calling modes (native, structured, react) when the LLM did not specify it — previously the value was computed but never forwarded, always defaulting to 10 results
+- **fix** `tool_name_map` hardcoding removed from `registry._get_description()` — now reads `default_tool` from the matching `config/tools.yaml` entry; adding a new multi-tool MCP entry no longer requires a registry code change
+- **fix** Stale `entry_point: "src.main:app"` and `docker:` section (wrong image `web-search-mcp:latest` on port 9100) removed from `universal_agentic_framework/tools/web_search/tool.yaml`; actual deployment uses `mcp/duckduckgo` on port 8000 via `docker-compose.yml`
+- **ops** Docker healthcheck added to `duckduckgo-mcp` service (`curl -sf http://localhost:8000/mcp`); LangGraph `depends_on` condition upgraded from `service_started` to `service_healthy`
+- **refactor** `mentions_file_ops` intent detection removed from `intent_detection.py` and `node_prefilter_tools` (boosted a disabled tool); `file_ops_tool` references removed from `utility_tool_names` set and tool-result fallback list in `graph_builder.py`
+- **test** `test_datetime_tool.py` updated for new `convert_timezone` output format (`"Time conversion:"` instead of `"Current time in ..."`); added tests for explicit `time` + `from_timezone` conversion and invalid time-string handling; added `DateTimeInput` schema test for new fields
+- **docs** Updated intent boost table in `docs/tool_development_guide.md`, `docs/technical_architecture.md`, and `CLAUDE.md` (removed `file_ops_tool` row); updated Quick Reference tools table; updated `README.md` built-in tools list
+- **refactor** Removed dead `node_route_tools` function (~155 lines) from `graph_builder.py` — it was defined but never registered with `add_node()` and had been superseded by the three-layer tool system (Layer 1 prefilter → Layer 2 LLM-driven calling → Layer 3 schema validation)
+- **refactor** Removed helper infrastructure that was only used by the dead `node_route_tools`: `run_forced_tool`, `execute_semantic_scored_tools`, `build_semantic_tool_kwargs`, `prepare_scored_tools_with_forced_execution` (~300 lines across `semantic_execution.py` and `tool_preparation.py`)
+- **refactor** Deleted `universal_agentic_framework/tools/sandbox.py` (254 lines) and `universal_agentic_framework/tools/rate_limiter.py` (242 lines) — both were fully implemented but never integrated into any execution path; sandbox/rate-limit enforcement can be added at integration time if ever needed
+- **fix** `node_call_tools_native` no longer re-runs `detect_tool_routing_intents()` — it now reads `state["prefilter_intents"]` populated by `node_prefilter_tools` in Layer 1, eliminating a redundant embedding + regex pass per request
+- **fix** `url_in_query` regex tightened: requires full URL scheme (`https?://`), explicit `www.` prefix, or a path segment on a bare domain — version strings (`v1.2`), file extensions (`.py`, `.json`), and email domains no longer trigger URL extraction
+- **fix** `mentions_web_search` trigger narrowed: bare `search` and `find` removed; now requires explicit phrasing (`search the web`, `search for`, `look up`, `google`) to avoid false positives on `find the bug in my code` or generic `search` usage
+- **improve** Tool YAML descriptions enriched for `calculator_tool`, `datetime_tool`, and `file_ops_tool` — added natural-language trigger synonyms in EN/DE/FR to improve cosine similarity scoring at Layer 1
+- **test** Removed ~350 lines of dead tests: `TestSemanticKwargsBuilder`, `TestCalculatorExpressionExtraction`, `TestForcedToolExecutionHelper` (tested deleted functions); `TestToolSandbox`, `TestSlidingWindow`, `TestToolRateLimiter` (tested deleted files); `test_helper_namespace_exports.py` (tested deleted namespace distinction)
+- **test** Fixed 3 URL-fallback tests in `test_semantic_tool_routing.py` to supply `prefilter_intents` in state, matching the updated `node_call_tools_native` contract
+- **docs** Removed "Security: Sandbox & Rate Limiting" section from `docs/tool_development_guide.md` (referenced deleted `sandbox.py` and `rate_limiter.py` with dead code examples)
+
+## [0.2.5] — probe-hardening-session-continuity
+
+- **fix** `resolve_effective_tool_calling_mode()` now requires an exact `(provider_id, model_name)` match from probe results; previously fell back to any probe for the same provider when no exact match existed, silently applying the wrong model's capabilities
+- **feat** New reason code `probe_model_not_found_forced_structured` emitted when probe data exists for the provider but not the specific model — distinguishes "no probe at all" from "wrong model probed"
+- **feat** `LLMCapabilityProbeRunner.reprobe_for_model(model_name)` added — reprobes only providers whose configured model matches the given name; avoids a full reprobe on every model-change settings save
+- **fix** `_trigger_reprobe_on_model_change()` in `backend/routers/settings.py` now calls the curated `reprobe_for_model()` instead of a full `run()`, reducing probe latency on settings updates
+- **fix** `reprobe_model()` broken provider registry lookup fixed — was calling `llm_cfg.providers.get_registry()` which does not exist in the current flat role-based config schema
+- **fix** Probe metadata noise removed — unprobed fields (`supports_streaming`, `supports_json_mode`, confidence, origin) were being emitted as `null`/`"unknown"` and displayed in the Settings UI; now only `probe_kind` and `max_output_tokens` are included
+- **fix** `supports_tool_schema` removed from Settings capabilities detail panel — it was always identical to `supports_bind_tools` (both tested by the same `bind_tools()` call)
+- **feat** `count_tokens_for_model(model_name, text)` added to `universal_agentic_framework/llm/budget.py` using `litellm.token_counter()` with tiktoken model-aware counting; falls back to `estimate_tokens()` character approximation on exception
+- **fix** `respond_node` and `summarize_node` in `graph_builder.py` now use `count_tokens_for_model()` for input-token accounting instead of the character-estimate approximation
+- **feat** "Memories used" UI folded into MetricsPanel — the always-expanded `MemoryUsedList` above each assistant message is removed; memory count now appears as a chip in the collapsed MetricsPanel summary line and as an expandable section inside the panel body; no new CSS required
+- **fix** `POST /api/chat` now forwards `conversation_id` to LangGraph as `session_id` — the LangGraph checkpointer uses `session_id` as `thread_id`, so all turns within the same `conversation_id` now share graph state and conversation history; previously every request started a fresh thread regardless of `conversation_id`
+- **fix** E2E memory inference test (`tests/test_live_memory_inference_e2e.py`) hardened: stale-memory cleanup now covers both `SHORT_TOKEN` and `LONG_TOKEN` prefixes; conversation isolation uses dedicated UUIDs (`conv_store` for storage turns, `conv_recall` for cross-session recall); storage instruction framing improved for reliable Mem0 fact extraction; short-recall sleep increased to 2 s
+- **test** `tests/test_graph_builder_fallback.py` updated for simplified `invoke_with_model_fallback()` — replaced obsolete candidate-expansion-loop tests with error classification (generic error → `error_type="error"`) and LiteLLM context-window classification tests
+- **test** `tests/test_reprobe_triggers.py` updated to verify curated `reprobe_for_model()` behavior — mock exposes the method and assertions confirm curated reprobe is called (not a full run) on model change
+
 ## [0.2.4] — active-profile-provider-cutover
 
 - **break** Ingestion runtime settings now resolve from the active profile only; `.env`/Compose keep only deployment wiring, and `rag.collection_name` is now the single collection owner
