@@ -19,6 +19,12 @@
 - **improve** RAG node exception handling split into specific `httpx.TimeoutException` and `httpx.HTTPStatusError` handlers before the broad `except Exception` — log messages now distinguish timeout from HTTP error from unexpected failure
 - **improve** `logger.warning` emitted when `collection_name` falls back to the hardcoded `"framework"` default — previously this was silent and could mask missing profile configuration
 - **test** 21 new unit tests for `rag_retrieval.py` helpers: `TestExtractRagKeyword` (5), `TestFilterAndDeduplicate` (5), `TestResolveRagConfig` (8) — includes regression tests for the `score_threshold` and `timeout_seconds` propagation bugs
+- **fix** `_connect_with_retry` in `IngestionService` was defined but never called — `__init__` now calls it before `_ensure_collection()`, establishing the intended two-phase startup: wait for Qdrant to be responsive, then create/verify the collection
+- **fix** `_ensure_collection` retry loop removed — startup races are now fully owned by `_connect_with_retry`; the simplified single try/except correctly propagates real `create_collection` failures instead of masking them with retries
+- **fix** `chunk_overlap >= chunk_size` in `IngestionConfig` now raises `ValueError` at construction time instead of silently producing broken chunks
+- **fix** Supported file extensions were hardcoded in three separate places (`service.py` parser dict, `ingest.py` file patterns, `DocumentEventHandler` event filter) — consolidated into `SUPPORTED_EXTENSIONS: frozenset[str]` exported from `ingestion/__init__.py`; all three consumers now reference the single constant
+- **fix** Lazy `from universal_agentic_framework.config import load_core_config` inside `resolve_runtime_ingestion_defaults()` moved to module-level imports in `cli/ingest.py`
+- **test** 3 new unit tests for `IngestionConfig` chunk overlap validation: equal, greater-than, and valid cases
 
 ## [0.2.8] — workspace-writeback-quality-and-admin-reset
 

@@ -175,17 +175,17 @@ class TestRedisCacheBackend:
     """Test Redis cache backend (requires Redis running)."""
     
     @pytest.mark.asyncio
-    @pytest.mark.skipif(True, reason="Requires Redis running")
+    @pytest.mark.integration
     async def test_redis_connection(self):
         """Test Redis connection."""
         backend = RedisCacheBackend("redis://localhost:6379/0")
-        
+
         # Should initialize without error
         await backend._ensure_connected()
         assert backend._initialized is True
-    
+
     @pytest.mark.asyncio
-    @pytest.mark.skipif(True, reason="Requires Redis running")
+    @pytest.mark.integration
     async def test_redis_operations(self):
         """Test Redis set/get/delete."""
         backend = RedisCacheBackend()

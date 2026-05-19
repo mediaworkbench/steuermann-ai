@@ -144,6 +144,8 @@ class TestWebSearchMCPIntegration:
 class TestWebSearchMCPSemanticRouting:
     """Tests for semantic routing of web search queries."""
 
+    pytestmark = pytest.mark.integration
+
     def test_search_query_matches_web_search_description(self):
         """Search-related queries should semantically match web_search_mcp."""
         import numpy as np
