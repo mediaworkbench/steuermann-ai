@@ -40,7 +40,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     settings?.tool_toggles || {}
   );
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>(
-    settings?.rag_config || { collection: "", top_k: 5 }
+    settings?.rag_config || { collection: "", top_k: 5, enabled: true }
   );
   const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(settings?.preferred_models || {});
   const [language, setLanguage] = useState(settings?.language || "en");

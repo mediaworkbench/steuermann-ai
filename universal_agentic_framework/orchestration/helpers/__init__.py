@@ -55,6 +55,14 @@ from .tool_calling_mode import (
     validate_and_log_tool_calling_mode,
 )
 
+# RAG retrieval
+from .rag_retrieval import (
+    extract_rag_keyword,
+    filter_and_deduplicate,
+    resolve_rag_config,
+    search_qdrant,
+)
+
 __all__ = [
     # Region inference
     "build_country_alias_map",
@@ -89,4 +97,9 @@ __all__ = [
     "resolve_effective_tool_calling_mode",
     "record_runtime_native_tool_leak",
     "validate_and_log_tool_calling_mode",
+    # RAG retrieval
+    "extract_rag_keyword",
+    "filter_and_deduplicate",
+    "resolve_rag_config",
+    "search_qdrant",
 ]

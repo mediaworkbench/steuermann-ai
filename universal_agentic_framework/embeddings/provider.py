@@ -87,7 +87,7 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
         self.model_name = normalize_embedding_model_name(model_name)
         self.dimension = dimension
         self.client = httpx.Client(timeout=30.0)
-        self._fallback = endpoint.startswith("$") or "$/" in endpoint or "$" in endpoint
+        self._fallback = endpoint.startswith("$")
         if requested_model_name != self.model_name:
             logger.info(
                 "Normalized embedding model ID for remote provider: %s -> %s",

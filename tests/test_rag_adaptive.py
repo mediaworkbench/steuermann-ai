@@ -8,7 +8,7 @@ from universal_agentic_framework.orchestration.helpers.intent_detection import (
     detect_tool_routing_intents as _detect_intents,
     _RAG_SKIP_SHORT_QUERY_CHARS,
 )
-from universal_agentic_framework.orchestration.graph_builder import node_retrieve_knowledge
+from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +162,8 @@ class TestSkipRagIntentDetection:
 class TestNodeRetrieveKnowledgeSkipPaths:
     """node_retrieve_knowledge should return early (no Qdrant call) on all skip conditions."""
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_user_toggle_disabled_skips_qdrant(self, mock_config, mock_features):
         """When rag_config.enabled=False in user_settings, Qdrant must not be called."""
         mock_config.return_value = _make_core_config()
@@ -171,15 +171,15 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(user_settings={"rag_config": {"enabled": False}})
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
         assert result["knowledge_context"] == []
         assert result.get("rag_attempted", False) is False
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_intent_skip_rag_skips_qdrant(self, mock_config, mock_features):
         """When prefilter_intents.skip_rag=True, Qdrant must not be called."""
         mock_config.return_value = _make_core_config()
@@ -187,15 +187,15 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(prefilter_intents={"skip_rag": True})
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
         assert result["knowledge_context"] == []
         assert result.get("rag_attempted", False) is False
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_features_flag_disabled_skips_qdrant(self, mock_config, mock_features):
         """Feature flag rag_retrieval=False must prevent any Qdrant call."""
         mock_config.return_value = _make_core_config()
@@ -203,15 +203,15 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state()
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
         assert result["knowledge_context"] == []
         assert result.get("rag_attempted", False) is False
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_config_rag_disabled_skips_qdrant(self, mock_config, mock_features):
         """rag.enabled=false in profile config must prevent any Qdrant call."""
         mock_config.return_value = _make_core_config(rag_enabled=False)
@@ -219,14 +219,14 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state()
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
         assert result["knowledge_context"] == []
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_user_toggle_enabled_reaches_qdrant(self, mock_config, mock_features):
         """rag_config.enabled=True must proceed to the embedding + Qdrant path."""
         mock_config.return_value = _make_core_config()
@@ -237,7 +237,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(user_settings={"rag_config": {"enabled": True}})
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider", return_value=embedder_mock), \
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider", return_value=embedder_mock), \
              patch("httpx.post", _mock_httpx_post([])):
             result = node_retrieve_knowledge(state)
 
@@ -245,8 +245,8 @@ class TestNodeRetrieveKnowledgeSkipPaths:
         embedder_mock.encode.assert_called()
         assert result.get("rag_attempted") is True
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
-    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+    @patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
     def test_empty_message_skips_without_error(self, mock_config, mock_features):
         """Empty user message should return gracefully with no Qdrant call."""
         mock_config.return_value = _make_core_config()
@@ -254,7 +254,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(messages=[{"role": "user", "content": ""}])
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -281,9 +281,9 @@ class TestRagTransparencyFields:
         core_config = _make_core_config()
         features_config = SimpleNamespace(rag_retrieval=True)
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.load_core_config", return_value=core_config), \
-             patch("universal_agentic_framework.orchestration.graph_builder.load_features_config", return_value=features_config), \
-             patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider", return_value=embedder_mock), \
+        with patch("universal_agentic_framework.orchestration.rag_node.load_core_config", return_value=core_config), \
+             patch("universal_agentic_framework.orchestration.rag_node.load_features_config", return_value=features_config), \
+             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider", return_value=embedder_mock), \
              patch("httpx.post", _mock_httpx_post(qdrant_hits)):
             return node_retrieve_knowledge(state)
 
@@ -324,9 +324,9 @@ class TestRagTransparencyFields:
         """rag_attempted must not be set when the user toggle skips Qdrant."""
         state = _base_state(user_settings={"rag_config": {"enabled": False}})
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.load_features_config") as mock_features, \
-             patch("universal_agentic_framework.orchestration.graph_builder.load_core_config") as mock_config, \
-             patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.load_features_config") as mock_features, \
+             patch("universal_agentic_framework.orchestration.rag_node.load_core_config") as mock_config, \
+             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
 
             mock_config.return_value = _make_core_config()
             mock_features.return_value = SimpleNamespace(rag_retrieval=True)
@@ -340,9 +340,9 @@ class TestRagTransparencyFields:
         """rag_attempted must not be set when the intent short-circuit fires."""
         state = _base_state(prefilter_intents={"skip_rag": True})
 
-        with patch("universal_agentic_framework.orchestration.graph_builder.load_features_config") as mock_features, \
-             patch("universal_agentic_framework.orchestration.graph_builder.load_core_config") as mock_config, \
-             patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.load_features_config") as mock_features, \
+             patch("universal_agentic_framework.orchestration.rag_node.load_core_config") as mock_config, \
+             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
 
             mock_config.return_value = _make_core_config()
             mock_features.return_value = SimpleNamespace(rag_retrieval=True)
@@ -361,3 +361,122 @@ class TestRagTransparencyFields:
         )
         assert result.get("rag_attempted") is True
         assert result.get("rag_doc_count") == 1
+
+
+# ---------------------------------------------------------------------------
+# Part D — pure helper unit tests
+# ---------------------------------------------------------------------------
+
+from universal_agentic_framework.orchestration.helpers.rag_retrieval import (
+    extract_rag_keyword,
+    filter_and_deduplicate,
+    resolve_rag_config,
+)
+
+
+class TestExtractRagKeyword:
+    def test_returns_longest_non_stopword(self):
+        assert extract_rag_keyword("What is diabetes?") == "diabetes"
+
+    def test_filters_stopwords(self):
+        # "about" and "tell" are stopwords; "metformin" should win
+        result = extract_rag_keyword("tell me about metformin")
+        assert result == "metformin"
+
+    def test_returns_none_for_only_short_tokens(self):
+        assert extract_rag_keyword("hi ok yes no") is None
+
+    def test_returns_none_for_empty_string(self):
+        assert extract_rag_keyword("") is None
+
+    def test_handles_german_umlauts(self):
+        result = extract_rag_keyword("Was ist Herzinsuffizienz?")
+        assert result == "herzinsuffizienz"
+
+
+class TestFilterAndDeduplicate:
+    def _hit(self, doc_id, score, text="content", file_path="doc.pdf"):
+        return {"id": doc_id, "score": score, "payload": {"text": text, "file_path": file_path}}
+
+    def test_drops_results_below_score_floor(self):
+        hits = [self._hit("a", 0.4), self._hit("b", 0.7)]
+        docs = filter_and_deduplicate(hits, min_relevance_score=0.6, top_k=10)
+        assert len(docs) == 1
+        assert docs[0]["score"] == 0.7
+
+    def test_deduplicates_by_id(self):
+        hits = [self._hit("dup", 0.9), self._hit("dup", 0.8), self._hit("other", 0.7)]
+        docs = filter_and_deduplicate(hits, min_relevance_score=0.5, top_k=10)
+        ids = [d["file_path"] for d in docs]
+        assert len(docs) == 2
+
+    def test_limits_to_top_k(self):
+        hits = [self._hit(str(i), 0.9 - i * 0.05) for i in range(10)]
+        docs = filter_and_deduplicate(hits, min_relevance_score=0.0, top_k=3)
+        assert len(docs) == 3
+        # Top-k should be highest scores
+        assert docs[0]["score"] >= docs[1]["score"] >= docs[2]["score"]
+
+    def test_uses_legacy_file_name_field(self):
+        hit = {"id": "x", "score": 0.8, "payload": {"text": "t", "file_name": "old/legacy.pdf"}}
+        docs = filter_and_deduplicate([hit], min_relevance_score=0.0, top_k=10)
+        assert docs[0]["file_name"] == "legacy.pdf"
+        assert docs[0]["file_path"] == "old/legacy.pdf"
+
+    def test_empty_input_returns_empty(self):
+        assert filter_and_deduplicate([], min_relevance_score=0.6, top_k=5) == []
+
+
+class TestResolveRagConfig:
+    def _sys_cfg(self, **kwargs):
+        defaults = dict(
+            collection_name="sys-collection",
+            top_k=8,
+            score_threshold=0.7,
+            with_payload=["text", "file_path"],
+            with_vectors=False,
+            timeout_seconds=45,
+        )
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_system_config_baseline(self):
+        cfg = resolve_rag_config({}, self._sys_cfg())
+        assert cfg["collection_name"] == "sys-collection"
+        assert cfg["top_k"] == 8
+        assert cfg["score_threshold"] == 0.7
+        assert cfg["timeout_seconds"] == 45
+
+    def test_user_collection_overrides_system(self):
+        cfg = resolve_rag_config({"collection": "user-col"}, self._sys_cfg())
+        assert cfg["collection_name"] == "user-col"
+
+    def test_user_top_k_overrides_system(self):
+        cfg = resolve_rag_config({"top_k": 3}, self._sys_cfg())
+        assert cfg["top_k"] == 3
+
+    def test_user_score_threshold_overrides_system(self):
+        """Regression for bug A: score_threshold must propagate from user_rag_config."""
+        cfg = resolve_rag_config({"score_threshold": 0.85}, self._sys_cfg())
+        assert cfg["score_threshold"] == 0.85
+
+    def test_user_timeout_overrides_system(self):
+        """Regression for bug H: timeout_seconds must propagate from user_rag_config."""
+        cfg = resolve_rag_config({"timeout_seconds": 60}, self._sys_cfg())
+        assert cfg["timeout_seconds"] == 60
+
+    def test_none_system_config_uses_hardcoded_defaults(self):
+        cfg = resolve_rag_config({}, None)
+        assert cfg["collection_name"] == "framework"
+        assert cfg["top_k"] == 5
+        assert cfg["score_threshold"] is None
+        assert cfg["timeout_seconds"] == 30
+
+    def test_empty_user_config_leaves_system_values_intact(self):
+        cfg = resolve_rag_config({}, self._sys_cfg(top_k=12))
+        assert cfg["top_k"] == 12
+
+    def test_user_collection_empty_string_does_not_override(self):
+        """Empty string for collection must not clobber the system value."""
+        cfg = resolve_rag_config({"collection": ""}, self._sys_cfg())
+        assert cfg["collection_name"] == "sys-collection"

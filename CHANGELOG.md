@@ -11,6 +11,14 @@
 - **improve** `rag_config` user settings default extended to `{"collection": "", "top_k": 5, "enabled": True}` in all three locations in `backend/routers/settings.py` — prevents `enabled` being absent on first-run settings fetch
 - **fix** Web search no longer silently skipped when a structured-mode model declines in plain text — `node_call_tools_structured` now injects a mandatory "MUST call" footer when `force_tool_use=True` (explicit web search intent or top candidate score ≥ 0.75) and retries with a stricter prompt when the model responds with text instead of a JSON tool call; up to `max_retries` (2) retry attempts before graceful exit
 - **improve** `force_tool_use` flag added to `detect_tool_routing_intents()` return dict; set to `True` when `mentions_web_search=True` — keeps forced-execution policy centralised alongside other routing intents
+- **refactor** `node_retrieve_knowledge` extracted from `graph_builder.py` into `orchestration/rag_node.py` — follows the `crew_nodes.py` / `performance_nodes.py` extraction pattern; `graph_builder.py` is now purely graph wiring with no node logic
+- **refactor** Pure RAG utility functions extracted to `orchestration/helpers/rag_retrieval.py`: `extract_rag_keyword`, `search_qdrant`, `filter_and_deduplicate`, `resolve_rag_config` — module-level `_RAG_STOPWORDS` frozenset replaces per-call set construction; `httpx` and `re` moved to module-level imports
+- **fix** `score_threshold` and `timeout_seconds` from user `rag_config` now propagate correctly through `resolve_rag_config()` — previously only `collection` and `top_k` were read from user settings, so user-configured thresholds were silently ignored and the client-side 0.6 floor was always used
+- **fix** Embedding provider `_fallback` detection narrowed from `"$" in endpoint` to `endpoint.startswith("$")` — the broad check incorrectly activated deterministic fallback mode for any endpoint URL that happened to contain a `$` character
+- **fix** `SettingsPanel` default RAG config state now includes `enabled: true`, consistent with the backend default (`{"collection": "", "top_k": 5, "enabled": True}`)
+- **improve** RAG node exception handling split into specific `httpx.TimeoutException` and `httpx.HTTPStatusError` handlers before the broad `except Exception` — log messages now distinguish timeout from HTTP error from unexpected failure
+- **improve** `logger.warning` emitted when `collection_name` falls back to the hardcoded `"framework"` default — previously this was silent and could mask missing profile configuration
+- **test** 21 new unit tests for `rag_retrieval.py` helpers: `TestExtractRagKeyword` (5), `TestFilterAndDeduplicate` (5), `TestResolveRagConfig` (8) — includes regression tests for the `score_threshold` and `timeout_seconds` propagation bugs
 
 ## [0.2.8] — workspace-writeback-quality-and-admin-reset
 

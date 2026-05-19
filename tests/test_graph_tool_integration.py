@@ -215,8 +215,12 @@ def test_graph_injects_tool_and_knowledge_context(
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
+@patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+@patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
+@patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider")
 @pytest.mark.integration
 def test_rag_request_uses_config(
+    mock_rag_embed, mock_rag_config, mock_rag_features,
     mock_provider_factory, mock_config, mock_features, mock_model_factory, mock_httpx_post
 ):
     """RAG retrieval should respect collection, top_k, score threshold, and payload settings."""
@@ -252,6 +256,10 @@ def test_rag_request_uses_config(
         ),
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=True)
+    # rag_node imports its own references — patch those too so the RAG node sees the same config
+    mock_rag_config.return_value = mock_config.return_value
+    mock_rag_features.return_value = mock_features.return_value
+    mock_rag_embed.return_value = mock_embedder
 
     dummy_model = DummyModel()
     mock_model_factory.return_value = dummy_model
@@ -288,8 +296,12 @@ def test_rag_request_uses_config(
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
+@patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+@patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
+@patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider")
 @pytest.mark.integration
 def test_rag_disabled_via_features(
+    mock_rag_embed, mock_rag_config, mock_rag_features,
     mock_provider_factory, mock_config, mock_features, mock_model_factory, mock_httpx_post
 ):
     """RAG retrieval should be skipped when the feature flag is disabled."""
@@ -311,6 +323,10 @@ def test_rag_disabled_via_features(
         llm=_mock_llm_for_tests("structured"),
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=False)
+
+    mock_rag_config.return_value = mock_config.return_value
+    mock_rag_features.return_value = SimpleNamespace(rag_retrieval=False)
+    mock_rag_embed.return_value = mock_embedder
 
     dummy_model = DummyModel()
     mock_model_factory.return_value = dummy_model
