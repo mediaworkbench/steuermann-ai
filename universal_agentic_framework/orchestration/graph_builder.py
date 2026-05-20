@@ -188,6 +188,7 @@ class GraphState(TypedDict, total=False):
     summary_text: str
     digest_chain: List[Dict[str, Any]]  # Rolling conversation digest metadata
     sources: List[Dict[str, Any]]  # [{type: "web"|"rag", label: str, url: str|None}]
+    query_embedding: List[float]  # Precomputed user-message embedding from node_prefilter_tools; reused by RAG to avoid duplicate encode
 
 
 def _get_routing_embedding_provider(config: Any) -> Tuple[EmbeddingProvider, str]:
@@ -354,6 +355,8 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
             embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
             query_embedding = embedding_provider.encode(user_msg)
+            # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
+            state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
             similarity_threshold = getattr(
                 getattr(config, "tool_routing", None), "similarity_threshold", 0.3

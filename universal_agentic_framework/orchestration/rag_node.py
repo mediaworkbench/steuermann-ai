@@ -10,9 +10,9 @@ import httpx
 from typing import TYPE_CHECKING
 
 from universal_agentic_framework.config import load_core_config, load_features_config
-from universal_agentic_framework.embeddings import build_embedding_provider
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.monitoring.metrics import track_node_execution
+from universal_agentic_framework.orchestration.helpers.embedding_provider import get_routing_embedding_provider
 from universal_agentic_framework.orchestration.helpers.rag_retrieval import (
     extract_rag_keyword,
     filter_and_deduplicate,
@@ -74,15 +74,14 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
 
     with track_node_execution(fork_name, "retrieve_knowledge"):
         try:
-            embedder = build_embedding_provider(
-                model_name=config.llm.get_role_model_name("embedding", config.fork.language),
-                dimension=config.memory.embeddings.dimension,
-                provider_type=config.llm.get_embedding_provider_type(),
-                remote_endpoint=config.llm.get_embedding_remote_endpoint(),
-            )
-            query_embedding = embedder.encode(user_msg)
+            # Reuse the module-level cached provider (same instance as node_prefilter_tools).
+            embedder, _ = get_routing_embedding_provider(config)
 
-            logger.info("RAG: Generated embedding", embedding_size=len(query_embedding))
+            # Reuse the embedding node_prefilter_tools already computed for this message.
+            # Falls back to encoding only when prefilter was skipped (e.g. greeting shortcut).
+            query_embedding = state.get("query_embedding") or embedder.encode(user_msg)
+
+            logger.info("RAG: Got embedding", embedding_size=len(query_embedding), from_cache=bool(state.get("query_embedding")))
 
             # Resolve effective config: system baseline, then user overrides on top
             cfg = resolve_rag_config(user_rag_config, rag_config)

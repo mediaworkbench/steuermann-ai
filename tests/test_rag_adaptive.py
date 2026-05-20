@@ -171,7 +171,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(user_settings={"rag_config": {"enabled": False}})
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -187,7 +187,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(prefilter_intents={"skip_rag": True})
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -203,7 +203,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state()
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -219,7 +219,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state()
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -237,7 +237,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(user_settings={"rag_config": {"enabled": True}})
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider", return_value=embedder_mock), \
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider", return_value=(embedder_mock, "mock-model")), \
              patch("httpx.post", _mock_httpx_post([])):
             result = node_retrieve_knowledge(state)
 
@@ -254,7 +254,7 @@ class TestNodeRetrieveKnowledgeSkipPaths:
 
         state = _base_state(messages=[{"role": "user", "content": ""}])
 
-        with patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+        with patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
             result = node_retrieve_knowledge(state)
 
         mock_embed.assert_not_called()
@@ -283,7 +283,7 @@ class TestRagTransparencyFields:
 
         with patch("universal_agentic_framework.orchestration.rag_node.load_core_config", return_value=core_config), \
              patch("universal_agentic_framework.orchestration.rag_node.load_features_config", return_value=features_config), \
-             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider", return_value=embedder_mock), \
+             patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider", return_value=(embedder_mock, "mock-model")), \
              patch("httpx.post", _mock_httpx_post(qdrant_hits)):
             return node_retrieve_knowledge(state)
 
@@ -326,7 +326,7 @@ class TestRagTransparencyFields:
 
         with patch("universal_agentic_framework.orchestration.rag_node.load_features_config") as mock_features, \
              patch("universal_agentic_framework.orchestration.rag_node.load_core_config") as mock_config, \
-             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+             patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
 
             mock_config.return_value = _make_core_config()
             mock_features.return_value = SimpleNamespace(rag_retrieval=True)
@@ -342,7 +342,7 @@ class TestRagTransparencyFields:
 
         with patch("universal_agentic_framework.orchestration.rag_node.load_features_config") as mock_features, \
              patch("universal_agentic_framework.orchestration.rag_node.load_core_config") as mock_config, \
-             patch("universal_agentic_framework.orchestration.rag_node.build_embedding_provider") as mock_embed:
+             patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider") as mock_embed:
 
             mock_config.return_value = _make_core_config()
             mock_features.return_value = SimpleNamespace(rag_retrieval=True)
