@@ -124,6 +124,15 @@ logger = get_logger(__name__)
 _DIGEST_CHAIN_MAX_ITEMS = 5
 
 
+def _rag_label(file_name: str | None) -> str:
+    """Human-readable RAG source label: strip ingestion hash prefix, replace dashes with spaces."""
+    raw = str(file_name or "Unknown")
+    for ext in (".md", ".txt", ".pdf", ".csv", ".html", ".xml", ".yaml", ".yml"):
+        raw = raw.replace(ext, "")
+    raw = re.sub(r"^[0-9a-f]{32}-", "", raw)  # strip leading ingestion hash
+    return raw.replace("-", " ").strip() or "Unknown"
+
+
 def _is_digest_entry(entry: Any) -> bool:
     return isinstance(entry, dict) and bool(entry.get("digest_id"))
 
@@ -169,7 +178,7 @@ class GraphState(TypedDict, total=False):
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
     rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
-    rag_doc_count: int   # Number of docs above threshold that were injected into the prompt
+    rag_doc_count: int   # Number of docs above pill_score_threshold (injected into prompt + shown as pills)
     loaded_tools: List[Any]  # BaseTool instances from registry
     candidate_tools: List[Dict[str, Any]]  # Layer 1 pre-filter output: [{tool, name, score}]
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
@@ -1279,7 +1288,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     if knowledge_context:
         context_text = "\n\n".join([
-            f"[Quelle: {doc.get('file_name', 'Unknown').split('-')[-1].replace('.md', '')}]\n{doc.get('text', '')}"
+            f"[Quelle: {_rag_label(doc.get('file_name'))}]\n{doc.get('text', '')}"
             for doc in knowledge_context[:3]  # Top 3 results
         ])
         system_prompt += f"\n\n=== WISSENSDATENBANK ===\n{context_text}\n=== ENDE WISSENSDATENBANK ===\n"
@@ -1295,9 +1304,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             doc_text = doc.get("text", "")
             for url in _re_urls.findall(r"https?://[^\s)]+", str(doc_text)):
                 allowed_urls.add(url)
-            # Collect structured RAG source (deduplicated by label) for citation-capable responses.
             if not utility_only_response:
-                label = str(file_name or "Unknown").split("-")[-1].replace(".md", "")
+                label = _rag_label(file_name)
                 if label not in _seen_rag_labels:
                     _seen_rag_labels.add(label)
                     collected_sources.append({"type": "rag", "label": label, "url": None})

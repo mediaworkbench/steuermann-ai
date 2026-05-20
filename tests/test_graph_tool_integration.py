@@ -249,7 +249,7 @@ def test_rag_request_uses_config(
             enabled=True,
             collection_name="my-collection",
             top_k=2,
-            score_threshold=0.42,
+            pill_score_threshold=0.42,
             with_payload=["text"],
             with_vectors=False,
             timeout_seconds=5,
@@ -285,7 +285,7 @@ def test_rag_request_uses_config(
 
     assert url.endswith("/collections/my-collection/points/search")
     assert payload["limit"] == 2
-    assert payload["score_threshold"] == 0.42
+    assert payload["score_threshold"] == 0.42  # pill_score_threshold passed as Qdrant filter
     assert payload["with_payload"] == ["text"]
     assert payload["with_vector"] is False
     assert timeout == 5
@@ -380,7 +380,7 @@ def test_rag_keyword_fallback_search(
             enabled=True,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=0.75,
+            pill_score_threshold=0.75,
             with_payload=["text", "file_path"],
             with_vectors=False,
             timeout_seconds=10,
@@ -464,7 +464,7 @@ def test_response_url_stripping_guardrail(
             enabled=False,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=None,
+            pill_score_threshold=None,
             with_payload=["text", "file_path"],
             with_vectors=False,
             timeout_seconds=10,
@@ -536,7 +536,7 @@ def test_long_term_memory_disabled_via_features(
             enabled=False,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=None,
+            pill_score_threshold=None,
             with_payload=["text"],
             with_vectors=False,
             timeout_seconds=10,

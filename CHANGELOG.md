@@ -35,6 +35,9 @@
 - **improve** `caching/vector_backend.py` embedding init re-raises `ValueError` for misconfiguration instead of swallowing it silently; runtime connection errors still allow the cache backend to start with `_embedder = None`
 - **refactor** All test files referencing `graph_builder.safe_get_model` updated to `graph_builder.get_model`; `test_vector_cache_backend.py` and `test_cache_performance_benchmark.py` marked `@pytest.mark.integration` (they require live Qdrant + embedding provider) and updated to use `EMBEDDING_SERVER` env var instead of the removed `$`-prefix fallback trigger
 - **note** Ingestion watch mode: if LM Studio crashes while the watcher is running, files created during the outage will not be automatically re-queued. Run `steuermann ingest ingest` (full re-scan) after LM Studio restarts to re-embed skipped files
+- **fix** RAG source pill labels now strip the 32-char ingestion hash prefix and display the full human-readable filename with spaces (e.g. "wichtige adressen darmkrebs krankheiten interniste" instead of "interniste"); same fix applied to the `[Quelle: ...]` label injected into the LLM prompt in the WISSENSDATENBANK block
+- **feat** New `pill_score_threshold` field in `RagSettings` (default `0.72`, set explicitly to `0.72` in the starter profile) — documents below this threshold are excluded from both the LLM prompt and source pill display, preventing the LLM from citing context the user cannot trace; `score_threshold` (0.6) still acts as the retrieval floor for analytics (`rag_doc_count`)
+- **refactor** Test embedding provider availability check consolidated from three per-file socket probes into a single `live_embedding_provider` session fixture in `conftest.py`; `EMBEDDING_SERVER` env var is normalised at conftest load time to remove duplicate `/v1` suffix when the var already contains it
 
 ## [0.2.8] — workspace-writeback-quality-and-admin-reset
 

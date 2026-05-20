@@ -93,13 +93,15 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
 
             qdrant_url = f"http://{config.memory.vector_store.host}:{config.memory.vector_store.port}"
 
+            threshold = cfg.get("pill_score_threshold") or 0.72
+
             # Thin local adapter — captures qdrant_url and cfg so call sites stay concise.
             # The actual search logic lives in the module-level search_qdrant helper.
             def _search(vector: list[float], label: str) -> list[dict]:
                 return search_qdrant(
                     qdrant_url, cfg["collection_name"], vector,
                     cfg["top_k"], cfg["with_payload"], cfg["with_vector"],
-                    cfg["score_threshold"], cfg["timeout_seconds"], label,
+                    threshold, cfg["timeout_seconds"], label,
                 )
 
             raw_results = _search(query_embedding, "full_query")
@@ -111,10 +113,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
                 if kw_results:
                     raw_results = raw_results + kw_results
 
-            # Client-side safety floor: server-side score_threshold runs when configured;
-            # 0.6 is the fallback floor when no threshold is set, to drop noise.
-            min_score = cfg["score_threshold"] if cfg["score_threshold"] is not None else 0.6
-            knowledge_docs = filter_and_deduplicate(raw_results, min_score, cfg["top_k"])
+            knowledge_docs = filter_and_deduplicate(raw_results, threshold, cfg["top_k"])
 
             state["knowledge_context"] = knowledge_docs
             state["rag_doc_count"] = len(knowledge_docs)

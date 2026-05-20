@@ -15,12 +15,12 @@ from universal_agentic_framework.orchestration.rag_node import node_retrieve_kno
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_rag_config(enabled=True, collection_name="test-collection", *, top_k=5, score_threshold=0.6):
+def _make_rag_config(enabled=True, collection_name="test-collection", *, top_k=5, pill_score_threshold=0.72):
     return SimpleNamespace(
         enabled=enabled,
         collection_name=collection_name,
         top_k=top_k,
-        score_threshold=score_threshold,
+        pill_score_threshold=pill_score_threshold,
         with_payload=["text"],
         with_vectors=False,
         timeout_seconds=30,
@@ -298,7 +298,7 @@ class TestRagTransparencyFields:
         assert result["knowledge_context"] == []
 
     def test_rag_doc_count_reflects_injected_results(self):
-        """When Qdrant returns hits above the score threshold, rag_doc_count must reflect them."""
+        """When Qdrant returns hits above pill_score_threshold, rag_doc_count must reflect them."""
         # Use unique ids so deduplication doesn't collapse results from the keyword search
         hits = [
             {"id": "doc-a", "payload": {"text": "doc A", "file_path": "a.pdf"}, "score": 0.9},
@@ -306,12 +306,12 @@ class TestRagTransparencyFields:
         ]
         result = self._run_with_qdrant_response(qdrant_hits=hits)
         assert result.get("rag_attempted") is True
-        # Both hits are above the 0.6 threshold; deduplication by id keeps both unique docs
+        # Both hits are above the 0.72 threshold; deduplication by id keeps both unique docs
         assert result.get("rag_doc_count") == 2
         assert len(result["knowledge_context"]) == 2
 
     def test_rag_doc_count_zero_when_hits_below_threshold(self):
-        """Hits below score_threshold must be filtered out even though Qdrant was queried."""
+        """Hits below pill_score_threshold must be filtered out even though Qdrant was queried."""
         hits = [
             {"id": "low-1", "payload": {"text": "noisy doc"}, "score": 0.3},
             {"id": "low-2", "payload": {"text": "borderline doc"}, "score": 0.55},
@@ -432,7 +432,7 @@ class TestResolveRagConfig:
         defaults = dict(
             collection_name="sys-collection",
             top_k=8,
-            score_threshold=0.7,
+            pill_score_threshold=0.7,
             with_payload=["text", "file_path"],
             with_vectors=False,
             timeout_seconds=45,
@@ -444,7 +444,7 @@ class TestResolveRagConfig:
         cfg = resolve_rag_config({}, self._sys_cfg())
         assert cfg["collection_name"] == "sys-collection"
         assert cfg["top_k"] == 8
-        assert cfg["score_threshold"] == 0.7
+        assert cfg["pill_score_threshold"] == 0.7
         assert cfg["timeout_seconds"] == 45
 
     def test_user_collection_overrides_system(self):
@@ -455,10 +455,9 @@ class TestResolveRagConfig:
         cfg = resolve_rag_config({"top_k": 3}, self._sys_cfg())
         assert cfg["top_k"] == 3
 
-    def test_user_score_threshold_overrides_system(self):
-        """Regression for bug A: score_threshold must propagate from user_rag_config."""
-        cfg = resolve_rag_config({"score_threshold": 0.85}, self._sys_cfg())
-        assert cfg["score_threshold"] == 0.85
+    def test_user_pill_score_threshold_overrides_system(self):
+        cfg = resolve_rag_config({"pill_score_threshold": 0.85}, self._sys_cfg())
+        assert cfg["pill_score_threshold"] == 0.85
 
     def test_user_timeout_overrides_system(self):
         """Regression for bug H: timeout_seconds must propagate from user_rag_config."""
@@ -469,7 +468,7 @@ class TestResolveRagConfig:
         cfg = resolve_rag_config({}, None)
         assert cfg["collection_name"] == "framework"
         assert cfg["top_k"] == 5
-        assert cfg["score_threshold"] is None
+        assert cfg["pill_score_threshold"] is None
         assert cfg["timeout_seconds"] == 30
 
     def test_empty_user_config_leaves_system_values_intact(self):

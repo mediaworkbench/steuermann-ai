@@ -60,7 +60,7 @@ rag:
   enabled: true
   collection_name: framework
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.72
   with_payload:
     - text
     - file_path

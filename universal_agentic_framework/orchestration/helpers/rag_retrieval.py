@@ -64,11 +64,8 @@ def filter_and_deduplicate(
     min_relevance_score: float,
     top_k: int,
 ) -> list[dict]:
-    """Client-side safety floor: drops results below min_relevance_score,
+    """Client-side floor: drops results below min_relevance_score,
     deduplicates by document ID, then limits to top_k by score.
-
-    Server-side score_threshold handles filtering when configured; this
-    floor catches noise when no threshold is set (fallback: 0.6).
     """
     seen: set = set()
     docs = []
@@ -100,13 +97,13 @@ def resolve_rag_config(
 ) -> dict:
     """Merge user overrides on top of system config baseline.
 
-    Returns a flat dict with keys: collection_name, top_k, score_threshold,
+    Returns a flat dict with keys: collection_name, top_k, pill_score_threshold,
     with_payload, with_vector, timeout_seconds.
     """
     resolved: dict = {
         "collection_name": "framework",
         "top_k": 5,
-        "score_threshold": None,
+        "pill_score_threshold": None,
         "with_payload": True,
         "with_vector": False,
         "timeout_seconds": 30,
@@ -116,7 +113,7 @@ def resolve_rag_config(
         if system_rag_config.collection_name:
             resolved["collection_name"] = system_rag_config.collection_name
         resolved["top_k"] = system_rag_config.top_k
-        resolved["score_threshold"] = system_rag_config.score_threshold
+        resolved["pill_score_threshold"] = getattr(system_rag_config, "pill_score_threshold", None)
         resolved["with_payload"] = system_rag_config.with_payload
         resolved["with_vector"] = system_rag_config.with_vectors
         resolved["timeout_seconds"] = system_rag_config.timeout_seconds
@@ -127,8 +124,8 @@ def resolve_rag_config(
             resolved["collection_name"] = user_rag_config["collection"]
         if user_rag_config.get("top_k") is not None:
             resolved["top_k"] = user_rag_config["top_k"]
-        if user_rag_config.get("score_threshold") is not None:
-            resolved["score_threshold"] = user_rag_config["score_threshold"]
+        if user_rag_config.get("pill_score_threshold") is not None:
+            resolved["pill_score_threshold"] = user_rag_config["pill_score_threshold"]
         if user_rag_config.get("timeout_seconds") is not None:
             resolved["timeout_seconds"] = user_rag_config["timeout_seconds"]
 
