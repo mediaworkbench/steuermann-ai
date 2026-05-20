@@ -39,6 +39,7 @@ def build_litellm_chat(provider: ProviderSettings, model_name: str):
         "temperature": provider.temperature,
         "max_tokens": provider.max_tokens,
         "timeout": provider.timeout,
+        "streaming": True,
         "model_kwargs": model_kwargs,
     }
     if provider.api_base:
@@ -255,6 +256,7 @@ class LLMFactory:
             model_name=primary_label,
             temperature=primary.temperature,
             max_tokens=primary.max_tokens,
+            streaming=True,
             model_kwargs=model_kwargs,
         )
 

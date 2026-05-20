@@ -10,6 +10,7 @@ import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
+import { useStreamingChat } from "@/hooks/useStreamingChat";
 import {
   deleteConversationAttachment,
   fetchConversation,
@@ -20,7 +21,6 @@ import {
 import { selectActiveAttachmentIds } from "@/lib/attachments";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
-  ChatResponse,
   ConversationAttachment,
   Message,
   PersistedMessage,
@@ -276,6 +276,21 @@ export function ChatInterface() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const startTimeRef = useRef<number>(0);
+  const wasStreamingRef = useRef(false);
+
+  const {
+    streamingContent,
+    isStreaming,
+    streamError,
+    toolCallStatus,
+    nodeStatus,
+    finalMetadata,
+    wasCancelled,
+    sendMessage: startStream,
+    cancel: cancelStream,
+    reset: resetStream,
+  } = useStreamingChat();
 
   const { activeId, create, refresh, rename, activeConversation, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
@@ -382,7 +397,65 @@ export function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading]);
+  }, [messages, loading, isStreaming, streamingContent]);
+
+  // Commit completed streaming message to messages list
+  useEffect(() => {
+    const was = wasStreamingRef.current;
+    wasStreamingRef.current = isStreaming;
+    if (was && !isStreaming && (streamingContent || wasCancelled)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant" as const,
+          content: wasCancelled
+            ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
+            : streamingContent,
+          timestamp: formatTime(new Date()),
+          metrics: finalMetadata
+            ? {
+                response_time_ms: Date.now() - startTimeRef.current,
+                input_tokens: finalMetadata.input_tokens,
+                output_tokens: finalMetadata.output_tokens,
+                finish_reason: "stop",
+                model: finalMetadata.model_used,
+                tools_executed: finalMetadata.tools_executed?.map((name) => ({
+                  name,
+                  status: "success" as const,
+                })),
+                sources: finalMetadata.sources,
+                memories_used: finalMetadata.memories_used,
+                rag_attempted: finalMetadata.rag_attempted,
+                rag_doc_count: finalMetadata.rag_doc_count,
+              }
+            : undefined,
+        },
+      ]);
+      if (finalMetadata?.workspace_document_writeback?.status === "saved") {
+        const wb = finalMetadata.workspace_document_writeback;
+        fetchWorkspaceDocuments();
+        setWritebackSavedDocId(wb.document_id ?? null);
+        setTimeout(() => setWritebackSavedDocId(null), 200);
+        toast.success(t("chat.workspaceDocumentSaved"), {
+          description: `${wb.filename} updated to v${wb.version}`,
+        });
+      }
+      resetStream();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
+
+  // Surface stream errors as toasts
+  useEffect(() => {
+    if (streamError) {
+      toast.error(t("chat.messageFailed"), { description: streamError });
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamError]);
+
+  // Cancel any in-flight stream on unmount
+  useEffect(() => () => cancelStream(), [cancelStream]);
 
   // Load RAG preference from user settings on mount
   useEffect(() => {
@@ -464,102 +537,40 @@ export function ChatInterface() {
         ]);
       }
       setLoading(true);
+      startTimeRef.current = Date.now();
 
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
-      const startTime = Date.now();
+      await startStream({
+        message: userMessage,
+        userId: CURRENT_USER_ID,
+        conversationId: convId,
+        attachmentIds: selectedAttachmentIds,
+        documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
+        ragEnabled,
+      });
 
-      try {
-        const response = await fetch(`${apiBase}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: userMessage,
-            user_id: CURRENT_USER_ID,
-            conversation_id: convId,
-            attachment_ids: selectedAttachmentIds,
-            document_ids: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
-            rag_enabled: ragEnabled,
-          }),
-        });
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data: ChatResponse = await response.json();
-        const elapsed = Date.now() - startTime;
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.response,
-            timestamp: formatTime(new Date()),
-            metrics: {
-              response_time_ms: elapsed,
-              input_tokens: data.metadata?.input_tokens,
-              output_tokens: data.metadata?.output_tokens,
-              finish_reason: "stop",
-              model: data.metadata?.model_used,
-              temperature: undefined,
-              tools_executed: data.metadata?.tools_executed?.map((name) => ({
-                name,
-                status: "success" as const,
-              })),
-              sources: data.metadata?.sources,
-              attachments_used: data.metadata?.attachments_used,
-              documents_used: data.metadata?.documents_used,
-              memories_used: data.metadata?.memories_used,
-              rag_attempted: data.metadata?.rag_attempted,
-              rag_doc_count: data.metadata?.rag_doc_count,
-            },
-          },
-        ]);
-
-        if (data.metadata?.workspace_document_writeback?.status === "saved") {
-          const savedDocId = data.metadata.workspace_document_writeback.document_id ?? null;
-          fetchWorkspaceDocuments();
-          setWritebackSavedDocId(savedDocId);
-          // Clear the marker after a tick so the effect re-fires on next save of the same doc
-          setTimeout(() => setWritebackSavedDocId(null), 200);
-          toast.success(t("chat.workspaceDocumentSaved"), {
-            description: `${data.metadata.workspace_document_writeback.filename} updated to v${data.metadata.workspace_document_writeback.version}`,
-          });
-        }
-
-        refresh();
-        if (
-          isFirstMessage &&
-          convId &&
-          (activeConversation?.title === "New conversation" ||
-            activeConversation?.title === t("chat.newConversation"))
-        ) {
-          const betterTitle = generateTitle(userMessage);
-          if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
-        }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : t("chat.failedToSendMessage");
-        toast.error(t("chat.messageFailed"), { description: errorMessage });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Error: ${errorMessage}`,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      } finally {
-        setLoading(false);
+      setLoading(false);
+      refresh();
+      if (
+        isFirstMessage &&
+        convId &&
+        (activeConversation?.title === "New conversation" ||
+          activeConversation?.title === t("chat.newConversation"))
+      ) {
+        const betterTitle = generateTitle(userMessage);
+        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
       }
     },
     [
       activeId,
       messages.length,
       ensureConversation,
-      fetchWorkspaceDocuments,
       refresh,
       rename,
       activeConversation?.title,
       selectedAttachmentIds,
+      activeWorkspaceDocId,
+      ragEnabled,
+      startStream,
       t,
       formatTime,
     ],
@@ -621,7 +632,7 @@ export function ChatInterface() {
   }, []);
 
   async function handleSend() {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || isStreaming) return;
     const userMessage = input;
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -680,7 +691,11 @@ export function ChatInterface() {
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !loading) {
+    if (e.key === "Escape" && isStreaming) {
+      cancelStream();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !loading && !isStreaming) {
       e.preventDefault();
       handleSend();
     }
@@ -755,8 +770,8 @@ export function ChatInterface() {
           </>
         )}
 
-        {/* ─── Typing indicator ─── */}
-        {loading && (
+        {/* ─── Streaming / Typing indicator ─── */}
+        {(isStreaming || (loading && !isStreaming)) && (
           <div className="flex gap-4 max-w-5xl mx-auto">
             <div
               className="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1"
@@ -764,21 +779,67 @@ export function ChatInterface() {
             >
               <Icon name="smart_toy" size={18} className="text-white" />
             </div>
-            <div className="flex flex-col gap-1 items-start">
+            <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
               <div className="flex items-center gap-2 ml-1">
                 <span className="text-sm font-bold text-evergreen">
                   {t("chat.aiAgent")}
                 </span>
               </div>
-              <div
-                className="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
-                role="status"
-                aria-label={t("chat.aiThinking")}
-              >
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-              </div>
+
+              {/* Node / tool status indicator */}
+              {(nodeStatus || toolCallStatus?.status === "start") && (
+                <div className="text-xs text-evergreen/50 ml-1 flex items-center gap-1.5 animate-pulse mb-1">
+                  <Icon
+                    name={
+                      nodeStatus?.includes("knowledge") ? "search"
+                      : nodeStatus?.includes("memor") ? "psychology"
+                      : toolCallStatus?.name?.includes("search") || toolCallStatus?.name?.includes("web") ? "travel_explore"
+                      : toolCallStatus?.name?.includes("calc") ? "calculate"
+                      : toolCallStatus?.name?.includes("date") || toolCallStatus?.name?.includes("time") ? "schedule"
+                      : "settings"
+                    }
+                    size={13}
+                    className="shrink-0"
+                  />
+                  <span>
+                    {nodeStatus ?? (() => {
+                      const raw = toolCallStatus?.name ?? "";
+                      const friendly = raw
+                        .replace(/_mcp$/, "")
+                        .replace(/_tool$/, "")
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, (c) => c.toUpperCase());
+                      return `Using ${friendly}…`;
+                    })()}
+                  </span>
+                </div>
+              )}
+
+              {isStreaming && streamingContent ? (
+                /* Live streaming text with cursor */
+                <div
+                  className="text-evergreen text-base leading-relaxed px-1"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <MarkdownMessage content={streamingContent} />
+                  <span
+                    className="inline-block w-0.5 h-[1.1em] bg-evergreen/60 ml-0.5 align-middle animate-cursor-blink"
+                    aria-hidden="true"
+                  />
+                </div>
+              ) : (
+                /* Fallback three-dot loader (before first token arrives) */
+                <div
+                  className="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
+                  role="status"
+                  aria-label={t("chat.aiThinking")}
+                >
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -847,7 +908,7 @@ export function ChatInterface() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={loading || uploadingAttachment}
+              disabled={loading || uploadingAttachment || isStreaming}
               className="shrink-0 rounded px-2 py-2 text-evergreen/45 hover:text-pacific-blue hover:bg-pacific-blue/5 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label={t("chat.uploadingAttachment")}
               title={t("chat.uploadingAttachment")}
@@ -857,8 +918,9 @@ export function ChatInterface() {
             <button
               type="button"
               onClick={handleRagToggle}
+              disabled={isStreaming}
               title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
-              className={`shrink-0 rounded px-2 py-2 transition-colors ${
+              className={`shrink-0 rounded px-2 py-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                 ragEnabled
                   ? "text-pacific-blue hover:bg-pacific-blue/5"
                   : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
@@ -878,27 +940,45 @@ export function ChatInterface() {
                 autoResize();
               }}
               onKeyDown={handleKeyDown}
+              disabled={isStreaming}
               className="w-full bg-transparent border-0 focus:ring-0 text-evergreen
-                         placeholder-gray-400 py-3 max-h-50 min-h-11 resize-none text-base"
-              placeholder={t("chat.typeYourMessage")}
+                         placeholder-gray-400 py-3 max-h-50 min-h-11 resize-none text-base
+                         disabled:opacity-60 disabled:cursor-not-allowed"
+              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
               rows={1}
               style={{ fieldSizing: "content" } as React.CSSProperties}
               aria-label={t("chat.typeYourMessage")}
             />
             <div className="flex items-center gap-2 pr-1 border-l border-gray-200 pl-2 h-8 my-auto shrink-0">
-              <button
-                onClick={handleSend}
-                disabled={loading || !input.trim()}
-                className="text-evergreen/40 hover:text-burnt-tangerine transition-colors rounded
-                           hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1
-                           disabled:opacity-40 disabled:cursor-not-allowed"
-                aria-label={t("chat.sendMessage")}
-              >
-                <Icon name="send" size={20} className="text-burnt-tangerine" />
-                <span className="text-xs font-medium text-evergreen/60 hidden sm:inline">
-                  {t("chat.send")}
-                </span>
-              </button>
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={cancelStream}
+                  className="text-burnt-tangerine hover:text-burnt-tangerine/80 transition-colors rounded
+                             hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1"
+                  aria-label={t("chat.stopGenerating") ?? "Stop generating"}
+                >
+                  <Icon name="stop_circle" size={20} className="text-burnt-tangerine" />
+                  <span className="text-xs font-medium text-burnt-tangerine hidden sm:inline">
+                    {t("chat.stop") ?? "Stop"}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={loading || !input.trim()}
+                  className="text-evergreen/40 hover:text-burnt-tangerine transition-colors rounded
+                             hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1
+                             disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label={t("chat.sendMessage")}
+                >
+                  <Icon name="send" size={20} className="text-burnt-tangerine" />
+                  <span className="text-xs font-medium text-evergreen/60 hidden sm:inline">
+                    {t("chat.send")}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 

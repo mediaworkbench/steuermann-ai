@@ -212,3 +212,8 @@ export interface MemoryStats {
     average_importance: number;
   };
 }
+
+export interface StreamEvent {
+  event: "token" | "tool_call" | "node" | "metadata" | "error";
+  data: Record<string, unknown>;
+}

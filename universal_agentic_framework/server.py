@@ -7,13 +7,14 @@ Exposes:
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict
+from typing import Any, AsyncGenerator, Dict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, REGISTRY, CONTENT_TYPE_LATEST
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
@@ -255,6 +256,138 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
     finally:
         clear_context()
+
+
+_NODE_STATUS_LABELS: dict[str, str] = {
+    "retrieve_knowledge": "Searching knowledge base...",
+    "load_memory": "Loading memories...",
+}
+
+
+@app.post("/stream")
+async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
+    """Stream graph execution events as Server-Sent Events.
+
+    Emits token, tool_call, node, metadata, and error events.
+    Terminates with ``data: [DONE]``.
+    """
+    if "messages" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'messages' field")
+    if "user_id" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'user_id' field")
+
+    import time as _time
+    user_id = request.get("user_id", "anonymous")
+    language = request.get("language", "en")
+    bind_context(user_id=user_id)
+    ACTIVE_SESSIONS.add(user_id)
+    update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
+    fork_name = CONFIG.fork.name
+    profile_id = ACTIVE_PROFILE_ID
+
+    session_id = request.get("session_id") or f"{user_id}_{int(_time.time())}"
+    state: GraphState = {
+        "messages": request.get("messages", []),
+        "user_id": user_id,
+        "session_id": session_id,
+        "language": language,
+        "fork_name": fork_name,
+        "profile_id": profile_id,
+        "user_settings": request.get("user_settings", {}),
+        "llm_capability_probes": request.get("llm_capability_probes", []),
+        "attachments": request.get("attachments", []),
+        "workspace_documents": request.get("workspace_documents", []),
+        "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+    }
+    invoke_config = {"configurable": {"thread_id": session_id}}
+
+    logger.info(
+        "Graph stream invocation received",
+        user_id=user_id,
+        language=language,
+        message_count=len(request.get("messages", [])),
+    )
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        _final_output: dict = {}
+        try:
+            with track_graph_request(fork_name) as ctx:
+                async for event in GRAPH.astream_events(state, config=invoke_config, version="v2"):
+                    kind: str = event.get("event", "")
+                    name: str = event.get("name", "")
+                    data: dict = event.get("data", {})
+
+                    if kind == "on_chat_model_stream":
+                        # Only stream tokens from the respond node — not from
+                        # tool-selection nodes which emit raw JSON tool calls.
+                        langgraph_node = event.get("metadata", {}).get("langgraph_node", "")
+                        if langgraph_node and langgraph_node != "respond":
+                            continue
+                        chunk = data.get("chunk")
+                        delta = ""
+                        if chunk is not None:
+                            content = getattr(chunk, "content", chunk)
+                            if isinstance(content, str):
+                                delta = content
+                            elif isinstance(content, list):
+                                delta = "".join(
+                                    b.get("text", "") if isinstance(b, dict) else str(b)
+                                    for b in content
+                                )
+                        if delta:
+                            yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
+
+                    elif kind == "on_tool_start":
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start'})}\n\n"
+
+                    elif kind == "on_tool_end":
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end'})}\n\n"
+
+                    elif kind == "on_chain_start" and name in _NODE_STATUS_LABELS:
+                        yield (
+                            f"event: node\ndata: "
+                            f"{json.dumps({'node': name, 'label': _NODE_STATUS_LABELS[name]})}\n\n"
+                        )
+
+                    elif kind == "on_chain_end":
+                        output = data.get("output")
+                        if isinstance(output, dict) and "messages" in output:
+                            _final_output = output
+
+                ctx["status"] = "success"
+
+            if _final_output:
+                meta_payload = {
+                    "tokens_used": _final_output.get("tokens_used", 0),
+                    "input_tokens": _final_output.get("input_tokens", 0),
+                    "output_tokens": _final_output.get("output_tokens", 0),
+                    "provider_used": _final_output.get("provider_used", "unknown"),
+                    "model_used": _final_output.get("model_used", "unknown"),
+                    "profile_id": _final_output.get("profile_id", profile_id),
+                    "tool_results": _final_output.get("tool_results", {}),
+                    "sources": _final_output.get("sources", []),
+                    "rag_attempted": _final_output.get("rag_attempted", False),
+                    "rag_doc_count": _final_output.get("rag_doc_count", 0),
+                    "loaded_memory": _final_output.get("loaded_memory", []),
+                    "memory_analytics": _final_output.get("memory_analytics", {}),
+                }
+                yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
+
+        except Exception as exc:
+            logger.error("Stream graph error", error=str(exc), exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+        finally:
+            clear_context()
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/metrics")

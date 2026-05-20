@@ -395,7 +395,20 @@ Reason field propagates through entire pipeline:
 
 ### **4.5 Response Handling**
 
-The FastAPI adapter streams responses from LangGraph back to the Next.js frontend. Streaming support is built-in using Server-Sent Events (SSE) for real-time message updates.
+**Streaming path (primary):** `POST /api/chat/stream` returns `text/event-stream`. LangGraph exposes a matching `POST /stream` endpoint using `GRAPH.astream_events(version="v2")`. SSE event types:
+
+|Event|Payload|Description|
+|-----|-------|-----------|
+|`token`|`{"delta": "..."}`|LLM output chunk|
+|`tool_call`|`{"name": "...", "status": "start"/"end"}`|Tool invocation boundary|
+|`node`|`{"node": "...", "label": "..."}`|Graph node status (RAG, memory)|
+|`metadata`|`{tokens_used, model_used, sources, ...}`|Final response metadata|
+|`error`|`{"message": "..."}`|Error during generation|
+|`[DONE]`|_(final data line)_|Stream complete|
+
+Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
+
+**Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
 
 ### **4.6 Async Execution Reliability**
 
