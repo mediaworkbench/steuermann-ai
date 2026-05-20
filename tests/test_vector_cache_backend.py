@@ -44,33 +44,14 @@ def is_qdrant_available(host: str = "localhost", port: int = 6333) -> bool:
 
 _EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
 
-
-def is_embedding_provider_available() -> bool:
-    """Check if the embedding provider (LM Studio) is reachable at _EMBEDDING_ENDPOINT."""
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(_EMBEDDING_ENDPOINT)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 1234
-        sock = socket.create_connection((host, port), timeout=2)
-        sock.close()
-        return True
-    except (socket.timeout, socket.error, Exception):
-        return False
-
-
-# Module-level integration marker — these tests require live Qdrant and embedding provider.
+# Module-level integration marker — these tests require a live Qdrant instance.
+# Embedding-provider availability is checked at runtime via the live_embedding_provider fixture.
 QDRANT_AVAILABLE = HAS_QDRANT and is_qdrant_available()
-EMBEDDING_AVAILABLE = is_embedding_provider_available()
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
         not (HAS_QDRANT and QDRANT_AVAILABLE),
         reason="qdrant-client not installed or Qdrant service not available",
-    ),
-    pytest.mark.skipif(
-        not EMBEDDING_AVAILABLE,
-        reason="Embedding provider (LM Studio) not reachable",
     ),
 ]
 
@@ -107,14 +88,9 @@ class TestQdrantCacheVectorBackend:
         return np.random.randn(768).tolist()
     
     @pytest.fixture
-    def embeddings_model(self):
-        """Load embedding provider using the configured integration endpoint."""
-        return build_embedding_provider(
-            model_name="text-embedding-granite-embedding-278m-multilingual",
-            dimension=768,
-            provider_type="remote",
-            remote_endpoint=_EMBEDDING_ENDPOINT,
-        )
+    def embeddings_model(self, live_embedding_provider):
+        """Live embedding provider; skips the test if LM Studio is unreachable."""
+        return live_embedding_provider
     
     def test_backend_initialization(self, backend):
         """Test backend initializes with correct collection."""

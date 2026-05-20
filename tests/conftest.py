@@ -9,6 +9,48 @@ os.environ.setdefault("LLM_PROVIDERS_OPENROUTER_API_BASE", "https://openrouter.a
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("QDRANT_HOST", "localhost")
 
+# Normalize embedding endpoint: EMBEDDING_SERVER in .env already includes /v1,
+# but test code previously appended /v1 again.  Canonicalize here so test files
+# can safely do `os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"`.
+_raw_embedding_server = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234")
+if _raw_embedding_server.endswith("/v1"):
+    # Strip /v1 so the + "/v1" in test files produces a correct single-suffix URL.
+    os.environ["EMBEDDING_SERVER"] = _raw_embedding_server[: -len("/v1")]
+
+# Canonical embedding endpoint for fixtures and integration tests.
+EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
+
+
+@pytest.fixture(scope="session")
+def _embedding_provider_session():
+    """Session-scoped probe: builds the provider and encodes once to verify LM Studio is up.
+
+    Returns the live provider on success, or None if unreachable — never raises.
+    """
+    from universal_agentic_framework.embeddings import (
+        build_embedding_provider,
+        EmbeddingProviderUnavailableError,
+    )
+    try:
+        provider = build_embedding_provider(
+            model_name="text-embedding-granite-embedding-278m-multilingual",
+            dimension=768,
+            provider_type="remote",
+            remote_endpoint=EMBEDDING_ENDPOINT,
+        )
+        provider.encode("probe")
+        return provider
+    except (EmbeddingProviderUnavailableError, ValueError):
+        return None
+
+
+@pytest.fixture
+def live_embedding_provider(_embedding_provider_session):
+    """Function-scoped fixture: skips the test if the session probe could not reach LM Studio."""
+    if _embedding_provider_session is None:
+        pytest.skip(f"Embedding provider not reachable at {EMBEDDING_ENDPOINT}")
+    return _embedding_provider_session
+
 
 @pytest.fixture(autouse=True)
 def _disable_redis_for_tests(monkeypatch):

@@ -36,42 +36,17 @@ logger = logging.getLogger(__name__)
 _EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
 
 
-def _is_embedding_provider_available() -> bool:
-    """Check if the embedding provider (LM Studio) is reachable."""
-    import socket
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(_EMBEDDING_ENDPOINT)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 1234
-        sock = socket.create_connection((host, port), timeout=2)
-        sock.close()
-        return True
-    except (socket.timeout, socket.error, Exception):
-        return False
-
-
-_EMBEDDING_AVAILABLE = _is_embedding_provider_available()
-
-
 @pytest.mark.integration
 @pytest.mark.benchmark
-@pytest.mark.skipif(
-    not (HAS_QDRANT and HAS_NUMPY and _EMBEDDING_AVAILABLE),
-    reason="Requires qdrant-client, numpy, and reachable embedding provider",
-)
+@pytest.mark.skipif(not (HAS_QDRANT and HAS_NUMPY),
+                    reason="Requires qdrant-client and numpy")
 class TestCachePerformanceBenchmark:
     """Performance benchmark tests for cache search."""
     
     @pytest.fixture
-    def embeddings_model(self):
-        """Load embedding model."""
-        return build_embedding_provider(
-            model_name="text-embedding-granite-embedding-278m-multilingual",
-            dimension=768,
-            provider_type="remote",
-            remote_endpoint=_EMBEDDING_ENDPOINT,
-        )
+    def embeddings_model(self, live_embedding_provider):
+        """Live embedding provider; skips the test if LM Studio is unreachable."""
+        return live_embedding_provider
     
     @pytest.fixture
     def sample_queries(self) -> List[str]:
