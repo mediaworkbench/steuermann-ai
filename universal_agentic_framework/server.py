@@ -263,6 +263,32 @@ _NODE_STATUS_LABELS: dict[str, str] = {
     "load_memory": "Loading memories...",
 }
 
+_TOOL_LABELS: dict[str, str] = {
+    "web_search_mcp": "Searching the web...",
+    "duckduckgo_search": "Searching the web...",
+    "extract_webpage_mcp": "Reading webpage...",
+    "calculator_tool": "Calculating...",
+    "datetime_tool": "Checking date & time...",
+    "memory_search_tool": "Searching memories...",
+    "file_read_tool": "Reading file...",
+    "file_write_tool": "Writing file...",
+    "workspace_file_ops_tool": "Editing workspace document...",
+}
+
+
+def _tool_label(tool_name: str) -> str:
+    """Return a human-readable label for a tool name, falling back to a generated one."""
+    if tool_name in _TOOL_LABELS:
+        return _TOOL_LABELS[tool_name]
+    friendly = (
+        tool_name
+        .replace("_mcp", "")
+        .replace("_tool", "")
+        .replace("_", " ")
+        .title()
+    )
+    return f"Using {friendly}..."
+
 
 @app.post("/stream")
 async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
@@ -338,10 +364,10 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                             yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
 
                     elif kind == "on_tool_start":
-                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start'})}\n\n"
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': _tool_label(name)})}\n\n"
 
                     elif kind == "on_tool_end":
-                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end'})}\n\n"
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end', 'label': _tool_label(name)})}\n\n"
 
                     elif kind == "on_chain_start" and name in _NODE_STATUS_LABELS:
                         yield (

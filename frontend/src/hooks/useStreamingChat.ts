@@ -18,7 +18,7 @@ export interface UseStreamingChatReturn {
   streamingContent: string;
   isStreaming: boolean;
   streamError: string | null;
-  toolCallStatus: { name: string; status: "start" | "end" } | null;
+  toolCallStatus: { name: string; status: "start" | "end"; label: string } | null;
   nodeStatus: string | null;
   finalMetadata: ChatResponse["metadata"] | null;
   wasCancelled: boolean;
@@ -57,7 +57,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [toolCallStatus, setToolCallStatus] = useState<{ name: string; status: "start" | "end" } | null>(null);
+  const [toolCallStatus, setToolCallStatus] = useState<{ name: string; status: "start" | "end"; label: string } | null>(null);
   const [nodeStatus, setNodeStatus] = useState<string | null>(null);
   const [finalMetadata, setFinalMetadata] = useState<ChatResponse["metadata"] | null>(null);
   const [wasCancelled, setWasCancelled] = useState(false);
@@ -182,11 +182,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 setToolCallStatus({
                   name: parsed.name as string,
                   status: parsed.status as "start" | "end",
+                  label: (parsed.label as string) || (parsed.name as string),
                 });
-                // Clear status indicator once the tool finishes
-                if (parsed.status === "end") {
-                  setTimeout(() => setToolCallStatus(null), 800);
-                }
                 break;
 
               case "node":

@@ -23,8 +23,8 @@ function sseNode(node: string, label: string): string {
   return `event: node\ndata: ${JSON.stringify({ node, label })}\n\n`;
 }
 
-function sseTool(name: string, status: "start" | "end"): string {
-  return `event: tool_call\ndata: ${JSON.stringify({ name, status })}\n\n`;
+function sseTool(name: string, status: "start" | "end", label?: string): string {
+  return `event: tool_call\ndata: ${JSON.stringify({ name, status, label: label ?? `Using ${name}...` })}\n\n`;
 }
 
 function sseMetadata(meta: Record<string, unknown> = {}): string {

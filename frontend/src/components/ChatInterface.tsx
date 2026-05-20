@@ -796,22 +796,14 @@ export function ChatInterface() {
                       : toolCallStatus?.name?.includes("search") || toolCallStatus?.name?.includes("web") ? "travel_explore"
                       : toolCallStatus?.name?.includes("calc") ? "calculate"
                       : toolCallStatus?.name?.includes("date") || toolCallStatus?.name?.includes("time") ? "schedule"
+                      : toolCallStatus?.name?.includes("file") || toolCallStatus?.name?.includes("workspace") ? "edit_document"
+                      : toolCallStatus?.name?.includes("webpage") || toolCallStatus?.name?.includes("extract") ? "open_in_browser"
                       : "settings"
                     }
                     size={13}
                     className="shrink-0"
                   />
-                  <span>
-                    {nodeStatus ?? (() => {
-                      const raw = toolCallStatus?.name ?? "";
-                      const friendly = raw
-                        .replace(/_mcp$/, "")
-                        .replace(/_tool$/, "")
-                        .replace(/_/g, " ")
-                        .replace(/\b\w/g, (c) => c.toUpperCase());
-                      return `Using ${friendly}…`;
-                    })()}
-                  </span>
+                  <span>{nodeStatus ?? toolCallStatus?.label}</span>
                 </div>
               )}
 
