@@ -141,7 +141,7 @@ class TestForceToolUseIntentFlag:
 class TestMandatoryPromptContent:
     """System prompt must include mandatory instruction when force_tool_use=True."""
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_mandatory_footer_in_system_prompt_when_force(self, mock_config, mock_model):
         _set_mock_config(mock_config)
@@ -168,7 +168,7 @@ class TestMandatoryPromptContent:
         # Opt-out must be absent
         assert "If no tool is needed, respond normally" not in system_msg.content
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_opt_out_footer_when_not_forced(self, mock_config, mock_model):
         _set_mock_config(mock_config)
@@ -194,7 +194,7 @@ class TestMandatoryPromptContent:
         assert "If no tool is needed, respond normally in plain text" in system_msg.content
         assert "MUST" not in system_msg.content
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_high_score_alone_triggers_mandatory_prompt(self, mock_config, mock_model):
         """A candidate with score ≥ 0.75 should trigger force_tool_use even without web intent."""
@@ -228,7 +228,7 @@ class TestMandatoryPromptContent:
 class TestRetryOnDeclination:
     """Model must be retried when it declines despite force_tool_use=True."""
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_retry_fires_after_plain_text_response(self, mock_config, mock_model):
         """First attempt: text-only. Second attempt: valid JSON tool call. Tool must execute."""
@@ -254,7 +254,7 @@ class TestRetryOnDeclination:
         assert "web_search_mcp" in result["tool_results"]
         assert tool.calls  # _run was called
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_retry_message_contains_mandatory_instruction(self, mock_config, mock_model):
         """The retry message appended to the conversation must re-state the obligation."""
@@ -291,7 +291,7 @@ class TestRetryOnDeclination:
         )
         assert "MUST call" in retry_content or "You did not call" in retry_content
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_no_retry_when_not_forced(self, mock_config, mock_model):
         """When force_tool_use=False, declining on first attempt must not trigger a retry."""
@@ -311,7 +311,7 @@ class TestRetryOnDeclination:
         assert len(model.invocations) == 1, "Should not retry when not forced"
         assert not tool.calls, "Tool must not have been called"
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_graceful_exit_when_all_retries_decline(self, mock_config, mock_model):
         """If model keeps declining through all retries, node exits without crash."""
@@ -334,7 +334,7 @@ class TestRetryOnDeclination:
         assert not tool.calls, "Tool must not have been called"
         assert isinstance(result, dict)  # state returned normally
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_no_retry_when_model_calls_tool_first_attempt(self, mock_config, mock_model):
         """When the model calls the tool on the first attempt, no retry should occur."""

@@ -14,7 +14,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from universal_agentic_framework.ingestion.parsers import PDFParser, DOCXParser, MarkdownParser, TextParser
 from universal_agentic_framework.ingestion.chunker import TextChunker
 from universal_agentic_framework.ingestion.validator import LanguageValidator
-from universal_agentic_framework.embeddings import build_embedding_provider, EmbeddingProvider
+from universal_agentic_framework.embeddings import build_embedding_provider, EmbeddingProvider, EmbeddingProviderUnavailableError
 from universal_agentic_framework.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
@@ -121,8 +121,9 @@ class IngestionService:
             check_compatibility=False,
         )
         
-        # Wait for Qdrant to be responsive, then create/verify the collection.
+        # Wait for Qdrant, then embedding provider, then create/verify the collection.
         self._connect_with_retry()
+        self._wait_for_embedding_provider()
         self._ensure_collection()
 
     @staticmethod
@@ -268,6 +269,34 @@ class IngestionService:
                     time.sleep(delay)
                     delay = min(delay * 2, 30)
         raise RuntimeError(f"Failed to connect to Qdrant after {max_retries} attempts: {last_error}")
+
+    def _wait_for_embedding_provider(self, max_retries: int = 30, initial_delay: float = 2.0):
+        """Block startup until the embedding provider is reachable.
+
+        Mirrors _connect_with_retry for Qdrant. Proceeds only when a real
+        encode call succeeds so that documents are never stored with fake vectors.
+        """
+        delay = initial_delay
+        for attempt in range(max_retries):
+            try:
+                self.embedder.encode("health check")
+                logger.info("Embedding provider ready", attempt=attempt + 1)
+                return
+            except EmbeddingProviderUnavailableError as exc:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        "Embedding provider not ready, retrying",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        retry_in=delay,
+                        error=str(exc),
+                    )
+                    time.sleep(delay)
+                    delay = min(delay * 2, 60.0)
+        raise RuntimeError(
+            f"Embedding provider unreachable after {max_retries} startup retries"
+        )
+
     def _ensure_collection(self):
         """Create collection if it doesn't exist.
 

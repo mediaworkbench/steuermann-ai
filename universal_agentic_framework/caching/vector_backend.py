@@ -91,8 +91,10 @@ class QdrantCacheVectorBackend:
                 provider_type=embedding_provider_type,
                 remote_endpoint=embedding_remote_endpoint,
             )
+        except ValueError:
+            raise  # Misconfiguration (e.g. unresolved env var) must not be hidden
         except Exception as e:
-            logger.warning(f"Failed to initialize embedding provider: {e}")
+            logger.warning(f"Failed to initialize embedding provider for cache: {e}")
             self._embedder = None
         
         # Ensure collection exists

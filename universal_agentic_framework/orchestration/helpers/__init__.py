@@ -43,7 +43,7 @@ from .embedding_provider import (
 
 # Model resolution
 from .model_resolution import (
-    safe_get_model,
+    get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
 )
@@ -90,7 +90,7 @@ __all__ = [
     "get_routing_embedding_provider",
     "clear_embedding_cache",
     # Model resolution
-    "safe_get_model",
+    "get_model",
     "resolve_initial_model_metadata",
     "invoke_with_model_fallback",
     # Tool-calling mode

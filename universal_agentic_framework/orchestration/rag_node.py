@@ -137,9 +137,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
             )
             state["knowledge_context"] = []
             state["rag_doc_count"] = 0
-        except Exception as e:
-            logger.error("RAG: Knowledge retrieval failed", error=str(e), fork_name=fork_name, exc_info=True)
-            state["knowledge_context"] = []
-            state["rag_doc_count"] = 0
+        # EmbeddingProviderUnavailableError and other non-Qdrant exceptions propagate
+        # so that provider outages surface as hard errors rather than silent empty context.
 
     return state

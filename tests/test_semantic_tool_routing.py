@@ -192,7 +192,7 @@ def set_mock_config(
 class TestToolResultInjection:
     """Tests for tool result and knowledge injection into the response node."""
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_injects_tool_results_and_knowledge(self, mock_config, mock_model_factory):
         """Response node should inject both tool results and knowledge context."""
@@ -221,7 +221,7 @@ class TestToolResultInjection:
         assert "Doc text" in system_prompt
         assert result["messages"][-1]["content"] == "model output"
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_skips_tool_section_when_empty(self, mock_config, mock_model_factory):
         """Response node should not add tool section if no tool results are present."""
@@ -248,7 +248,7 @@ class TestToolResultInjection:
         assert "=== WISSENSDATENBANK ===" in system_prompt
         assert "Doc text" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_keeps_low_priority_memory_when_web_tool_results_present(self, mock_config, mock_model_factory):
         """Past memory should be retained as background while tool results remain primary."""
@@ -278,7 +278,7 @@ class TestToolResultInjection:
         assert "Old unrelated memory about The Shamen" in system_prompt
         assert "=== CONTEXT PRIORITY ===" in system_prompt
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_when_extract_succeeded_but_model_claims_access_error(self, mock_config, mock_model_factory):
         """Response node should correct contradictory access-error claims after successful extraction."""
@@ -314,7 +314,7 @@ class TestToolResultInjection:
         assert result["messages"][-1]["content"] == "The headline is: Die Wahrheit ist eine Waffe."
         assert len(fake_model.invocations) >= 2
 
-    @patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
     @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
     def test_response_retries_for_german_access_refusal_after_successful_extract(self, mock_config, mock_model_factory):
         """German refusal wording should trigger correction retry when extraction succeeded."""
@@ -422,7 +422,7 @@ class TestRoutingIntentDetection:
         assert intents["enhanced_web_query"] == "rosuvastatin"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_injects_request_url_when_missing(mock_config, mock_model_factory):
     """Native mode should inject request_url from user message when model omits URL args."""
@@ -580,7 +580,7 @@ def test_prefilter_keeps_native_mode_when_probe_is_ok(
     assert result["tool_calling_mode_reason"] == "probe_confirmed_native"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, mock_model_factory):
     """Native mode should still execute extract tool for URL prompts when model emits no tool calls."""
@@ -616,7 +616,7 @@ def test_native_extract_fallback_runs_when_model_skips_tool_calls(mock_config, m
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted via fallback"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_config, mock_model_factory):
     """Native mode should retry extract with inferred URL when first call returns protocol-missing error."""
@@ -662,7 +662,7 @@ def test_native_extract_retries_with_inferred_url_after_protocol_error(mock_conf
     assert result["tool_results"]["extract_webpage_mcp"] == "retry success content"
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_structured_tool_call_parses_list_content_blocks(mock_config, mock_model_factory):
     """Structured mode should parse JSON tool call from list-based content blocks."""
@@ -686,7 +686,7 @@ def test_structured_tool_call_parses_list_content_blocks(mock_config, mock_model
     assert "datetime_tool" in result["tool_results"]
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_structured_tool_call_parses_dict_content_blocks(mock_config, mock_model_factory):
     """Structured mode should parse JSON tool call from dict-shaped content."""
@@ -710,7 +710,7 @@ def test_structured_tool_call_parses_dict_content_blocks(mock_config, mock_model
     assert "datetime_tool" in result["tool_results"]
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_structured_tool_call_parses_mixed_content_blocks(mock_config, mock_model_factory):
     """Structured mode should tolerate mixed content blocks and still parse JSON call."""

@@ -1,6 +1,7 @@
 """Integration tests for Web Search MCP Server with ToolRegistry."""
 
 import os
+import socket
 from pathlib import Path
 from contextlib import asynccontextmanager
 import pytest
@@ -13,9 +14,28 @@ from universal_agentic_framework.embeddings import build_embedding_provider
 # Force deterministic MCP URL for these tests regardless of outer environment.
 os.environ["WEB_SEARCH_MCP_URL"] = "http://localhost:8000/mcp"
 
+_EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def _is_embedding_provider_available() -> bool:
+    """Check if the embedding provider (LM Studio) is reachable."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(_EMBEDDING_ENDPOINT)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 1234
+        sock = socket.create_connection((host, port), timeout=2)
+        sock.close()
+        return True
+    except (socket.timeout, socket.error, Exception):
+        return False
+
+
+EMBEDDING_AVAILABLE = _is_embedding_provider_available()
 
 
 def _make_mock_mcp_context(call_tool_return):
@@ -144,7 +164,13 @@ class TestWebSearchMCPIntegration:
 class TestWebSearchMCPSemanticRouting:
     """Tests for semantic routing of web search queries."""
 
-    pytestmark = pytest.mark.integration
+    pytestmark = [
+        pytest.mark.integration,
+        pytest.mark.skipif(
+            not EMBEDDING_AVAILABLE,
+            reason="Embedding provider (LM Studio) not reachable",
+        ),
+    ]
 
     def test_search_query_matches_web_search_description(self):
         """Search-related queries should semantically match web_search_mcp."""
@@ -154,10 +180,8 @@ class TestWebSearchMCPSemanticRouting:
             model_name="text-embedding-granite-embedding-278m-multilingual",
             dimension=768,
             provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
+            remote_endpoint=_EMBEDDING_ENDPOINT,
         )
-        if getattr(model, "_fallback", False):
-            pytest.skip("Semantic threshold assertions require real embedding model")
 
         # Get tool description
         tools_config = load_tools_config(config_dir=_repo_root() / "config")
@@ -193,10 +217,8 @@ class TestWebSearchMCPSemanticRouting:
             model_name="text-embedding-granite-embedding-278m-multilingual",
             dimension=768,
             provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
+            remote_endpoint=_EMBEDDING_ENDPOINT,
         )
-        if getattr(model, "_fallback", False):
-            pytest.skip("Semantic threshold assertions require real embedding model")
 
         tools_config = load_tools_config(config_dir=_repo_root() / "config")
         registry = ToolRegistry(config=tools_config, base_dir=_repo_root())

@@ -28,7 +28,7 @@ def test_node_summarize_normalizes_and_prunes_digest_chain(monkeypatch):
         "load_features_config",
         lambda: SimpleNamespace(long_term_memory=True, memory_digest_chain_enabled=True),
     )
-    monkeypatch.setattr(graph_builder, "safe_get_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(graph_builder, "get_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         graph_builder,
         "resolve_initial_model_metadata",

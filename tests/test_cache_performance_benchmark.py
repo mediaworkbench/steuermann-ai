@@ -6,6 +6,7 @@ Benchmarks:
 - Metrics: Search latency (p50, p95, p99), throughput, scalability
 """
 
+import os
 import pytest
 import time
 import logging
@@ -32,9 +33,33 @@ from universal_agentic_framework.embeddings import build_embedding_provider
 logger = logging.getLogger(__name__)
 
 
+_EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
+
+
+def _is_embedding_provider_available() -> bool:
+    """Check if the embedding provider (LM Studio) is reachable."""
+    import socket
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(_EMBEDDING_ENDPOINT)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 1234
+        sock = socket.create_connection((host, port), timeout=2)
+        sock.close()
+        return True
+    except (socket.timeout, socket.error, Exception):
+        return False
+
+
+_EMBEDDING_AVAILABLE = _is_embedding_provider_available()
+
+
+@pytest.mark.integration
 @pytest.mark.benchmark
-@pytest.mark.skipif(not (HAS_QDRANT and HAS_NUMPY), 
-                    reason="Requires qdrant-client and numpy")
+@pytest.mark.skipif(
+    not (HAS_QDRANT and HAS_NUMPY and _EMBEDDING_AVAILABLE),
+    reason="Requires qdrant-client, numpy, and reachable embedding provider",
+)
 class TestCachePerformanceBenchmark:
     """Performance benchmark tests for cache search."""
     
@@ -45,7 +70,7 @@ class TestCachePerformanceBenchmark:
             model_name="text-embedding-granite-embedding-278m-multilingual",
             dimension=768,
             provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
+            remote_endpoint=_EMBEDDING_ENDPOINT,
         )
     
     @pytest.fixture
@@ -146,6 +171,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         
@@ -224,6 +250,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         
@@ -305,6 +332,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         

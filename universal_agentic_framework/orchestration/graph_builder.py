@@ -111,7 +111,7 @@ from universal_agentic_framework.orchestration.helpers import (
     score_tool_similarity,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
-    safe_get_model,
+    get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
     resolve_effective_tool_calling_mode,
@@ -550,7 +550,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             # Extract BaseTool instances and bind to model
             tools = [c["tool"] for c in candidates]
@@ -769,7 +769,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -1001,7 +1001,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -1176,7 +1176,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         preferred_model=preferred_model or "default"
     )
 
-    model = safe_get_model(config, lang, preferred_model=preferred_model)
+    model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
     # Hybrid budget enforcement: global + per-turn hard limits; per-node optional hard guardrail.
@@ -1959,7 +1959,7 @@ def node_summarize(state: GraphState) -> GraphState:
     except Exception as e:
         logger.warning("digest_chain_normalization_failed", error=str(e))
 
-    model = safe_get_model(config, lang, preferred_model=preferred_model)
+    model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
     # Build a window of the last 3 user+assistant exchanges for richer fact extraction.
