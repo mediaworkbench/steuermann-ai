@@ -294,6 +294,30 @@ rag:
 - `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 
+### User-Level RAG Override (`rag_config` in user settings)
+
+Per-user RAG settings are stored in the `user_settings` table and saved via `POST /api/settings/user/{user_id}`. The `rag_config` field is always written as a complete object — partial updates wipe omitted keys:
+
+```json
+{
+  "rag_config": {
+    "enabled": true,
+    "collection": "",
+    "top_k": 5
+  }
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `true` | Per-session Knowledge Base toggle. When `false`, `retrieve_knowledge` returns early before any Qdrant call. Can also be overridden per request via the `rag_enabled` field in `POST /api/chat`. |
+| `collection` | `string` | `""` | Override the profile's `rag.collection_name` for this user. Empty string uses the profile default. |
+| `top_k` | `integer` | `5` | Override the profile's `rag.top_k` for this user. |
+
+The frontend chat bar `Database` button and the Settings "Enable Knowledge Base" checkbox both write to this field. The toggle handler must spread the full current `rag_config` object (not just `{enabled: ...}`) to avoid wiping `collection` and `top_k`.
+
+**Adaptive skip:** in addition to the user toggle, RAG is automatically skipped for trivial queries (greetings, pure math/datetime, tool meta-questions) regardless of `enabled`. See `docs/technical_architecture.md` section 4.4 for the three-layer skip logic.
+
 ### Database Configuration
 
 ```yaml

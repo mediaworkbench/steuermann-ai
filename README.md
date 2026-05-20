@@ -118,6 +118,8 @@ A containerized ingestion service watches your document directories and automati
 - **Auto-deletion** — removing a source file automatically purges its chunks from Qdrant
 - **Configurable chunking** with overlap, batch embedding, and concurrent file processing
 - **Phase timing metrics** — per-file performance breakdown (parse, chunk, embed, upsert)
+- **Adaptive RAG short-circuit** — RAG is automatically skipped for trivial queries (greetings, pure math, datetime, tool meta-questions) to save the embedding + Qdrant round-trip on non-knowledge turns
+- **Per-session Knowledge Base toggle** — `Database` icon button in the chat bar lets users enable or disable RAG retrieval per session; persists to user settings without wiping collection or top-k configuration
 
 ### Extensible Tool System
 
@@ -153,7 +155,7 @@ The framework is language-aware at every layer — from LLM model selection to p
 A production-oriented Next.js application — not a demo chat widget — with real settings management, analytics, and operational dashboards.
 
 - **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history
-- **Settings panel** — model selection, language preferences, tool toggles, RAG configuration
+- **Settings panel** — model selection, language preferences, tool toggles, RAG configuration, knowledge re-ingestion, and a "Reset All Databases" operation (truncates Postgres user data, deletes all Qdrant collections, wipes workspace files)
 - **Metrics dashboard** at `/metrics` with two views:
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)
   - **Trends** — usage over time, token consumption, latency analysis, memory trends, retrieval feedback loop panel, message quality panel, summary cards, CSV export
@@ -432,18 +434,6 @@ See [docs/cli.md](docs/cli.md) for the full CLI reference including argument det
 | Tools           | [MCP SDK](https://modelcontextprotocol.io/)                 | Model Context Protocol integration               |
 
 ---
-
-## Status
-
-Steuermann is in **experimental beta**. The core orchestration, memory, RAG pipeline, frontend, and monitoring stack are stable and tested. The following areas are actively evolving:
-
-- Post-Phase-3.5 hardening for Mem0 runtime/SDK compatibility observability
-- CrewAI crew fine-tuning for production workloads (currently disabled by default)
-- Additional document parsers and ingestion formats
-- Extended MCP tool ecosystem
-- Multi-user workspace features
-
-Latest validated state: message-quality telemetry is live in `/metrics`, Phase 3.5 memory-layer de-customization is complete (legacy adapter caches removed), the Mem0 adapter is aligned to the current OSS API contract, and the latest full-suite local run passed with `950 passed, 5 skipped`.
 
 <div align="center">
 

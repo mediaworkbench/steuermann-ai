@@ -314,7 +314,7 @@ class RagSettings(BaseModel):
     enabled: bool = True
     collection_name: Optional[str] = None
     top_k: PositiveInt = 5
-    score_threshold: Optional[confloat(ge=0.0)] = None
+    pill_score_threshold: Optional[confloat(ge=0.0)] = None
     with_payload: Union[bool, List[str]] = True
     with_vectors: bool = False
     timeout_seconds: PositiveInt = 30

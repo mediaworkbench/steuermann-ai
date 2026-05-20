@@ -283,7 +283,7 @@ class TestSettingsStore:
         complex_config = {
             "collection": "medical_ai",
             "top_k": 8,
-            "score_threshold": 0.7,
+            "pill_score_threshold": 0.7,
             "filters": {
                 "source": "textbooks",
                 "language": "de",
@@ -302,7 +302,7 @@ class TestSettingsStore:
         
         # Verify complex structure is preserved
         assert retrieved["rag_config"]["collection"] == "medical_ai"
-        assert retrieved["rag_config"]["score_threshold"] == 0.7
+        assert retrieved["rag_config"]["pill_score_threshold"] == 0.7
         assert retrieved["rag_config"]["filters"]["source"] == "textbooks"
         assert retrieved["rag_config"]["rerank"] is True
 

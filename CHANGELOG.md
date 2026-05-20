@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.2.9] — adaptive-rag-and-knowledge-base-toggle
+
+- **feat** Intent-based RAG short-circuit: `retrieve_knowledge` is skipped for greetings, pure math/datetime queries (short + no web intent), and tool meta-questions — saves 50–80ms embedding + Qdrant round-trip per trivial turn; controlled by `skip_rag` key added to `detect_tool_routing_intents()`
+- **feat** Per-session Knowledge Base toggle button in the chat bar — `Database` icon next to the attach button; state initialised from stored settings on mount; toggling persists to `POST /api/settings/user/{id}` without wiping `collection` or `top_k` values
+- **feat** "Enable Knowledge Base" checkbox added to Settings RAG Configuration section — same `rag_config.enabled` field; save propagates to all subsequent chat turns via `rag_enabled` in `POST /api/chat`
+- **feat** RAG activity row in collapsible per-message MetricsPanel: shows "N documents used" when docs were injected, or "searched · no relevant results" when Qdrant was queried but nothing passed the threshold; row absent when RAG was skipped entirely
+- **fix** RAG document pill no longer appears when retrieved docs did not influence the answer — `SourceBadges` now gates `type === "rag"` sources on `rag_doc_count > 0`
+- **improve** `_RAG_SKIP_SHORT_QUERY_CHARS: int = 35` named module-level constant replaces inline magic number in `intent_detection.py`
+- **improve** `rag_config` user settings default extended to `{"collection": "", "top_k": 5, "enabled": True}` in all three locations in `backend/routers/settings.py` — prevents `enabled` being absent on first-run settings fetch
+- **fix** Web search no longer silently skipped when a structured-mode model declines in plain text — `node_call_tools_structured` now injects a mandatory "MUST call" footer when `force_tool_use=True` (explicit web search intent or top candidate score ≥ 0.75) and retries with a stricter prompt when the model responds with text instead of a JSON tool call; up to `max_retries` (2) retry attempts before graceful exit
+- **improve** `force_tool_use` flag added to `detect_tool_routing_intents()` return dict; set to `True` when `mentions_web_search=True` — keeps forced-execution policy centralised alongside other routing intents
+- **refactor** `node_retrieve_knowledge` extracted from `graph_builder.py` into `orchestration/rag_node.py` — follows the `crew_nodes.py` / `performance_nodes.py` extraction pattern; `graph_builder.py` is now purely graph wiring with no node logic
+- **refactor** Pure RAG utility functions extracted to `orchestration/helpers/rag_retrieval.py`: `extract_rag_keyword`, `search_qdrant`, `filter_and_deduplicate`, `resolve_rag_config` — module-level `_RAG_STOPWORDS` frozenset replaces per-call set construction; `httpx` and `re` moved to module-level imports
+- **fix** `score_threshold` and `timeout_seconds` from user `rag_config` now propagate correctly through `resolve_rag_config()` — previously only `collection` and `top_k` were read from user settings, so user-configured thresholds were silently ignored and the client-side 0.6 floor was always used
+- **fix** Embedding provider `_fallback` detection narrowed from `"$" in endpoint` to `endpoint.startswith("$")` — the broad check incorrectly activated deterministic fallback mode for any endpoint URL that happened to contain a `$` character
+- **fix** `SettingsPanel` default RAG config state now includes `enabled: true`, consistent with the backend default (`{"collection": "", "top_k": 5, "enabled": True}`)
+- **improve** RAG node exception handling split into specific `httpx.TimeoutException` and `httpx.HTTPStatusError` handlers before the broad `except Exception` — log messages now distinguish timeout from HTTP error from unexpected failure
+- **improve** `logger.warning` emitted when `collection_name` falls back to the hardcoded `"framework"` default — previously this was silent and could mask missing profile configuration
+- **test** 21 new unit tests for `rag_retrieval.py` helpers: `TestExtractRagKeyword` (5), `TestFilterAndDeduplicate` (5), `TestResolveRagConfig` (8) — includes regression tests for the `score_threshold` and `timeout_seconds` propagation bugs
+- **fix** `_connect_with_retry` in `IngestionService` was defined but never called — `__init__` now calls it before `_ensure_collection()`, establishing the intended two-phase startup: wait for Qdrant to be responsive, then create/verify the collection
+- **fix** `_ensure_collection` retry loop removed — startup races are now fully owned by `_connect_with_retry`; the simplified single try/except correctly propagates real `create_collection` failures instead of masking them with retries
+- **fix** `chunk_overlap >= chunk_size` in `IngestionConfig` now raises `ValueError` at construction time instead of silently producing broken chunks
+- **fix** Supported file extensions were hardcoded in three separate places (`service.py` parser dict, `ingest.py` file patterns, `DocumentEventHandler` event filter) — consolidated into `SUPPORTED_EXTENSIONS: frozenset[str]` exported from `ingestion/__init__.py`; all three consumers now reference the single constant
+- **fix** Lazy `from universal_agentic_framework.config import load_core_config` inside `resolve_runtime_ingestion_defaults()` moved to module-level imports in `cli/ingest.py`
+- **test** 3 new unit tests for `IngestionConfig` chunk overlap validation: equal, greater-than, and valid cases
+- **fix** `RemoteEmbeddingProvider.encode()` no longer silently falls back to deterministic hash-based pseudo-embeddings on provider failure — all exceptions now propagate after 3 retries with exponential backoff (1 s / 2 s / 4 s) for transient errors (connection refused, timeout, HTTP 503); `EmbeddingProviderUnavailableError` raised when retries are exhausted; `_deterministic_embedding` removed entirely
+- **fix** Unresolved env-var endpoints (starting with `$`) now raise `ValueError` immediately at `RemoteEmbeddingProvider.__init__` instead of silently activating fallback mode
+- **fix** `safe_get_model()` echo-model fallback removed — when the LLM provider is unreachable, the exception propagates through the graph node instead of returning a class that echoes the user's input; function renamed to `get_model()` to remove the misleading "safe" prefix
+- **fix** `memory/nodes.py` `load_memory_node` and `update_memory_node` no longer silently fall back to `InMemoryMemoryManager` when the Mem0 backend fails to build — exceptions propagate so provider outages are visible in logs and frontend
+- **fix** `rag_node.py` broad `except Exception` removed — `EmbeddingProviderUnavailableError` and other non-Qdrant exceptions now propagate; only `httpx.TimeoutException` and `httpx.HTTPStatusError` (Qdrant-specific) are caught and return empty context
+- **feat** `IngestionService._wait_for_embedding_provider()` added — blocks service startup until a real encode call succeeds; mirrors `_connect_with_retry` for Qdrant; raises `RuntimeError` after 30 retries (~10 min cap); prevents documents from being stored with fake vectors
+- **feat** LangGraph server startup (`server.py`) now probes the embedding provider with a real `encode()` call and retries up to 15× (~2 min); if the provider is still unreachable, startup fails with `CRITICAL` log and `RuntimeError` (container restarts via Docker restart policy)
+- **improve** `caching/vector_backend.py` embedding init re-raises `ValueError` for misconfiguration instead of swallowing it silently; runtime connection errors still allow the cache backend to start with `_embedder = None`
+- **refactor** All test files referencing `graph_builder.safe_get_model` updated to `graph_builder.get_model`; `test_vector_cache_backend.py` and `test_cache_performance_benchmark.py` marked `@pytest.mark.integration` (they require live Qdrant + embedding provider) and updated to use `EMBEDDING_SERVER` env var instead of the removed `$`-prefix fallback trigger
+- **note** Ingestion watch mode: if LM Studio crashes while the watcher is running, files created during the outage will not be automatically re-queued. Run `steuermann ingest ingest` (full re-scan) after LM Studio restarts to re-embed skipped files
+- **fix** RAG source pill labels now strip the 32-char ingestion hash prefix and display the full human-readable filename with spaces (e.g. "wichtige adressen darmkrebs krankheiten interniste" instead of "interniste"); same fix applied to the `[Quelle: ...]` label injected into the LLM prompt in the WISSENSDATENBANK block
+- **feat** New `pill_score_threshold` field in `RagSettings` (default `0.72`, set explicitly to `0.72` in the starter profile) — documents below this threshold are excluded from both the LLM prompt and source pill display, preventing the LLM from citing context the user cannot trace; `score_threshold` (0.6) still acts as the retrieval floor for analytics (`rag_doc_count`)
+- **refactor** Test embedding provider availability check consolidated from three per-file socket probes into a single `live_embedding_provider` session fixture in `conftest.py`; `EMBEDDING_SERVER` env var is normalised at conftest load time to remove duplicate `/v1` suffix when the var already contains it
+
+## [0.2.8] — workspace-writeback-quality-and-admin-reset
+
+- **fix** Workspace writeback LLM intent classifier rewritten to use a direct `httpx.AsyncClient` POST to the auxiliary provider's `/chat/completions` endpoint — `ChatLiteLLM.ainvoke()` silently dropped `api_base` in async context, causing every classification call to fall back to regex
+- **feat** Writeback mode now uses a structured `SUMMARY:` / `DOCUMENT:` two-section response format — the model describes what changed in `SUMMARY:`, stores only the document body in `DOCUMENT:`; the chat confirmation message now includes the change summary; `_extract_writeback_summary()` and `_normalize_workspace_writeback_content()` updated accordingly
+- **fix** `node_summarize` and `node_update_memory` now log a warning and return state gracefully instead of raising `TokenBudgetExceeded` — prevents 500 crashes when large writeback responses exhaust the per-turn budget before these downstream nodes run
+- **fix** `list_document_versions` / `get_document_version` in `WorkspaceDocumentStore` now normalise `created_at` via `_normalize_version_row()` before returning — raw `datetime` objects caused a Pydantic validation 500 on every History panel open
+- **fix** `handleRestoreVersion` in `WorkspaceSidebar` now calls `loadDocumentIntoEditor(docId)` after a successful restore if that document is currently open in the editor
+- **fix** Reference button in workspace sidebar now inserts `"filename" (id: …)` instead of a full natural-language sentence, making it easier to embed in any prompt phrasing
+- **feat** `POST /api/admin/reset-all-databases` endpoint added to `backend/routers/settings.py` — truncates 12 user-data Postgres tables (schema preserved; `user_settings` kept), deletes all Qdrant collections, and wipes workspace/attachment files from disk; returns per-subsystem status and error list
+- **feat** "Reset All Databases" section added to the Settings page below "Knowledge Re-ingestion" — red button, requires typing `RESET` in a prompt dialog to confirm; EN + DE i18n
+
+## [0.2.7] — workspace-tool-gold-standard
+
+- **feat** Workspace intent detection replaced with a language-agnostic hybrid LLM classifier (`_classify_workspace_intent_llm`); fires only when workspace documents or text-MIME attachments are present; falls back to EN+DE regex
+- **feat** Full document content injected into LangGraph in writeback mode via `workspace_writeback_document` state field, bypassing the 600-token context truncation
+- **fix** `_normalize_workspace_writeback_content` changed from `re.fullmatch` to `re.search` so LLM preamble before a code fence is handled correctly
+- **fix** Writeback system-prompt condition gated on raw `workspace_documents` list count, not the filtered context list — prevents empty documents from receiving writeback instructions without a content injection
+- **fix** `_infer_workspace_document_ids_from_message` now skips the `list_documents` DB query when the message contains no UUID fragment, quoted filename, or "workspace document" hint
+- **fix** `update_document` endpoint no longer recomputes SHA256 manually — uses `updated_metadata["sha256"]` returned by the file manager
+- **feat** Version history: `workspace_document_versions` table added; `update_document_content()` auto-snapshots current content before overwriting; `GET /versions`, `GET /versions/{ver}`, `POST /versions/{ver}/restore` endpoints added
+- **feat** Accepted file types expanded to `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml` with per-extension MIME validation
+- **feat** `PATCH /api/workspace/documents/{id}` rename endpoint added
+- **feat** Frontend: version history panel with preview and restore; inline rename control; editor auto-reload after AI writeback save; active document propagated as `document_ids` in every chat request
+- **fix** Settings `preferred_model` validation now runs on every save (not only when the field changes) — prevents stale unavailable models surviving partial settings updates
+
 ## [0.2.6] — tool-system-refactor-and-quality
 
 - **fix** `file_ops_tool` disabled in `config/tools.yaml` — `sandbox_dir: ""` resolved to `/app` in Docker, giving the LLM read/write access to the entire application codebase; `WorkspaceFileOpsTool` (instantiated per-conversation in `backend/routers/chat.py`) is the correct production path for file operations

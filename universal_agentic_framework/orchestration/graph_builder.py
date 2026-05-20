@@ -83,6 +83,7 @@ from universal_agentic_framework.orchestration.crew_nodes import (
     node_crew_chain,
     node_crew_parallel,
 )
+from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 
 try:
@@ -110,7 +111,7 @@ from universal_agentic_framework.orchestration.helpers import (
     score_tool_similarity,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
-    safe_get_model,
+    get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
     resolve_effective_tool_calling_mode,
@@ -121,6 +122,15 @@ from universal_agentic_framework.orchestration.helpers import (
 logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
+
+
+def _rag_label(file_name: str | None) -> str:
+    """Human-readable RAG source label: strip ingestion hash prefix, replace dashes with spaces."""
+    raw = str(file_name or "Unknown")
+    for ext in (".md", ".txt", ".pdf", ".csv", ".html", ".xml", ".yaml", ".yml"):
+        raw = raw.replace(ext, "")
+    raw = re.sub(r"^[0-9a-f]{32}-", "", raw)  # strip leading ingestion hash
+    return raw.replace("-", " ").strip() or "Unknown"
 
 
 def _is_digest_entry(entry: Any) -> bool:
@@ -167,6 +177,8 @@ class GraphState(TypedDict, total=False):
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
+    rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
+    rag_doc_count: int   # Number of docs above pill_score_threshold (injected into prompt + shown as pills)
     loaded_tools: List[Any]  # BaseTool instances from registry
     candidate_tools: List[Dict[str, Any]]  # Layer 1 pre-filter output: [{tool, name, score}]
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
@@ -185,6 +197,7 @@ class GraphState(TypedDict, total=False):
     summary_text: str
     digest_chain: List[Dict[str, Any]]  # Rolling conversation digest metadata
     sources: List[Dict[str, Any]]  # [{type: "web"|"rag", label: str, url: str|None}]
+    query_embedding: List[float]  # Precomputed user-message embedding from node_prefilter_tools; reused by RAG to avoid duplicate encode
 
 
 def _get_routing_embedding_provider(config: Any) -> Tuple[EmbeddingProvider, str]:
@@ -351,6 +364,8 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
             embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
             query_embedding = embedding_provider.encode(user_msg)
+            # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
+            state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
             similarity_threshold = getattr(
                 getattr(config, "tool_routing", None), "similarity_threshold", 0.3
@@ -544,7 +559,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             # Extract BaseTool instances and bind to model
             tools = [c["tool"] for c in candidates]
@@ -741,10 +756,18 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     if not user_msg:
         return state
 
+    # Determine whether this turn requires the model to call a tool.
+    # High-confidence web search intents (explicit "search the web" phrasing) and
+    # any candidate scoring ≥ 0.75 both count as obligation signals.
+    intents = state.get("prefilter_intents") or {}
+    top_score = candidates[0].get("score", 0.0) if candidates else 0.0
+    force_tool_use = bool(intents.get("force_tool_use") or top_score >= 0.75)
+
     logger.info(
         "Layer 2 structured tool calling",
         fork_name=fork_name,
         candidates=len(candidates),
+        force_tool_use=force_tool_use,
     )
 
     with track_node_execution(fork_name, "call_tools_structured"):
@@ -755,7 +778,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -783,11 +806,20 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_schemas.append(f"- {name}: {desc}\n  Args: {args_desc}")
 
             tool_block = "\n".join(tool_schemas)
+            # When the user clearly wants a tool (web search or high-confidence candidate),
+            # replace the opt-out footer with a mandatory instruction so the model cannot
+            # silently skip the call.
+            tool_footer = (
+                "You MUST call one of the available tools listed above. "
+                "Do not respond with plain text — output ONLY the JSON tool call."
+                if force_tool_use
+                else "If no tool is needed, respond normally in plain text."
+            )
             system_content = (
                 "You are a helpful assistant with access to tools.\n"
                 "If a tool would help answer the user's question, respond with ONLY a JSON object:\n"
                 '{"tool": "<tool_name>", "args": {<arguments>}}\n'
-                "If no tool is needed, respond normally in plain text.\n\n"
+                f"{tool_footer}\n\n"
                 f"Available tools:\n{tool_block}"
             )
 
@@ -837,6 +869,22 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_call = extract_json_object(response_text)
 
                 if not tool_call or "tool" not in tool_call:
+                    if force_tool_use and attempt < max_retries:
+                        logger.info(
+                            "Model declined tool call despite force_tool_use; retrying with stricter prompt",
+                            attempt=attempt,
+                            fork_name=fork_name,
+                        )
+                        from langchain_core.messages import AIMessage
+                        messages.append(AIMessage(content=response_text))
+                        messages.append(HumanMessage(
+                            content=(
+                                "You did not call a tool. You MUST call one of the listed tools now. "
+                                "Output ONLY the JSON tool call — nothing else:\n"
+                                '{"tool": "<tool_name>", "args": {<arguments>}}'
+                            )
+                        ))
+                        continue
                     logger.info("Model chose not to call tools (structured)", attempt=attempt)
                     break
 
@@ -962,7 +1010,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
             lang = state.get("language") or getattr(config.fork, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
-            model = safe_get_model(config, lang, preferred_model=preferred_model)
+            model = get_model(config, lang, preferred_model=preferred_model)
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -1121,181 +1169,6 @@ def node_load_memory(state: GraphState) -> GraphState:
             raise
 
 
-def node_retrieve_knowledge(state: GraphState) -> GraphState:
-    """Retrieve relevant documents from knowledge base (RAG)."""
-    config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
-    rag_config = getattr(config, "rag", None)
-    features_config = load_features_config()
-    
-    user_msg = state["messages"][-1]["content"] if state.get("messages") else ""
-    
-    logger.info("RAG node started", fork_name=fork_name, has_query=bool(user_msg))
-    
-    if not user_msg:
-        logger.info("No query for knowledge retrieval", fork_name=fork_name)
-        state["knowledge_context"] = []
-        return state
-
-    if not getattr(features_config, "rag_retrieval", True):
-        logger.info("RAG disabled via features flag", fork_name=fork_name)
-        state["knowledge_context"] = []
-        return state
-
-    if rag_config is not None and not rag_config.enabled:
-        logger.info("RAG disabled via config", fork_name=fork_name)
-        state["knowledge_context"] = []
-        return state
-    
-    logger.info("Retrieving knowledge", fork_name=fork_name, query_length=len(user_msg))
-    
-    with track_node_execution(fork_name, "retrieve_knowledge"):
-        try:
-            import httpx
-            
-            # Generate query embedding
-            embedding_model_name = config.llm.get_role_model_name("embedding", config.fork.language)
-            embedding_dimension = config.memory.embeddings.dimension
-            embedding_provider_type = config.llm.get_embedding_provider_type()
-            embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
-
-            logger.info(
-                "RAG: Creating embedder",
-                model=embedding_model_name,
-                provider=embedding_provider_type,
-            )
-            embedder = build_embedding_provider(
-                model_name=embedding_model_name,
-                dimension=embedding_dimension,
-                provider_type=embedding_provider_type,
-                remote_endpoint=embedding_remote_endpoint,
-            )
-            query_embedding = embedder.encode(user_msg)
-            
-            logger.info("RAG: Generated embedding", embedding_size=len(query_embedding))
-            
-            # Use Qdrant REST API directly for compatibility
-            qdrant_url = f"http://{config.memory.vector_store.host}:{config.memory.vector_store.port}"
-            collection_name = "framework"
-            top_k = 5
-            score_threshold = None
-            with_payload = True
-            with_vector = False
-            timeout_seconds = 30
-
-            # First check user settings, then fall back to config
-            user_settings = state.get("user_settings", {})
-            user_rag_config = user_settings.get("rag_config", {})
-            
-            if user_rag_config:
-                # User has custom RAG settings
-                if user_rag_config.get("collection"):
-                    collection_name = user_rag_config["collection"]
-                if user_rag_config.get("top_k") is not None:
-                    top_k = user_rag_config["top_k"]
-                logger.info("Using user RAG config", collection=collection_name, top_k=top_k)
-            elif rag_config is not None:
-                # Fall back to system config
-                if rag_config.collection_name:
-                    collection_name = rag_config.collection_name
-                top_k = rag_config.top_k
-                score_threshold = rag_config.score_threshold
-                with_payload = rag_config.with_payload
-                with_vector = rag_config.with_vectors
-                timeout_seconds = rag_config.timeout_seconds
-                logger.info("Using system RAG config", collection=collection_name, top_k=top_k)
-            
-            def _search_qdrant(embedding_vector: list[float], label: str) -> list[dict]:
-                payload = {
-                    "vector": embedding_vector,
-                    "limit": top_k,
-                    "with_payload": with_payload,
-                    "with_vector": with_vector,
-                }
-                if score_threshold is not None:
-                    payload["score_threshold"] = score_threshold
-
-                logger.info("RAG: Searching Qdrant", url=qdrant_url, collection=collection_name, query_label=label)
-                response = httpx.post(
-                    f"{qdrant_url}/collections/{collection_name}/points/search",
-                    json=payload,
-                    timeout=timeout_seconds,
-                )
-                response.raise_for_status()
-                result = response.json().get("result", [])
-                logger.info("RAG: Search completed", query_label=label, results_count=len(result))
-                return result
-
-            search_results = _search_qdrant(query_embedding, "full_query")
-
-            # Heuristic: if the query contains a strong keyword, run a focused search too
-            def _extract_keyword(query: str) -> str | None:
-                import re
-
-                tokens = [t.lower() for t in re.findall(r"[a-zA-ZäöüÄÖÜß]{4,}", query)]
-                if not tokens:
-                    return None
-                stopwords = {
-                    "kennst", "kannst", "weißt", "wissen", "sagen", "bitte",
-                    "about", "tell", "what", "which", "with", "have", "this",
-                    "that", "from", "oder", "aber", "denn", "dann", "doch",
-                }
-                candidates = [t for t in tokens if t not in stopwords]
-                if not candidates:
-                    return None
-                return max(candidates, key=len)
-
-            keyword = _extract_keyword(user_msg)
-            if keyword and keyword != user_msg.lower():
-                keyword_embedding = embedder.encode(keyword)
-                keyword_results = _search_qdrant(keyword_embedding, "keyword")
-                if keyword_results:
-                    search_results = search_results + keyword_results
-            
-            # Extract relevant documents with client-side relevance filter
-            # Documents below this score are noise and get dropped regardless of Qdrant config
-            min_relevance_score = score_threshold if score_threshold is not None else 0.6
-            knowledge_docs = []
-            seen = set()
-            for result in search_results:
-                doc_score = result.get("score", 0.0)
-                if doc_score < min_relevance_score:
-                    continue
-                payload = result.get("payload", {})
-                file_path = payload.get("file_name") or payload.get("file_path") or "Unknown"
-                file_name = file_path.split("/")[-1] if isinstance(file_path, str) else "Unknown"
-                doc_id = result.get("id") or f"{file_path}:{payload.get('chunk_index')}"
-                if doc_id in seen:
-                    continue
-                seen.add(doc_id)
-                doc = {
-                    "text": payload.get("text", ""),
-                    "file_name": file_name,
-                    "file_path": file_path,
-                    "score": doc_score
-                }
-                knowledge_docs.append(doc)
-                logger.info("RAG: Found document", file=doc["file_name"], score=doc["score"])
-
-            if len(knowledge_docs) > top_k:
-                knowledge_docs = sorted(knowledge_docs, key=lambda d: d.get("score", 0.0), reverse=True)[:top_k]
-            
-            state["knowledge_context"] = knowledge_docs
-            
-            logger.info(
-                "Knowledge retrieved successfully",
-                fork_name=fork_name,
-                results_count=len(knowledge_docs),
-                top_score=knowledge_docs[0]["score"] if knowledge_docs else 0.0
-            )
-            
-        except Exception as e:
-            logger.error("Knowledge retrieval failed", error=str(e), fork_name=fork_name, exc_info=True)
-            state["knowledge_context"] = []
-    
-    return state
-
-
 def node_generate_response(state: GraphState) -> GraphState:
     config = load_core_config()
     lang = state.get("language") or config.fork.language
@@ -1312,7 +1185,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         preferred_model=preferred_model or "default"
     )
 
-    model = safe_get_model(config, lang, preferred_model=preferred_model)
+    model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
     # Hybrid budget enforcement: global + per-turn hard limits; per-node optional hard guardrail.
@@ -1415,7 +1288,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     if knowledge_context:
         context_text = "\n\n".join([
-            f"[Quelle: {doc.get('file_name', 'Unknown').split('-')[-1].replace('.md', '')}]\n{doc.get('text', '')}"
+            f"[Quelle: {_rag_label(doc.get('file_name'))}]\n{doc.get('text', '')}"
             for doc in knowledge_context[:3]  # Top 3 results
         ])
         system_prompt += f"\n\n=== WISSENSDATENBANK ===\n{context_text}\n=== ENDE WISSENSDATENBANK ===\n"
@@ -1431,9 +1304,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             doc_text = doc.get("text", "")
             for url in _re_urls.findall(r"https?://[^\s)]+", str(doc_text)):
                 allowed_urls.add(url)
-            # Collect structured RAG source (deduplicated by label) for citation-capable responses.
             if not utility_only_response:
-                label = str(file_name or "Unknown").split("-")[-1].replace(".md", "")
+                label = _rag_label(file_name)
                 if label not in _seen_rag_labels:
                     _seen_rag_labels.add(label)
                     collected_sources.append({"type": "rag", "label": label, "url": None})
@@ -2095,7 +1967,7 @@ def node_summarize(state: GraphState) -> GraphState:
     except Exception as e:
         logger.warning("digest_chain_normalization_failed", error=str(e))
 
-    model = safe_get_model(config, lang, preferred_model=preferred_model)
+    model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
 
     # Build a window of the last 3 user+assistant exchanges for richer fact extraction.

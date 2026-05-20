@@ -65,19 +65,34 @@ class TestEmbeddingConfigLoading:
             assert embedding_model == "openai/text-embedding-granite-embedding-278m-multilingual"
     
     def test_embedding_provider_factory_accepts_config(self):
-        """Test that build_embedding_provider works with config settings."""
+        """Test that build_embedding_provider works with config settings.
+
+        When the embedding endpoint is an unresolved env-var placeholder (starts with '$'),
+        a ValueError is raised — that is the correct hard-fail behavior, not a silent fallback.
+        When the endpoint is a real URL, the provider is created without a network call.
+        """
         config = self._load()
-        
-        # Should not raise
-        provider = build_embedding_provider(
-            model_name=config.llm.roles.embedding.model,
-            dimension=config.memory.embeddings.dimension,
-            provider_type=config.llm.get_embedding_provider_type(),
-            remote_endpoint=config.llm.get_embedding_remote_endpoint(),
-        )
-        
-        assert provider is not None
-        assert provider.get_dimension() == 768
+        endpoint = config.llm.get_embedding_remote_endpoint()
+
+        if endpoint and endpoint.startswith("$"):
+            # Test env has no embedding server configured — correct behavior is ValueError.
+            with pytest.raises(ValueError, match="unresolved environment variable"):
+                build_embedding_provider(
+                    model_name=config.llm.roles.embedding.model,
+                    dimension=config.memory.embeddings.dimension,
+                    provider_type=config.llm.get_embedding_provider_type(),
+                    remote_endpoint=endpoint,
+                )
+        else:
+            # Real endpoint available — factory should create the provider.
+            provider = build_embedding_provider(
+                model_name=config.llm.roles.embedding.model,
+                dimension=config.memory.embeddings.dimension,
+                provider_type=config.llm.get_embedding_provider_type(),
+                remote_endpoint=endpoint,
+            )
+            assert provider is not None
+            assert provider.get_dimension() == 768
     
     def test_env_override_embedding_server(self):
         """Test that EMBEDDING_SERVER env var can override config."""
@@ -109,20 +124,14 @@ class TestEmbeddingConfigOverrides:
             )
 
     def test_remote_provider_config_with_placeholder_endpoint(self):
-        """Test remote provider with placeholder endpoint uses deterministic fallback."""
-        provider = build_embedding_provider(
-            model_name="text-embedding-granite-embedding-278m-multilingual",
-            dimension=768,
-            provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
-        )
-        
-        assert provider is not None
-        assert provider.get_dimension() == 768
-        
-        embedding = provider.encode("test query")
-        assert len(embedding) == 768
-        assert isinstance(embedding, list)
+        """Placeholder endpoints (starting with '$') raise ValueError — no silent fallback."""
+        with pytest.raises(ValueError, match="unresolved environment variable"):
+            build_embedding_provider(
+                model_name="text-embedding-granite-embedding-278m-multilingual",
+                dimension=768,
+                provider_type="remote",
+                remote_endpoint="$EMBEDDING_SERVER/v1",
+            )
     
     def test_remote_provider_with_mock_endpoint(self):
         """Test remote provider configuration (will fail connection without real endpoint)."""
@@ -152,12 +161,15 @@ class TestEmbeddingConfigOverrides:
         ) == "text-embedding-granite-embedding-278m-multilingual"
 
     def test_remote_provider_stores_normalized_model_name(self):
-        """Remote provider should strip LiteLLM-style prefixes for embedding calls."""
+        """Remote provider should strip LiteLLM-style prefixes for embedding calls.
+
+        Uses a non-placeholder URL — provider init stores config only, no network call.
+        """
         provider = build_embedding_provider(
             model_name="openai/text-embedding-granite-embedding-278m-multilingual",
             dimension=768,
             provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
+            remote_endpoint="http://localhost:1234/v1",
         )
 
         assert provider.model_name == "text-embedding-granite-embedding-278m-multilingual"

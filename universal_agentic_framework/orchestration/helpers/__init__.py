@@ -43,7 +43,7 @@ from .embedding_provider import (
 
 # Model resolution
 from .model_resolution import (
-    safe_get_model,
+    get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
 )
@@ -53,6 +53,14 @@ from .tool_calling_mode import (
     resolve_effective_tool_calling_mode,
     record_runtime_native_tool_leak,
     validate_and_log_tool_calling_mode,
+)
+
+# RAG retrieval
+from .rag_retrieval import (
+    extract_rag_keyword,
+    filter_and_deduplicate,
+    resolve_rag_config,
+    search_qdrant,
 )
 
 __all__ = [
@@ -82,11 +90,16 @@ __all__ = [
     "get_routing_embedding_provider",
     "clear_embedding_cache",
     # Model resolution
-    "safe_get_model",
+    "get_model",
     "resolve_initial_model_metadata",
     "invoke_with_model_fallback",
     # Tool-calling mode
     "resolve_effective_tool_calling_mode",
     "record_runtime_native_tool_leak",
     "validate_and_log_tool_calling_mode",
+    # RAG retrieval
+    "extract_rag_keyword",
+    "filter_and_deduplicate",
+    "resolve_rag_config",
+    "search_qdrant",
 ]

@@ -14,10 +14,14 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from universal_agentic_framework.ingestion.parsers import PDFParser, DOCXParser, MarkdownParser, TextParser
 from universal_agentic_framework.ingestion.chunker import TextChunker
 from universal_agentic_framework.ingestion.validator import LanguageValidator
-from universal_agentic_framework.embeddings import build_embedding_provider, EmbeddingProvider
+from universal_agentic_framework.embeddings import build_embedding_provider, EmbeddingProvider, EmbeddingProviderUnavailableError
 from universal_agentic_framework.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
+
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
+    ".pdf", ".docx", ".md", ".markdown", ".txt"
+})
 
 
 @dataclass
@@ -60,6 +64,10 @@ class IngestionConfig:
         self.file_concurrency = max(1, int(self.file_concurrency or 1))
         self.upsert_batch_size = max(1, int(self.upsert_batch_size or 1))
         self.embedding_batch_size = max(1, int(self.embedding_batch_size or 1))
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({self.chunk_overlap}) must be less than chunk_size ({self.chunk_size})"
+            )
 
 
 class IngestionService:
@@ -74,6 +82,7 @@ class IngestionService:
         self.config = config
         
         # Initialize components
+        # Keys must stay in sync with SUPPORTED_EXTENSIONS when adding new parsers.
         self.parsers = {
             ".pdf": PDFParser(),
             ".docx": DOCXParser(),
@@ -112,7 +121,9 @@ class IngestionService:
             check_compatibility=False,
         )
         
-        # Ensure collection exists
+        # Wait for Qdrant, then embedding provider, then create/verify the collection.
+        self._connect_with_retry()
+        self._wait_for_embedding_provider()
         self._ensure_collection()
 
     @staticmethod
@@ -258,39 +269,52 @@ class IngestionService:
                     time.sleep(delay)
                     delay = min(delay * 2, 30)
         raise RuntimeError(f"Failed to connect to Qdrant after {max_retries} attempts: {last_error}")
-    def _ensure_collection(self, max_retries: int = 5, initial_delay: float = 1.0):
-        """Create collection if it doesn't exist, with retry/backoff."""
+
+    def _wait_for_embedding_provider(self, max_retries: int = 30, initial_delay: float = 2.0):
+        """Block startup until the embedding provider is reachable.
+
+        Mirrors _connect_with_retry for Qdrant. Proceeds only when a real
+        encode call succeeds so that documents are never stored with fake vectors.
+        """
         delay = initial_delay
-        last_error: Optional[Exception] = None
         for attempt in range(max_retries):
             try:
-                self.qdrant.get_collection(self.config.collection_name)
-                logger.info("Collection exists", collection=self.config.collection_name)
+                self.embedder.encode("health check")
+                logger.info("Embedding provider ready", attempt=attempt + 1)
                 return
-            except Exception:
-                try:
-                    logger.info("Creating collection", collection=self.config.collection_name)
-                    self.qdrant.create_collection(
-                        collection_name=self.config.collection_name,
-                        vectors_config=VectorParams(
-                            size=self.config.embedding_dimension,
-                            distance=Distance.COSINE
-                        )
+            except EmbeddingProviderUnavailableError as exc:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        "Embedding provider not ready, retrying",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        retry_in=delay,
+                        error=str(exc),
                     )
-                    return
-                except Exception as exc:  # noqa: BLE001
-                    last_error = exc
-                    if attempt < max_retries - 1:
-                        logger.warning(
-                            "Collection creation failed, retrying",
-                            attempt=attempt + 1,
-                            max_retries=max_retries,
-                            delay=delay,
-                            error=str(exc),
-                        )
-                        time.sleep(delay)
-                        delay = min(delay * 2, 30)
-        raise RuntimeError(f"Failed to ensure collection after {max_retries} attempts: {last_error}")
+                    time.sleep(delay)
+                    delay = min(delay * 2, 60.0)
+        raise RuntimeError(
+            f"Embedding provider unreachable after {max_retries} startup retries"
+        )
+
+    def _ensure_collection(self):
+        """Create collection if it doesn't exist.
+
+        Startup races are handled by _connect_with_retry before this is called;
+        a failure here is a real error, not a transient race.
+        """
+        try:
+            self.qdrant.get_collection(self.config.collection_name)
+            logger.info("Collection exists", collection=self.config.collection_name)
+        except Exception:
+            logger.info("Creating collection", collection=self.config.collection_name)
+            self.qdrant.create_collection(
+                collection_name=self.config.collection_name,
+                vectors_config=VectorParams(
+                    size=self.config.embedding_dimension,
+                    distance=Distance.COSINE,
+                ),
+            )
     
     def ingest_directory(
         self,
@@ -598,7 +622,7 @@ class IngestionService:
                 logger.warning("Glob pattern failed", pattern=pattern, error=str(e))
         
         # Remove duplicates and sort
-        files = sorted(list(set(files)))
+        files = sorted(set(files))
         logger.info("Files found in directory", total=len(files), patterns=self.config.file_patterns)
         
         return files

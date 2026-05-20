@@ -498,3 +498,36 @@ class TestIngestionConfig:
         assert config.qdrant_host == "custom-host"
         assert config.qdrant_port == 7777
         assert config.metadata == {"custom": "metadata"}
+
+    def test_chunk_overlap_equal_to_chunk_size_raises(self, temp_dir):
+        with pytest.raises(ValueError, match="chunk_overlap"):
+            IngestionConfig(
+                source_path=temp_dir,
+                file_patterns=["*.pdf"],
+                collection_name="test",
+                collection_description="Test",
+                chunk_size=100,
+                chunk_overlap=100,
+            )
+
+    def test_chunk_overlap_greater_than_chunk_size_raises(self, temp_dir):
+        with pytest.raises(ValueError, match="chunk_overlap"):
+            IngestionConfig(
+                source_path=temp_dir,
+                file_patterns=["*.pdf"],
+                collection_name="test",
+                collection_description="Test",
+                chunk_size=100,
+                chunk_overlap=200,
+            )
+
+    def test_valid_chunk_overlap_accepted(self, temp_dir):
+        config = IngestionConfig(
+            source_path=temp_dir,
+            file_patterns=["*.pdf"],
+            collection_name="test",
+            collection_description="Test",
+            chunk_size=100,
+            chunk_overlap=20,
+        )
+        assert config.chunk_overlap == 20

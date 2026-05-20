@@ -54,15 +54,40 @@ ACTIVE_SESSIONS: set[str] = set()
 initialize_system_info(version="1.0.0", environment="production")
 logger.info("LangGraph server initialized", fork=CONFIG.fork.name)
 
-# Pre-load embedding model for semantic tool routing to avoid cold-start delays
-logger.info("Pre-loading embedding model for faster first request...")
-try:
-    from universal_agentic_framework.orchestration import graph_builder
-
-    _, embedding_model_name = graph_builder._get_routing_embedding_provider(CONFIG)
-    logger.info(f"Embedding provider pre-loaded: {embedding_model_name}")
-except Exception as e:
-    logger.warning(f"Failed to pre-load embedding model: {e}, will load on first request")
+# Pre-load and probe embedding provider — server must not start with a broken stack.
+# Retries with exponential backoff (capped at 16 s per attempt) for ~2 min total.
+# If the provider is still unreachable after all retries, startup fails and the
+# container restarts (Docker restart policy handles recovery).
+logger.info("Probing embedding provider at startup...")
+_MAX_STARTUP_RETRIES = 15
+for _attempt in range(_MAX_STARTUP_RETRIES):
+    try:
+        import time as _time
+        from universal_agentic_framework.orchestration.helpers.embedding_provider import (
+            get_routing_embedding_provider as _get_embed_provider,
+        )
+        _embedder, _embedding_model_name = _get_embed_provider(CONFIG)
+        _embedder.encode("startup probe")
+        logger.info("Embedding provider ready", model=_embedding_model_name, attempt=_attempt + 1)
+        break
+    except Exception as _e:
+        _delay = min(2.0 ** _attempt, 16.0)
+        if _attempt < _MAX_STARTUP_RETRIES - 1:
+            logger.error(
+                "Embedding provider not ready at startup — retrying",
+                attempt=_attempt + 1,
+                max=_MAX_STARTUP_RETRIES,
+                retry_in=_delay,
+                error=str(_e),
+            )
+            _time.sleep(_delay)
+        else:
+            logger.critical(
+                "Embedding provider unreachable — aborting startup",
+                error=str(_e),
+                exc_info=True,
+            )
+            raise RuntimeError("Embedding provider unreachable at startup") from _e
 
 logger.info("LangGraph server ready to accept requests")
 
@@ -207,6 +232,8 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     "profile_id": result.get("profile_id", profile_id),
                     "summary_text": result.get("summary_text", ""),
                     "sources": result.get("sources", []),
+                    "rag_attempted": result.get("rag_attempted", False),
+                    "rag_doc_count": result.get("rag_doc_count", 0),
                 }
                 
             except Exception as e:

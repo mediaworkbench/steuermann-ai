@@ -43,7 +43,7 @@ import inspect
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from . import InMemoryMemoryManager, MemoryBackend
+from . import MemoryBackend
 from .factory import build_memory_backend
 from universal_agentic_framework.config import load_core_config, load_features_config
 from universal_agentic_framework.monitoring import metrics
@@ -136,13 +136,8 @@ def load_memory_node(
     fork_name = state.get("fork_name", "default")
 
     if backend is None:
-        # Build from config if available; else fallback to in-memory
-        try:
-            cfg = load_core_config()
-            store = build_memory_backend(cfg)
-        except Exception as e:
-            logger.warning("failed_to_load_memory_backend", error=str(e))
-            store = InMemoryMemoryManager()
+        cfg = load_core_config()
+        store = build_memory_backend(cfg)
     else:
         store = backend
     
@@ -166,7 +161,7 @@ def load_memory_node(
         else:
             results = store.load(user_id=user_id, query=query, top_k=top_k)
     except Exception as e:
-        logger.error("memory_load_failed", error=str(e), user_id=user_id)
+        logger.error("memory_load_failed", error=str(e), user_id=user_id, exc_info=True)
         results = []
     
     # Extract memory data and analytics
@@ -254,13 +249,9 @@ def update_memory_node(
     
     if backend is None:
         logger.info("No backend provided, building from config", user_id=user_id)
-        try:
-            cfg = load_core_config()
-            store = build_memory_backend(cfg)
-            logger.info("Memory backend built from config", backend_type=type(store).__name__)
-        except Exception as e:
-            logger.error("Failed to build memory backend from config", error=str(e), user_id=user_id)
-            store = InMemoryMemoryManager()
+        cfg = load_core_config()
+        store = build_memory_backend(cfg)
+        logger.info("Memory backend built from config", backend_type=type(store).__name__)
     else:
         logger.info("Using provided backend", backend_type=type(backend).__name__)
         store = backend

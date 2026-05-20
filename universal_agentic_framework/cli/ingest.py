@@ -13,7 +13,8 @@ import yaml
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from universal_agentic_framework.ingestion import IngestionService, IngestionConfig
+from universal_agentic_framework.config import load_core_config
+from universal_agentic_framework.ingestion import IngestionService, IngestionConfig, SUPPORTED_EXTENSIONS
 from universal_agentic_framework.monitoring.logging import get_logger, configure_logging
 
 logger = get_logger(__name__)
@@ -56,8 +57,6 @@ def _resolve_env_placeholder(value: Any, default: str | None = None) -> Any:
 
 
 def resolve_runtime_ingestion_defaults() -> RuntimeIngestionDefaults:
-    from universal_agentic_framework.config import load_core_config
-
     core_config = load_core_config()
     ingestion_config = core_config.ingestion
     rag_config = core_config.rag
@@ -103,7 +102,7 @@ def _build_runtime_ingestion_config(
     defaults = resolve_runtime_ingestion_defaults()
     return IngestionConfig(
         source_path=Path(source_override or defaults.source_path),
-        file_patterns=["**/*.pdf", "**/*.docx", "**/*.md", "**/*.markdown", "**/*.txt"],
+        file_patterns=[f"**/*{ext}" for ext in sorted(SUPPORTED_EXTENSIONS)],
         collection_name=collection_override or defaults.collection_name,
         collection_description=collection_description,
         target_language=language_override or defaults.language,
@@ -137,7 +136,7 @@ class DocumentEventHandler(FileSystemEventHandler):
         file_path = Path(event.src_path)
         
         # Check if file type is supported (keep in sync with file_patterns)
-        if file_path.suffix.lower() not in [".pdf", ".docx", ".md", ".markdown", ".txt"]:
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             return
         
         # Avoid duplicate processing
@@ -182,7 +181,7 @@ class DocumentEventHandler(FileSystemEventHandler):
         file_path = Path(event.src_path)
         
         # Check if file type is supported (keep in sync with file_patterns)
-        if file_path.suffix.lower() not in [".pdf", ".docx", ".md", ".markdown", ".txt"]:
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             return
         
         # Avoid duplicate processing

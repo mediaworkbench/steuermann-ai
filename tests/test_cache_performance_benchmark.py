@@ -6,6 +6,7 @@ Benchmarks:
 - Metrics: Search latency (p50, p95, p99), throughput, scalability
 """
 
+import os
 import pytest
 import time
 import logging
@@ -32,21 +33,20 @@ from universal_agentic_framework.embeddings import build_embedding_provider
 logger = logging.getLogger(__name__)
 
 
+_EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
+
+
+@pytest.mark.integration
 @pytest.mark.benchmark
-@pytest.mark.skipif(not (HAS_QDRANT and HAS_NUMPY), 
+@pytest.mark.skipif(not (HAS_QDRANT and HAS_NUMPY),
                     reason="Requires qdrant-client and numpy")
 class TestCachePerformanceBenchmark:
     """Performance benchmark tests for cache search."""
     
     @pytest.fixture
-    def embeddings_model(self):
-        """Load embedding model."""
-        return build_embedding_provider(
-            model_name="text-embedding-granite-embedding-278m-multilingual",
-            dimension=768,
-            provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
-        )
+    def embeddings_model(self, live_embedding_provider):
+        """Live embedding provider; skips the test if LM Studio is unreachable."""
+        return live_embedding_provider
     
     @pytest.fixture
     def sample_queries(self) -> List[str]:
@@ -146,6 +146,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         
@@ -224,6 +225,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         
@@ -305,6 +307,7 @@ class TestCachePerformanceBenchmark:
             host="localhost",
             port=6333,
             fork_name="benchmark",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
         

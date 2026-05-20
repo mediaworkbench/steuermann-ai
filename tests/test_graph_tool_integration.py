@@ -59,7 +59,7 @@ def _mock_external_services(monkeypatch):
     mock_llm = Mock()
     mock_llm.invoke.return_value = SimpleNamespace(content="test response")
     monkeypatch.setattr(
-        "universal_agentic_framework.orchestration.graph_builder.safe_get_model",
+        "universal_agentic_framework.orchestration.graph_builder.get_model",
         lambda *_, **__: mock_llm,
     )
 
@@ -123,7 +123,7 @@ class DummyModel:
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -180,8 +180,11 @@ def test_graph_injects_tool_and_knowledge_context(
 
     graph = build_graph()
 
+    # Message must be ≥ 35 chars so skip_rag=False (short+datetime heuristic would otherwise
+    # skip RAG for a terse datetime query, which is correct production behaviour but defeats
+    # this test's goal of verifying that both tool results AND RAG context are injected).
     state = {
-        "messages": [{"role": "user", "content": "what time is it today?"}],
+        "messages": [{"role": "user", "content": "What time is it today? Please also check the documentation."}],
         "user_id": "u123",
         "language": "en",
     }
@@ -208,12 +211,16 @@ def test_graph_injects_tool_and_knowledge_context(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
+@patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+@patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
+@patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider")
 @pytest.mark.integration
 def test_rag_request_uses_config(
+    mock_rag_embed, mock_rag_config, mock_rag_features,
     mock_provider_factory, mock_config, mock_features, mock_model_factory, mock_httpx_post
 ):
     """RAG retrieval should respect collection, top_k, score threshold, and payload settings."""
@@ -242,13 +249,17 @@ def test_rag_request_uses_config(
             enabled=True,
             collection_name="my-collection",
             top_k=2,
-            score_threshold=0.42,
+            pill_score_threshold=0.42,
             with_payload=["text"],
             with_vectors=False,
             timeout_seconds=5,
         ),
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=True)
+    # rag_node imports its own references — patch those too so the RAG node sees the same config
+    mock_rag_config.return_value = mock_config.return_value
+    mock_rag_features.return_value = mock_features.return_value
+    mock_rag_embed.return_value = (mock_embedder, "mock-model")
 
     dummy_model = DummyModel()
     mock_model_factory.return_value = dummy_model
@@ -274,19 +285,23 @@ def test_rag_request_uses_config(
 
     assert url.endswith("/collections/my-collection/points/search")
     assert payload["limit"] == 2
-    assert payload["score_threshold"] == 0.42
+    assert payload["score_threshold"] == 0.42  # pill_score_threshold passed as Qdrant filter
     assert payload["with_payload"] == ["text"]
     assert payload["with_vector"] is False
     assert timeout == 5
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
+@patch("universal_agentic_framework.orchestration.rag_node.load_features_config")
+@patch("universal_agentic_framework.orchestration.rag_node.load_core_config")
+@patch("universal_agentic_framework.orchestration.rag_node.get_routing_embedding_provider")
 @pytest.mark.integration
 def test_rag_disabled_via_features(
+    mock_rag_embed, mock_rag_config, mock_rag_features,
     mock_provider_factory, mock_config, mock_features, mock_model_factory, mock_httpx_post
 ):
     """RAG retrieval should be skipped when the feature flag is disabled."""
@@ -309,6 +324,10 @@ def test_rag_disabled_via_features(
     )
     mock_features.return_value = SimpleNamespace(rag_retrieval=False)
 
+    mock_rag_config.return_value = mock_config.return_value
+    mock_rag_features.return_value = SimpleNamespace(rag_retrieval=False)
+    mock_rag_embed.return_value = (mock_embedder, "mock-model")
+
     dummy_model = DummyModel()
     mock_model_factory.return_value = dummy_model
 
@@ -326,7 +345,7 @@ def test_rag_disabled_via_features(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -361,7 +380,7 @@ def test_rag_keyword_fallback_search(
             enabled=True,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=0.75,
+            pill_score_threshold=0.75,
             with_payload=["text", "file_path"],
             with_vectors=False,
             timeout_seconds=10,
@@ -410,7 +429,7 @@ def test_rag_keyword_fallback_search(
 
 
 @patch("httpx.post")
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -445,7 +464,7 @@ def test_response_url_stripping_guardrail(
             enabled=False,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=None,
+            pill_score_threshold=None,
             with_payload=["text", "file_path"],
             with_vectors=False,
             timeout_seconds=10,
@@ -482,7 +501,7 @@ def test_response_url_stripping_guardrail(
     assert "example.com" in final_response or "source omitted" in final_response
 
 
-@patch("universal_agentic_framework.orchestration.graph_builder.safe_get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_features_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 @patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
@@ -517,7 +536,7 @@ def test_long_term_memory_disabled_via_features(
             enabled=False,
             collection_name="test-collection",
             top_k=5,
-            score_threshold=None,
+            pill_score_threshold=None,
             with_payload=["text"],
             with_vectors=False,
             timeout_seconds=10,

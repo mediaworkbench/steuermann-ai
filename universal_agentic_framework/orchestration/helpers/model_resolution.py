@@ -61,22 +61,18 @@ def _classify_error(exc: Exception) -> str:
     return "error"
 
 
-def safe_get_model(config, language: str, preferred_model: Optional[str] = None):
-    """Return a ChatLiteLLMRouter; fallback to echo model if providers fail.
+def get_model(config, language: str, preferred_model: Optional[str] = None):
+    """Return a ChatLiteLLMRouter for the given language/model preference.
 
     Always uses the Router so that LiteLLM's native retry and fallback semantics
     apply regardless of whether a preferred_model override is in effect.
+
+    Raises:
+        Exception: Propagates any error from LLMFactory (provider misconfiguration,
+            unreachable service, etc.) — callers must not silently swallow this.
     """
-    try:
-        factory = LLMFactory(config)
-        return factory.get_router_model(language=language, preferred_model=preferred_model)
-    except Exception:
-        class _EchoModel:
-            def invoke(self, prompt: str):
-                class _Out:
-                    content = f"LLM: {prompt}"
-                return _Out()
-        return _EchoModel()
+    factory = LLMFactory(config)
+    return factory.get_router_model(language=language, preferred_model=preferred_model)
 
 
 def resolve_initial_model_metadata(config: Any, language: str, preferred_model: Optional[str]) -> Tuple[str, str]:

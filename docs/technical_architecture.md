@@ -184,6 +184,8 @@ class GraphState(TypedDict, total=False):
   # Memory and knowledge
   loaded_memory: List[Dict[str, Any]]
   knowledge_context: List[Dict[str, Any]]
+  rag_attempted: bool   # True only when Qdrant was actually queried this turn
+  rag_doc_count: int    # Docs above score_threshold injected (0 when none passed)
 
   # Tools
   loaded_tools: List[Any]
@@ -257,6 +259,11 @@ User Request (Next.js)
   │    │
   │    ├──> load_memory_node
   │    ├──> retrieve_knowledge_node (RAG, score_threshold: 0.6)
+  │    │    Three skip layers before any Qdrant call:
+  │    │      1. System: feature flag + rag.enabled config
+  │    │      2. User: rag_config.enabled per-session toggle
+  │    │      3. Intent: skip_rag heuristic (greeting/math/datetime/tool-meta)
+  │    │    rag_attempted=True / rag_doc_count=N set only when Qdrant is queried
   │    │
   │    ├──> respond_node
   │    │    ├──> Inject tool_results into context
@@ -649,13 +656,14 @@ The framework uses a **three-tier tool selection architecture** that combines se
 **Layer 2 — Model-Driven Tool Calling (configurable per provider):**
 
 - `native`: Tools bound via `bind_tools()` — the LLM decides which to call (or none)
-- `structured`: Tool JSON schemas injected into system prompt — LLM outputs JSON tool call
+- `structured`: Tool JSON schemas injected into system prompt — LLM outputs JSON tool call. The system prompt footer is conditional: when `force_tool_use=True` (explicit web search intent from `prefilter_intents`, or top candidate score ≥ 0.75) the footer reads "You MUST call one of the available tools listed above. Do not respond with plain text — output ONLY the JSON tool call." Otherwise it reads "If no tool is needed, respond normally in plain text." When `force_tool_use=True` and the model responds with plain text instead of a JSON tool call (silent declination), the node appends a stricter retry message ("You did not call a tool. You MUST call one of the listed tools now.") and re-invokes the model — up to `max_retries` (2) retry attempts, counted against the same budget as parse-failure retries.
 - `react`: ReAct loop (Thought → Action → Observation) — for weaker models
 
 **Layer 3 — Output Validation + Retry (built into Layer 2 nodes):**
 
 - Validate tool call arguments against schema
 - Re-prompt with error feedback on parse failure
+- Retry on silent declination when `force_tool_use=True` (structured mode only)
 - Max `max_retries` (2) attempts before falling back to no-tool response
 
 **Benefits:** Semantic layer eliminates irrelevant tools before the model sees them (token savings). Model-driven layer lets the LLM make intelligent decisions. Validation layer handles parsing failures gracefully.
@@ -1279,7 +1287,7 @@ services:
 - Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
 - Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
 - LangGraph injects both attachment context and workspace document context into prompt construction. In writeback mode the full document content (not truncated) is injected as a `HumanMessage` via `workspace_writeback_document` state field.
-- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. When intent is confirmed and exactly one document is in context, the assistant output is written back as a new version (`workspace_document_writeback` in response metadata).
+- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. The classifier uses a direct `httpx` POST to the auxiliary provider (not `ChatLiteLLM.ainvoke()` which drops `api_base` in async context). When intent is confirmed and exactly one document is in context, the model produces a structured `SUMMARY:` / `DOCUMENT:` two-section response — the document content is stored as the new version and the summary is shown in the chat confirmation message (`workspace_document_writeback` in response metadata).
 
 **Legacy workspace editing path (still present, opt-in):**
 

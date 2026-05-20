@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { Database } from "lucide-react";
 import { Icon } from "./Icon";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
@@ -221,6 +222,25 @@ export function MetricsPanel({
                       </span>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Knowledge Base */}
+            {metrics?.rag_attempted && (
+              <div className="pt-2 border-t border-light-cyan/40">
+                <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
+                  Knowledge Base
+                </span>
+                <div className="flex items-center gap-1.5 text-xs text-evergreen/70">
+                  <Database size={13} className="text-evergreen/40 shrink-0" />
+                  {(metrics.rag_doc_count ?? 0) > 0 ? (
+                    <span>
+                      {metrics.rag_doc_count} document{metrics.rag_doc_count !== 1 ? "s" : ""} used
+                    </span>
+                  ) : (
+                    <span className="text-evergreen/40">searched · no relevant results</span>
+                  )}
                 </div>
               </div>
             )}

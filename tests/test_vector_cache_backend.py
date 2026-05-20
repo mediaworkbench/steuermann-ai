@@ -11,6 +11,7 @@ Coverage:
 - Performance comparison with O(n) iteration
 """
 
+import os
 import pytest
 import time
 import logging
@@ -41,12 +42,18 @@ def is_qdrant_available(host: str = "localhost", port: int = 6333) -> bool:
         return False
 
 
-# Module-level skip marker
+_EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
+
+# Module-level integration marker — these tests require a live Qdrant instance.
+# Embedding-provider availability is checked at runtime via the live_embedding_provider fixture.
 QDRANT_AVAILABLE = HAS_QDRANT and is_qdrant_available()
-pytestmark = pytest.mark.skipif(
-    not (HAS_QDRANT and QDRANT_AVAILABLE),
-    reason="qdrant-client not installed or Qdrant service not available"
-)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not (HAS_QDRANT and QDRANT_AVAILABLE),
+        reason="qdrant-client not installed or Qdrant service not available",
+    ),
+]
 
 
 class TestQdrantCacheVectorBackend:
@@ -69,7 +76,7 @@ class TestQdrantCacheVectorBackend:
             similarity_threshold=0.85,
             fork_name="test",
             embedding_provider_type="remote",
-            embedding_remote_endpoint="$EMBEDDING_SERVER/v1",
+            embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         # Clear any existing test data
         backend.clear_collection()
@@ -81,14 +88,9 @@ class TestQdrantCacheVectorBackend:
         return np.random.randn(768).tolist()
     
     @pytest.fixture
-    def embeddings_model(self):
-        """Load remote embedding provider in deterministic fallback mode for tests."""
-        return build_embedding_provider(
-            model_name="text-embedding-granite-embedding-278m-multilingual",
-            dimension=768,
-            provider_type="remote",
-            remote_endpoint="$EMBEDDING_SERVER/v1",
-        )
+    def embeddings_model(self, live_embedding_provider):
+        """Live embedding provider; skips the test if LM Studio is unreachable."""
+        return live_embedding_provider
     
     def test_backend_initialization(self, backend):
         """Test backend initializes with correct collection."""
@@ -185,8 +187,6 @@ class TestQdrantCacheVectorBackend:
         query1 = "What is the capital of France?"
         query2 = "Tell me the capital city of France."  # Similar but different
         threshold = 0.80
-        if getattr(embeddings_model, "_fallback", False):
-            threshold = 0.50
         
         embedding1 = self._encode_query(embeddings_model, query1)
         embedding2 = self._encode_query(embeddings_model, query2)
