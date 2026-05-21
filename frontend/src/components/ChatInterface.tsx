@@ -17,9 +17,13 @@ import {
   deleteConversationAttachment,
   fetchConversation,
   fetchConversationAttachments,
+  fetchSystemConfig,
+  fetchUserSettings,
   setMessageFeedback,
+  updateUserSettings,
   uploadConversationAttachment,
 } from "@/lib/api";
+import type { SystemConfig } from "@/lib/api";
 import { selectActiveAttachmentIds } from "@/lib/attachments";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
@@ -33,6 +37,20 @@ import type {
  * Replace [N] footnote references with clickable markdown links using the sources array.
  * E.g. "[1]" becomes "[<sup>1</sup>](url)" if source 1 has a URL, or bold "[<sup>1</sup>]" for RAG.
  */
+const FALLBACK_TOOLS = [
+  { id: "web_search_mcp", label: "Web Search" },
+  { id: "extract_webpage_mcp", label: "Extract Webpage" },
+  { id: "datetime_tool", label: "Datetime" },
+  { id: "calculator_tool", label: "Calculator" },
+  { id: "file_ops_tool", label: "File Ops" },
+] as const;
+
+function formatModelName(model: string | null | undefined, fallback = "Model"): string {
+  const m = model || fallback;
+  const parts = m.split("/");
+  return parts.length > 1 ? parts.slice(1).join("/") : m;
+}
+
 function linkFootnotes(text: string, sources?: Source[]): string {
   if (!sources || sources.length === 0) return text;
   // Build a map from index (1-based from backend) to source
@@ -275,10 +293,18 @@ export function ChatInterface() {
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
+  const [chatModel, setChatModel] = useState<string | null>(null);
+  const [availableChatModels, setAvailableChatModels] = useState<string[]>([]);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef(false);
+  const preferredModelsRef = useRef<Record<string, string | null>>({});
 
   const {
     streamingContent,
@@ -456,17 +482,32 @@ export function ChatInterface() {
   // Cancel any in-flight stream on unmount
   useEffect(() => () => cancelStream(), [cancelStream]);
 
-  // Load RAG preference from user settings on mount
+  // Load user settings on mount: RAG config, tool toggles, chat model
   useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
-    fetch(`${apiBase}/api/settings/user/${CURRENT_USER_ID}`)
-      .then((r) => r.json())
-      .then((s) => {
-        const cfg = s?.rag_config || { collection: "", top_k: 5, enabled: true };
-        setRagConfig(cfg);
-        setRagEnabled(cfg.enabled !== false);
-      })
-      .catch(() => {});
+    fetchUserSettings(CURRENT_USER_ID).then((s) => {
+      if (!s) return;
+      const cfg = (s.rag_config as Record<string, unknown>) || { collection: "", top_k: 5, enabled: true };
+      setRagConfig(cfg);
+      setRagEnabled((cfg.enabled as boolean) !== false);
+      if (s.tool_toggles) setToolToggles(s.tool_toggles);
+      const model = s.preferred_models?.chat ?? s.preferred_model ?? null;
+      setChatModel(model);
+      preferredModelsRef.current = s.preferred_models ?? {};
+    }).catch(() => {});
+  }, []);
+
+  // Load system config for tools list and available models
+  useEffect(() => {
+    fetchSystemConfig().then((config) => {
+      if (!config) return;
+      setSystemConfig(config);
+      const chatRole = config.model_roles?.find((r) => r.role === "chat");
+      if (chatRole) {
+        setAvailableChatModels(
+          Array.from(new Set([chatRole.default_model, ...chatRole.available_models].filter(Boolean)))
+        );
+      }
+    });
   }, []);
 
   const handleRagToggle = useCallback(async () => {
@@ -482,12 +523,27 @@ export function ChatInterface() {
     });
   }, [ragEnabled, ragConfig]);
 
+  const handleToolToggle = useCallback(async (toolId: string) => {
+    const next = { ...toolToggles, [toolId]: toolToggles[toolId] !== false ? false : true };
+    setToolToggles(next);
+    await updateUserSettings(CURRENT_USER_ID, { tool_toggles: next });
+  }, [toolToggles]);
+
+  const handleModelChange = useCallback(async (model: string) => {
+    setChatModel(model);
+    setModelMenuOpen(false);
+    const merged = { ...preferredModelsRef.current, chat: model };
+    preferredModelsRef.current = merged;
+    await updateUserSettings(CURRENT_USER_ID, { preferred_model: model, preferred_models: merged });
+  }, []);
+
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
-    el.style.overflowY = el.scrollHeight > 200 ? "auto" : "hidden";
+    const maxH = 260; // ~10 lines
+    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+    el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
 
   const ensureConversation = useCallback(
@@ -634,7 +690,7 @@ export function ChatInterface() {
     if (!input.trim() || loading || isStreaming) return;
     const userMessage = input;
     setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    setTimeout(() => autoResize(), 0);
     sendMessage(userMessage);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -824,9 +880,11 @@ export function ChatInterface() {
         <div className="h-12" ref={messagesEndRef} />
       </div>
 
-      {/* ═══════════ INPUT BAR ═══════════ */}
+      {/* ═══════════ COMPOSER ═══════════ */}
       <div className="p-4 md:px-6 lg:px-12 md:pb-8 bg-white shrink-0 border-t border-gray-100">
         <div className="max-w-5xl mx-auto">
+
+          {/* Attachment chips */}
           {(attachments.length > 0 || uploadingAttachment) && (
             <div className="flex flex-wrap gap-2 mb-3 px-1">
               {attachments.map((attachment) => {
@@ -870,6 +928,201 @@ export function ChatInterface() {
             </div>
           )}
 
+          {/* Composer box */}
+          <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm focus-within:border-pacific-blue/40 focus-within:shadow-md transition-all">
+
+            {/* Textarea */}
+            <label htmlFor="message-input" className="sr-only">{t("chat.message")}</label>
+            <textarea
+              id="message-input"
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoResize(); }}
+              onKeyDown={handleKeyDown}
+              disabled={isStreaming}
+              className="w-full bg-transparent border-0 focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
+              aria-label={t("chat.typeYourMessage")}
+              rows={2}
+            />
+
+            {/* Bottom toolbar */}
+            <div className="flex items-center gap-1 px-3 py-2 border-t border-gray-100">
+
+              {/* Left group: +, tools, RAG */}
+              <div className="flex items-center gap-0.5">
+
+                {/* + button → attach menu */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    disabled={loading || uploadingAttachment || isStreaming}
+                    onClick={() => setAttachMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    aria-label={t("chat.addAttachment")}
+                  >
+                    <Icon name="add" size={20} />
+                  </button>
+                  {attachMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[160px] z-20">
+                        <button
+                          type="button"
+                          onClick={() => { fileInputRef.current?.click(); setAttachMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                        >
+                          <Icon name="description" size={16} className="text-evergreen/60" />
+                          {t("chat.addFile")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen/30 cursor-not-allowed"
+                        >
+                          <Icon name="image" size={16} />
+                          {t("chat.addImage")}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Tools button */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setToolsMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 transition-colors"
+                    aria-label="Tools"
+                  >
+                    <Icon name="build" size={18} />
+                  </button>
+                  {toolsMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-[200px] z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Tools</p>
+                        {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
+                          const enabled = toolToggles[tool.id] !== false;
+                          return (
+                            <button
+                              key={tool.id}
+                              type="button"
+                              onClick={() => handleToolToggle(tool.id)}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                            >
+                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${enabled ? "bg-evergreen border-evergreen" : "border-gray-300"}`}>
+                                {enabled && <Icon name="check" size={11} className="text-white" />}
+                              </span>
+                              {tool.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* RAG toggle */}
+                <button
+                  type="button"
+                  onClick={handleRagToggle}
+                  disabled={isStreaming}
+                  title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                    ragEnabled
+                      ? "text-pacific-blue hover:bg-pacific-blue/10"
+                      : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
+                  }`}
+                >
+                  <Database size={18} />
+                </button>
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Right group: model, mic, send */}
+              <div className="flex items-center gap-1.5">
+
+                {/* Model selector */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setModelMenuOpen((v) => !v)}
+                    className="flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-[140px]"
+                    aria-label="Select model"
+                  >
+                    <span className="truncate">{formatModelName(chatModel, systemConfig?.default_model)}</span>
+                    <Icon name="keyboard_arrow_down" size={14} className="shrink-0" />
+                  </button>
+                  {modelMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setModelMenuOpen(false)} />
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[220px] max-h-52 overflow-y-auto z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Chat model</p>
+                        {availableChatModels.map((model) => (
+                          <button
+                            key={model}
+                            type="button"
+                            onClick={() => handleModelChange(model)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-50 ${chatModel === model ? "text-pacific-blue font-medium" : "text-evergreen"}`}
+                          >
+                            {chatModel === model && <Icon name="check" size={14} className="shrink-0" />}
+                            <span className="truncate">{formatModelName(model)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Microphone — inactive placeholder */}
+                <button
+                  type="button"
+                  disabled
+                  aria-label="Voice input (not available)"
+                  className="p-1.5 rounded-lg text-evergreen/25 cursor-not-allowed"
+                >
+                  <Icon name="mic" size={20} />
+                </button>
+
+                {/* Send / Cancel */}
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={cancelStream}
+                    aria-label={t("chat.stopGenerating") ?? "Stop generating"}
+                    className="p-2 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                  >
+                    <Icon name="stop_circle" size={22} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={loading || !input.trim()}
+                    aria-label={t("chat.sendMessage")}
+                    className="p-2 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
+                  >
+                    <Icon name="send" size={22} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Attachment count hint */}
+          {selectedAttachmentIds.length > 0 && (
+            <p className="mt-2 px-1 text-xs text-evergreen/45">
+              {selectedAttachmentIds.length === 1
+                ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
+                : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
+            </p>
+          )}
+
+          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -877,90 +1130,6 @@ export function ChatInterface() {
             className="sr-only"
             onChange={handleAttachmentUpload}
           />
-
-          <div
-            className="relative flex items-center gap-2 rounded-lg border border-gray-300 p-1 px-2
-                        bg-white transition-colors duration-300 shadow-sm"
-          >
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading || uploadingAttachment || isStreaming}
-              className="shrink-0 rounded px-2 py-2 text-evergreen/45 hover:text-pacific-blue hover:bg-pacific-blue/5 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={t("chat.uploadingAttachment")}
-              title={t("chat.uploadingAttachment")}
-            >
-              <Icon name="attach_file" size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={handleRagToggle}
-              disabled={isStreaming}
-              title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
-              className={`shrink-0 rounded px-2 py-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                ragEnabled
-                  ? "text-pacific-blue hover:bg-pacific-blue/5"
-                  : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
-              }`}
-            >
-              <Database size={18} />
-            </button>
-            <label htmlFor="message-input" className="sr-only">
-              {t("chat.message")}
-            </label>
-            <textarea
-              id="message-input"
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                autoResize();
-              }}
-              onKeyDown={handleKeyDown}
-              disabled={isStreaming}
-              className="w-full bg-transparent border-0 focus:ring-0 text-evergreen
-                         placeholder-gray-400 py-3 max-h-50 min-h-11 resize-none text-base
-                         disabled:opacity-60 disabled:cursor-not-allowed"
-              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
-              rows={1}
-              style={{ fieldSizing: "content" } as React.CSSProperties}
-              aria-label={t("chat.typeYourMessage")}
-            />
-            <div className="flex items-center pr-2 pl-2 border-l border-gray-200 self-center shrink-0">
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={cancelStream}
-                  className="bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white rounded-lg p-2
-                             transition-colors shrink-0"
-                  aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                >
-                  <Icon name="stop_circle" size={22} className="text-white" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={loading || !input.trim()}
-                  className="bg-evergreen hover:bg-evergreen/85 text-white rounded-lg p-2
-                             transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-                  aria-label={t("chat.sendMessage")}
-                >
-                  <Icon name="send" size={22} className="text-white" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {attachments.length > 0 && (
-            <div className="flex items-center gap-2 mt-2 px-1">
-                <span className="text-xs text-evergreen/45">
-                  {selectedAttachmentIds.length === 1
-                    ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
-                    : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
-                </span>
-            </div>
-          )}
         </div>
       </div>
       </div>
