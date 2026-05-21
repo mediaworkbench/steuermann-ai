@@ -195,6 +195,14 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 setNodeStatus(null);
                 break;
 
+              case "writeback":
+                setFinalMetadata((prev) =>
+                  prev
+                    ? { ...prev, workspace_document_writeback: parsed as ChatResponse["metadata"]["workspace_document_writeback"] }
+                    : { tokens_used: 0, tools_executed: [], sources: [], workspace_document_writeback: parsed as ChatResponse["metadata"]["workspace_document_writeback"] }
+                );
+                break;
+
               case "error":
                 throw new Error((parsed.message as string) ?? "Unknown stream error");
             }

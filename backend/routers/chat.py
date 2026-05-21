@@ -1612,11 +1612,6 @@ async def chat_stream(
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
 
-    # Workspace writeback requires synchronous path — fall back transparently
-    if workspace_writeback_requested:
-        logger.info("chat_stream: workspace writeback requested, falling back to synchronous path")
-        return await chat(request, request_body)
-
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     conversation_id = request_body.conversation_id
     prior_messages = _load_conversation_history(request, conversation_id)
@@ -1650,8 +1645,16 @@ async def chat_stream(
             }
             for doc in documents
         ],
-        "workspace_writeback_requested": False,
-        "workspace_writeback_document": None,
+        "workspace_writeback_requested": workspace_writeback_requested,
+        "workspace_writeback_document": (
+            {
+                "filename": documents[0]["filename"],
+                "content_text": documents[0]["content_text"],
+                "version": documents[0]["version"],
+            }
+            if workspace_writeback_requested and len(documents) == 1
+            else None
+        ),
     }
 
     logger.info(
@@ -1674,8 +1677,26 @@ async def chat_stream(
         _accumulated_tokens: list[str] = []
         _incomplete_chunk = ""
         _done_emitted = False
+        _writeback_result: dict | None = None
 
-        def _run_persistence() -> None:
+        def _do_writeback() -> dict | None:
+            """Perform workspace writeback after stream completes. Returns result dict or None."""
+            if not (workspace_writeback_requested and len(documents) == 1):
+                return None
+            try:
+                return _write_response_back_to_workspace_document(
+                    request,
+                    effective_user_id=effective_user_id,
+                    document=documents[0],
+                    content_text="".join(_accumulated_tokens),
+                )
+            except HTTPException as exc:
+                logger.warning("chat_stream: workspace writeback failed: %s", exc.detail)
+            except Exception as exc:
+                logger.warning("chat_stream: workspace writeback unexpected error: %s", exc)
+            return None
+
+        def _run_persistence(writeback: dict | None = None) -> None:
             """Persist user + assistant messages. Called as soon as [DONE] arrives."""
             if not conversation_id:
                 return
@@ -1684,6 +1705,20 @@ async def chat_stream(
             tools_executed = list((_metadata.get("tool_results") or {}).keys())
             if _metadata.get("knowledge_context"):
                 tools_executed.append("knowledge_base")
+
+            # When writeback succeeded, persist the SUMMARY section (if present) as the
+            # conversation message rather than the raw SUMMARY:/DOCUMENT: blob.
+            persisted_content = assistant_content
+            if writeback and writeback.get("status") == "saved":
+                summary = _extract_writeback_summary(assistant_content)
+                wb_filename = writeback.get("filename", "document")
+                wb_version = writeback.get("version")
+                wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
+                summary_line = f"\n\n{summary}" if summary else ""
+                persisted_content = (
+                    f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
+                    "You can view and restore previous versions in the sidebar History tab."
+                )
 
             try:
                 conv_store = request.app.state.conversation_store
@@ -1699,14 +1734,14 @@ async def chat_stream(
                 conv_store.add_message(
                     conversation_id=conversation_id,
                     role="assistant",
-                    content=assistant_content,
+                    content=persisted_content,
                     tokens_used=int(_metadata.get("tokens_used", 0)),
                     tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                     metadata={
                         "attachments_used": attachments_used,
                         "documents_used": documents_used,
                         "memories_used": memories_used,
-                        "workspace_document_writeback": None,
+                        "workspace_document_writeback": writeback,
                         "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
                     },
                 )
@@ -1758,10 +1793,13 @@ async def chat_stream(
                             if not stripped:
                                 continue
 
-                            # [DONE] received — persist immediately so the browser
-                            # sees it without waiting for upstream to close.
+                            # [DONE] received — do writeback (if requested), persist,
+                            # emit optional writeback event, then forward [DONE].
                             if stripped == "data: [DONE]":
-                                _run_persistence()
+                                _writeback_result = _do_writeback()
+                                _run_persistence(writeback=_writeback_result)
+                                if _writeback_result and _writeback_result.get("status") == "saved":
+                                    yield f"event: writeback\ndata: {json.dumps(_writeback_result)}\n\n"
                                 yield "data: [DONE]\n\n"
                                 _done_emitted = True
                                 return
