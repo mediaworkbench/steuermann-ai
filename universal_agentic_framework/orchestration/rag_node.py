@@ -33,7 +33,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     rag_config = getattr(config, "rag", None)
     features_config = load_features_config()
 
-    user_msg = state["messages"][-1]["content"] if state.get("messages") else ""
+    user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
 
     logger.info("RAG node started", fork_name=fork_name, has_query=bool(user_msg))
 
