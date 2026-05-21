@@ -47,12 +47,6 @@ from langgraph.graph import START, StateGraph
 from universal_agentic_framework.llm.budget import (
     count_tokens_for_model,
     estimate_tokens,
-    TokenBudgetExceeded,
-    get_budget_context,
-    get_node_budget,
-    get_response_reserve_tokens,
-    per_node_hard_limit_enabled,
-    require_tokens,
 )
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.config import get_active_profile_id, load_core_config, load_tools_config, load_features_config
@@ -1188,24 +1182,12 @@ def node_generate_response(state: GraphState) -> GraphState:
     model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
-    # Hybrid budget enforcement: global + per-turn hard limits; per-node optional hard guardrail.
-    budget_ctx = get_budget_context(state, config.tokens)
-    node_budget = get_node_budget(config.tokens, "response_node", budget_ctx["per_turn_budget"])
-    enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
-    reserve_tokens = get_response_reserve_tokens(config.tokens, budget_ctx["per_turn_budget"])
-
-    available_response_budget = max(1, budget_ctx["turn_remaining"] - reserve_tokens)
-    if enforce_node_hard_limit:
-        available_response_budget = min(available_response_budget, node_budget)
-
     # Find the last user-role message so crew-appended assistant messages don't pollute user_msg.
     user_msg = ""
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, dict) and msg.get("role") == "user":
             user_msg = msg.get("content", "")
             break
-    input_tokens = count_tokens_for_model(model_name, user_msg)
-    require_tokens(input_tokens, available_response_budget, "Response input")
     
     # Build context-aware prompt with clear role definition.
     # Resolution order: env var → config prompt files → emergency fallback
@@ -1906,11 +1888,6 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         actual_input_tokens, output_tokens = _tokens_from_usage(_usage_meta, response_text)
         node_tokens = actual_input_tokens + output_tokens
-        require_tokens(node_tokens, available_response_budget, "Response node")
-        if enforce_node_hard_limit and node_tokens > node_budget:
-            raise TokenBudgetExceeded(
-                f"Response node exceeds per-node budget: {node_tokens}/{node_budget}"
-            )
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
@@ -2000,20 +1977,7 @@ def node_summarize(state: GraphState) -> GraphState:
         f"{_exchange_text}"
     )
 
-    budget_ctx = get_budget_context(state, config.tokens)
-    sum_budget = get_node_budget(config.tokens, "summarization_node", budget_ctx["per_turn_budget"])
-    enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
-    available_budget = min(sum_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
-
     input_tokens = count_tokens_for_model(model_name, prompt)
-    if input_tokens > available_budget:
-        logger.warning(
-            "summarize skipped: budget exhausted",
-            required=input_tokens,
-            available=available_budget,
-            fork=fork_name,
-        )
-        return state
 
     with track_node_execution(fork_name, "summarize"):
         try:
@@ -2045,22 +2009,6 @@ def node_summarize(state: GraphState) -> GraphState:
 
         _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
         node_tokens = input_tokens + output_tokens
-        if node_tokens > available_budget:
-            logger.warning(
-                "summarize skipped: total tokens exceed turn budget",
-                total=node_tokens,
-                available=available_budget,
-                fork=fork_name,
-            )
-            return state
-        if enforce_node_hard_limit and node_tokens > sum_budget:
-            logger.warning(
-                "summarize skipped: exceeds per-node budget",
-                total=node_tokens,
-                node_budget=sum_budget,
-                fork=fork_name,
-            )
-            return state
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
@@ -2136,27 +2084,7 @@ def node_update_memory(state: GraphState) -> GraphState:
 
     logger.info("Summary text prepared", summary_length=len(summary_text), user_id=user_id)
 
-    budget_ctx = get_budget_context(state, config.tokens)
-    upd_budget = get_node_budget(config.tokens, "update_memory", budget_ctx["per_turn_budget"])
-    enforce_node_hard_limit = per_node_hard_limit_enabled(config.tokens)
     update_tokens = estimate_tokens(summary_text)
-    available_budget = min(upd_budget, budget_ctx["turn_remaining"]) if enforce_node_hard_limit else budget_ctx["turn_remaining"]
-    if update_tokens > available_budget:
-        logger.warning(
-            "update_memory skipped: budget exhausted",
-            required=update_tokens,
-            available=available_budget,
-            user_id=user_id,
-        )
-        return state
-    if enforce_node_hard_limit and update_tokens > upd_budget:
-        logger.warning(
-            "update_memory skipped: exceeds per-node budget",
-            required=update_tokens,
-            node_budget=upd_budget,
-            user_id=user_id,
-        )
-        return state
 
     with track_node_execution(fork_name, "update_memory"):
         try:

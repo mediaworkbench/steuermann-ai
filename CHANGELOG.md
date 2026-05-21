@@ -15,15 +15,12 @@
 ### Performance / Token Tracking
 
 - **feat** Compression threshold now derived from `llm.roles.chat.max_tokens * 0.75` (e.g. 24576 at 32768 max) instead of the hardcoded 4096 token limit; `min_messages` lowered to 2 so compression triggers earlier; threshold computed fresh each invocation via `load_core_config()` in `conversation_compression_node`
-- **refactor** Removed local tiktoken-based estimated prompt token floor from `node_generate_response` — `estimated_prompt_tokens` computation and `effective_input_tokens = max(actual, estimated)` floor logic removed; `actual_input_tokens` from LLM usage metadata used directly for both `state["input_tokens"]` and budget accounting; `count_tokens_for_model` still called for pre-flight budget gate (`require_tokens`) on the user message
+- **refactor** Removed local tiktoken-based estimated prompt token floor from `node_generate_response` — `estimated_prompt_tokens` computation, `input_tokens = count_tokens_for_model(model_name, user_msg)` pre-call check, and `effective_input_tokens = max(actual, estimated)` floor logic all removed; `actual_input_tokens` from LLM usage metadata used directly for `state["input_tokens"]`; `count_tokens_for_model` is now only called in `node_summarize` for pre-call node_tokens estimation
+- **refactor** Token budget enforcement removed from all graph nodes (`node_generate_response`, `node_summarize`, `node_update_memory`) — `require_tokens`, `TokenBudgetExceeded`, `get_budget_context`, `get_node_budget`, `get_response_reserve_tokens`, `per_node_hard_limit_enabled` no longer imported or called; `tokens_used` / `turn_tokens_used` / `input_tokens` / `output_tokens` state fields retained for observability and metrics; `test_summarization_budget_enforced` removed, budget monkeypatches removed from `test_graph_digest_chain.py`
 
 ### Bug Fixes
 
 - **fix** `test_system_config_supported_languages_fallback_order` — `role_settings.max_tokens` raised `AttributeError` on mock `SimpleNamespace` objects, caught by the outer `except Exception` and silently returning the hardcoded `["en"]` fallback; changed to `getattr(role_settings, "max_tokens", None)`
-
----
-
-## [0.3.0] — chat-composer-and-scroll-to-bottom
 
 ### Scroll-to-bottom UX
 

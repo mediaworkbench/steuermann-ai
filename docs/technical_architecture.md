@@ -619,37 +619,21 @@ def get_router_model(self, language: str) -> ChatLiteLLMRouter:
     return ChatLiteLLMRouter(router=router)
 ```
 
-### **7.3 Token Budgeting**
+### **7.3 Token Tracking**
 
 **Model-Aware Input Counting:**
 
-`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond node calls this for the pre-flight budget gate (`require_tokens`) on the incoming user message before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific token counting. It is called in `node_summarize` for pre-call node_tokens estimation. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
 
-Post-call token accounting uses the real LLM-reported `usage_metadata` (`input_tokens`, `output_tokens`) captured from the `on_chat_model_end` event in `server.py`. This value is also forwarded to the frontend via the SSE `metadata` event as the numerator for the context ring indicator. The local estimate is no longer used as a floor — if `usage_metadata` is absent, `_tokens_from_usage()` returns `(0, char/4 estimate)` for the output only.
+**Real LLM Usage Capture:**
 
-**Per-Node Budget Enforcement:**
+Post-call token accounting uses the real LLM-reported `usage_metadata` (`input_tokens`, `output_tokens`) captured from the `on_chat_model_end` event in `server.py`. This event fires once per LLM call with the fully-merged `AIMessage`; it is the reliable source for real token counts. The captured values are forwarded to the frontend via the SSE `metadata` event as the numerator for the context ring indicator. A secondary capture path via `on_chat_model_stream` covers providers that embed usage in the final streaming chunk; `on_chat_model_end` values take precedence when non-zero.
 
-```python
-def execute_node_with_budget(
-    node_fn: Callable,
-    state: GraphState,
-    budget: int
-) -> GraphState:
-    """Execute node with token budget enforcement."""
+If `usage_metadata` is absent, `_tokens_from_usage()` returns `(0, char/4 estimate)` for the output only; `state["input_tokens"]` accumulates `actual_input_tokens` (zero when unavailable) and serves as a fallback in the metadata payload.
 
-    if state["tokens_used"] >= state["token_budget"]:
-        raise TokenBudgetExceeded(
-            f"Budget exhausted: {state['tokens_used']}/{state['token_budget']}"
-        )
+**Observability Fields (no enforcement):**
 
-    # Track tokens
-    with TokenCounter() as counter:
-        result = node_fn(state)
-
-    state["tokens_used"] += counter.total_tokens
-
-    return result
-```
+`tokens_used`, `turn_tokens_used`, `input_tokens`, and `output_tokens` are retained in `GraphState` and exposed via Prometheus metrics and SSE metadata. The `tokens` configuration keys (`default_budget`, `per_turn_budget_ratio`, etc.) are still parsed from profile YAML but have no enforcement effect — no node raises `TokenBudgetExceeded` or discards responses based on token counts.
 
 ---
 
@@ -1329,7 +1313,7 @@ services:
 
 ## **16. Performance Considerations**
 
-- **Token budgets:** Default 10,000 per request, per-node budgets enforced, automatic summarization when approaching limits
+- **Token tracking:** `tokens_used`, `input_tokens`, `output_tokens` accumulated in state for Prometheus metrics and SSE metadata; automatic summarization when context grows beyond `max_tokens * 0.75`
 - **Caching:** LLM response caching (optional), session-scoped memory query caching, Qdrant collection caching
 - **Concurrency:** Container-based — each session gets independent graph execution in LangGraph service, horizontal scaling via additional containers
 

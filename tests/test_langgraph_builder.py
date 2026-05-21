@@ -4,7 +4,6 @@ from universal_agentic_framework.orchestration.graph_builder import build_graph
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.memory.factory import build_memory_backend
 from universal_agentic_framework.memory import InMemoryMemoryManager
-from universal_agentic_framework.llm.budget import TokenBudgetExceeded
 from types import SimpleNamespace
 
 
@@ -60,30 +59,3 @@ def test_langgraph_pipeline_runs_and_updates_memory():
     assert result.get("summary_text", "").startswith("LLM: ")
 
 
-def test_summarization_budget_enforced(monkeypatch):
-    # Force a tiny summarization budget to trigger TokenBudgetExceeded
-    tiny_budget_config = SimpleNamespace(
-        fork=SimpleNamespace(language="en"),
-        tokens=SimpleNamespace(default_budget=100, per_node_budgets={"summarization_node": 1}),
-    )
-
-    monkeypatch.setattr(
-        "universal_agentic_framework.orchestration.graph_builder.load_core_config",
-        lambda: tiny_budget_config,
-    )
-    # Patch memory backend builder at the graph_builder import site to avoid config.memory access
-    monkeypatch.setattr(
-        "universal_agentic_framework.orchestration.graph_builder.build_memory_backend",
-        lambda *_, **__: InMemoryMemoryManager(),
-    )
-
-    graph = build_graph()
-
-    inputs = {
-        "messages": [{"role": "user", "content": "hello memory"}],
-        "user_id": "u1",
-        "language": "en",
-    }
-
-    with pytest.raises(TokenBudgetExceeded):
-        graph.invoke(inputs)

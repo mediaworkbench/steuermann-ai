@@ -336,32 +336,22 @@ database:
   url: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
 ```
 
-### Token Budget Configuration
+### Token Configuration
 
 ```yaml
 tokens:
-  default_budget: 10000 # Default budget per request
-  conversation_budget: null # Optional global budget override (falls back to default_budget)
-  per_turn_budget: null # Optional explicit per-turn budget
-  per_turn_budget_ratio: 0.4 # Used when per_turn_budget is null
-  response_reserve_ratio: 0.15 # Reserve of per-turn budget for downstream nodes
-  enforce_per_node_hard_limit: true # If false, per-node budgets act as soft guidance
+  default_budget: 10000 # Parsed but not enforced — retained for observability
+  per_turn_budget_ratio: 0.4
   per_node_budgets:
-    research_crew: 3000 # Budget for specific nodes
-    analysis_crew: 2500
-    response_node: 1000
-    summarization_node: 800 # New summarization step budget
-    load_memory: 500
-    update_memory: 500
+    summarization_node: 2000
+    update_memory: 2000
 ```
 
-**Budget enforcement:**
+**Token tracking (no enforcement):**
 
-- Global conversation budget is enforced first (state-aware; supports checkpointed sessions)
-- Per-turn budget is enforced for each invocation (`per_turn_budget` or `per_turn_budget_ratio`)
-- Per-node budgets are enforced as hard caps when `enforce_per_node_hard_limit=true`
-- Response node applies `response_reserve_ratio` to leave budget for summarize/update-memory
-- Raises `TokenBudgetExceeded` when required tokens exceed remaining budget
+- `tokens_used`, `input_tokens`, and `output_tokens` are accumulated in `GraphState` each turn and exposed via Prometheus metrics and the SSE `metadata` event.
+- Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The `tokens.*` configuration keys are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
+- Conversation length is controlled by the compression threshold (`llm.roles.chat.max_tokens * 0.75`) and the `SUMMARIZE_*` env vars, not by token budget caps.
 
 ### Checkpointing Configuration
 
@@ -989,8 +979,6 @@ rag:
 tokens:
   default_budget: 15000
   per_turn_budget_ratio: 0.4
-  response_reserve_ratio: 0.15
-  enforce_per_node_hard_limit: true
 ```
 
 ---
@@ -1030,17 +1018,6 @@ docker ps | grep qdrant
 curl http://localhost:6333/collections
 ```
 
-### Token budget exceeded
-
-**Symptom:** `TokenBudgetExceeded: Budget exceeded: 10500/10000`
-
-**Solution:** Increase budget in config:
-
-```yaml
-tokens:
-  default_budget: 20000 # Increase from 10000
-```
-
 ---
 
 ## Best Practices
@@ -1054,7 +1031,6 @@ tokens:
 
 ### Performance
 
-- ✅ Set appropriate token budgets
 - ✅ Use lower temperature for deterministic tasks
 - ✅ Configure reasonable timeouts
 - ✅ Optimize chunk sizes for your documents
