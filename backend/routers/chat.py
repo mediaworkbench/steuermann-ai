@@ -991,6 +991,33 @@ def _execute_workspace_action(
     raise HTTPException(status_code=400, detail=f"Unsupported workspace operation: {action.operation}")
 
 
+def _load_conversation_history(
+    request: Request,
+    conversation_id: Optional[str],
+    limit: int = 20,
+) -> List[Dict[str, str]]:
+    """Load prior user/assistant messages from the conversation store.
+
+    These are prepended to the current user message so LangGraph receives
+    full multi-turn context on every invocation, independent of checkpointing.
+    """
+    if not conversation_id:
+        return []
+    conv_store = getattr(request.app.state, "conversation_store", None)
+    if conv_store is None:
+        return []
+    try:
+        rows = conv_store.get_messages(conversation_id, limit=limit, offset=0)
+        return [
+            {"role": row["role"], "content": row["content"]}
+            for row in rows
+            if row.get("role") in ("user", "assistant") and row.get("content")
+        ]
+    except Exception as exc:
+        logger.warning("Failed to load conversation history for context injection: %s", exc)
+        return []
+
+
 def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[str, Any]:
     """Load user settings with cache (5min TTL)."""
     now = time.time()
@@ -1260,9 +1287,10 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
     llm_capability_probes = _get_latest_llm_capability_probes(request)
-    
+    prior_messages = _load_conversation_history(request, request_body.conversation_id)
+
     state = {
-        "messages": [{"role": "user", "content": request_body.message}],
+        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
@@ -1591,9 +1619,10 @@ async def chat_stream(
 
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     conversation_id = request_body.conversation_id
+    prior_messages = _load_conversation_history(request, conversation_id)
 
     state: Dict[str, Any] = {
-        "messages": [{"role": "user", "content": request_body.message}],
+        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,
