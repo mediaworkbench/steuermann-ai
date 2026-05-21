@@ -393,6 +393,17 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
 
                     elif kind == "on_chain_start":
                         if name in _NODE_STATUS_LABELS:
+                            # Suppress retrieve_knowledge indicator when the user has
+                            # explicitly disabled RAG — the node still runs but exits
+                            # immediately, so showing the label is misleading.
+                            if name == "retrieve_knowledge":
+                                _rag_enabled = (
+                                    state.get("user_settings", {})
+                                    .get("rag_config", {})
+                                    .get("enabled", True)
+                                )
+                                if not _rag_enabled:
+                                    continue
                             yield (
                                 f"event: node\ndata: "
                                 f"{json.dumps({'node': name, 'label': _NODE_STATUS_LABELS[name]})}\n\n"

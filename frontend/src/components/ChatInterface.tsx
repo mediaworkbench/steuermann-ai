@@ -295,17 +295,6 @@ export function ChatInterface() {
   const { activeId, create, refresh, rename, activeConversation, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
 
-  const templates = useMemo(
-    () => [
-      { icon: "lightbulb", label: t("chat.templates.explainConcept"), prompt: t("chat.templates.explainPrompt") },
-      { icon: "code", label: t("chat.templates.helpCode"), prompt: t("chat.templates.codePrompt") },
-      { icon: "summarize", label: t("chat.templates.summarizeText"), prompt: t("chat.templates.summarizePrompt") },
-      { icon: "translate", label: t("chat.templates.translate"), prompt: t("chat.templates.translatePrompt") },
-      { icon: "psychology", label: t("chat.templates.brainstormIdeas"), prompt: t("chat.templates.brainstormPrompt") },
-      { icon: "troubleshoot", label: t("chat.templates.debugIssue"), prompt: t("chat.templates.debugPrompt") },
-    ],
-    [t],
-  );
 
   // Flag: when true the next activeId change came from create() and the
   // message-fetch useEffect should skip reloading (no persisted messages yet).
@@ -718,32 +707,6 @@ export function ChatInterface() {
           <div className="flex flex-col items-center justify-center h-full text-evergreen/40">
             <Icon name="smart_toy" size={48} className="mb-4 opacity-50" />
             <p className="text-lg font-medium">{t("chat.noMessagesYet")}</p>
-            <p className="text-sm mb-8">
-              {t("chat.startConversationHint")}
-            </p>
-
-            {/* ── Template starters ── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl w-full">
-              {templates.map((template) => (
-                <button
-                  key={template.label}
-                  onClick={() => {
-                    setInput(template.prompt);
-                    textareaRef.current?.focus();
-                  }}
-                  className="flex items-center gap-2.5 px-4 py-3.5 rounded-xl border border-light-cyan
-                             bg-light-cyan/10 hover:bg-light-cyan/30 text-evergreen/70 hover:text-evergreen
-                               transition-colors text-sm text-left group cursor-pointer min-h-11"
-                >
-                  <Icon
-                    name={template.icon}
-                    size={18}
-                    className="text-pacific-blue shrink-0 group-hover:scale-110 transition-transform"
-                  />
-                  <span className="font-medium">{template.label}</span>
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           <>
@@ -941,34 +904,27 @@ export function ChatInterface() {
               style={{ fieldSizing: "content" } as React.CSSProperties}
               aria-label={t("chat.typeYourMessage")}
             />
-            <div className="flex items-center gap-2 pr-1 border-l border-gray-200 pl-2 h-8 my-auto shrink-0">
+            <div className="flex items-center pr-2 pl-2 border-l border-gray-200 self-center shrink-0">
               {isStreaming ? (
                 <button
                   type="button"
                   onClick={cancelStream}
-                  className="text-burnt-tangerine hover:text-burnt-tangerine/80 transition-colors rounded
-                             hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1"
+                  className="bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white rounded-lg p-2
+                             transition-colors shrink-0"
                   aria-label={t("chat.stopGenerating") ?? "Stop generating"}
                 >
-                  <Icon name="stop_circle" size={20} className="text-burnt-tangerine" />
-                  <span className="text-xs font-medium text-burnt-tangerine hidden sm:inline">
-                    {t("chat.stop") ?? "Stop"}
-                  </span>
+                  <Icon name="stop_circle" size={22} className="text-white" />
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleSend}
                   disabled={loading || !input.trim()}
-                  className="text-evergreen/40 hover:text-burnt-tangerine transition-colors rounded
-                             hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1
-                             disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="bg-evergreen hover:bg-evergreen/85 text-white rounded-lg p-2
+                             transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                   aria-label={t("chat.sendMessage")}
                 >
-                  <Icon name="send" size={20} className="text-burnt-tangerine" />
-                  <span className="text-xs font-medium text-evergreen/60 hidden sm:inline">
-                    {t("chat.send")}
-                  </span>
+                  <Icon name="send" size={22} className="text-white" />
                 </button>
               )}
             </div>
