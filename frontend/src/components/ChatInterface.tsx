@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
+import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
@@ -299,6 +300,7 @@ export function ChatInterface() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [contextTokens, setContextTokens] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -362,6 +364,7 @@ export function ChatInterface() {
       setAttachments([]);
       setSelectedAttachmentIds([]);
       setWorkspaceSidebarOpen(false);
+      setContextTokens(0);
       return;
     }
     // When a conversation was just created the DB has no messages yet.
@@ -374,6 +377,7 @@ export function ChatInterface() {
     (async () => {
       const detail = await fetchConversation(activeId);
       if (cancelled || !detail) return;
+      setContextTokens(0);
       setMessages(detail.messages.map((msg) => toUiMessage(msg, formatTime)));
       // New chats should start with a collapsed workspace unless explicitly opened.
       if (detail.messages.length === 0) {
@@ -468,6 +472,13 @@ export function ChatInterface() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming]);
+
+  // Update context token count from the most recent completed inference
+  useEffect(() => {
+    if (!isStreaming && finalMetadata?.input_tokens !== undefined) {
+      setContextTokens(finalMetadata.input_tokens);
+    }
+  }, [isStreaming, finalMetadata]);
 
   // Surface stream errors as toasts
   useEffect(() => {
@@ -754,6 +765,9 @@ export function ChatInterface() {
       handleSend();
     }
   }
+
+  const maxContextTokens =
+    systemConfig?.model_roles?.find((r) => r.role === "chat")?.max_tokens ?? null;
 
   return (
     <>
@@ -1044,6 +1058,12 @@ export function ChatInterface() {
 
               {/* Right group: model, mic, send */}
               <div className="flex items-center gap-1.5">
+
+                {/* Context usage ring */}
+                <ContextRingIndicator
+                  contextTokens={contextTokens}
+                  maxContextTokens={maxContextTokens}
+                />
 
                 {/* Model selector */}
                 <div className="relative">
