@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.0.1` in `pyproject.toml`.
+- The package metadata currently reports version `0.3.0` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
