@@ -355,6 +355,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     async def _event_stream() -> AsyncGenerator[str, None]:
         _final_output: dict = {}
         _done_emitted = False
+        _captured_input_tokens: int = 0
+        _captured_output_tokens: int = 0
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
             with track_graph_request(fork_name) as ctx:
@@ -372,6 +374,17 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                         chunk = data.get("chunk")
                         delta = ""
                         if chunk is not None:
+                            # Capture real usage from the final streaming chunk (LM Studio
+                            # always reports usage here; this fires before on_chain_end).
+                            _chunk_usage = getattr(chunk, "usage_metadata", None)
+                            if isinstance(_chunk_usage, dict) and _chunk_usage:
+                                _in = _chunk_usage.get("input_tokens", 0) or 0
+                                _out = _chunk_usage.get("output_tokens", 0) or 0
+                                if _in > 0:
+                                    logger.debug("Captured usage from streaming chunk (on_chat_model_stream)", input_tokens=_in, output_tokens=_out)
+                                    _captured_input_tokens = _in
+                                if _out > 0:
+                                    _captured_output_tokens = _out
                             content = getattr(chunk, "content", chunk)
                             if isinstance(content, str):
                                 delta = content
@@ -382,6 +395,27 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 )
                         if delta:
                             yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
+
+                    elif kind == "on_chat_model_end":
+                        # Override streaming chunk capture with the fully-merged result.
+                        # Fires once per LLM call after all chunks accumulate — more
+                        # reliable than the per-chunk path.
+                        langgraph_node = event.get("metadata", {}).get("langgraph_node", "")
+                        if langgraph_node == "respond":
+                            _end_output = data.get("output")
+                            _end_usage = None
+                            if hasattr(_end_output, "usage_metadata"):
+                                _end_usage = _end_output.usage_metadata
+                            elif hasattr(_end_output, "message"):
+                                _end_usage = getattr(_end_output.message, "usage_metadata", None)
+                            if isinstance(_end_usage, dict) and _end_usage:
+                                _in = _end_usage.get("input_tokens", 0) or 0
+                                _out = _end_usage.get("output_tokens", 0) or 0
+                                logger.debug("Captured usage from on_chat_model_end", input_tokens=_in, output_tokens=_out)
+                                if _in > 0:
+                                    _captured_input_tokens = _in
+                                if _out > 0:
+                                    _captured_output_tokens = _out
 
                     elif kind == "on_tool_start":
                         # Fallback path — fires if future refactor adds LangChain
@@ -424,8 +458,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     # for summarize + update_memory (~43 s).
                                     meta_payload = {
                                         "tokens_used": _final_output.get("tokens_used", 0),
-                                        "input_tokens": _final_output.get("input_tokens", 0),
-                                        "output_tokens": _final_output.get("output_tokens", 0),
+                                        "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
+                                        "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
                                         "provider_used": _final_output.get("provider_used", "unknown"),
                                         "model_used": _final_output.get("model_used", "unknown"),
                                         "profile_id": _final_output.get("profile_id", profile_id),
@@ -457,8 +491,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
             if not _done_emitted and _final_output:
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
-                    "input_tokens": _final_output.get("input_tokens", 0),
-                    "output_tokens": _final_output.get("output_tokens", 0),
+                    "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
+                    "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
                     "provider_used": _final_output.get("provider_used", "unknown"),
                     "model_used": _final_output.get("model_used", "unknown"),
                     "profile_id": _final_output.get("profile_id", profile_id),

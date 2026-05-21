@@ -623,7 +623,9 @@ def get_router_model(self, language: str) -> ChatLiteLLMRouter:
 
 **Model-Aware Input Counting:**
 
-`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond and summarize nodes call this function (with the resolved model name) to account for pre-call input tokens before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond node calls this for the pre-flight budget gate (`require_tokens`) on the incoming user message before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+
+Post-call token accounting uses the real LLM-reported `usage_metadata` (`input_tokens`, `output_tokens`) captured from the `on_chat_model_end` event in `server.py`. This value is also forwarded to the frontend via the SSE `metadata` event as the numerator for the context ring indicator. The local estimate is no longer used as a floor — if `usage_metadata` is absent, `_tokens_from_usage()` returns `(0, char/4 estimate)` for the output only.
 
 **Per-Node Budget Enforcement:**
 

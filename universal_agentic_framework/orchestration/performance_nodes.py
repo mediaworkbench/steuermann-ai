@@ -164,13 +164,23 @@ async def conversation_compression_node(state: dict) -> dict:
         Updated state with optionally compressed messages
     """
     summarizer = get_summarizer()
-    
+
     try:
         messages = state.get("messages", [])
         user_id = state.get("user_id", "unknown")
-        
-        # Check if summarization needed
-        if not summarizer.should_summarize(messages):
+
+        # Derive compression threshold from the chat role's max_tokens (75 % of context window).
+        # Fall back to a conservative 24576 (= 75 % of 32768) when config is unavailable.
+        try:
+            from universal_agentic_framework.config import load_core_config as _load_cfg
+            _cfg = _load_cfg()
+            _max_ctx = getattr(_cfg.llm.roles.chat, "max_tokens", None) or 32768
+        except Exception:
+            _max_ctx = 32768
+        compression_threshold = int(_max_ctx * 0.75)
+
+        # Check if summarization needed — rely on token count, not message count.
+        if not summarizer.should_summarize(messages, max_tokens=compression_threshold, min_messages=2):
             return state
         
         logger.info(f"Compressing conversation for user {user_id}")

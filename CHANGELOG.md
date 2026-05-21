@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.0] — context-ring-conversation-integrity-token-tracking
+
+### Context Window Ring Indicator
+
+- **feat** `ContextRingIndicator` component (`frontend/src/components/ContextRingIndicator.tsx`) — SVG ring with `%` text showing real-time context window usage in the chat composer toolbar, left of the model selector; color bands: muted gray at 0%, evergreen up to 59%, amber 60–84%, red 85–100%; tooltip shows exact token counts; hidden when `max_tokens` is unavailable
+- **feat** `max_tokens` added to every `model_roles` entry in `GET /api/system-config` — reads from `llm.roles.<role>.max_tokens` in the active profile (e.g. 32768 for the `chat` role); frontend derives the ring denominator from this field
+- **feat** Real token capture via `on_chat_model_end` in `universal_agentic_framework/server.py` — fires once per LLM call with the fully-merged `AIMessage` including real `usage_metadata` from LM Studio; captured `input_tokens`/`output_tokens` override the state-derived fallback in both SSE metadata payload sites (respond-node fast path + drain fallback); streaming chunk capture (`on_chat_model_stream`) kept as secondary path
+
+### Conversation Integrity
+
+- **fix** Multi-turn context loss with checkpointer disabled — `_load_conversation_history()` helper in `backend/routers/chat.py` loads prior messages from PostgreSQL (`ConversationStore.get_messages()`, limit 20) and prepends them to the LangGraph state for every request; both `chat()` and `chat_stream()` paths updated; fixes the model having no memory of previous turns when `CHECKPOINTER_ENABLED=false`
+
+### Performance / Token Tracking
+
+- **feat** Compression threshold now derived from `llm.roles.chat.max_tokens * 0.75` (e.g. 24576 at 32768 max) instead of the hardcoded 4096 token limit; `min_messages` lowered to 2 so compression triggers earlier; threshold computed fresh each invocation via `load_core_config()` in `conversation_compression_node`
+- **refactor** Removed local tiktoken-based estimated prompt token floor from `node_generate_response` — `estimated_prompt_tokens` computation and `effective_input_tokens = max(actual, estimated)` floor logic removed; `actual_input_tokens` from LLM usage metadata used directly for both `state["input_tokens"]` and budget accounting; `count_tokens_for_model` still called for pre-flight budget gate (`require_tokens`) on the user message
+
+### Bug Fixes
+
+- **fix** `test_system_config_supported_languages_fallback_order` — `role_settings.max_tokens` raised `AttributeError` on mock `SimpleNamespace` objects, caught by the outer `except Exception` and silently returning the hardcoded `["en"]` fallback; changed to `getattr(role_settings, "max_tokens", None)`
+
+---
+
 ## [0.3.0] — chat-composer-and-scroll-to-bottom
 
 ### Scroll-to-bottom UX

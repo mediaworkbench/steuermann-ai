@@ -1563,9 +1563,9 @@ def node_generate_response(state: GraphState) -> GraphState:
                 content=f"[Document to revise: {fname}{ver_label}]\n\n{full_text}"
             ))
 
-    # Debug: log what we're sending to the model
     tool_results = state.get("tool_results", {})
-    logger.info("Sending to LLM", 
+
+    logger.info("Sending to LLM",
                 system_prompt_length=len(system_prompt),
                 user_msg_length=len(user_msg),
                 knowledge_context_docs=len(knowledge_context),
@@ -1904,8 +1904,8 @@ def node_generate_response(state: GraphState) -> GraphState:
             )
             response_text = exact_reply
 
-        _, output_tokens = _tokens_from_usage(_usage_meta, response_text)
-        node_tokens = input_tokens + output_tokens
+        actual_input_tokens, output_tokens = _tokens_from_usage(_usage_meta, response_text)
+        node_tokens = actual_input_tokens + output_tokens
         require_tokens(node_tokens, available_response_budget, "Response node")
         if enforce_node_hard_limit and node_tokens > node_budget:
             raise TokenBudgetExceeded(
@@ -1915,10 +1915,10 @@ def node_generate_response(state: GraphState) -> GraphState:
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
         track_tokens(fork_name, model_name, "respond", node_tokens)
-        
+
         state["tokens_used"] = tokens_used
         state["turn_tokens_used"] = (state.get("turn_tokens_used") or 0) + node_tokens
-        state["input_tokens"] = (state.get("input_tokens") or 0) + input_tokens
+        state["input_tokens"] = (state.get("input_tokens") or 0) + actual_input_tokens
         state["output_tokens"] = (state.get("output_tokens") or 0) + output_tokens
         state["provider_used"] = provider
         state["model_used"] = model_name
@@ -1930,7 +1930,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         
         logger.info(
             "Response generated",
-            tokens=input_tokens + output_tokens,
+            tokens=actual_input_tokens + output_tokens,
             total_tokens=tokens_used,
             model_used=model_name
         )
