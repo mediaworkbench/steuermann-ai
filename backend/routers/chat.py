@@ -1748,6 +1748,25 @@ async def chat_stream(
             except Exception as exc:
                 logger.warning("Failed to persist streamed messages to conversation %s: %s", conversation_id, exc)
 
+            # Memory retrieval quality signals (feeds analytics dashboard)
+            for _mem in memories_used:
+                try:
+                    track_memory_retrieval_signal(PROFILE_ID, _mem.get("user_rating"))
+                except Exception:
+                    pass
+
+            # Profile ID mismatch tracking
+            raw_profile_id = _metadata.get("profile_id")
+            if raw_profile_id and raw_profile_id != ACTIVE_PROFILE_ID:
+                try:
+                    track_profile_id_mismatch(
+                        fork_name=PROFILE_ID,
+                        active_profile_id=ACTIVE_PROFILE_ID,
+                        reported_profile_id=str(raw_profile_id),
+                    )
+                except Exception:
+                    pass
+
             try:
                 analytics_store = getattr(request.app.state, "analytics_store", None)
                 if analytics_store:
@@ -1767,6 +1786,9 @@ async def chat_stream(
             if LANGGRAPH_CIRCUIT_BREAKER.state == CircuitState.OPEN:
                 yield f"event: error\ndata: {json.dumps({'message': 'Service temporarily unavailable (circuit breaker open)'})}\n\n"
                 return
+
+            if model_warning:
+                yield f"event: warning\ndata: {json.dumps({'message': model_warning})}\n\n"
 
             async with httpx.AsyncClient(timeout=900.0) as client:
                 async with client.stream(

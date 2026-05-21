@@ -311,6 +311,7 @@ export function ChatInterface() {
     streamingContent,
     isStreaming,
     streamError,
+    streamWarning,
     toolCallStatus,
     nodeStatus,
     finalMetadata,
@@ -488,6 +489,14 @@ export function ChatInterface() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamError]);
+
+  // Surface model validation warnings as toasts
+  useEffect(() => {
+    if (streamWarning) {
+      toast.warning(streamWarning);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamWarning]);
 
   // Cancel any in-flight stream on unmount
   useEffect(() => () => cancelStream(), [cancelStream]);

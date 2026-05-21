@@ -18,6 +18,7 @@ export interface UseStreamingChatReturn {
   streamingContent: string;
   isStreaming: boolean;
   streamError: string | null;
+  streamWarning: string | null;
   toolCallStatus: { name: string; status: "start" | "end"; label: string } | null;
   nodeStatus: string | null;
   finalMetadata: ChatResponse["metadata"] | null;
@@ -57,6 +58,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const [toolCallStatus, setToolCallStatus] = useState<{ name: string; status: "start" | "end"; label: string } | null>(null);
   const [nodeStatus, setNodeStatus] = useState<string | null>(null);
   const [finalMetadata, setFinalMetadata] = useState<ChatResponse["metadata"] | null>(null);
@@ -203,6 +205,10 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 );
                 break;
 
+              case "warning":
+                setStreamWarning((parsed.message as string) ?? null);
+                break;
+
               case "error":
                 throw new Error((parsed.message as string) ?? "Unknown stream error");
             }
@@ -229,6 +235,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     streamingContent,
     isStreaming,
     streamError,
+    streamWarning,
     toolCallStatus,
     nodeStatus,
     finalMetadata,
