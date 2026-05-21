@@ -101,7 +101,7 @@ def resolve_rag_config(
     with_payload, with_vector, timeout_seconds.
     """
     resolved: dict = {
-        "collection_name": "framework",
+        "collection_name": None,
         "top_k": 5,
         "pill_score_threshold": None,
         "with_payload": True,

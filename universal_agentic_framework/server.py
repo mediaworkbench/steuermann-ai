@@ -7,6 +7,7 @@ Exposes:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict
@@ -263,6 +264,14 @@ _NODE_STATUS_LABELS: dict[str, str] = {
     "load_memory": "Loading memories...",
 }
 
+# Tool-calling nodes bypass LangChain's callback chain, so on_tool_start never
+# fires. We synthesise tool_call events from on_chain_start / on_chain_end.
+_TOOL_CALL_NODES: frozenset[str] = frozenset({
+    "call_tools_native",
+    "call_tools_structured",
+    "call_tools_react",
+})
+
 _TOOL_LABELS: dict[str, str] = {
     "web_search_mcp": "Searching the web...",
     "duckduckgo_search": "Searching the web...",
@@ -288,6 +297,15 @@ def _tool_label(tool_name: str) -> str:
         .title()
     )
     return f"Using {friendly}..."
+
+
+async def _drain_remaining(iterator: Any) -> None:
+    """Silently consume remaining astream_events so post-processing nodes complete."""
+    try:
+        async for _ in iterator:
+            pass
+    except Exception:
+        pass
 
 
 @app.post("/stream")
@@ -336,9 +354,11 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
 
     async def _event_stream() -> AsyncGenerator[str, None]:
         _final_output: dict = {}
+        _done_emitted = False
+        _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
             with track_graph_request(fork_name) as ctx:
-                async for event in GRAPH.astream_events(state, config=invoke_config, version="v2"):
+                async for event in _events_iter:
                     kind: str = event.get("event", "")
                     name: str = event.get("name", "")
                     data: dict = event.get("data", {})
@@ -364,25 +384,66 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                             yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
 
                     elif kind == "on_tool_start":
+                        # Fallback path — fires if future refactor adds LangChain
+                        # tool invocation with callbacks wired up.
                         yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': _tool_label(name)})}\n\n"
 
                     elif kind == "on_tool_end":
                         yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end', 'label': _tool_label(name)})}\n\n"
 
-                    elif kind == "on_chain_start" and name in _NODE_STATUS_LABELS:
-                        yield (
-                            f"event: node\ndata: "
-                            f"{json.dumps({'node': name, 'label': _NODE_STATUS_LABELS[name]})}\n\n"
-                        )
+                    elif kind == "on_chain_start":
+                        if name in _NODE_STATUS_LABELS:
+                            yield (
+                                f"event: node\ndata: "
+                                f"{json.dumps({'node': name, 'label': _NODE_STATUS_LABELS[name]})}\n\n"
+                            )
+                        elif name in _TOOL_CALL_NODES:
+                            # Tool-calling nodes invoke tools directly in Python,
+                            # so on_tool_start never fires. Emit start here instead.
+                            yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': 'Using tools...'})}\n\n"
 
                     elif kind == "on_chain_end":
                         output = data.get("output")
-                        if isinstance(output, dict) and "messages" in output:
-                            _final_output = output
+                        if isinstance(output, dict):
+                            if "messages" in output:
+                                _final_output = output
+                                if name == "respond" and not _done_emitted:
+                                    # Emit metadata + [DONE] immediately after the respond
+                                    # node so the client can render pills without waiting
+                                    # for summarize + update_memory (~43 s).
+                                    meta_payload = {
+                                        "tokens_used": _final_output.get("tokens_used", 0),
+                                        "input_tokens": _final_output.get("input_tokens", 0),
+                                        "output_tokens": _final_output.get("output_tokens", 0),
+                                        "provider_used": _final_output.get("provider_used", "unknown"),
+                                        "model_used": _final_output.get("model_used", "unknown"),
+                                        "profile_id": _final_output.get("profile_id", profile_id),
+                                        "tool_results": _final_output.get("tool_results", {}),
+                                        "sources": _final_output.get("sources", []),
+                                        "rag_attempted": _final_output.get("rag_attempted", False),
+                                        "rag_doc_count": _final_output.get("rag_doc_count", 0),
+                                        "loaded_memory": _final_output.get("loaded_memory", []),
+                                        "memory_analytics": _final_output.get("memory_analytics", {}),
+                                    }
+                                    yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
+                                    yield "data: [DONE]\n\n"
+                                    _done_emitted = True
+                                    # Drain post-processing nodes (summarize, update_memory)
+                                    # in the background so they complete without blocking.
+                                    asyncio.create_task(_drain_remaining(_events_iter))
+                                    break
+                            # Emit specific tool label once we know which tool ran.
+                            if name in _TOOL_CALL_NODES:
+                                tool_results: dict = output.get("tool_results") or {}
+                                tool_names = list(tool_results.keys())
+                                t_name = tool_names[0] if tool_names else name
+                                yield f"event: tool_call\ndata: {json.dumps({'name': t_name, 'status': 'end', 'label': _tool_label(t_name)})}\n\n"
 
                 ctx["status"] = "success"
 
-            if _final_output:
+            # Fallback: emit metadata if the respond node's on_chain_end never fired
+            # (e.g. graph ended via a different path).
+            if not _done_emitted and _final_output:
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
                     "input_tokens": _final_output.get("input_tokens", 0),
@@ -401,10 +462,12 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
 
         except Exception as exc:
             logger.error("Stream graph error", error=str(exc), exc_info=True)
-            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+            if not _done_emitted:
+                yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
         finally:
             clear_context()
-            yield "data: [DONE]\n\n"
+            if not _done_emitted:
+                yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _event_stream(),

@@ -1644,7 +1644,60 @@ async def chat_stream(
         _metadata: Dict[str, Any] = {}
         _accumulated_tokens: list[str] = []
         _incomplete_chunk = ""
-        _success = False
+        _done_emitted = False
+
+        def _run_persistence() -> None:
+            """Persist user + assistant messages. Called as soon as [DONE] arrives."""
+            if not conversation_id:
+                return
+            assistant_content = "".join(_accumulated_tokens)
+            memories_used = _serialize_loaded_memories(_metadata.get("loaded_memory", []))
+            tools_executed = list((_metadata.get("tool_results") or {}).keys())
+            if _metadata.get("knowledge_context"):
+                tools_executed.append("knowledge_base")
+
+            try:
+                conv_store = request.app.state.conversation_store
+                conv_store.add_message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=request_body.message,
+                    metadata={
+                        "attachment_ids": request_body.attachment_ids,
+                        "document_ids": request_body.document_ids,
+                    },
+                )
+                conv_store.add_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=assistant_content,
+                    tokens_used=int(_metadata.get("tokens_used", 0)),
+                    tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
+                    metadata={
+                        "attachments_used": attachments_used,
+                        "documents_used": documents_used,
+                        "memories_used": memories_used,
+                        "workspace_document_writeback": None,
+                        "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Failed to persist streamed messages to conversation %s: %s", conversation_id, exc)
+
+            try:
+                analytics_store = getattr(request.app.state, "analytics_store", None)
+                if analytics_store:
+                    analytics_store.log_event(
+                        user_id=effective_user_id,
+                        event_type="chat_request",
+                        model_name=str(_metadata.get("model_used", "unknown")),
+                        tokens_used=int(_metadata.get("tokens_used", 0)),
+                        request_duration_seconds=time.time() - start_time,
+                        status="success",
+                        fork_name=PROFILE_ID,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to log stream analytics event: %s", exc)
 
         try:
             if LANGGRAPH_CIRCUIT_BREAKER.state == CircuitState.OPEN:
@@ -1676,10 +1729,13 @@ async def chat_stream(
                             if not stripped:
                                 continue
 
-                            # Intercept the terminal [DONE] — yield after persistence
+                            # [DONE] received — persist immediately so the browser
+                            # sees it without waiting for upstream to close.
                             if stripped == "data: [DONE]":
-                                _success = True
-                                continue
+                                _run_persistence()
+                                yield "data: [DONE]\n\n"
+                                _done_emitted = True
+                                return
 
                             # Side-channel parse for persistence data
                             block_event = ""
@@ -1705,58 +1761,6 @@ async def chat_stream(
 
                             yield block + "\n\n"
 
-            # ── Persist after stream completes ──────────────────────────
-            if _success and conversation_id:
-                assistant_content = "".join(_accumulated_tokens)
-                memories_used = _serialize_loaded_memories(_metadata.get("loaded_memory", []))
-                tools_executed = list((_metadata.get("tool_results") or {}).keys())
-                if _metadata.get("knowledge_context"):
-                    tools_executed.append("knowledge_base")
-
-                try:
-                    conv_store = request.app.state.conversation_store
-                    conv_store.add_message(
-                        conversation_id=conversation_id,
-                        role="user",
-                        content=request_body.message,
-                        metadata={
-                            "attachment_ids": request_body.attachment_ids,
-                            "document_ids": request_body.document_ids,
-                        },
-                    )
-                    conv_store.add_message(
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=assistant_content,
-                        tokens_used=int(_metadata.get("tokens_used", 0)),
-                        tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
-                        metadata={
-                            "attachments_used": attachments_used,
-                            "documents_used": documents_used,
-                            "memories_used": memories_used,
-                            "workspace_document_writeback": None,
-                            "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
-                        },
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to persist streamed messages to conversation %s: %s", conversation_id, exc)
-
-                # Analytics
-                try:
-                    analytics_store = getattr(request.app.state, "analytics_store", None)
-                    if analytics_store:
-                        analytics_store.log_event(
-                            user_id=effective_user_id,
-                            event_type="chat_request",
-                            model_name=str(_metadata.get("model_used", "unknown")),
-                            tokens_used=int(_metadata.get("tokens_used", 0)),
-                            request_duration_seconds=time.time() - start_time,
-                            status="success",
-                            fork_name=PROFILE_ID,
-                        )
-                except Exception as exc:
-                    logger.warning("Failed to log stream analytics event: %s", exc)
-
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
             logger.error("LangGraph stream HTTP error: %s", exc)
             yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
@@ -1764,7 +1768,8 @@ async def chat_stream(
             logger.error("Unexpected stream error: %s", exc, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'message': 'Internal server error during streaming'})}\n\n"
         finally:
-            yield "data: [DONE]\n\n"
+            if not _done_emitted:
+                yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _proxy_stream(),
