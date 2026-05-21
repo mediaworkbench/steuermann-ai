@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Database } from "lucide-react";
 import { Icon } from "./Icon";
 import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
@@ -929,7 +928,7 @@ export function ChatInterface() {
           )}
 
           {/* Composer box */}
-          <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm focus-within:border-pacific-blue/40 focus-within:shadow-md transition-all">
+          <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all">
 
             {/* Textarea */}
             <label htmlFor="message-input" className="sr-only">{t("chat.message")}</label>
@@ -996,7 +995,7 @@ export function ChatInterface() {
                     className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 transition-colors"
                     aria-label="Tools"
                   >
-                    <Icon name="build" size={18} />
+                    <Icon name="build" size={20} />
                   </button>
                   {toolsMenuOpen && (
                     <>
@@ -1010,12 +1009,12 @@ export function ChatInterface() {
                               key={tool.id}
                               type="button"
                               onClick={() => handleToolToggle(tool.id)}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
                             >
-                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${enabled ? "bg-evergreen border-evergreen" : "border-gray-300"}`}>
-                                {enabled && <Icon name="check" size={11} className="text-white" />}
+                              <span>{tool.label}</span>
+                              <span className={`shrink-0 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full transition-colors ${enabled ? "bg-evergreen text-white" : "bg-gray-100 text-gray-400"}`}>
+                                {enabled ? "ON" : "OFF"}
                               </span>
-                              {tool.label}
                             </button>
                           );
                         })}
@@ -1036,7 +1035,7 @@ export function ChatInterface() {
                       : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
                   }`}
                 >
-                  <Database size={18} />
+                  <Icon name="database" size={20} />
                 </button>
               </div>
 
@@ -1051,7 +1050,7 @@ export function ChatInterface() {
                   <button
                     type="button"
                     onClick={() => setModelMenuOpen((v) => !v)}
-                    className="flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-[140px]"
+                    className="flex items-center gap-0.5 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-[140px]"
                     aria-label="Select model"
                   >
                     <span className="truncate">{formatModelName(chatModel, systemConfig?.default_model)}</span>
@@ -1067,7 +1066,7 @@ export function ChatInterface() {
                             key={model}
                             type="button"
                             onClick={() => handleModelChange(model)}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-50 ${chatModel === model ? "text-pacific-blue font-medium" : "text-evergreen"}`}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-50 ${chatModel === model ? "text-pacific-blue font-bold" : "text-evergreen"}`}
                           >
                             {chatModel === model && <Icon name="check" size={14} className="shrink-0" />}
                             <span className="truncate">{formatModelName(model)}</span>
@@ -1094,9 +1093,9 @@ export function ChatInterface() {
                     type="button"
                     onClick={cancelStream}
                     aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                    className="p-2 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
                   >
-                    <Icon name="stop_circle" size={22} />
+                    <Icon name="stop_circle" size={20} />
                   </button>
                 ) : (
                   <button
@@ -1104,9 +1103,9 @@ export function ChatInterface() {
                     onClick={handleSend}
                     disabled={loading || !input.trim()}
                     aria-label={t("chat.sendMessage")}
-                    className="p-2 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
                   >
-                    <Icon name="send" size={22} />
+                    <Icon name="arrow_upward" size={20} />
                   </button>
                 )}
               </div>
