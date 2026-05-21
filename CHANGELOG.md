@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] — scroll-to-bottom-ux
+
+- **feat** Scroll-to-bottom pattern: auto-scroll now only fires when the user is already at the bottom of the chat; scrolling up suspends auto-scroll without losing the user's position
+- **feat** Floating "Scroll to bottom" button appears when the user scrolls up and new messages arrive; shows an unread count badge (capped at 99+) for committed messages received while scrolled up; clears automatically when the user returns to bottom
+- **feat** `useScrollToBottom` hook (`frontend/src/hooks/useScrollToBottom.ts`) — IntersectionObserver-based bottom detection, unread count tracking, `scrollToBottom(behavior)` util; conversation switches trigger an instant (non-smooth) scroll to bottom
+- **feat** `ScrollToBottomButton` component (`frontend/src/components/ScrollToBottomButton.tsx`) — accessible (aria-live, aria-label, focus ring), keyboard-operable, smooth opacity + translateY transition, matches design system (pacific-blue badge, evergreen text, white pill)
+
 ## [0.2.9] — adaptive-rag-and-knowledge-base-toggle
 
 - **feat** Intent-based RAG short-circuit: `retrieve_knowledge` is skipped for greetings, pure math/datetime queries (short + no web intent), and tool meta-questions — saves 50–80ms embedding + Qdrant round-trip per trivial turn; controlled by `skip_rag` key added to `detect_tool_routing_intents()`

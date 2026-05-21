@@ -11,6 +11,8 @@ import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
 import { useStreamingChat } from "@/hooks/useStreamingChat";
+import { useScrollToBottom } from "@/hooks/useScrollToBottom";
+import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import {
   deleteConversationAttachment,
   fetchConversation,
@@ -273,7 +275,6 @@ export function ChatInterface() {
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -380,13 +381,22 @@ export function ChatInterface() {
     };
   }, [activeId]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const { scrollContainerRef, messagesEndRef, isAtBottom, unreadCount, scrollToBottom, shouldAutoScroll } =
+    useScrollToBottom(messages.length);
 
+  // Conversation switch: jump to bottom immediately regardless of scroll position
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, loading, isStreaming, streamingContent]);
+    if (messages.length > 0) {
+      setTimeout(() => scrollToBottom("instant"), 0);
+    }
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Streaming / new message: auto-scroll only when already at bottom
+  useEffect(() => {
+    if (shouldAutoScroll) {
+      scrollToBottom("smooth");
+    }
+  }, [messages, loading, isStreaming, streamingContent, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Commit completed streaming message to messages list
   useEffect(() => {
@@ -697,6 +707,7 @@ export function ChatInterface() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* ─── Chat messages ─── */}
           <div
+            ref={scrollContainerRef}
             className="flex-1 overflow-y-auto p-4 md:p-6 lg:px-12 space-y-8 scroll-smooth bg-white"
             id="chat-container"
             role="log"
@@ -798,6 +809,17 @@ export function ChatInterface() {
             </div>
           </div>
         )}
+
+        {/* Scroll-to-bottom floating button — sticks to visible bottom when user scrolls up */}
+        <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none">
+          <div className="pointer-events-auto">
+            <ScrollToBottomButton
+              visible={!isAtBottom}
+              unreadCount={unreadCount}
+              onClick={() => scrollToBottom("smooth")}
+            />
+          </div>
+        </div>
 
         <div className="h-12" ref={messagesEndRef} />
       </div>
