@@ -363,13 +363,16 @@ def test_chat_stream_circuit_breaker_open_returns_error_event(
     assert "unavailable" in json.loads(error_events[0]["data"])["message"].lower()
 
 
-def test_chat_stream_workspace_writeback_falls_back_to_sync(
+def test_chat_stream_workspace_writeback_uses_streaming_path(
     stream_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When workspace_writeback_requested is true, the sync /api/chat path is used."""
-    test_client, _, _ = stream_client
+    """When workspace_writeback_requested is true the endpoint still streams.
 
-    # Force both the intent guard and the classifier to simulate a writeback request
+    Writeback is performed inside _proxy_stream after [DONE] arrives — there is
+    no sync fallback.  The response must be SSE and forward token events normally.
+    """
+    test_client, _, _FakeAsyncClientStream = stream_client
+
     monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
 
     async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
@@ -377,62 +380,13 @@ def test_chat_stream_workspace_writeback_falls_back_to_sync(
 
     monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
 
-    # Patch the circuit breaker call so the sync /api/chat fallback can complete
-    async def _fake_cb_call(func):
-        return await func()
-
-    monkeypatch.setattr(chat_module.LANGGRAPH_CIRCUIT_BREAKER, "call", _fake_cb_call)
-
-    # Provide a fake sync httpx (only post() is needed — stream() must NOT be called)
-    class _FakeSyncResponse:
-        def raise_for_status(self) -> None:
-            pass
-
-        def json(self) -> Dict[str, Any]:
-            return {
-                "messages": [{"role": "assistant", "content": "Sync response"}],
-                "tokens_used": 5,
-                "input_tokens": 2,
-                "output_tokens": 3,
-                "model_used": "test",
-                "profile_id": "starter",
-                "tool_results": {},
-                "sources": [],
-            }
-
-    class _FakeSyncAsyncClient:
-        stream_called = False
-
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
-        async def post(self, url: str, json: Dict[str, Any], headers: Dict[str, str]):
-            return _FakeSyncResponse()
-
-        def stream(self, *args, **kwargs):
-            _FakeSyncAsyncClient.stream_called = True
-            raise AssertionError("stream() must not be called on sync fallback path")
-
-    class _FakeHttpxSync:
-        AsyncClient = _FakeSyncAsyncClient
-        RequestError = Exception
-        HTTPStatusError = Exception
-
-    monkeypatch.setattr(chat_module, "httpx", _FakeHttpxSync)
-
     response = test_client.post(
         "/api/chat/stream",
         json={"message": "rewrite and save this document", "user_id": "u1"},
     )
 
     assert response.status_code == 200
-    assert not _FakeSyncAsyncClient.stream_called, "stream() was called — fallback did not take effect"
-    # Sync path returns JSON
-    assert "application/json" in response.headers.get("content-type", "")
-    assert response.json()["response"] == "Sync response"
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    events = parse_sse_stream(response.text)
+    token_events = [e for e in events if e["event"] == "token"]
+    assert len(token_events) >= 1, "Expected token events in SSE response"

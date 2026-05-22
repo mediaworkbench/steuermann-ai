@@ -201,7 +201,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 setFinalMetadata((prev) =>
                   prev
                     ? { ...prev, workspace_document_writeback: parsed as ChatResponse["metadata"]["workspace_document_writeback"] }
-                    : { tokens_used: 0, tools_executed: [], sources: [], workspace_document_writeback: parsed as ChatResponse["metadata"]["workspace_document_writeback"] }
+                    : prev  // metadata not yet received — skip rather than create a partial object
                 );
                 break;
 
@@ -224,6 +224,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
         if (cancelledRef.current) setWasCancelled(true);
         setIsStreaming(false);
         setNodeStatus(null);
+        setToolCallStatus(null);
         readerRef.current = null;
         abortControllerRef.current = null;
       }

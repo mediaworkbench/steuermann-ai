@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0] — context-ring-conversation-integrity-token-tracking
+## [0.3.0] — frontend-streaming-chat-composer
 
 ### Context Window Ring Indicator
 
@@ -53,6 +53,34 @@
 
 - **fix** `resolve_initial_model_metadata` (`model_resolution.py`): `model_name` no longer pre-seeded with `preferred_model` — a stale or invalid preferred model can no longer leak into `model_used` in the SSE metadata when factory resolution fails; the variable now starts as `"unknown"` and is only overwritten on successful factory resolution
 - **fix** `test_benchmark_1000_embeddings` speedup threshold lowered from `> 3.0` to `>= 2.5` — calibrated to observed hardware performance: NumPy-vectorised in-memory search at n=1000 is fast, and Qdrant carries localhost round-trip overhead that limits its relative advantage at this scale; 2.5× still conclusively proves ANN superiority over O(n) brute-force
+
+### Streaming Performance
+
+- **feat** Early `metadata` + `[DONE]` emission in `universal_agentic_framework/server.py` — SSE stream now emits the metadata event and `[DONE]` as soon as the `respond` node completes (on `on_chain_end` for `name == "respond"`), then drains remaining graph events (`summarize`, `update_memory`) in the background via `asyncio.create_task(_drain_remaining())`; MetricsPanel pills and source badges appear immediately after the last token instead of waiting 40+ seconds for post-processing to finish
+- **fix** `_proxy_stream()` in `backend/routers/chat.py` — persistence helper (`_run_persistence()`) now called on `[DONE]` receipt rather than after the upstream connection closes; `_done_emitted` guard prevents double `[DONE]` emission in both normal and error paths
+
+### RAG Fixes
+
+- **fix** RAG `collection_name` warning false-positive — default value in `resolve_rag_config()` changed from `"framework"` to `None`; `rag_node.py` now checks `if cfg["collection_name"] is None` before emitting the warning and applying the hardcoded fallback; the warning no longer fires when a profile correctly omits the collection name
+- **fix** `rag_node.py` TypedDict access — `state["messages"]` changed to `state.get("messages", [])` to resolve Pylance `reportTypedDictNotRequiredAccess` (`GraphState` has `total=False`)
+- **fix** "Searching knowledge base…" node status indicator suppressed in the SSE stream when RAG is disabled (`rag_config.enabled = false`) — the `retrieve_knowledge` `on_chain_start` event is skipped in `server.py`, preventing a misleading status indicator during generation
+
+### Chat UI Polish
+
+- **improve** Send / cancel buttons redesigned as icon-only filled buttons — send: evergreen background, `arrow_upward` icon; cancel: burnt-tangerine background, `stop_circle` icon; `p-2 rounded-lg`; text labels removed
+- **improve** MetricsPanel Knowledge Base row reads "N documents retrieved" instead of "N documents used" — `rag_doc_count` counts docs injected into the LLM prompt, not all cited sources
+- **improve** Empty chat state simplified — template grid ("Explain a concept", "Help me debug", etc.) removed; only the `smart_toy` icon and "No messages yet" text shown
+
+### Bug Fixes (continued)
+
+- **fix** `useStreamingChat.ts` writeback race guard — `setFinalMetadata` updater in the `writeback` SSE case returns `prev` unchanged when `prev` is null, preventing a partial metadata object (`tokens_used: 0`, missing fields) if a `writeback` event arrived before `metadata`
+- **fix** `useStreamingChat.ts` stale `toolCallStatus` — `setToolCallStatus(null)` added to the `finally` block; clears the last tool-call indicator after streaming ends regardless of how the stream terminates
+
+### Developer / Tooling
+
+- **fix** VSCode `reportMissingImports` false positive for `httpx` — `.vscode/settings.json` now sets `python.defaultInterpreterPath` to the Poetry venv (`${workspaceFolder}/.venv/bin/python`) and adds `${workspaceFolder}` to `python.analysis.extraPaths`
+- **test** `test_chat_stream_workspace_writeback_falls_back_to_sync` renamed to `test_chat_stream_workspace_writeback_uses_streaming_path` and rewritten to assert SSE streaming proceeds normally when writeback intent is detected (writeback is integrated into the stream after `[DONE]`, not a sync fallback)
+- **test** `test_none_system_config_returns_none_collection_name` updated to assert `cfg["collection_name"] is None` following the sentinel change
 
 ## [0.2.9] — adaptive-rag-and-knowledge-base-toggle
 
