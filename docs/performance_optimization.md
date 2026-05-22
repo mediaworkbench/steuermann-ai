@@ -10,7 +10,6 @@ Performance work in Steuermann currently centers on:
 
 - Redis-backed caching with graceful fallback when Redis is unavailable
 - Conversation compression and summarization to control token growth
-- Token budgeting across conversation, turn, and node scope
 - Prometheus metrics and targeted regression tests
 
 This is an active tuning area. Exact gains depend on workload, prompt stability, model latency, and how aggressively profile overlays enable tools, crews, and retrieval.
@@ -34,9 +33,8 @@ Practical defaults:
 The most reliable cost and latency reduction usually comes from token discipline:
 
 - Lower retrieval fan-out before lowering model quality.
-- Keep `response_reserve_ratio` intact so downstream nodes still have budget.
-- Use conversation compression to bound long sessions instead of letting context grow indefinitely.
-- Tune per-node budgets only after looking at real node-level token metrics.
+- Use conversation compression to bound long sessions instead of letting context grow indefinitely (threshold: `llm.roles.chat.max_tokens * 0.75`).
+- Monitor real token counts via Prometheus or the SSE `metadata` event — `input_tokens` is the real LLM-reported value, not a local estimate.
 
 ### 3. Retrieval Cost
 
@@ -62,10 +60,8 @@ rag:
   score_threshold: 0.6
 
 tokens:
-  default_budget: 10000
+  default_budget: 10000    # tracked for observability, not enforced
   per_turn_budget_ratio: 0.4
-  response_reserve_ratio: 0.15
-  enforce_per_node_hard_limit: true
 
 memory:
   embeddings:
@@ -89,7 +85,7 @@ SUMMARIZE_KEEP_RECENT=5
 
 1. Confirm Redis, Qdrant, and the LLM endpoint are healthy.
 2. Check `/metrics` before changing config so you know whether latency comes from LLM calls, retrieval, or cache misses.
-3. Tune retrieval breadth and token budgets.
+3. Tune retrieval breadth (`rag.top_k`, `score_threshold`) and compression thresholds.
 4. Tune cache TTLs and eviction behavior.
 5. Re-test with the same workload slice.
 

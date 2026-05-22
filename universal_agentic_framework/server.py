@@ -7,13 +7,15 @@ Exposes:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import Any, Dict
+from typing import Any, AsyncGenerator, Dict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, REGISTRY, CONTENT_TYPE_LATEST
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
@@ -255,6 +257,271 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
     finally:
         clear_context()
+
+
+_NODE_STATUS_LABELS: dict[str, str] = {
+    "retrieve_knowledge": "Searching knowledge base...",
+    "load_memory": "Loading memories...",
+}
+
+# Tool-calling nodes bypass LangChain's callback chain, so on_tool_start never
+# fires. We synthesise tool_call events from on_chain_start / on_chain_end.
+_TOOL_CALL_NODES: frozenset[str] = frozenset({
+    "call_tools_native",
+    "call_tools_structured",
+    "call_tools_react",
+})
+
+_TOOL_LABELS: dict[str, str] = {
+    "web_search_mcp": "Searching the web...",
+    "duckduckgo_search": "Searching the web...",
+    "extract_webpage_mcp": "Reading webpage...",
+    "calculator_tool": "Calculating...",
+    "datetime_tool": "Checking date & time...",
+    "memory_search_tool": "Searching memories...",
+    "file_read_tool": "Reading file...",
+    "file_write_tool": "Writing file...",
+    "workspace_file_ops_tool": "Editing workspace document...",
+}
+
+
+def _tool_label(tool_name: str) -> str:
+    """Return a human-readable label for a tool name, falling back to a generated one."""
+    if tool_name in _TOOL_LABELS:
+        return _TOOL_LABELS[tool_name]
+    friendly = (
+        tool_name
+        .replace("_mcp", "")
+        .replace("_tool", "")
+        .replace("_", " ")
+        .title()
+    )
+    return f"Using {friendly}..."
+
+
+async def _drain_remaining(iterator: Any) -> None:
+    """Silently consume remaining astream_events so post-processing nodes complete."""
+    try:
+        async for _ in iterator:
+            pass
+    except Exception:
+        pass
+
+
+@app.post("/stream")
+async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
+    """Stream graph execution events as Server-Sent Events.
+
+    Emits token, tool_call, node, metadata, and error events.
+    Terminates with ``data: [DONE]``.
+    """
+    if "messages" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'messages' field")
+    if "user_id" not in request:
+        raise HTTPException(status_code=400, detail="Missing 'user_id' field")
+
+    import time as _time
+    user_id = request.get("user_id", "anonymous")
+    language = request.get("language", "en")
+    bind_context(user_id=user_id)
+    ACTIVE_SESSIONS.add(user_id)
+    update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
+    fork_name = CONFIG.fork.name
+    profile_id = ACTIVE_PROFILE_ID
+
+    session_id = request.get("session_id") or f"{user_id}_{int(_time.time())}"
+    state: GraphState = {
+        "messages": request.get("messages", []),
+        "user_id": user_id,
+        "session_id": session_id,
+        "language": language,
+        "fork_name": fork_name,
+        "profile_id": profile_id,
+        "user_settings": request.get("user_settings", {}),
+        "llm_capability_probes": request.get("llm_capability_probes", []),
+        "attachments": request.get("attachments", []),
+        "workspace_documents": request.get("workspace_documents", []),
+        "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+    }
+    invoke_config = {"configurable": {"thread_id": session_id}}
+
+    logger.info(
+        "Graph stream invocation received",
+        user_id=user_id,
+        language=language,
+        message_count=len(request.get("messages", [])),
+    )
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        _final_output: dict = {}
+        _done_emitted = False
+        _captured_input_tokens: int = 0
+        _captured_output_tokens: int = 0
+        _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
+        try:
+            with track_graph_request(fork_name) as ctx:
+                async for event in _events_iter:
+                    kind: str = event.get("event", "")
+                    name: str = event.get("name", "")
+                    data: dict = event.get("data", {})
+
+                    if kind == "on_chat_model_stream":
+                        # Only stream tokens from the respond node — not from
+                        # tool-selection nodes which emit raw JSON tool calls.
+                        langgraph_node = event.get("metadata", {}).get("langgraph_node", "")
+                        if langgraph_node and langgraph_node != "respond":
+                            continue
+                        chunk = data.get("chunk")
+                        delta = ""
+                        if chunk is not None:
+                            # Capture real usage from the final streaming chunk (LM Studio
+                            # always reports usage here; this fires before on_chain_end).
+                            _chunk_usage = getattr(chunk, "usage_metadata", None)
+                            if isinstance(_chunk_usage, dict) and _chunk_usage:
+                                _in = _chunk_usage.get("input_tokens", 0) or 0
+                                _out = _chunk_usage.get("output_tokens", 0) or 0
+                                if _in > 0:
+                                    logger.debug("Captured usage from streaming chunk (on_chat_model_stream)", input_tokens=_in, output_tokens=_out)
+                                    _captured_input_tokens = _in
+                                if _out > 0:
+                                    _captured_output_tokens = _out
+                            content = getattr(chunk, "content", chunk)
+                            if isinstance(content, str):
+                                delta = content
+                            elif isinstance(content, list):
+                                delta = "".join(
+                                    b.get("text", "") if isinstance(b, dict) else str(b)
+                                    for b in content
+                                )
+                        if delta:
+                            yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
+
+                    elif kind == "on_chat_model_end":
+                        # Override streaming chunk capture with the fully-merged result.
+                        # Fires once per LLM call after all chunks accumulate — more
+                        # reliable than the per-chunk path.
+                        langgraph_node = event.get("metadata", {}).get("langgraph_node", "")
+                        if langgraph_node == "respond":
+                            _end_output = data.get("output")
+                            _end_usage = None
+                            if hasattr(_end_output, "usage_metadata"):
+                                _end_usage = _end_output.usage_metadata
+                            elif hasattr(_end_output, "message"):
+                                _end_usage = getattr(_end_output.message, "usage_metadata", None)
+                            if isinstance(_end_usage, dict) and _end_usage:
+                                _in = _end_usage.get("input_tokens", 0) or 0
+                                _out = _end_usage.get("output_tokens", 0) or 0
+                                logger.debug("Captured usage from on_chat_model_end", input_tokens=_in, output_tokens=_out)
+                                if _in > 0:
+                                    _captured_input_tokens = _in
+                                if _out > 0:
+                                    _captured_output_tokens = _out
+
+                    elif kind == "on_tool_start":
+                        # Fallback path — fires if future refactor adds LangChain
+                        # tool invocation with callbacks wired up.
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': _tool_label(name)})}\n\n"
+
+                    elif kind == "on_tool_end":
+                        yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end', 'label': _tool_label(name)})}\n\n"
+
+                    elif kind == "on_chain_start":
+                        if name in _NODE_STATUS_LABELS:
+                            # Suppress retrieve_knowledge indicator when the user has
+                            # explicitly disabled RAG — the node still runs but exits
+                            # immediately, so showing the label is misleading.
+                            if name == "retrieve_knowledge":
+                                _rag_enabled = (
+                                    state.get("user_settings", {})
+                                    .get("rag_config", {})
+                                    .get("enabled", True)
+                                )
+                                if not _rag_enabled:
+                                    continue
+                            yield (
+                                f"event: node\ndata: "
+                                f"{json.dumps({'node': name, 'label': _NODE_STATUS_LABELS[name]})}\n\n"
+                            )
+                        elif name in _TOOL_CALL_NODES:
+                            # Tool-calling nodes invoke tools directly in Python,
+                            # so on_tool_start never fires. Emit start here instead.
+                            yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': 'Using tools...'})}\n\n"
+
+                    elif kind == "on_chain_end":
+                        output = data.get("output")
+                        if isinstance(output, dict):
+                            if "messages" in output:
+                                _final_output = output
+                                if name == "respond" and not _done_emitted:
+                                    # Emit metadata + [DONE] immediately after the respond
+                                    # node so the client can render pills without waiting
+                                    # for summarize + update_memory (~43 s).
+                                    meta_payload = {
+                                        "tokens_used": _final_output.get("tokens_used", 0),
+                                        "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
+                                        "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
+                                        "provider_used": _final_output.get("provider_used", "unknown"),
+                                        "model_used": _final_output.get("model_used", "unknown"),
+                                        "profile_id": _final_output.get("profile_id", profile_id),
+                                        "tool_results": _final_output.get("tool_results", {}),
+                                        "sources": _final_output.get("sources", []),
+                                        "rag_attempted": _final_output.get("rag_attempted", False),
+                                        "rag_doc_count": _final_output.get("rag_doc_count", 0),
+                                        "loaded_memory": _final_output.get("loaded_memory", []),
+                                        "memory_analytics": _final_output.get("memory_analytics", {}),
+                                    }
+                                    yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
+                                    yield "data: [DONE]\n\n"
+                                    _done_emitted = True
+                                    # Drain post-processing nodes (summarize, update_memory)
+                                    # in the background so they complete without blocking.
+                                    asyncio.create_task(_drain_remaining(_events_iter))
+                                    break
+                            # Emit specific tool label once we know which tool ran.
+                            if name in _TOOL_CALL_NODES:
+                                tool_results: dict = output.get("tool_results") or {}
+                                tool_names = list(tool_results.keys())
+                                t_name = tool_names[0] if tool_names else name
+                                yield f"event: tool_call\ndata: {json.dumps({'name': t_name, 'status': 'end', 'label': _tool_label(t_name)})}\n\n"
+
+                ctx["status"] = "success"
+
+            # Fallback: emit metadata if the respond node's on_chain_end never fired
+            # (e.g. graph ended via a different path).
+            if not _done_emitted and _final_output:
+                meta_payload = {
+                    "tokens_used": _final_output.get("tokens_used", 0),
+                    "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
+                    "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
+                    "provider_used": _final_output.get("provider_used", "unknown"),
+                    "model_used": _final_output.get("model_used", "unknown"),
+                    "profile_id": _final_output.get("profile_id", profile_id),
+                    "tool_results": _final_output.get("tool_results", {}),
+                    "sources": _final_output.get("sources", []),
+                    "rag_attempted": _final_output.get("rag_attempted", False),
+                    "rag_doc_count": _final_output.get("rag_doc_count", 0),
+                    "loaded_memory": _final_output.get("loaded_memory", []),
+                    "memory_analytics": _final_output.get("memory_analytics", {}),
+                }
+                yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
+
+        except Exception as exc:
+            logger.error("Stream graph error", error=str(exc), exc_info=True)
+            if not _done_emitted:
+                yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+        finally:
+            clear_context()
+            if not _done_emitted:
+                yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/metrics")

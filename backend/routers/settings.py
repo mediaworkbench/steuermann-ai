@@ -443,6 +443,7 @@ async def get_system_config() -> Dict[str, Any]:
                 except Exception as role_exc:
                     model_load_error = str(role_exc)
 
+                role_settings = getattr(core_config.llm.roles, role_name, None)
                 model_roles.append(
                     {
                         "role": role_name,
@@ -450,6 +451,7 @@ async def get_system_config() -> Dict[str, Any]:
                         "default_model": role_default_model,
                         "available_models": available_models,
                         "model_load_error": model_load_error,
+                        "max_tokens": getattr(role_settings, "max_tokens", None),
                     }
                 )
         display_name = profile_metadata.display_name if profile_metadata else "Base Profile"

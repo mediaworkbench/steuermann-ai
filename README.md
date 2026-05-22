@@ -342,7 +342,7 @@ Configuration follows a three-layer hierarchy: **Base → Profile Overlay → En
 
 ```
 config/
-├── core.yaml              # LLM providers, embeddings, token budgets, RAG
+├── core.yaml              # LLM providers, embeddings, token tracking, RAG
 ├── agents.yaml            # CrewAI crew and agent definitions
 ├── tools.yaml             # Tool manifests and routing
 ├── features.yaml          # Feature flags (caching, crews, etc.)

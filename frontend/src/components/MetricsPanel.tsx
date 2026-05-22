@@ -236,7 +236,7 @@ export function MetricsPanel({
                   <Database size={13} className="text-evergreen/40 shrink-0" />
                   {(metrics.rag_doc_count ?? 0) > 0 ? (
                     <span>
-                      {metrics.rag_doc_count} document{metrics.rag_doc_count !== 1 ? "s" : ""} used
+                      {metrics.rag_doc_count} document{metrics.rag_doc_count !== 1 ? "s" : ""} retrieved
                     </span>
                   ) : (
                     <span className="text-evergreen/40">searched · no relevant results</span>

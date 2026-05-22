@@ -171,6 +171,9 @@ export type Messages = {
     send: string;
     attachmentCountOne: string;
     attachmentCountOther: string;
+    addFile: string;
+    addImage: string;
+    addAttachment: string;
     toggleWorkspaceSidebar: string;
     workspace: string;
     newConversation: string;
@@ -600,6 +603,9 @@ export const messages: Record<Locale, Messages> = {
       send: "Send",
       attachmentCountOne: "{count} attachment selected",
       attachmentCountOther: "{count} attachments selected",
+      addFile: "Add file",
+      addImage: "Add image",
+      addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
       workspace: "Workspace",
       newConversation: "New conversation",
@@ -1027,6 +1033,9 @@ export const messages: Record<Locale, Messages> = {
       send: "Senden",
       attachmentCountOne: "{count} Anhang ausgewählt",
       attachmentCountOther: "{count} Anhänge ausgewählt",
+      addFile: "Datei hinzufügen",
+      addImage: "Bild hinzufügen",
+      addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
       workspace: "Workspace",
       newConversation: "Neue Unterhaltung",

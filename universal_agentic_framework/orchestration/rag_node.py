@@ -33,7 +33,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     rag_config = getattr(config, "rag", None)
     features_config = load_features_config()
 
-    user_msg = state["messages"][-1]["content"] if state.get("messages") else ""
+    user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
 
     logger.info("RAG node started", fork_name=fork_name, has_query=bool(user_msg))
 
@@ -85,11 +85,12 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
 
             # Resolve effective config: system baseline, then user overrides on top
             cfg = resolve_rag_config(user_rag_config, rag_config)
-            if cfg["collection_name"] == "framework":
+            if cfg["collection_name"] is None:
                 logger.warning(
                     "RAG: collection_name not set in config, falling back to 'framework'",
                     fork_name=fork_name,
                 )
+                cfg["collection_name"] = "framework"
 
             qdrant_url = f"http://{config.memory.vector_store.host}:{config.memory.vector_store.port}"
 

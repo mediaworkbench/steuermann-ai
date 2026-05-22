@@ -78,7 +78,7 @@ def get_model(config, language: str, preferred_model: Optional[str] = None):
 def resolve_initial_model_metadata(config: Any, language: str, preferred_model: Optional[str]) -> Tuple[str, str]:
     """Best-effort metadata for the initial selected model."""
     provider = "unknown"
-    model_name = preferred_model or "unknown"
+    model_name = "unknown"
     try:
         factory = LLMFactory(config)
         if preferred_model:

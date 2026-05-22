@@ -146,6 +146,13 @@ body {
 .typing-dot:nth-child(2) { animation: blink 1.2s ease-in-out infinite 0.2s; }
 .typing-dot:nth-child(3) { animation: blink 1.2s ease-in-out infinite 0.4s; }
 
+/* ── Streaming text cursor ── */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.animate-cursor-blink { animation: cursor-blink 0.9s step-end infinite; }
+
 /* ── Timestamp & action buttons: hidden until row hover ── */
 .msg-timestamp { opacity: 0; transition: opacity 0.15s ease; pointer-events: none; }
 .msg-row:hover .msg-timestamp { opacity: 1; }

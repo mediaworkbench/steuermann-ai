@@ -464,9 +464,11 @@ class TestResolveRagConfig:
         cfg = resolve_rag_config({"timeout_seconds": 60}, self._sys_cfg())
         assert cfg["timeout_seconds"] == 60
 
-    def test_none_system_config_uses_hardcoded_defaults(self):
+    def test_none_system_config_returns_none_collection_name(self):
+        # collection_name is None when unconfigured; rag_node.py applies the
+        # "framework" fallback and logs a warning in that case.
         cfg = resolve_rag_config({}, None)
-        assert cfg["collection_name"] == "framework"
+        assert cfg["collection_name"] is None
         assert cfg["top_k"] == 5
         assert cfg["pill_score_threshold"] is None
         assert cfg["timeout_seconds"] == 30

@@ -43,14 +43,6 @@ def test_node_summarize_normalizes_and_prunes_digest_chain(monkeypatch):
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "estimate_tokens", lambda text: max(1, len(str(text)) // 10))
-    monkeypatch.setattr(
-        graph_builder,
-        "get_budget_context",
-        lambda *args, **kwargs: {"per_turn_budget": 5000, "turn_remaining": 5000},
-    )
-    monkeypatch.setattr(graph_builder, "get_node_budget", lambda *args, **kwargs: 2000)
-    monkeypatch.setattr(graph_builder, "per_node_hard_limit_enabled", lambda *args, **kwargs: False)
-    monkeypatch.setattr(graph_builder, "require_tokens", lambda *args, **kwargs: None)
 
     messages = []
     for idx in range(1, 8):
@@ -104,14 +96,6 @@ def test_node_update_memory_forwards_digest_chain_and_metadata(monkeypatch):
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: _DummyContext())
     monkeypatch.setattr(graph_builder, "track_memory_operation", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "estimate_tokens", lambda text: max(1, len(str(text)) // 10))
-    monkeypatch.setattr(
-        graph_builder,
-        "get_budget_context",
-        lambda *args, **kwargs: {"per_turn_budget": 5000, "turn_remaining": 5000},
-    )
-    monkeypatch.setattr(graph_builder, "get_node_budget", lambda *args, **kwargs: 2000)
-    monkeypatch.setattr(graph_builder, "per_node_hard_limit_enabled", lambda *args, **kwargs: False)
-    monkeypatch.setattr(graph_builder, "require_tokens", lambda *args, **kwargs: None)
 
     def _fake_update_memory_node(state, text, metadata=None, backend=None, messages=None, digest_chain=None):
         captured["text"] = text
@@ -157,14 +141,6 @@ def test_node_update_memory_disables_digest_chain_via_feature_flag(monkeypatch):
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: _DummyContext())
     monkeypatch.setattr(graph_builder, "track_memory_operation", lambda *args, **kwargs: None)
     monkeypatch.setattr(graph_builder, "estimate_tokens", lambda text: max(1, len(str(text)) // 10))
-    monkeypatch.setattr(
-        graph_builder,
-        "get_budget_context",
-        lambda *args, **kwargs: {"per_turn_budget": 5000, "turn_remaining": 5000},
-    )
-    monkeypatch.setattr(graph_builder, "get_node_budget", lambda *args, **kwargs: 2000)
-    monkeypatch.setattr(graph_builder, "per_node_hard_limit_enabled", lambda *args, **kwargs: False)
-    monkeypatch.setattr(graph_builder, "require_tokens", lambda *args, **kwargs: None)
 
     def _fake_update_memory_node(state, text, metadata=None, backend=None, messages=None, digest_chain=None):
         captured["metadata"] = metadata

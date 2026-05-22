@@ -4,23 +4,29 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Database } from "lucide-react";
 import { Icon } from "./Icon";
+import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
+import { useStreamingChat } from "@/hooks/useStreamingChat";
+import { useScrollToBottom } from "@/hooks/useScrollToBottom";
+import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import {
   deleteConversationAttachment,
   fetchConversation,
   fetchConversationAttachments,
+  fetchSystemConfig,
+  fetchUserSettings,
   setMessageFeedback,
+  updateUserSettings,
   uploadConversationAttachment,
 } from "@/lib/api";
+import type { SystemConfig } from "@/lib/api";
 import { selectActiveAttachmentIds } from "@/lib/attachments";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
-  ChatResponse,
   ConversationAttachment,
   Message,
   PersistedMessage,
@@ -31,6 +37,20 @@ import type {
  * Replace [N] footnote references with clickable markdown links using the sources array.
  * E.g. "[1]" becomes "[<sup>1</sup>](url)" if source 1 has a URL, or bold "[<sup>1</sup>]" for RAG.
  */
+const FALLBACK_TOOLS = [
+  { id: "web_search_mcp", label: "Web Search" },
+  { id: "extract_webpage_mcp", label: "Extract Webpage" },
+  { id: "datetime_tool", label: "Datetime" },
+  { id: "calculator_tool", label: "Calculator" },
+  { id: "file_ops_tool", label: "File Ops" },
+] as const;
+
+function formatModelName(model: string | null | undefined, fallback = "Model"): string {
+  const m = model || fallback;
+  const parts = m.split("/");
+  return parts.length > 1 ? parts.slice(1).join("/") : m;
+}
+
 function linkFootnotes(text: string, sources?: Source[]): string {
   if (!sources || sources.length === 0) return text;
   // Build a map from index (1-based from backend) to source
@@ -273,24 +293,37 @@ export function ChatInterface() {
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
+  const [chatModel, setChatModel] = useState<string | null>(null);
+  const [availableChatModels, setAvailableChatModels] = useState<string[]>([]);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [contextTokens, setContextTokens] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const startTimeRef = useRef<number>(0);
+  const wasStreamingRef = useRef(false);
+  const preferredModelsRef = useRef<Record<string, string | null>>({});
+
+  const {
+    streamingContent,
+    isStreaming,
+    streamError,
+    streamWarning,
+    toolCallStatus,
+    nodeStatus,
+    finalMetadata,
+    wasCancelled,
+    sendMessage: startStream,
+    cancel: cancelStream,
+    reset: resetStream,
+  } = useStreamingChat();
 
   const { activeId, create, refresh, rename, activeConversation, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
 
-  const templates = useMemo(
-    () => [
-      { icon: "lightbulb", label: t("chat.templates.explainConcept"), prompt: t("chat.templates.explainPrompt") },
-      { icon: "code", label: t("chat.templates.helpCode"), prompt: t("chat.templates.codePrompt") },
-      { icon: "summarize", label: t("chat.templates.summarizeText"), prompt: t("chat.templates.summarizePrompt") },
-      { icon: "translate", label: t("chat.templates.translate"), prompt: t("chat.templates.translatePrompt") },
-      { icon: "psychology", label: t("chat.templates.brainstormIdeas"), prompt: t("chat.templates.brainstormPrompt") },
-      { icon: "troubleshoot", label: t("chat.templates.debugIssue"), prompt: t("chat.templates.debugPrompt") },
-    ],
-    [t],
-  );
 
   // Flag: when true the next activeId change came from create() and the
   // message-fetch useEffect should skip reloading (no persisted messages yet).
@@ -332,6 +365,7 @@ export function ChatInterface() {
       setAttachments([]);
       setSelectedAttachmentIds([]);
       setWorkspaceSidebarOpen(false);
+      setContextTokens(0);
       return;
     }
     // When a conversation was just created the DB has no messages yet.
@@ -344,6 +378,7 @@ export function ChatInterface() {
     (async () => {
       const detail = await fetchConversation(activeId);
       if (cancelled || !detail) return;
+      setContextTokens(0);
       setMessages(detail.messages.map((msg) => toUiMessage(msg, formatTime)));
       // New chats should start with a collapsed workspace unless explicitly opened.
       if (detail.messages.length === 0) {
@@ -376,25 +411,122 @@ export function ChatInterface() {
     };
   }, [activeId]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const { scrollContainerRef, messagesEndRef, isAtBottom, unreadCount, scrollToBottom, shouldAutoScroll } =
+    useScrollToBottom(messages.length);
 
+  // Conversation switch: jump to bottom immediately regardless of scroll position
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, loading]);
+    if (messages.length > 0) {
+      setTimeout(() => scrollToBottom("instant"), 0);
+    }
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load RAG preference from user settings on mount
+  // Streaming / new message: auto-scroll only when already at bottom
   useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
-    fetch(`${apiBase}/api/settings/user/${CURRENT_USER_ID}`)
-      .then((r) => r.json())
-      .then((s) => {
-        const cfg = s?.rag_config || { collection: "", top_k: 5, enabled: true };
-        setRagConfig(cfg);
-        setRagEnabled(cfg.enabled !== false);
-      })
-      .catch(() => {});
+    if (shouldAutoScroll) {
+      scrollToBottom("smooth");
+    }
+  }, [messages, loading, isStreaming, streamingContent, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Commit completed streaming message to messages list
+  useEffect(() => {
+    const was = wasStreamingRef.current;
+    wasStreamingRef.current = isStreaming;
+    if (was && !isStreaming && (streamingContent || wasCancelled)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant" as const,
+          content: wasCancelled
+            ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
+            : streamingContent,
+          timestamp: formatTime(new Date()),
+          metrics: finalMetadata
+            ? {
+                response_time_ms: Date.now() - startTimeRef.current,
+                input_tokens: finalMetadata.input_tokens,
+                output_tokens: finalMetadata.output_tokens,
+                finish_reason: "stop",
+                model: finalMetadata.model_used,
+                tools_executed: finalMetadata.tools_executed?.map((name) => ({
+                  name,
+                  status: "success" as const,
+                })),
+                sources: finalMetadata.sources,
+                memories_used: finalMetadata.memories_used,
+                rag_attempted: finalMetadata.rag_attempted,
+                rag_doc_count: finalMetadata.rag_doc_count,
+              }
+            : undefined,
+        },
+      ]);
+      if (finalMetadata?.workspace_document_writeback?.status === "saved") {
+        const wb = finalMetadata.workspace_document_writeback;
+        fetchWorkspaceDocuments();
+        setWritebackSavedDocId(wb.document_id ?? null);
+        setTimeout(() => setWritebackSavedDocId(null), 200);
+        toast.success(t("chat.workspaceDocumentSaved"), {
+          description: `${wb.filename} updated to v${wb.version}`,
+        });
+      }
+      resetStream();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
+
+  // Update context token count from the most recent completed inference
+  useEffect(() => {
+    if (!isStreaming && finalMetadata?.input_tokens !== undefined) {
+      setContextTokens(finalMetadata.input_tokens);
+    }
+  }, [isStreaming, finalMetadata]);
+
+  // Surface stream errors as toasts
+  useEffect(() => {
+    if (streamError) {
+      toast.error(t("chat.messageFailed"), { description: streamError });
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamError]);
+
+  // Surface model validation warnings as toasts
+  useEffect(() => {
+    if (streamWarning) {
+      toast.warning(streamWarning);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamWarning]);
+
+  // Cancel any in-flight stream on unmount
+  useEffect(() => () => cancelStream(), [cancelStream]);
+
+  // Load user settings on mount: RAG config, tool toggles, chat model
+  useEffect(() => {
+    fetchUserSettings(CURRENT_USER_ID).then((s) => {
+      if (!s) return;
+      const cfg = (s.rag_config as Record<string, unknown>) || { collection: "", top_k: 5, enabled: true };
+      setRagConfig(cfg);
+      setRagEnabled((cfg.enabled as boolean) !== false);
+      if (s.tool_toggles) setToolToggles(s.tool_toggles);
+      const model = s.preferred_models?.chat ?? s.preferred_model ?? null;
+      setChatModel(model);
+      preferredModelsRef.current = s.preferred_models ?? {};
+    }).catch(() => {});
+  }, []);
+
+  // Load system config for tools list and available models
+  useEffect(() => {
+    fetchSystemConfig().then((config) => {
+      if (!config) return;
+      setSystemConfig(config);
+      const chatRole = config.model_roles?.find((r) => r.role === "chat");
+      if (chatRole) {
+        setAvailableChatModels(
+          Array.from(new Set([chatRole.default_model, ...chatRole.available_models].filter(Boolean)))
+        );
+      }
+    });
   }, []);
 
   const handleRagToggle = useCallback(async () => {
@@ -410,12 +542,27 @@ export function ChatInterface() {
     });
   }, [ragEnabled, ragConfig]);
 
+  const handleToolToggle = useCallback(async (toolId: string) => {
+    const next = { ...toolToggles, [toolId]: toolToggles[toolId] !== false ? false : true };
+    setToolToggles(next);
+    await updateUserSettings(CURRENT_USER_ID, { tool_toggles: next });
+  }, [toolToggles]);
+
+  const handleModelChange = useCallback(async (model: string) => {
+    setChatModel(model);
+    setModelMenuOpen(false);
+    const merged = { ...preferredModelsRef.current, chat: model };
+    preferredModelsRef.current = merged;
+    await updateUserSettings(CURRENT_USER_ID, { preferred_model: model, preferred_models: merged });
+  }, []);
+
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
-    el.style.overflowY = el.scrollHeight > 200 ? "auto" : "hidden";
+    const maxH = 260; // ~10 lines
+    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+    el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
 
   const ensureConversation = useCallback(
@@ -464,102 +611,40 @@ export function ChatInterface() {
         ]);
       }
       setLoading(true);
+      startTimeRef.current = Date.now();
 
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
-      const startTime = Date.now();
+      await startStream({
+        message: userMessage,
+        userId: CURRENT_USER_ID,
+        conversationId: convId,
+        attachmentIds: selectedAttachmentIds,
+        documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
+        ragEnabled,
+      });
 
-      try {
-        const response = await fetch(`${apiBase}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: userMessage,
-            user_id: CURRENT_USER_ID,
-            conversation_id: convId,
-            attachment_ids: selectedAttachmentIds,
-            document_ids: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
-            rag_enabled: ragEnabled,
-          }),
-        });
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data: ChatResponse = await response.json();
-        const elapsed = Date.now() - startTime;
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.response,
-            timestamp: formatTime(new Date()),
-            metrics: {
-              response_time_ms: elapsed,
-              input_tokens: data.metadata?.input_tokens,
-              output_tokens: data.metadata?.output_tokens,
-              finish_reason: "stop",
-              model: data.metadata?.model_used,
-              temperature: undefined,
-              tools_executed: data.metadata?.tools_executed?.map((name) => ({
-                name,
-                status: "success" as const,
-              })),
-              sources: data.metadata?.sources,
-              attachments_used: data.metadata?.attachments_used,
-              documents_used: data.metadata?.documents_used,
-              memories_used: data.metadata?.memories_used,
-              rag_attempted: data.metadata?.rag_attempted,
-              rag_doc_count: data.metadata?.rag_doc_count,
-            },
-          },
-        ]);
-
-        if (data.metadata?.workspace_document_writeback?.status === "saved") {
-          const savedDocId = data.metadata.workspace_document_writeback.document_id ?? null;
-          fetchWorkspaceDocuments();
-          setWritebackSavedDocId(savedDocId);
-          // Clear the marker after a tick so the effect re-fires on next save of the same doc
-          setTimeout(() => setWritebackSavedDocId(null), 200);
-          toast.success(t("chat.workspaceDocumentSaved"), {
-            description: `${data.metadata.workspace_document_writeback.filename} updated to v${data.metadata.workspace_document_writeback.version}`,
-          });
-        }
-
-        refresh();
-        if (
-          isFirstMessage &&
-          convId &&
-          (activeConversation?.title === "New conversation" ||
-            activeConversation?.title === t("chat.newConversation"))
-        ) {
-          const betterTitle = generateTitle(userMessage);
-          if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
-        }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : t("chat.failedToSendMessage");
-        toast.error(t("chat.messageFailed"), { description: errorMessage });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Error: ${errorMessage}`,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      } finally {
-        setLoading(false);
+      setLoading(false);
+      refresh();
+      if (
+        isFirstMessage &&
+        convId &&
+        (activeConversation?.title === "New conversation" ||
+          activeConversation?.title === t("chat.newConversation"))
+      ) {
+        const betterTitle = generateTitle(userMessage);
+        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
       }
     },
     [
       activeId,
       messages.length,
       ensureConversation,
-      fetchWorkspaceDocuments,
       refresh,
       rename,
       activeConversation?.title,
       selectedAttachmentIds,
+      activeWorkspaceDocId,
+      ragEnabled,
+      startStream,
       t,
       formatTime,
     ],
@@ -621,10 +706,10 @@ export function ChatInterface() {
   }, []);
 
   async function handleSend() {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || isStreaming) return;
     const userMessage = input;
     setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    setTimeout(() => autoResize(), 0);
     sendMessage(userMessage);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -680,11 +765,18 @@ export function ChatInterface() {
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !loading) {
+    if (e.key === "Escape" && isStreaming) {
+      cancelStream();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !loading && !isStreaming) {
       e.preventDefault();
       handleSend();
     }
   }
+
+  const maxContextTokens =
+    systemConfig?.model_roles?.find((r) => r.role === "chat")?.max_tokens ?? null;
 
   return (
     <>
@@ -693,6 +785,7 @@ export function ChatInterface() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* ─── Chat messages ─── */}
           <div
+            ref={scrollContainerRef}
             className="flex-1 overflow-y-auto p-4 md:p-6 lg:px-12 space-y-8 scroll-smooth bg-white"
             id="chat-container"
             role="log"
@@ -703,32 +796,6 @@ export function ChatInterface() {
           <div className="flex flex-col items-center justify-center h-full text-evergreen/40">
             <Icon name="smart_toy" size={48} className="mb-4 opacity-50" />
             <p className="text-lg font-medium">{t("chat.noMessagesYet")}</p>
-            <p className="text-sm mb-8">
-              {t("chat.startConversationHint")}
-            </p>
-
-            {/* ── Template starters ── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl w-full">
-              {templates.map((template) => (
-                <button
-                  key={template.label}
-                  onClick={() => {
-                    setInput(template.prompt);
-                    textareaRef.current?.focus();
-                  }}
-                  className="flex items-center gap-2.5 px-4 py-3.5 rounded-xl border border-light-cyan
-                             bg-light-cyan/10 hover:bg-light-cyan/30 text-evergreen/70 hover:text-evergreen
-                               transition-colors text-sm text-left group cursor-pointer min-h-11"
-                >
-                  <Icon
-                    name={template.icon}
-                    size={18}
-                    className="text-pacific-blue shrink-0 group-hover:scale-110 transition-transform"
-                  />
-                  <span className="font-medium">{template.label}</span>
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           <>
@@ -755,8 +822,8 @@ export function ChatInterface() {
           </>
         )}
 
-        {/* ─── Typing indicator ─── */}
-        {loading && (
+        {/* ─── Streaming / Typing indicator ─── */}
+        {(isStreaming || (loading && !isStreaming)) && (
           <div className="flex gap-4 max-w-5xl mx-auto">
             <div
               className="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1"
@@ -764,31 +831,82 @@ export function ChatInterface() {
             >
               <Icon name="smart_toy" size={18} className="text-white" />
             </div>
-            <div className="flex flex-col gap-1 items-start">
+            <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
               <div className="flex items-center gap-2 ml-1">
                 <span className="text-sm font-bold text-evergreen">
                   {t("chat.aiAgent")}
                 </span>
               </div>
-              <div
-                className="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
-                role="status"
-                aria-label={t("chat.aiThinking")}
-              >
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-              </div>
+
+              {/* Node / tool status indicator */}
+              {(nodeStatus || toolCallStatus?.status === "start") && (
+                <div className="text-xs text-evergreen/50 ml-1 flex items-center gap-1.5 animate-pulse mb-1">
+                  <Icon
+                    name={
+                      nodeStatus?.includes("knowledge") ? "search"
+                      : nodeStatus?.includes("memor") ? "psychology"
+                      : toolCallStatus?.name?.includes("search") || toolCallStatus?.name?.includes("web") ? "travel_explore"
+                      : toolCallStatus?.name?.includes("calc") ? "calculate"
+                      : toolCallStatus?.name?.includes("date") || toolCallStatus?.name?.includes("time") ? "schedule"
+                      : toolCallStatus?.name?.includes("file") || toolCallStatus?.name?.includes("workspace") ? "edit_document"
+                      : toolCallStatus?.name?.includes("webpage") || toolCallStatus?.name?.includes("extract") ? "open_in_browser"
+                      : "settings"
+                    }
+                    size={13}
+                    className="shrink-0"
+                  />
+                  <span>{nodeStatus ?? toolCallStatus?.label}</span>
+                </div>
+              )}
+
+              {isStreaming && streamingContent ? (
+                /* Live streaming text with cursor */
+                <div
+                  className="text-evergreen text-base leading-relaxed px-1"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <MarkdownMessage content={streamingContent} />
+                  <span
+                    className="inline-block w-0.5 h-[1.1em] bg-evergreen/60 ml-0.5 align-middle animate-cursor-blink"
+                    aria-hidden="true"
+                  />
+                </div>
+              ) : (
+                /* Fallback three-dot loader (before first token arrives) */
+                <div
+                  className="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
+                  role="status"
+                  aria-label={t("chat.aiThinking")}
+                >
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                </div>
+              )}
             </div>
           </div>
         )}
 
+        {/* Scroll-to-bottom floating button — sticks to visible bottom when user scrolls up */}
+        <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none">
+          <div className="pointer-events-auto">
+            <ScrollToBottomButton
+              visible={!isAtBottom}
+              unreadCount={unreadCount}
+              onClick={() => scrollToBottom("smooth")}
+            />
+          </div>
+        </div>
+
         <div className="h-12" ref={messagesEndRef} />
       </div>
 
-      {/* ═══════════ INPUT BAR ═══════════ */}
+      {/* ═══════════ COMPOSER ═══════════ */}
       <div className="p-4 md:px-6 lg:px-12 md:pb-8 bg-white shrink-0 border-t border-gray-100">
         <div className="max-w-5xl mx-auto">
+
+          {/* Attachment chips */}
           {(attachments.length > 0 || uploadingAttachment) && (
             <div className="flex flex-wrap gap-2 mb-3 px-1">
               {attachments.map((attachment) => {
@@ -832,6 +950,207 @@ export function ChatInterface() {
             </div>
           )}
 
+          {/* Composer box */}
+          <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all">
+
+            {/* Textarea */}
+            <label htmlFor="message-input" className="sr-only">{t("chat.message")}</label>
+            <textarea
+              id="message-input"
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoResize(); }}
+              onKeyDown={handleKeyDown}
+              disabled={isStreaming}
+              className="w-full bg-transparent border-0 focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
+              aria-label={t("chat.typeYourMessage")}
+              rows={2}
+            />
+
+            {/* Bottom toolbar */}
+            <div className="flex items-center gap-1 px-3 py-2 border-t border-gray-100">
+
+              {/* Left group: +, tools, RAG */}
+              <div className="flex items-center gap-0.5">
+
+                {/* + button → attach menu */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    disabled={loading || uploadingAttachment || isStreaming}
+                    onClick={() => setAttachMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    aria-label={t("chat.addAttachment")}
+                  >
+                    <Icon name="add" size={20} />
+                  </button>
+                  {attachMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[160px] z-20">
+                        <button
+                          type="button"
+                          onClick={() => { fileInputRef.current?.click(); setAttachMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                        >
+                          <Icon name="description" size={16} className="text-evergreen/60" />
+                          {t("chat.addFile")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen/30 cursor-not-allowed"
+                        >
+                          <Icon name="image" size={16} />
+                          {t("chat.addImage")}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Tools button */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setToolsMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 transition-colors"
+                    aria-label="Tools"
+                  >
+                    <Icon name="build" size={20} />
+                  </button>
+                  {toolsMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-[200px] z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Tools</p>
+                        {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
+                          const enabled = toolToggles[tool.id] !== false;
+                          return (
+                            <button
+                              key={tool.id}
+                              type="button"
+                              onClick={() => handleToolToggle(tool.id)}
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                            >
+                              <span>{tool.label}</span>
+                              <span className={`shrink-0 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full transition-colors ${enabled ? "bg-evergreen text-white" : "bg-gray-100 text-gray-400"}`}>
+                                {enabled ? "ON" : "OFF"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* RAG toggle */}
+                <button
+                  type="button"
+                  onClick={handleRagToggle}
+                  disabled={isStreaming}
+                  title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                    ragEnabled
+                      ? "text-pacific-blue hover:bg-pacific-blue/10"
+                      : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
+                  }`}
+                >
+                  <Icon name="database" size={20} />
+                </button>
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Right group: model, mic, send */}
+              <div className="flex items-center gap-1.5">
+
+                {/* Context usage ring */}
+                <ContextRingIndicator
+                  contextTokens={contextTokens}
+                  maxContextTokens={maxContextTokens}
+                />
+
+                {/* Model selector */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setModelMenuOpen((v) => !v)}
+                    className="flex items-center gap-0.5 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-[140px]"
+                    aria-label="Select model"
+                  >
+                    <span className="truncate">{formatModelName(chatModel, systemConfig?.default_model)}</span>
+                    <Icon name="keyboard_arrow_down" size={14} className="shrink-0" />
+                  </button>
+                  {modelMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setModelMenuOpen(false)} />
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[220px] max-h-52 overflow-y-auto z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Chat model</p>
+                        {availableChatModels.map((model) => (
+                          <button
+                            key={model}
+                            type="button"
+                            onClick={() => handleModelChange(model)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-50 ${chatModel === model ? "text-pacific-blue font-bold" : "text-evergreen"}`}
+                          >
+                            {chatModel === model && <Icon name="check" size={14} className="shrink-0" />}
+                            <span className="truncate">{formatModelName(model)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Microphone — inactive placeholder */}
+                <button
+                  type="button"
+                  disabled
+                  aria-label="Voice input (not available)"
+                  className="p-1.5 rounded-lg text-evergreen/25 cursor-not-allowed"
+                >
+                  <Icon name="mic" size={20} />
+                </button>
+
+                {/* Send / Cancel */}
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={cancelStream}
+                    aria-label={t("chat.stopGenerating") ?? "Stop generating"}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                  >
+                    <Icon name="stop_circle" size={20} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={loading || !input.trim()}
+                    aria-label={t("chat.sendMessage")}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
+                  >
+                    <Icon name="arrow_upward" size={20} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Attachment count hint */}
+          {selectedAttachmentIds.length > 0 && (
+            <p className="mt-2 px-1 text-xs text-evergreen/45">
+              {selectedAttachmentIds.length === 1
+                ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
+                : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
+            </p>
+          )}
+
+          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -839,78 +1158,6 @@ export function ChatInterface() {
             className="sr-only"
             onChange={handleAttachmentUpload}
           />
-
-          <div
-            className="relative flex items-center gap-2 rounded-lg border border-gray-300 p-1 px-2
-                        bg-white transition-colors duration-300 shadow-sm"
-          >
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading || uploadingAttachment}
-              className="shrink-0 rounded px-2 py-2 text-evergreen/45 hover:text-pacific-blue hover:bg-pacific-blue/5 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={t("chat.uploadingAttachment")}
-              title={t("chat.uploadingAttachment")}
-            >
-              <Icon name="attach_file" size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={handleRagToggle}
-              title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
-              className={`shrink-0 rounded px-2 py-2 transition-colors ${
-                ragEnabled
-                  ? "text-pacific-blue hover:bg-pacific-blue/5"
-                  : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
-              }`}
-            >
-              <Database size={18} />
-            </button>
-            <label htmlFor="message-input" className="sr-only">
-              {t("chat.message")}
-            </label>
-            <textarea
-              id="message-input"
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                autoResize();
-              }}
-              onKeyDown={handleKeyDown}
-              className="w-full bg-transparent border-0 focus:ring-0 text-evergreen
-                         placeholder-gray-400 py-3 max-h-50 min-h-11 resize-none text-base"
-              placeholder={t("chat.typeYourMessage")}
-              rows={1}
-              style={{ fieldSizing: "content" } as React.CSSProperties}
-              aria-label={t("chat.typeYourMessage")}
-            />
-            <div className="flex items-center gap-2 pr-1 border-l border-gray-200 pl-2 h-8 my-auto shrink-0">
-              <button
-                onClick={handleSend}
-                disabled={loading || !input.trim()}
-                className="text-evergreen/40 hover:text-burnt-tangerine transition-colors rounded
-                           hover:bg-burnt-tangerine/5 shrink-0 flex items-center gap-1 px-2 py-1
-                           disabled:opacity-40 disabled:cursor-not-allowed"
-                aria-label={t("chat.sendMessage")}
-              >
-                <Icon name="send" size={20} className="text-burnt-tangerine" />
-                <span className="text-xs font-medium text-evergreen/60 hidden sm:inline">
-                  {t("chat.send")}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {attachments.length > 0 && (
-            <div className="flex items-center gap-2 mt-2 px-1">
-                <span className="text-xs text-evergreen/45">
-                  {selectedAttachmentIds.length === 1
-                    ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
-                    : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
-                </span>
-            </div>
-          )}
         </div>
       </div>
       </div>

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
 import {
   getSessionCookieName,
   getSessionFromCookieValue,
@@ -81,6 +83,14 @@ async function forward(request: NextRequest, path: string[]) {
   // 204/304 responses must not include a body.
   if (upstream.status === 204 || upstream.status === 304 || request.method === "HEAD") {
     return new NextResponse(null, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  }
+
+  const contentType = upstream.headers.get("content-type") ?? "";
+  if (contentType.includes("text/event-stream")) {
+    return new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders,
     });

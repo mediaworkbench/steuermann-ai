@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.0.1` in `pyproject.toml`.
+- The package metadata currently reports version `0.3.0` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
@@ -395,7 +395,20 @@ Reason field propagates through entire pipeline:
 
 ### **4.5 Response Handling**
 
-The FastAPI adapter streams responses from LangGraph back to the Next.js frontend. Streaming support is built-in using Server-Sent Events (SSE) for real-time message updates.
+**Streaming path (primary):** `POST /api/chat/stream` returns `text/event-stream`. LangGraph exposes a matching `POST /stream` endpoint using `GRAPH.astream_events(version="v2")`. SSE event types:
+
+|Event|Payload|Description|
+|-----|-------|-----------|
+|`token`|`{"delta": "..."}`|LLM output chunk|
+|`tool_call`|`{"name": "...", "status": "start"/"end"}`|Tool invocation boundary|
+|`node`|`{"node": "...", "label": "..."}`|Graph node status (RAG, memory)|
+|`metadata`|`{tokens_used, model_used, sources, ...}`|Final response metadata|
+|`error`|`{"message": "..."}`|Error during generation|
+|`[DONE]`|_(final data line)_|Stream complete|
+
+Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
+
+**Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
 
 ### **4.6 Async Execution Reliability**
 
@@ -606,35 +619,21 @@ def get_router_model(self, language: str) -> ChatLiteLLMRouter:
     return ChatLiteLLMRouter(router=router)
 ```
 
-### **7.3 Token Budgeting**
+### **7.3 Token Tracking**
 
 **Model-Aware Input Counting:**
 
-`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific input token counting. The respond and summarize nodes call this function (with the resolved model name) to account for pre-call input tokens before invoking the LLM. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific token counting. It is called in `node_summarize` for pre-call node_tokens estimation. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
 
-**Per-Node Budget Enforcement:**
+**Real LLM Usage Capture:**
 
-```python
-def execute_node_with_budget(
-    node_fn: Callable,
-    state: GraphState,
-    budget: int
-) -> GraphState:
-    """Execute node with token budget enforcement."""
+Post-call token accounting uses the real LLM-reported `usage_metadata` (`input_tokens`, `output_tokens`) captured from the `on_chat_model_end` event in `server.py`. This event fires once per LLM call with the fully-merged `AIMessage`; it is the reliable source for real token counts. The captured values are forwarded to the frontend via the SSE `metadata` event as the numerator for the context ring indicator. A secondary capture path via `on_chat_model_stream` covers providers that embed usage in the final streaming chunk; `on_chat_model_end` values take precedence when non-zero.
 
-    if state["tokens_used"] >= state["token_budget"]:
-        raise TokenBudgetExceeded(
-            f"Budget exhausted: {state['tokens_used']}/{state['token_budget']}"
-        )
+If `usage_metadata` is absent, `_tokens_from_usage()` returns `(0, char/4 estimate)` for the output only; `state["input_tokens"]` accumulates `actual_input_tokens` (zero when unavailable) and serves as a fallback in the metadata payload.
 
-    # Track tokens
-    with TokenCounter() as counter:
-        result = node_fn(state)
+**Observability Fields (no enforcement):**
 
-    state["tokens_used"] += counter.total_tokens
-
-    return result
-```
+`tokens_used`, `turn_tokens_used`, `input_tokens`, and `output_tokens` are retained in `GraphState` and exposed via Prometheus metrics and SSE metadata. The `tokens` configuration keys (`default_budget`, `per_turn_budget_ratio`, etc.) are still parsed from profile YAML but have no enforcement effect — no node raises `TokenBudgetExceeded` or discards responses based on token counts.
 
 ---
 
@@ -1314,7 +1313,7 @@ services:
 
 ## **16. Performance Considerations**
 
-- **Token budgets:** Default 10,000 per request, per-node budgets enforced, automatic summarization when approaching limits
+- **Token tracking:** `tokens_used`, `input_tokens`, `output_tokens` accumulated in state for Prometheus metrics and SSE metadata; automatic summarization when context grows beyond `max_tokens * 0.75`
 - **Caching:** LLM response caching (optional), session-scoped memory query caching, Qdrant collection caching
 - **Concurrency:** Container-based — each session gets independent graph execution in LangGraph service, horizontal scaling via additional containers
 

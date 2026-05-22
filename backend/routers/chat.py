@@ -1,18 +1,21 @@
+import json
 import logging
 import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from backend.circuit_breaker import (
     AsyncCircuitBreaker,
     CircuitBreakerConfig,
     CircuitBreakerOpenError,
+    CircuitState,
     config_from_env,
 )
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
@@ -988,6 +991,33 @@ def _execute_workspace_action(
     raise HTTPException(status_code=400, detail=f"Unsupported workspace operation: {action.operation}")
 
 
+def _load_conversation_history(
+    request: Request,
+    conversation_id: Optional[str],
+    limit: int = 20,
+) -> List[Dict[str, str]]:
+    """Load prior user/assistant messages from the conversation store.
+
+    These are prepended to the current user message so LangGraph receives
+    full multi-turn context on every invocation, independent of checkpointing.
+    """
+    if not conversation_id:
+        return []
+    conv_store = getattr(request.app.state, "conversation_store", None)
+    if conv_store is None:
+        return []
+    try:
+        rows = conv_store.get_messages(conversation_id, limit=limit, offset=0)
+        return [
+            {"role": row["role"], "content": row["content"]}
+            for row in rows
+            if row.get("role") in ("user", "assistant") and row.get("content")
+        ]
+    except Exception as exc:
+        logger.warning("Failed to load conversation history for context injection: %s", exc)
+        return []
+
+
 def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[str, Any]:
     """Load user settings with cache (5min TTL)."""
     now = time.time()
@@ -1257,9 +1287,10 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
     llm_capability_probes = _get_latest_llm_capability_probes(request)
-    
+    prior_messages = _load_conversation_history(request, request_body.conversation_id)
+
     state = {
-        "messages": [{"role": "user", "content": request_body.message}],
+        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
@@ -1516,6 +1547,325 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                 "langgraph_invoke": LANGGRAPH_CIRCUIT_BREAKER.status(),
                 "llm_model_validation": MODEL_VALIDATION_CIRCUIT_BREAKER.status(),
             },
+        },
+    )
+
+
+@router.post("/chat/stream", response_model=None)
+@limiter.limit("30/minute")
+async def chat_stream(
+    request: Request,
+    request_body: ChatRequest,
+):
+    """Stream a chat request to LangGraph as Server-Sent Events.
+
+    Workspace writeback requests fall back to the synchronous /api/chat path
+    because writeback requires guaranteed delivery that cannot be done mid-stream.
+
+    SSE event types: token, tool_call, node, metadata, error.
+    Terminates with ``data: [DONE]``.
+    """
+    start_time = time.time()
+    effective_user_id = get_effective_user_id(request_body.user_id)
+
+    # workspace_action fast-path — never stream these
+    if request_body.workspace_action is not None:
+        workspace_result = _execute_workspace_action(request, request_body, effective_user_id)
+        return ChatResponse(
+            response=workspace_result.pop("response"),
+            metadata={
+                "workspace_action": workspace_result,
+                "tools_executed": ["workspace_file_ops_tool"],
+            },
+        )
+
+    # ── Pre-processing (identical to chat()) ────────────────────────────
+    settings_store = getattr(request.app.state, "settings_store", None)
+    user_settings: Dict[str, Any] = {}
+    model_warning = None
+
+    if settings_store:
+        user_settings = _get_cached_settings(effective_user_id, settings_store)
+        if user_settings.get("preferred_model"):
+            validated_model, warning = await _validate_preferred_model(user_settings["preferred_model"])
+            if warning:
+                model_warning = warning
+            if warning and validated_model is None:
+                try:
+                    _clear_invalid_chat_model_preference(effective_user_id, settings_store, user_settings)
+                except Exception as exc:
+                    logger.warning("Failed to clear invalid preferred model override: %s", exc)
+            user_settings["preferred_model"] = validated_model
+
+    if request_body.rag_enabled is not None:
+        user_settings = dict(user_settings)
+        rag_cfg = dict(user_settings.get("rag_config") or {})
+        rag_cfg["enabled"] = request_body.rag_enabled
+        user_settings["rag_config"] = rag_cfg
+
+    effective_language = user_settings.get("language") or request_body.language or "en"
+    attachments = _resolve_request_attachments(request, request_body, effective_user_id)
+    documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
+
+    workspace_writeback_requested = False
+    if _should_check_workspace_intent(documents, attachments):
+        _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
+        workspace_writeback_requested = bool(_intent.get("save", False))
+
+    llm_capability_probes = _get_latest_llm_capability_probes(request)
+    conversation_id = request_body.conversation_id
+    prior_messages = _load_conversation_history(request, conversation_id)
+
+    state: Dict[str, Any] = {
+        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
+        "user_id": effective_user_id,
+        "language": effective_language,
+        "user_settings": user_settings,
+        "llm_capability_probes": llm_capability_probes,
+        **({"session_id": conversation_id} if conversation_id else {}),
+        "attachments": [
+            {
+                "id": a["id"],
+                "original_name": a["original_name"],
+                "mime_type": a["mime_type"],
+                "size_bytes": a["size_bytes"],
+                "extracted_text": a["extracted_text"],
+            }
+            for a in attachments
+        ],
+        "workspace_documents": [
+            {
+                "id": doc["id"],
+                "filename": doc["filename"],
+                "stored_path": doc["stored_path"],
+                "mime_type": doc["mime_type"],
+                "size_bytes": doc["size_bytes"],
+                "version": doc["version"],
+                "content_text": doc["content_text"],
+            }
+            for doc in documents
+        ],
+        "workspace_writeback_requested": workspace_writeback_requested,
+        "workspace_writeback_document": (
+            {
+                "filename": documents[0]["filename"],
+                "content_text": documents[0]["content_text"],
+                "version": documents[0]["version"],
+            }
+            if workspace_writeback_requested and len(documents) == 1
+            else None
+        ),
+    }
+
+    logger.info(
+        "Routing streaming chat request to %s/stream",
+        LANGGRAPH_URL,
+        extra={
+            "user_id": effective_user_id,
+            "message_length": len(request_body.message),
+            "language": effective_language,
+            "attachment_count": len(attachments),
+            "document_count": len(documents),
+        },
+    )
+
+    attachments_used = [{"id": a["id"], "original_name": a["original_name"]} for a in attachments]
+    documents_used = [{"id": d["id"], "filename": d["filename"], "version": d["version"]} for d in documents]
+
+    async def _proxy_stream() -> AsyncGenerator[str, None]:
+        _metadata: Dict[str, Any] = {}
+        _accumulated_tokens: list[str] = []
+        _incomplete_chunk = ""
+        _done_emitted = False
+        _writeback_result: dict | None = None
+
+        def _do_writeback() -> dict | None:
+            """Perform workspace writeback after stream completes. Returns result dict or None."""
+            if not (workspace_writeback_requested and len(documents) == 1):
+                return None
+            try:
+                return _write_response_back_to_workspace_document(
+                    request,
+                    effective_user_id=effective_user_id,
+                    document=documents[0],
+                    content_text="".join(_accumulated_tokens),
+                )
+            except HTTPException as exc:
+                logger.warning("chat_stream: workspace writeback failed: %s", exc.detail)
+            except Exception as exc:
+                logger.warning("chat_stream: workspace writeback unexpected error: %s", exc)
+            return None
+
+        def _run_persistence(writeback: dict | None = None) -> None:
+            """Persist user + assistant messages. Called as soon as [DONE] arrives."""
+            if not conversation_id:
+                return
+            assistant_content = "".join(_accumulated_tokens)
+            memories_used = _serialize_loaded_memories(_metadata.get("loaded_memory", []))
+            tools_executed = list((_metadata.get("tool_results") or {}).keys())
+            if _metadata.get("knowledge_context"):
+                tools_executed.append("knowledge_base")
+
+            # When writeback succeeded, persist the SUMMARY section (if present) as the
+            # conversation message rather than the raw SUMMARY:/DOCUMENT: blob.
+            persisted_content = assistant_content
+            if writeback and writeback.get("status") == "saved":
+                summary = _extract_writeback_summary(assistant_content)
+                wb_filename = writeback.get("filename", "document")
+                wb_version = writeback.get("version")
+                wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
+                summary_line = f"\n\n{summary}" if summary else ""
+                persisted_content = (
+                    f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
+                    "You can view and restore previous versions in the sidebar History tab."
+                )
+
+            try:
+                conv_store = request.app.state.conversation_store
+                conv_store.add_message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=request_body.message,
+                    metadata={
+                        "attachment_ids": request_body.attachment_ids,
+                        "document_ids": request_body.document_ids,
+                    },
+                )
+                conv_store.add_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=persisted_content,
+                    tokens_used=int(_metadata.get("tokens_used", 0)),
+                    tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
+                    metadata={
+                        "attachments_used": attachments_used,
+                        "documents_used": documents_used,
+                        "memories_used": memories_used,
+                        "workspace_document_writeback": writeback,
+                        "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Failed to persist streamed messages to conversation %s: %s", conversation_id, exc)
+
+            # Memory retrieval quality signals (feeds analytics dashboard)
+            for _mem in memories_used:
+                try:
+                    track_memory_retrieval_signal(PROFILE_ID, _mem.get("user_rating"))
+                except Exception:
+                    pass
+
+            # Profile ID mismatch tracking
+            raw_profile_id = _metadata.get("profile_id")
+            if raw_profile_id and raw_profile_id != ACTIVE_PROFILE_ID:
+                try:
+                    track_profile_id_mismatch(
+                        fork_name=PROFILE_ID,
+                        active_profile_id=ACTIVE_PROFILE_ID,
+                        reported_profile_id=str(raw_profile_id),
+                    )
+                except Exception:
+                    pass
+
+            try:
+                analytics_store = getattr(request.app.state, "analytics_store", None)
+                if analytics_store:
+                    analytics_store.log_event(
+                        user_id=effective_user_id,
+                        event_type="chat_request",
+                        model_name=str(_metadata.get("model_used", "unknown")),
+                        tokens_used=int(_metadata.get("tokens_used", 0)),
+                        request_duration_seconds=time.time() - start_time,
+                        status="success",
+                        fork_name=PROFILE_ID,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to log stream analytics event: %s", exc)
+
+        try:
+            if LANGGRAPH_CIRCUIT_BREAKER.state == CircuitState.OPEN:
+                yield f"event: error\ndata: {json.dumps({'message': 'Service temporarily unavailable (circuit breaker open)'})}\n\n"
+                return
+
+            if model_warning:
+                yield f"event: warning\ndata: {json.dumps({'message': model_warning})}\n\n"
+
+            async with httpx.AsyncClient(timeout=900.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{LANGGRAPH_URL}/stream",
+                    json=state,
+                ) as upstream:
+                    if upstream.status_code != 200:
+                        err_body = await upstream.aread()
+                        msg = err_body.decode("utf-8", errors="replace")[:500]
+                        yield f"event: error\ndata: {json.dumps({'message': f'LangGraph error {upstream.status_code}: {msg}'})}\n\n"
+                        return
+
+                    async for raw_chunk in upstream.aiter_text():
+                        if not raw_chunk:
+                            continue
+
+                        _incomplete_chunk += raw_chunk
+                        blocks = _incomplete_chunk.split("\n\n")
+                        _incomplete_chunk = blocks.pop()  # last may be incomplete
+
+                        for block in blocks:
+                            stripped = block.strip()
+                            if not stripped:
+                                continue
+
+                            # [DONE] received — do writeback (if requested), persist,
+                            # emit optional writeback event, then forward [DONE].
+                            if stripped == "data: [DONE]":
+                                _writeback_result = _do_writeback()
+                                _run_persistence(writeback=_writeback_result)
+                                if _writeback_result and _writeback_result.get("status") == "saved":
+                                    yield f"event: writeback\ndata: {json.dumps(_writeback_result)}\n\n"
+                                yield "data: [DONE]\n\n"
+                                _done_emitted = True
+                                return
+
+                            # Side-channel parse for persistence data
+                            block_event = ""
+                            block_data = ""
+                            for line in stripped.split("\n"):
+                                if line.startswith("event: "):
+                                    block_event = line[7:].strip()
+                                elif line.startswith("data: "):
+                                    block_data = line[6:].strip()
+
+                            if block_event == "metadata" and block_data:
+                                try:
+                                    _metadata = json.loads(block_data)
+                                except Exception:
+                                    pass
+                            elif block_event == "token" and block_data:
+                                try:
+                                    delta = json.loads(block_data).get("delta", "")
+                                    if delta:
+                                        _accumulated_tokens.append(delta)
+                                except Exception:
+                                    pass
+
+                            yield block + "\n\n"
+
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            logger.error("LangGraph stream HTTP error: %s", exc)
+            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+        except Exception as exc:
+            logger.error("Unexpected stream error: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'message': 'Internal server error during streaming'})}\n\n"
+        finally:
+            if not _done_emitted:
+                yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _proxy_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )
 
