@@ -12,6 +12,17 @@ from universal_agentic_framework.llm.factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 
+_REASONING_MODEL_PATTERNS: list[str] = [
+    "deepseek-r1", "r1-lite", "r1-zero", "deepseek-r2",
+    "qwq", "qwen3",
+    "phi-4-reasoning", "phi4-reasoning", "phi-4-mini-reasoning",
+    "lfm2", "lfm-2", "lfm2.5", "lfm-2.5",
+    "gemma-4", "gemma4",
+    "magistral",
+    "reflection",
+    "thinking", "reasoner", "marco-o1", "skywork-o1",
+]
+
 
 def _fetch_context_window(api_base: str, model_name: str) -> Optional[int]:
     """Query the provider's /models endpoint for the model's configured context window.
@@ -150,6 +161,7 @@ class LLMCapabilityProbeRunner:
         metadata: Dict[str, Any] = {
             "probe_kind": "native_bind_tools" if tool_mode == "native" else "non_native_mode",
             "max_output_tokens": getattr(target.provider, "max_tokens", None),
+            "supports_reasoning": any(p in target.model_name.lower() for p in _REASONING_MODEL_PATTERNS),
         }
 
         if api_base:

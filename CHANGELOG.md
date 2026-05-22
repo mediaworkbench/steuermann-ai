@@ -33,6 +33,18 @@
 - **improve** Sidebar bottom section now displays the user's real name via `NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME` instead of the profile/app name ("Steuermann")
 - **feat** Pressing `Tab` anywhere on the chat page focuses the composer textarea — document-level listener in `ChatInterface` intercepts `Tab`, skips interception inside `role="dialog"` elements so modal navigation is unaffected
 
+### Streaming Reasoning / Chain-of-Thought UI
+
+- **feat** `ReasoningBox` component (`frontend/src/components/ReasoningBox.tsx`) — collapsible box that renders model chain-of-thought above the assistant response; auto-expands with a spinner while the model is reasoning, auto-collapses when reasoning ends; click chevron to re-expand in completed messages; uses the same CSS grid collapse animation pattern as `MetricsPanel`
+- **feat** Tag-parser state machine in `universal_agentic_framework/server.py` — intercepts `<think>`, `<thinking>`, and `<reflection>` tags from the LLM content stream before they reach the `token` SSE event; emits `thinking_start`, `thinking` (with `{"delta": "..."}` payload), and `thinking_end` events; pending buffer guards against tags split across chunk boundaries; longest-first tag matching prevents `<think>` from shadowing `<thinking>`
+- **feat** Native `reasoning_content` path in `server.py` — when `chunk.additional_kwargs["reasoning_content"]` is present (LM Studio / LiteLLM field for models that separate reasoning natively), thinking is emitted directly as `thinking_start` / `thinking` events without going through the tag parser; the block closes automatically when content tokens start arriving; covers both LM Studio configurations (embedded tags vs. native field)
+- **feat** `thinking_content` persisted to JSONB metadata in `_run_persistence()` (`backend/routers/chat.py`) — omitted from the dict when empty so pre-existing tests with exact metadata equality remain unaffected; read back via `toUiMessage()` in `ChatInterface.tsx` from `pm.metadata.thinking_content` on conversation reload
+- **feat** `supports_reasoning` heuristic in `LLMCapabilityProbeRunner._probe_target()` (`backend/llm_capability_probe.py`) — pattern-matched against model name (DeepSeek-R1, QwQ, Qwen3, Liquid LFM2, Phi-4-reasoning, Mistral Magistral, Gemma-4, Reflection, and generic `thinking`/`reasoner` patterns); exposed in `/api/llm/capabilities` response via `backend/routers/settings.py`
+- **feat** `useStreamingChat` hook extended — `thinkingContent: string` and `isThinking: boolean` state; three new SSE case handlers (`thinking_start`, `thinking`, `thinking_end`); `isThinking` cleared in `finally` block (prevents stuck spinner on stream cancel or error); both values exposed in `UseStreamingChatReturn` interface
+- **feat** `Message.thinking?: string` field added to `frontend/src/lib/types.ts` — set when a completed message has persisted chain-of-thought; `ReasoningBox` renders it collapsed in historical messages
+- **feat** CSS grid collapse for reasoning box — `.reasoning-body` + `.reasoning-body.open` + `.reasoning-body > div` rules added to `globals.css` alongside the existing `.metrics-body` rules; same `0fr → 1fr` transition pattern
+- **fix** `test_chat_forwards_attachment_context` — expected `metadata` dict updated to include `input_tokens`, `sources`, `rag_attempted`, and `rag_doc_count` fields that `_run_persistence()` has always written; test had drifted from the actual code
+
 ---
 
 ## [0.3.0] — frontend-streaming-chat-composer

@@ -298,6 +298,16 @@ _TOOL_LABELS: dict[str, str] = {
 }
 
 
+# Ordered longest-first to avoid matching <think> before <thinking>.
+_THINK_TAG_PAIRS: list[tuple[str, str]] = [
+    ("<thinking>", "</thinking>"),
+    ("<reflection>", "</reflection>"),
+    ("<think>", "</think>"),
+]
+_MAX_OPEN_TAG_LEN = max(len(o) for o, _ in _THINK_TAG_PAIRS)   # 10
+_MAX_CLOSE_TAG_LEN = max(len(c) for _, c in _THINK_TAG_PAIRS)  # 11
+
+
 def _tool_label(tool_name: str) -> str:
     """Return a human-readable label for a tool name, falling back to a generated one."""
     if tool_name in _TOOL_LABELS:
@@ -378,6 +388,10 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _done_emitted = False
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
+        _in_thinking = False   # currently inside a <think> block
+        _close_tag = ""        # matching close tag for the current block
+        _pending_buf = ""      # guards against tags split across chunk boundaries
+        _full_thinking = ""    # accumulated thinking text for metadata
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
             with track_graph_request(fork_name) as ctx:
@@ -395,6 +409,20 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                         chunk = data.get("chunk")
                         delta = ""
                         if chunk is not None:
+                            # One-shot debug: log the first non-empty chunk shape so we can
+                            # confirm where LM Studio puts reasoning content.
+                            _ak_debug = getattr(chunk, "additional_kwargs", {}) or {}
+                            _content_debug = getattr(chunk, "content", "")
+                            if (_ak_debug.get("reasoning_content") or _content_debug) and not _full_thinking and not _pending_buf:
+                                logger.debug(
+                                    "First content chunk shape",
+                                    has_content=bool(_content_debug),
+                                    content_preview=str(_content_debug)[:60] if _content_debug else None,
+                                    has_reasoning_content=bool(_ak_debug.get("reasoning_content")),
+                                    reasoning_preview=str(_ak_debug.get("reasoning_content", ""))[:60] or None,
+                                    additional_kwargs_keys=list(_ak_debug.keys()),
+                                )
+
                             # Capture real usage from the final streaming chunk (LM Studio
                             # always reports usage here; this fires before on_chain_end).
                             _chunk_usage = getattr(chunk, "usage_metadata", None)
@@ -406,6 +434,18 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     _captured_input_tokens = _in
                                 if _out > 0:
                                     _captured_output_tokens = _out
+                            # Native reasoning_content field (LM Studio / LiteLLM / Ollama)
+                            # takes priority: emit directly without going through the tag parser.
+                            _ak = getattr(chunk, "additional_kwargs", {}) or {}
+                            _reasoning_delta = _ak.get("reasoning_content") or ""
+                            if _reasoning_delta:
+                                if not _in_thinking:
+                                    _in_thinking = True
+                                    _close_tag = ""
+                                    yield "event: thinking_start\ndata: {}\n\n"
+                                yield f"event: thinking\ndata: {json.dumps({'delta': _reasoning_delta})}\n\n"
+                                _full_thinking += _reasoning_delta
+
                             content = getattr(chunk, "content", chunk)
                             if isinstance(content, str):
                                 delta = content
@@ -414,8 +454,51 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     b.get("text", "") if isinstance(b, dict) else str(b)
                                     for b in content
                                 )
+
+                            # Close the native reasoning block once content starts arriving.
+                            if delta and _in_thinking and not _close_tag:
+                                _in_thinking = False
+                                yield "event: thinking_end\ndata: {}\n\n"
+
                         if delta:
-                            yield f"event: token\ndata: {json.dumps({'delta': delta})}\n\n"
+                            _pending_buf += delta
+                            while True:
+                                if not _in_thinking:
+                                    best_idx, best_open, best_close = -1, "", ""
+                                    for open_tag, close_tag in _THINK_TAG_PAIRS:
+                                        idx = _pending_buf.find(open_tag)
+                                        if idx != -1 and (best_idx == -1 or idx < best_idx):
+                                            best_idx, best_open, best_close = idx, open_tag, close_tag
+                                    if best_idx == -1:
+                                        safe = max(0, len(_pending_buf) - (_MAX_OPEN_TAG_LEN - 1))
+                                        if safe > 0:
+                                            yield f"event: token\ndata: {json.dumps({'delta': _pending_buf[:safe]})}\n\n"
+                                            _pending_buf = _pending_buf[safe:]
+                                        break
+                                    if best_idx > 0:
+                                        yield f"event: token\ndata: {json.dumps({'delta': _pending_buf[:best_idx]})}\n\n"
+                                    _pending_buf = _pending_buf[best_idx + len(best_open):]
+                                    _in_thinking = True
+                                    _close_tag = best_close
+                                    yield "event: thinking_start\ndata: {}\n\n"
+                                else:
+                                    idx = _pending_buf.find(_close_tag)
+                                    if idx == -1:
+                                        safe = max(0, len(_pending_buf) - (_MAX_CLOSE_TAG_LEN - 1))
+                                        if safe > 0:
+                                            chunk_text = _pending_buf[:safe]
+                                            yield f"event: thinking\ndata: {json.dumps({'delta': chunk_text})}\n\n"
+                                            _full_thinking += chunk_text
+                                            _pending_buf = _pending_buf[safe:]
+                                        break
+                                    if idx > 0:
+                                        chunk_text = _pending_buf[:idx]
+                                        yield f"event: thinking\ndata: {json.dumps({'delta': chunk_text})}\n\n"
+                                        _full_thinking += chunk_text
+                                    _pending_buf = _pending_buf[idx + len(_close_tag):]
+                                    _in_thinking = False
+                                    _close_tag = ""
+                                    yield "event: thinking_end\ndata: {}\n\n"
 
                     elif kind == "on_chat_model_end":
                         # Override streaming chunk capture with the fully-merged result.
@@ -474,6 +557,17 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                             if "messages" in output:
                                 _final_output = output
                                 if name == "respond" and not _done_emitted:
+                                    # Drain pending buffer before emitting metadata.
+                                    if _in_thinking:
+                                        if _pending_buf:
+                                            yield f"event: thinking\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
+                                            _full_thinking += _pending_buf
+                                            _pending_buf = ""
+                                        yield "event: thinking_end\ndata: {}\n\n"
+                                        _in_thinking = False
+                                    elif _pending_buf:
+                                        yield f"event: token\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
+                                        _pending_buf = ""
                                     # Emit metadata + [DONE] immediately after the respond
                                     # node so the client can render pills without waiting
                                     # for summarize + update_memory (~43 s).
@@ -490,6 +584,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "rag_doc_count": _final_output.get("rag_doc_count", 0),
                                         "loaded_memory": _final_output.get("loaded_memory", []),
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
+                                        "thinking_content": _full_thinking if _full_thinking else None,
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -514,6 +609,16 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
             # Fallback: emit metadata if the respond node's on_chain_end never fired
             # (e.g. graph ended via a different path).
             if not _done_emitted and _final_output:
+                if _in_thinking:
+                    if _pending_buf:
+                        yield f"event: thinking\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
+                        _full_thinking += _pending_buf
+                        _pending_buf = ""
+                    yield "event: thinking_end\ndata: {}\n\n"
+                    _in_thinking = False
+                elif _pending_buf:
+                    yield f"event: token\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
+                    _pending_buf = ""
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
                     "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
@@ -527,6 +632,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "rag_doc_count": _final_output.get("rag_doc_count", 0),
                     "loaded_memory": _final_output.get("loaded_memory", []),
                     "memory_analytics": _final_output.get("memory_analytics", {}),
+                    "thinking_content": _full_thinking if _full_thinking else None,
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

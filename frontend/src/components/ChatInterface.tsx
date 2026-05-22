@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
+import { ReasoningBox } from "./ReasoningBox";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
@@ -248,6 +249,7 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
   return {
     role: pm.role === "system" ? "assistant" : pm.role,
     content: pm.content,
+    thinking: (pm.metadata?.thinking_content as string | undefined) ?? undefined,
     timestamp: pm.created_at
       ? formatTime(pm.created_at)
       : undefined,
@@ -320,6 +322,8 @@ export function ChatInterface() {
     nodeStatus,
     finalMetadata,
     wasCancelled,
+    thinkingContent,
+    isThinking,
     sendMessage: startStream,
     cancel: cancelStream,
     reset: resetStream,
@@ -449,6 +453,7 @@ export function ChatInterface() {
           content: wasCancelled
             ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
             : streamingContent,
+          thinking: thinkingContent || undefined,
           timestamp: formatTime(new Date()),
           metrics: finalMetadata
             ? {
@@ -914,6 +919,10 @@ export function ChatInterface() {
                 </div>
               )}
 
+              {(thinkingContent || isThinking) && (
+                <ReasoningBox content={thinkingContent} isStreaming={isThinking} />
+              )}
+
               {isStreaming && streamingContent ? (
                 /* Live streaming text with cursor */
                 <div
@@ -1287,6 +1296,11 @@ function AssistantMessage({
             </span>
           )}
         </div>
+
+        {/* Reasoning chain (collapsed by default for completed messages) */}
+        {message.thinking && (
+          <ReasoningBox content={message.thinking} isStreaming={false} />
+        )}
 
         {/* Message text */}
         <div className="text-evergreen text-base leading-relaxed px-1">

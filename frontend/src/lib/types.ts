@@ -37,6 +37,7 @@ export interface MessageMetrics {
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
   timestamp?: string;
   metrics?: MessageMetrics;
   persistedId?: number;

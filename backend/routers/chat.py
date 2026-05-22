@@ -1723,6 +1723,9 @@ async def chat_stream(
                         "sources": _metadata.get("sources") or [],
                         "rag_attempted": bool(_metadata.get("rag_attempted", False)),
                         "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
+                        **({
+                            "thinking_content": _metadata["thinking_content"]
+                        } if _metadata.get("thinking_content") else {}),
                     },
                 )
             except Exception as exc:

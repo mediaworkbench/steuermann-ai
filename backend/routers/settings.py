@@ -674,6 +674,7 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
                     "probed_at": probe_row.get("probed_at") if probe_row else None,
                     "metadata": metadata if isinstance(metadata, dict) else {},
                     "capabilities": capabilities if isinstance(capabilities, dict) else {},
+                    "supports_reasoning": bool(metadata.get("supports_reasoning", False)) if isinstance(metadata, dict) else False,
                 }
             )
 

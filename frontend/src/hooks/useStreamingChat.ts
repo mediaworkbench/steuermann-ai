@@ -23,6 +23,8 @@ export interface UseStreamingChatReturn {
   nodeStatus: string | null;
   finalMetadata: ChatResponse["metadata"] | null;
   wasCancelled: boolean;
+  thinkingContent: string;
+  isThinking: boolean;
   sendMessage: (params: StreamingChatParams) => Promise<void>;
   cancel: () => void;
   reset: () => void;
@@ -63,6 +65,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
   const [nodeStatus, setNodeStatus] = useState<string | null>(null);
   const [finalMetadata, setFinalMetadata] = useState<ChatResponse["metadata"] | null>(null);
   const [wasCancelled, setWasCancelled] = useState(false);
+  const [thinkingContent, setThinkingContent] = useState("");
+  const [isThinking, setIsThinking] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
@@ -84,6 +88,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
     setWasCancelled(false);
     setToolCallStatus(null);
     setNodeStatus(null);
+    setThinkingContent("");
+    setIsThinking(false);
   }, [cancel]);
 
   const sendMessage = useCallback(
@@ -100,6 +106,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
       setNodeStatus(null);
       setFinalMetadata(null);
       setWasCancelled(false);
+      setThinkingContent("");
+      setIsThinking(false);
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -205,6 +213,18 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 );
                 break;
 
+              case "thinking_start":
+                setIsThinking(true);
+                break;
+
+              case "thinking":
+                setThinkingContent((prev) => prev + ((parsed.delta as string) ?? ""));
+                break;
+
+              case "thinking_end":
+                setIsThinking(false);
+                break;
+
               case "warning":
                 setStreamWarning((parsed.message as string) ?? null);
                 break;
@@ -225,6 +245,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
         setIsStreaming(false);
         setNodeStatus(null);
         setToolCallStatus(null);
+        setIsThinking(false);
         readerRef.current = null;
         abortControllerRef.current = null;
       }
@@ -241,6 +262,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
     nodeStatus,
     finalMetadata,
     wasCancelled,
+    thinkingContent,
+    isThinking,
     sendMessage,
     cancel,
     reset,
