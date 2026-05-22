@@ -19,6 +19,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
+from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
     track_graph_request,
@@ -51,6 +52,7 @@ CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
 GRAPH = build_graph()
 ACTIVE_SESSIONS: set[str] = set()
+_invocation_count: int = 0
 
 # Initialize system info metrics
 initialize_system_info(version="1.0.0", environment="production")
@@ -92,6 +94,12 @@ for _attempt in range(_MAX_STARTUP_RETRIES):
             raise RuntimeError("Embedding provider unreachable at startup") from _e
 
 logger.info("LangGraph server ready to accept requests")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    await setup_checkpointer(GRAPH.checkpointer)
+    await prune_checkpoints(GRAPH.checkpointer)
 
 
 @app.get("/health")
@@ -176,13 +184,19 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             workspace_document_count=len(request.get("workspace_documents", [])),
         )
         
-        # Generate session_id (use request session_id if provided, otherwise derive from user_id + timestamp)
-        import time
-        session_id = request.get("session_id") or f"{user_id}_{int(time.time())}"
-        
+        # Ephemeral sessions (no session_id) are not checkpointed
+        session_id = request.get("session_id")
+
+        # Load at the edge: merge accumulated messages from checkpoint with new user message
+        existing_messages: list = []
+        if session_id:
+            ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
+            if ct:
+                existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+
         # Prepare graph state
         state: GraphState = {
-            "messages": request.get("messages", []),
+            "messages": existing_messages + request.get("messages", []),
             "user_id": user_id,
             "session_id": session_id,
             "language": language,
@@ -202,17 +216,16 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         # Track request with metrics
         with track_graph_request(fork_name) as ctx:
             try:
-                # Pass per-session thread id so checkpoint-enabled graphs can resume state correctly.
-                invoke_config = {
-                    "configurable": {
-                        "thread_id": session_id,
-                    }
-                }
+                invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
 
                 # Execute graph (use invoke since HTTP is sync context)
                 result = GRAPH.invoke(state, config=invoke_config)
-                
+
                 ctx["status"] = "success"
+                global _invocation_count
+                _invocation_count += 1
+                if _invocation_count % 100 == 0:
+                    asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
                 logger.info(
                     "Graph execution completed successfully",
                     tokens_used=result.get("tokens_used", 0),
@@ -320,7 +333,6 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     if "user_id" not in request:
         raise HTTPException(status_code=400, detail="Missing 'user_id' field")
 
-    import time as _time
     user_id = request.get("user_id", "anonymous")
     language = request.get("language", "en")
     bind_context(user_id=user_id)
@@ -329,9 +341,18 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     fork_name = CONFIG.fork.name
     profile_id = ACTIVE_PROFILE_ID
 
-    session_id = request.get("session_id") or f"{user_id}_{int(_time.time())}"
+    # Ephemeral sessions (no session_id) are not checkpointed
+    session_id = request.get("session_id")
+
+    # Load at the edge: merge accumulated messages from checkpoint with new user message
+    existing_messages: list = []
+    if session_id:
+        ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
+        if ct:
+            existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+
     state: GraphState = {
-        "messages": request.get("messages", []),
+        "messages": existing_messages + request.get("messages", []),
         "user_id": user_id,
         "session_id": session_id,
         "language": language,
@@ -343,7 +364,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "workspace_documents": request.get("workspace_documents", []),
         "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
     }
-    invoke_config = {"configurable": {"thread_id": session_id}}
+    invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
 
     logger.info(
         "Graph stream invocation received",
@@ -473,6 +494,10 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
                                     _done_emitted = True
+                                    global _invocation_count
+                                    _invocation_count += 1
+                                    if _invocation_count % 100 == 0:
+                                        asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
                                     # Drain post-processing nodes (summarize, update_memory)
                                     # in the background so they complete without blocking.
                                     asyncio.create_task(_drain_remaining(_events_iter))

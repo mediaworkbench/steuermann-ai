@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.1] — postgres-checkpointing
+
+### Postgres Checkpointing (Always-On)
+
+- **feat** LangGraph checkpointing is now unconditional — `enabled` flag, `backend` field, and SQLite path removed from `CheckpointingSettings`; `build_checkpointer()` always returns a `PostgresSaver` or raises `ValueError` on missing DSN
+- **feat** Load-at-edge pattern in `server.py` — both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge with the new user message before graph invocation; `GraphState.messages` (no reducer) is set correctly without ever overwriting checkpointed history
+- **feat** Startup pruning (`@app.on_event("startup")`) and periodic fire-and-forget pruning every 100 invocations via `asyncio.create_task(prune_checkpoints(...))` keep checkpoint storage flat without new infrastructure
+- **feat** Ephemeral sessions (requests without `conversation_id`) omit `thread_id` from `configurable` — LangGraph skips checkpointing entirely; no orphaned rows
+- **refactor** `_load_conversation_history()` workaround removed from `backend/routers/chat.py` — function deleted, both `chat()` and `chat_stream()` call sites simplified to `"messages": [{"role": "user", "content": ...}]`; `ConversationStore.add_message()` calls retained for UI layer
+- **chore** `CHECKPOINTER_ENABLED`, `CHECKPOINTER_BACKEND`, `CHECKPOINTER_DB_PATH` env vars removed from `docker-compose.yml`; `CHECKPOINTER_POSTGRES_DSN` default set to `postgresql://framework:framework@postgres:5432/framework`; `./data/checkpoints` volume mount removed
+- **chore** `config/core.yaml` `checkpointing` block slimmed to `postgres_dsn` only; `.env.example` Prompt Configuration section added (was missing, all entries commented out)
+- **fix** `GraphState.loaded_tools` and `candidate_tools` annotated with `Annotated[..., UntrackedValue(list)]` — `BaseTool` instances are not msgpack-serializable; their presence in plain `List[Any]` state fields caused LangGraph's `aput_writes` to fail silently on every turn, writing only the pre-node "input" checkpoint and never the post-assistant-message checkpoint; `UntrackedValue` excludes these fields from serialization while keeping them accessible within the turn
+- **test** `tests/test_checkpointing.py` rewritten — SQLite/enabled-flag tests removed; new unit tests for `ValueError` on missing DSN, env-var precedence, config-DSN fallback; multi-turn integration test (`@pytest.mark.integration`) verifies second turn checkpoint contains messages from both turns; `pytest.importorskip("psycopg_pool")` added so the integration test skips gracefully when the `langgraph` Poetry group is not installed locally
+
+---
+
 ## [0.3.0] — frontend-streaming-chat-composer
 
 ### Context Window Ring Indicator
@@ -10,7 +26,7 @@
 
 ### Conversation Integrity
 
-- **fix** Multi-turn context loss with checkpointer disabled — `_load_conversation_history()` helper in `backend/routers/chat.py` loads prior messages from PostgreSQL (`ConversationStore.get_messages()`, limit 20) and prepends them to the LangGraph state for every request; both `chat()` and `chat_stream()` paths updated; fixes the model having no memory of previous turns when `CHECKPOINTER_ENABLED=false`
+- **fix** Multi-turn context loss with checkpointer disabled — `_load_conversation_history()` helper in `backend/routers/chat.py` loads prior messages from PostgreSQL (`ConversationStore.get_messages()`, limit 20) and prepends them to the LangGraph state for every request; both `chat()` and `chat_stream()` paths updated; superseded by always-on Postgres checkpointing in v0.3.1
 
 ### Performance / Token Tracking
 

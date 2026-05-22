@@ -24,10 +24,7 @@ services:
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - CHECKPOINTER_ENABLED=${CHECKPOINTER_ENABLED:-false}
-      - CHECKPOINTER_BACKEND=${CHECKPOINTER_BACKEND:-sqlite}
-      - CHECKPOINTER_DB_PATH=${CHECKPOINTER_DB_PATH:-/data/checkpoints/langgraph_checkpoints.sqlite}
-      - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-}
+      - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-postgresql://framework:framework@postgres:5432/framework}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
       - WEB_SEARCH_MCP_URL=${WEB_SEARCH_MCP_URL:-http://duckduckgo-mcp:8000/mcp}
       - PROMPT_SYSTEM_EN=${PROMPT_SYSTEM_EN:-}
@@ -42,7 +39,6 @@ services:
       - "8000"
     volumes:
       - ./config:/app/config:ro
-      - ./data/checkpoints:/data/checkpoints
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
