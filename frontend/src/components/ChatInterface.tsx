@@ -255,12 +255,16 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
     feedback: pm.feedback ?? undefined,
     metrics: {
       output_tokens: pm.tokens_used ?? undefined,
+      input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
       response_time_ms: pm.response_time_ms ?? undefined,
       model: pm.model_name ?? undefined,
       tools_executed: pm.tools_used?.map((t) => ({
         name: t.name,
         status: t.status,
       })),
+      sources: pm.metadata?.sources as Source[] | undefined,
+      rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
+      rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,
       attachments_used: pm.metadata?.attachments_used as
         | Array<{ id: string; original_name: string }>
         | undefined,
@@ -378,8 +382,13 @@ export function ChatInterface() {
     (async () => {
       const detail = await fetchConversation(activeId);
       if (cancelled || !detail) return;
-      setContextTokens(0);
-      setMessages(detail.messages.map((msg) => toUiMessage(msg, formatTime)));
+      const loadedMessages = detail.messages.map((msg) => toUiMessage(msg, formatTime));
+      // Restore context ring to the high-water mark from persisted input_tokens.
+      const hwm = loadedMessages
+        .filter((m) => m.role === "assistant")
+        .reduce((max, m) => Math.max(max, m.metrics?.input_tokens ?? 0), 0);
+      setContextTokens(hwm);
+      setMessages(loadedMessages);
       // New chats should start with a collapsed workspace unless explicitly opened.
       if (detail.messages.length === 0) {
         setWorkspaceSidebarOpen(false);

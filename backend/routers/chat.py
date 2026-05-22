@@ -1465,6 +1465,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                 role="assistant",
                 content=assistant_msg,
                 tokens_used=tokens_used,
+                model_name=model_used,
                 tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                 metadata={
                     "attachments_used": attachments_used,
@@ -1472,6 +1473,10 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                     "memories_used": memories_used,
                     "workspace_document_writeback": workspace_document_writeback,
                     "profile_id": profile_id,
+                    "input_tokens": input_tokens or None,
+                    "sources": sources or [],
+                    "rag_attempted": rag_attempted,
+                    "rag_doc_count": rag_doc_count,
                 },
             )
         except Exception as exc:
@@ -1706,6 +1711,7 @@ async def chat_stream(
                     role="assistant",
                     content=persisted_content,
                     tokens_used=int(_metadata.get("tokens_used", 0)),
+                    model_name=str(_metadata.get("model_used", "")) or None,
                     tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                     metadata={
                         "attachments_used": attachments_used,
@@ -1713,6 +1719,10 @@ async def chat_stream(
                         "memories_used": memories_used,
                         "workspace_document_writeback": writeback,
                         "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
+                        "input_tokens": int(_metadata.get("input_tokens", 0)) or None,
+                        "sources": _metadata.get("sources") or [],
+                        "rag_attempted": bool(_metadata.get("rag_attempted", False)),
+                        "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
                     },
                 )
             except Exception as exc:
