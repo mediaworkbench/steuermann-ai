@@ -37,6 +37,7 @@ def build_checkpointer(config: Any, env: Optional[Mapping[str, str]] = None) -> 
 
     pool = AsyncConnectionPool(conninfo=postgres_dsn, open=False)
     checkpointer = AsyncPostgresSaver(pool)
+    checkpointer._postgres_dsn = postgres_dsn  # kept for setup fallback
     logger.info("Checkpointing enabled", backend="postgres")
     return checkpointer
 
@@ -46,10 +47,57 @@ async def setup_checkpointer(checkpointer: Any) -> None:
 
     Must be called once from the ASGI startup event before the graph handles
     any request. Safe to call even if tables already exist.
+
+    langgraph-checkpoint-postgres 3.x migrations 6-8 use CREATE INDEX
+    CONCURRENTLY, which Postgres forbids inside a transaction block.
+    When that error occurs we re-run all pending migrations via a direct
+    autocommit connection so each statement commits individually.
     """
     await checkpointer.conn.open(wait=True)
-    await checkpointer.setup()
+    try:
+        await checkpointer.setup()
+    except Exception as exc:
+        if "ActiveSqlTransaction" not in type(exc).__name__ and "CONCURRENTLY" not in str(exc):
+            raise
+        logger.warning(
+            "setup() hit ActiveSqlTransaction (CREATE INDEX CONCURRENTLY); "
+            "retrying via autocommit connection",
+            error=str(exc),
+        )
+        await _setup_via_autocommit(checkpointer)
     logger.info("Checkpointer pool open and tables ready")
+
+
+async def _setup_via_autocommit(checkpointer: Any) -> None:
+    """Re-run pending checkpoint migrations using a direct autocommit connection.
+
+    With autocommit=True every statement is its own implicit transaction, so
+    CREATE INDEX CONCURRENTLY succeeds.  All migrations use IF NOT EXISTS, so
+    re-running already-applied ones is safe.
+    """
+    import psycopg
+    import psycopg.rows
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    dsn = getattr(checkpointer, "_postgres_dsn", None)
+    if not dsn:
+        raise RuntimeError("Cannot run autocommit setup: _postgres_dsn not set on checkpointer")
+
+    migrations = AsyncPostgresSaver.MIGRATIONS
+
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            await cur.execute(migrations[0])
+            await cur.execute(
+                "SELECT v FROM checkpoint_migrations ORDER BY v DESC LIMIT 1"
+            )
+            row = await cur.fetchone()
+            version = -1 if row is None else row["v"]
+            for v in range(version + 1, len(migrations)):
+                await cur.execute(migrations[v])
+                await cur.execute(
+                    "INSERT INTO checkpoint_migrations (v) VALUES (%s)", (v,)
+                )
 
 
 async def _prune_async(checkpointer: Any) -> None:

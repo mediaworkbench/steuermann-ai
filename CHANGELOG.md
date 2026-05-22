@@ -26,6 +26,13 @@
 - **fix** Context ring reset to 0% on navigation back — conversation load now computes the high-water mark from the reloaded messages' `input_tokens` and passes it to `setContextTokens` instead of unconditionally resetting to 0
 - **fix** Thumbs up/down feedback not persisted for in-session messages — streamed assistant messages were committed to UI state without a `persistedId` (DB row ID never flowed back), so `handleFeedback`'s `if (msg.persistedId)` guard silently skipped the API call; after streaming ends, a background `fetchConversation` patches `persistedId` onto messages missing it (safe because `_run_persistence` on the backend completes before `[DONE]` is emitted to the client)
 
+### Frontend UX Tweaks
+
+- **improve** Toast notifications now stay visible for 6 seconds (up from Sonner's 4-second default) and include a close button for early dismissal — both `Toaster` instances in `LayoutShell.tsx` updated
+- **improve** User message avatar replaces hardcoded `JS` initials with a `person` icon styled identically to the agent's `smart_toy` avatar — gradient background retained to distinguish user from agent
+- **improve** Sidebar bottom section now displays the user's real name via `NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME` instead of the profile/app name ("Steuermann")
+- **feat** Pressing `Tab` anywhere on the chat page focuses the composer textarea — document-level listener in `ChatInterface` intercepts `Tab`, skips interception inside `role="dialog"` elements so modal navigation is unaffected
+
 ---
 
 ## [0.3.0] — frontend-streaming-chat-composer

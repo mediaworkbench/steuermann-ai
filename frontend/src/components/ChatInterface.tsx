@@ -750,9 +750,6 @@ export function ChatInterface() {
     setInput("");
     setTimeout(() => autoResize(), 0);
     sendMessage(userMessage);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
   }
 
   // ── Regenerate: resend the last user message ───────────────────────
@@ -802,6 +799,25 @@ export function ChatInterface() {
     },
     [messages, activeId, t],
   );
+
+  const prevIsStreamingRef = useRef(false);
+  useEffect(() => {
+    if (prevIsStreamingRef.current && !isStreaming) {
+      textareaRef.current?.focus();
+    }
+    prevIsStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  useEffect(() => {
+    const onTabKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (document.activeElement?.closest('[role="dialog"]')) return;
+      e.preventDefault();
+      textareaRef.current?.focus();
+    };
+    document.addEventListener("keydown", onTabKey);
+    return () => document.removeEventListener("keydown", onTabKey);
+  }, []);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape" && isStreaming) {
@@ -1001,7 +1017,7 @@ export function ChatInterface() {
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
-              className="w-full bg-transparent border-0 focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-transparent border-0 outline-none focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
               placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
