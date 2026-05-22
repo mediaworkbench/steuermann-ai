@@ -14,6 +14,18 @@
 - **fix** `GraphState.loaded_tools` and `candidate_tools` annotated with `Annotated[..., UntrackedValue(list)]` — `BaseTool` instances are not msgpack-serializable; their presence in plain `List[Any]` state fields caused LangGraph's `aput_writes` to fail silently on every turn, writing only the pre-node "input" checkpoint and never the post-assistant-message checkpoint; `UntrackedValue` excludes these fields from serialization while keeping them accessible within the turn
 - **test** `tests/test_checkpointing.py` rewritten — SQLite/enabled-flag tests removed; new unit tests for `ValueError` on missing DSN, env-var precedence, config-DSN fallback; multi-turn integration test (`@pytest.mark.integration`) verifies second turn checkpoint contains messages from both turns; `pytest.importorskip("psycopg_pool")` added so the integration test skips gracefully when the `langgraph` Poetry group is not installed locally
 
+### Context Window Ring & Token Tracking
+
+- **fix** `input_tokens` fallback was always 0 when LM Studio omits `usage_metadata` — `_tokens_from_usage()` in `graph_builder.py` now accepts a `fallback_input_estimate` computed from the full prompt via `estimate_tokens()`; `node_generate_response` passes the pre-call character estimate so the ring reflects real consumption even without provider-reported usage
+- **fix** Context ring denominator was `max_tokens` (response budget, e.g. 32768) instead of the model's configured context window — `LLMCapabilityProbeRunner._probe_target()` now queries the provider's `/models` endpoint and stores `context_window_tokens` in the probe `metadata` JSONB; `get_system_config` overlays this value onto `model_roles`; frontend uses `context_window_tokens ?? max_tokens`; `context_length` (configured/loaded value) is preferred over `max_context_length` (theoretical ceiling) everywhere
+- **fix** Context ring went backwards between turns — per-turn prompt size varies because RAG results and tool outputs fluctuate; ring now uses a high-water mark (`Math.max(prev, tokens)`) so it never decreases within a conversation; `contextTokens` still resets to 0 on conversation switch
+
+### Chat Metrics & Feedback Persistence
+
+- **fix** Metrics panel lost most fields after navigating away and back — both `chat()` and `chat_stream()` `add_message` calls now persist `model_name` (dedicated column), `input_tokens`, `sources`, `rag_attempted`, and `rag_doc_count` into the `metadata` JSONB column; `toUiMessage` in `ChatInterface.tsx` reads all five fields back on conversation reload
+- **fix** Context ring reset to 0% on navigation back — conversation load now computes the high-water mark from the reloaded messages' `input_tokens` and passes it to `setContextTokens` instead of unconditionally resetting to 0
+- **fix** Thumbs up/down feedback not persisted for in-session messages — streamed assistant messages were committed to UI state without a `persistedId` (DB row ID never flowed back), so `handleFeedback`'s `if (msg.persistedId)` guard silently skipped the API call; after streaming ends, a background `fetchConversation` patches `persistedId` onto messages missing it (safe because `_run_persistence` on the backend completes before `[DONE]` is emitted to the client)
+
 ---
 
 ## [0.3.0] — frontend-streaming-chat-composer

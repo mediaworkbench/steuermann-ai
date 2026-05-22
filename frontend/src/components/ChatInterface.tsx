@@ -1386,10 +1386,10 @@ function UserMessage({
     <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse">
       <div
         className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
-                    flex items-center justify-center text-evergreen font-bold shrink-0"
+                    flex items-center justify-center shrink-0"
         aria-hidden="true"
       >
-        JS
+        <Icon name="person" size={18} className="text-white" />
       </div>
       <div className="flex flex-col gap-1 items-end max-w-[85%]">
         <div className="flex items-center gap-2 mr-1">

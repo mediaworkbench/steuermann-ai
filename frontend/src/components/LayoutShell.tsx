@@ -51,8 +51,10 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
         <Toaster
           position="top-right"
           richColors
+          closeButton
           theme="light"
           toastOptions={{
+            duration: 6000,
             style: {
               fontFamily: '"Open Sans", sans-serif',
               borderRadius: "0.75rem",
@@ -123,8 +125,10 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
       <Toaster
         position="top-right"
         richColors
+        closeButton
         theme="light"
         toastOptions={{
+          duration: 6000,
           style: {
             fontFamily: '"Open Sans", sans-serif',
             borderRadius: "0.75rem",
