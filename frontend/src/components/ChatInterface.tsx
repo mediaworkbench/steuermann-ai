@@ -479,6 +479,32 @@ export function ChatInterface() {
         });
       }
       resetStream();
+
+      // After streaming, fetch the conversation to get DB message IDs so that
+      // feedback (thumbs up/down) can be persisted. _run_persistence on the
+      // backend completes before [DONE] is emitted, so the rows are ready.
+      if (activeId) {
+        fetchConversation(activeId).then((detail) => {
+          if (!detail) return;
+          setMessages((prev) => {
+            const dbMsgs = detail.messages;
+            let dbIdx = 0;
+            return prev.map((msg) => {
+              if (msg.persistedId != null) {
+                // Already has an ID — advance the DB cursor past the matching row.
+                while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].id !== msg.persistedId) dbIdx++;
+                dbIdx++;
+                return msg;
+              }
+              // Find the next DB message with the same role.
+              while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].role !== msg.role) dbIdx++;
+              const dbMsg = dbMsgs[dbIdx];
+              dbIdx++;
+              return dbMsg ? { ...msg, persistedId: dbMsg.id } : msg;
+            });
+          });
+        });
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming]);
