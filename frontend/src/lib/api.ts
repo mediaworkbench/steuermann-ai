@@ -76,6 +76,7 @@ export interface SystemConfig {
     available_models: string[];
     model_load_error?: string | null;
     max_tokens?: number | null;
+    context_window_tokens?: number | null;
   }>;
   profile: {
     id: string;

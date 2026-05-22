@@ -474,10 +474,14 @@ export function ChatInterface() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming]);
 
-  // Update context token count from the most recent completed inference
+  // Update context token count — use high-water mark so the ring never goes backwards.
+  // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
+  // history only grows, so the peak value best reflects cumulative context growth.
+  // contextTokens is already reset to 0 when the active conversation changes.
   useEffect(() => {
-    if (!isStreaming && finalMetadata?.input_tokens !== undefined) {
-      setContextTokens(finalMetadata.input_tokens);
+    const tokens = finalMetadata?.input_tokens;
+    if (!isStreaming && tokens) {
+      setContextTokens((prev) => Math.max(prev, tokens));
     }
   }, [isStreaming, finalMetadata]);
 
@@ -775,8 +779,8 @@ export function ChatInterface() {
     }
   }
 
-  const maxContextTokens =
-    systemConfig?.model_roles?.find((r) => r.role === "chat")?.max_tokens ?? null;
+  const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
+  const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
 
   return (
     <>
