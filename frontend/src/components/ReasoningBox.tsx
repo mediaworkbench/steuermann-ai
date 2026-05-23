@@ -27,7 +27,7 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
           <Icon
             name="expand_more"
             size={14}
-            className={`metrics-chevron ${expanded ? "open" : ""}`}
+            className={`reasoning-chevron ${expanded ? "open" : ""}`}
           />
         )}
         <Icon name="psychology" size={13} className="text-pacific-blue/70 shrink-0" />

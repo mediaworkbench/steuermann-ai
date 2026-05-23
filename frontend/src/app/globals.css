@@ -133,8 +133,10 @@ body {
 .metrics-body.open { grid-template-rows: 1fr; }
 .metrics-body > div { overflow: hidden; }
 
-.metrics-chevron { transition: transform 0.25s ease; }
-.metrics-chevron.open { transform: rotate(180deg); }
+.metrics-chevron,
+.reasoning-chevron { transition: transform 0.25s ease; }
+.metrics-chevron.open,
+.reasoning-chevron.open { transform: rotate(180deg); }
 
 /* ── Reasoning box expand/collapse via CSS grid trick ── */
 .reasoning-body {

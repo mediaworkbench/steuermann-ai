@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.1] — postgres-checkpointing
+## [0.3.1] — checkpointing-frontend-reasoning
 
 ### Postgres Checkpointing (Always-On)
 
@@ -44,6 +44,14 @@
 - **feat** `Message.thinking?: string` field added to `frontend/src/lib/types.ts` — set when a completed message has persisted chain-of-thought; `ReasoningBox` renders it collapsed in historical messages
 - **feat** CSS grid collapse for reasoning box — `.reasoning-body` + `.reasoning-body.open` + `.reasoning-body > div` rules added to `globals.css` alongside the existing `.metrics-body` rules; same `0fr → 1fr` transition pattern
 - **fix** `test_chat_forwards_attachment_context` — expected `metadata` dict updated to include `input_tokens`, `sources`, `rag_attempted`, and `rag_doc_count` fields that `_run_persistence()` has always written; test had drifted from the actual code
+
+### Post-Release Bug Fixes
+
+- **fix** `chat.py` streaming persistence: `str(None)` produced the literal string `"None"` as `model_name` when `model_used` was absent from metadata; corrected to `_metadata.get("model_used") or None`
+- **fix** `llm_capability_probe.py`: `_fetch_context_window()` now logs at DEBUG on exception instead of silently swallowing all errors
+- **fix** `graph_builder.py`: `_tokens_from_usage()` emits a DEBUG log when `usage_metadata` is absent and no `fallback_input_estimate` was provided, making silent zero-token fallbacks visible
+- **fix** `useStreamingChat.ts`: `thinkingContent` is now cleared on stream error (when the stream terminates before any content is committed to a message), preventing stale reasoning content in hook state
+- **fix** `ReasoningBox.tsx`: reasoning chevron now uses its own `reasoning-chevron` CSS class instead of borrowing `metrics-chevron`; corresponding rule added to `globals.css`
 
 ---
 

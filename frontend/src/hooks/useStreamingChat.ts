@@ -239,6 +239,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
           setWasCancelled(true);
         } else {
           setStreamError(err instanceof Error ? err.message : "Unknown streaming error");
+          setThinkingContent(""); // stream errored before any content was committed
         }
       } finally {
         if (cancelledRef.current) setWasCancelled(true);

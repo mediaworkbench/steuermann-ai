@@ -43,8 +43,8 @@ def _fetch_context_window(api_base: str, model_name: str) -> Optional[int]:
                     ctx = m.get("context_length") or m.get("max_context_length")
                     if ctx:
                         return int(ctx)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to fetch context window for %s: %s", model_name, exc)
     return None
 
 

@@ -227,6 +227,8 @@ def _tokens_from_usage(
             usage_metadata.get("output_tokens", 0),
         )
     output_approx = estimate_tokens(fallback_text)
+    if fallback_input_estimate == 0:
+        logger.debug("_tokens_from_usage: usage_metadata absent and no fallback estimate provided; input_tokens will be 0")
     return fallback_input_estimate, output_approx
 
 
