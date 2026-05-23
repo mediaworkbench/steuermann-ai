@@ -52,6 +52,7 @@
 - **fix** `graph_builder.py`: `_tokens_from_usage()` emits a DEBUG log when `usage_metadata` is absent and no `fallback_input_estimate` was provided, making silent zero-token fallbacks visible
 - **fix** `useStreamingChat.ts`: `thinkingContent` is now cleared on stream error (when the stream terminates before any content is committed to a message), preventing stale reasoning content in hook state
 - **fix** `ReasoningBox.tsx`: reasoning chevron now uses its own `reasoning-chevron` CSS class instead of borrowing `metrics-chevron`; corresponding rule added to `globals.css`
+- **fix** `checkpointing.py` `_setup_via_autocommit`: migration loop now starts at `max(version + 1, 1)` so `migrations[0]` (which bootstraps the tracking table) is never applied twice on a fresh database
 
 ---
 

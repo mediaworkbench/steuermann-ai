@@ -87,13 +87,16 @@ async def _setup_via_autocommit(checkpointer: Any) -> None:
 
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # Always run migration 0 first so the checkpoint_migrations tracking
+            # table exists before we query it. The loop then starts at 1 (or
+            # wherever the DB left off) so migration 0 is never applied twice.
             await cur.execute(migrations[0])
             await cur.execute(
                 "SELECT v FROM checkpoint_migrations ORDER BY v DESC LIMIT 1"
             )
             row = await cur.fetchone()
             version = -1 if row is None else row["v"]
-            for v in range(version + 1, len(migrations)):
+            for v in range(max(version + 1, 1), len(migrations)):
                 await cur.execute(migrations[v])
                 await cur.execute(
                     "INSERT INTO checkpoint_migrations (v) VALUES (%s)", (v,)
