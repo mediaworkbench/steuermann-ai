@@ -340,6 +340,10 @@ def test_chat_forwards_attachment_context(client) -> None:
         "memories_used": [],
         "workspace_document_writeback": None,
         "profile_id": "safety",
+        "input_tokens": 5,
+        "sources": [],
+        "rag_attempted": False,
+        "rag_doc_count": 0,
     }
 
 

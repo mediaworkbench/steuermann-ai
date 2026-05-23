@@ -400,13 +400,18 @@ Reason field propagates through entire pipeline:
 |Event|Payload|Description|
 |-----|-------|-----------|
 |`token`|`{"delta": "..."}`|LLM output chunk|
+|`thinking_start`|`{}`|Reasoning chain begins (model emitting chain-of-thought)|
+|`thinking`|`{"delta": "..."}`|Reasoning token chunk|
+|`thinking_end`|`{}`|Reasoning chain complete|
 |`tool_call`|`{"name": "...", "status": "start"/"end"}`|Tool invocation boundary|
 |`node`|`{"node": "...", "label": "..."}`|Graph node status (RAG, memory)|
-|`metadata`|`{tokens_used, model_used, sources, ...}`|Final response metadata|
+|`metadata`|`{tokens_used, model_used, sources, thinking_content, ...}`|Final response metadata|
 |`error`|`{"message": "..."}`|Error during generation|
 |`[DONE]`|_(final data line)_|Stream complete|
 
-Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
+Reasoning tokens are intercepted in `server.py` before they reach the `token` event via two complementary paths: (1) a tag-parser state machine strips `<think>`, `<thinking>`, and `<reflection>` blocks from `chunk.content` and emits them as `thinking_*` events; (2) when `chunk.additional_kwargs["reasoning_content"]` is present (LM Studio / LiteLLM native reasoning field), tokens are emitted directly without tag parsing. Accumulated thinking text is included in the `metadata` event as `thinking_content` and persisted to the message's JSONB metadata column.
+
+Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `thinkingContent`, `isThinking`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
 
 **Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
 

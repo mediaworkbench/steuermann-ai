@@ -991,33 +991,6 @@ def _execute_workspace_action(
     raise HTTPException(status_code=400, detail=f"Unsupported workspace operation: {action.operation}")
 
 
-def _load_conversation_history(
-    request: Request,
-    conversation_id: Optional[str],
-    limit: int = 20,
-) -> List[Dict[str, str]]:
-    """Load prior user/assistant messages from the conversation store.
-
-    These are prepended to the current user message so LangGraph receives
-    full multi-turn context on every invocation, independent of checkpointing.
-    """
-    if not conversation_id:
-        return []
-    conv_store = getattr(request.app.state, "conversation_store", None)
-    if conv_store is None:
-        return []
-    try:
-        rows = conv_store.get_messages(conversation_id, limit=limit, offset=0)
-        return [
-            {"role": row["role"], "content": row["content"]}
-            for row in rows
-            if row.get("role") in ("user", "assistant") and row.get("content")
-        ]
-    except Exception as exc:
-        logger.warning("Failed to load conversation history for context injection: %s", exc)
-        return []
-
-
 def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[str, Any]:
     """Load user settings with cache (5min TTL)."""
     now = time.time()
@@ -1287,10 +1260,8 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
     llm_capability_probes = _get_latest_llm_capability_probes(request)
-    prior_messages = _load_conversation_history(request, request_body.conversation_id)
-
     state = {
-        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
+        "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
@@ -1494,6 +1465,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                 role="assistant",
                 content=assistant_msg,
                 tokens_used=tokens_used,
+                model_name=model_used,
                 tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                 metadata={
                     "attachments_used": attachments_used,
@@ -1501,6 +1473,10 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                     "memories_used": memories_used,
                     "workspace_document_writeback": workspace_document_writeback,
                     "profile_id": profile_id,
+                    "input_tokens": input_tokens or None,
+                    "sources": sources or [],
+                    "rag_attempted": rag_attempted,
+                    "rag_doc_count": rag_doc_count,
                 },
             )
         except Exception as exc:
@@ -1614,10 +1590,9 @@ async def chat_stream(
 
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     conversation_id = request_body.conversation_id
-    prior_messages = _load_conversation_history(request, conversation_id)
 
     state: Dict[str, Any] = {
-        "messages": prior_messages + [{"role": "user", "content": request_body.message}],
+        "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,
@@ -1736,6 +1711,7 @@ async def chat_stream(
                     role="assistant",
                     content=persisted_content,
                     tokens_used=int(_metadata.get("tokens_used", 0)),
+                    model_name=_metadata.get("model_used") or None,
                     tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                     metadata={
                         "attachments_used": attachments_used,
@@ -1743,6 +1719,13 @@ async def chat_stream(
                         "memories_used": memories_used,
                         "workspace_document_writeback": writeback,
                         "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
+                        "input_tokens": int(_metadata.get("input_tokens", 0)) or None,
+                        "sources": _metadata.get("sources") or [],
+                        "rag_attempted": bool(_metadata.get("rag_attempted", False)),
+                        "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
+                        **({
+                            "thinking_content": _metadata["thinking_content"]
+                        } if _metadata.get("thinking_content") else {}),
                     },
                 )
             except Exception as exc:

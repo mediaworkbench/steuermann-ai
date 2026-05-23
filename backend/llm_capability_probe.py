@@ -4,12 +4,48 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Literal, Optional
 
+import httpx
 from pydantic import BaseModel, Field
 
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.llm.factory import LLMFactory
 
 logger = logging.getLogger(__name__)
+
+_REASONING_MODEL_PATTERNS: list[str] = [
+    "deepseek-r1", "r1-lite", "r1-zero", "deepseek-r2",
+    "qwq", "qwen3",
+    "phi-4-reasoning", "phi4-reasoning", "phi-4-mini-reasoning",
+    "lfm2", "lfm-2", "lfm2.5", "lfm-2.5",
+    "gemma-4", "gemma4",
+    "magistral",
+    "reflection",
+    "thinking", "reasoner", "marco-o1", "skywork-o1",
+]
+
+
+def _fetch_context_window(api_base: str, model_name: str) -> Optional[int]:
+    """Query the provider's /models endpoint for the model's configured context window.
+
+    Prefers context_length (the value the server is loaded with) over max_context_length
+    (the model's theoretical ceiling). Returns None on any error so callers degrade gracefully.
+    """
+    # Strip LiteLLM provider prefix (e.g. "openai/google/gemma-4-e4b" → "google/gemma-4-e4b")
+    raw_id = model_name.split("/", 1)[-1] if "/" in model_name else model_name
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get(f"{api_base.rstrip('/')}/models")
+            resp.raise_for_status()
+            data = resp.json()
+            for m in data.get("data", []):
+                mid = str(m.get("id", ""))
+                if mid in (raw_id, model_name):
+                    ctx = m.get("context_length") or m.get("max_context_length")
+                    if ctx:
+                        return int(ctx)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to fetch context window for %s: %s", model_name, exc)
+    return None
 
 
 @dataclass(frozen=True)
@@ -122,10 +158,16 @@ class LLMCapabilityProbeRunner:
             tool_mode = str(getattr(target.provider, "tool_calling", "structured"))
         api_base_raw = getattr(target.provider, "api_base", None)
         api_base = str(api_base_raw) if api_base_raw else None
-        metadata = {
+        metadata: Dict[str, Any] = {
             "probe_kind": "native_bind_tools" if tool_mode == "native" else "non_native_mode",
             "max_output_tokens": getattr(target.provider, "max_tokens", None),
+            "supports_reasoning": any(p in target.model_name.lower() for p in _REASONING_MODEL_PATTERNS),
         }
+
+        if api_base:
+            ctx_win = _fetch_context_window(api_base, target.model_name)
+            if ctx_win:
+                metadata["context_window_tokens"] = ctx_win
 
         if tool_mode != "native":
             return LLMCapabilityProbeResult(

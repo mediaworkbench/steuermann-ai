@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.3.1] — checkpointing-frontend-reasoning
+
+### Postgres Checkpointing (Always-On)
+
+- **feat** LangGraph checkpointing is now unconditional — `enabled` flag, `backend` field, and SQLite path removed from `CheckpointingSettings`; `build_checkpointer()` always returns a `PostgresSaver` or raises `ValueError` on missing DSN
+- **feat** Load-at-edge pattern in `server.py` — both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge with the new user message before graph invocation; `GraphState.messages` (no reducer) is set correctly without ever overwriting checkpointed history
+- **feat** Startup pruning (`@app.on_event("startup")`) and periodic fire-and-forget pruning every 100 invocations via `asyncio.create_task(prune_checkpoints(...))` keep checkpoint storage flat without new infrastructure
+- **feat** Ephemeral sessions (requests without `conversation_id`) omit `thread_id` from `configurable` — LangGraph skips checkpointing entirely; no orphaned rows
+- **refactor** `_load_conversation_history()` workaround removed from `backend/routers/chat.py` — function deleted, both `chat()` and `chat_stream()` call sites simplified to `"messages": [{"role": "user", "content": ...}]`; `ConversationStore.add_message()` calls retained for UI layer
+- **chore** `CHECKPOINTER_ENABLED`, `CHECKPOINTER_BACKEND`, `CHECKPOINTER_DB_PATH` env vars removed from `docker-compose.yml`; `CHECKPOINTER_POSTGRES_DSN` default set to `postgresql://framework:framework@postgres:5432/framework`; `./data/checkpoints` volume mount removed
+- **chore** `config/core.yaml` `checkpointing` block slimmed to `postgres_dsn` only; `.env.example` Prompt Configuration section added (was missing, all entries commented out)
+- **fix** `GraphState.loaded_tools` and `candidate_tools` annotated with `Annotated[..., UntrackedValue(list)]` — `BaseTool` instances are not msgpack-serializable; their presence in plain `List[Any]` state fields caused LangGraph's `aput_writes` to fail silently on every turn, writing only the pre-node "input" checkpoint and never the post-assistant-message checkpoint; `UntrackedValue` excludes these fields from serialization while keeping them accessible within the turn
+- **test** `tests/test_checkpointing.py` rewritten — SQLite/enabled-flag tests removed; new unit tests for `ValueError` on missing DSN, env-var precedence, config-DSN fallback; multi-turn integration test (`@pytest.mark.integration`) verifies second turn checkpoint contains messages from both turns; `pytest.importorskip("psycopg_pool")` added so the integration test skips gracefully when the `langgraph` Poetry group is not installed locally
+
+### Context Window Ring & Token Tracking
+
+- **fix** `input_tokens` fallback was always 0 when LM Studio omits `usage_metadata` — `_tokens_from_usage()` in `graph_builder.py` now accepts a `fallback_input_estimate` computed from the full prompt via `estimate_tokens()`; `node_generate_response` passes the pre-call character estimate so the ring reflects real consumption even without provider-reported usage
+- **fix** Context ring denominator was `max_tokens` (response budget, e.g. 32768) instead of the model's configured context window — `LLMCapabilityProbeRunner._probe_target()` now queries the provider's `/models` endpoint and stores `context_window_tokens` in the probe `metadata` JSONB; `get_system_config` overlays this value onto `model_roles`; frontend uses `context_window_tokens ?? max_tokens`; `context_length` (configured/loaded value) is preferred over `max_context_length` (theoretical ceiling) everywhere
+- **fix** Context ring went backwards between turns — per-turn prompt size varies because RAG results and tool outputs fluctuate; ring now uses a high-water mark (`Math.max(prev, tokens)`) so it never decreases within a conversation; `contextTokens` still resets to 0 on conversation switch
+
+### Chat Metrics & Feedback Persistence
+
+- **fix** Metrics panel lost most fields after navigating away and back — both `chat()` and `chat_stream()` `add_message` calls now persist `model_name` (dedicated column), `input_tokens`, `sources`, `rag_attempted`, and `rag_doc_count` into the `metadata` JSONB column; `toUiMessage` in `ChatInterface.tsx` reads all five fields back on conversation reload
+- **fix** Context ring reset to 0% on navigation back — conversation load now computes the high-water mark from the reloaded messages' `input_tokens` and passes it to `setContextTokens` instead of unconditionally resetting to 0
+- **fix** Thumbs up/down feedback not persisted for in-session messages — streamed assistant messages were committed to UI state without a `persistedId` (DB row ID never flowed back), so `handleFeedback`'s `if (msg.persistedId)` guard silently skipped the API call; after streaming ends, a background `fetchConversation` patches `persistedId` onto messages missing it (safe because `_run_persistence` on the backend completes before `[DONE]` is emitted to the client)
+
+### Frontend UX Tweaks
+
+- **improve** Toast notifications now stay visible for 6 seconds (up from Sonner's 4-second default) and include a close button for early dismissal — both `Toaster` instances in `LayoutShell.tsx` updated
+- **improve** User message avatar replaces hardcoded `JS` initials with a `person` icon styled identically to the agent's `smart_toy` avatar — gradient background retained to distinguish user from agent
+- **improve** Sidebar bottom section now displays the user's real name via `NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME` instead of the profile/app name ("Steuermann")
+- **feat** Pressing `Tab` anywhere on the chat page focuses the composer textarea — document-level listener in `ChatInterface` intercepts `Tab`, skips interception inside `role="dialog"` elements so modal navigation is unaffected
+
+### Streaming Reasoning / Chain-of-Thought UI
+
+- **feat** `ReasoningBox` component (`frontend/src/components/ReasoningBox.tsx`) — collapsible box that renders model chain-of-thought above the assistant response; auto-expands with a spinner while the model is reasoning, auto-collapses when reasoning ends; click chevron to re-expand in completed messages; uses the same CSS grid collapse animation pattern as `MetricsPanel`
+- **feat** Tag-parser state machine in `universal_agentic_framework/server.py` — intercepts `<think>`, `<thinking>`, and `<reflection>` tags from the LLM content stream before they reach the `token` SSE event; emits `thinking_start`, `thinking` (with `{"delta": "..."}` payload), and `thinking_end` events; pending buffer guards against tags split across chunk boundaries; longest-first tag matching prevents `<think>` from shadowing `<thinking>`
+- **feat** Native `reasoning_content` path in `server.py` — when `chunk.additional_kwargs["reasoning_content"]` is present (LM Studio / LiteLLM field for models that separate reasoning natively), thinking is emitted directly as `thinking_start` / `thinking` events without going through the tag parser; the block closes automatically when content tokens start arriving; covers both LM Studio configurations (embedded tags vs. native field)
+- **feat** `thinking_content` persisted to JSONB metadata in `_run_persistence()` (`backend/routers/chat.py`) — omitted from the dict when empty so pre-existing tests with exact metadata equality remain unaffected; read back via `toUiMessage()` in `ChatInterface.tsx` from `pm.metadata.thinking_content` on conversation reload
+- **feat** `supports_reasoning` heuristic in `LLMCapabilityProbeRunner._probe_target()` (`backend/llm_capability_probe.py`) — pattern-matched against model name (DeepSeek-R1, QwQ, Qwen3, Liquid LFM2, Phi-4-reasoning, Mistral Magistral, Gemma-4, Reflection, and generic `thinking`/`reasoner` patterns); exposed in `/api/llm/capabilities` response via `backend/routers/settings.py`
+- **feat** `useStreamingChat` hook extended — `thinkingContent: string` and `isThinking: boolean` state; three new SSE case handlers (`thinking_start`, `thinking`, `thinking_end`); `isThinking` cleared in `finally` block (prevents stuck spinner on stream cancel or error); both values exposed in `UseStreamingChatReturn` interface
+- **feat** `Message.thinking?: string` field added to `frontend/src/lib/types.ts` — set when a completed message has persisted chain-of-thought; `ReasoningBox` renders it collapsed in historical messages
+- **feat** CSS grid collapse for reasoning box — `.reasoning-body` + `.reasoning-body.open` + `.reasoning-body > div` rules added to `globals.css` alongside the existing `.metrics-body` rules; same `0fr → 1fr` transition pattern
+- **fix** `test_chat_forwards_attachment_context` — expected `metadata` dict updated to include `input_tokens`, `sources`, `rag_attempted`, and `rag_doc_count` fields that `_run_persistence()` has always written; test had drifted from the actual code
+
+### Post-Release Bug Fixes
+
+- **fix** `chat.py` streaming persistence: `str(None)` produced the literal string `"None"` as `model_name` when `model_used` was absent from metadata; corrected to `_metadata.get("model_used") or None`
+- **fix** `llm_capability_probe.py`: `_fetch_context_window()` now logs at DEBUG on exception instead of silently swallowing all errors
+- **fix** `graph_builder.py`: `_tokens_from_usage()` emits a DEBUG log when `usage_metadata` is absent and no `fallback_input_estimate` was provided, making silent zero-token fallbacks visible
+- **fix** `useStreamingChat.ts`: `thinkingContent` is now cleared on stream error (when the stream terminates before any content is committed to a message), preventing stale reasoning content in hook state
+- **fix** `ReasoningBox.tsx`: reasoning chevron now uses its own `reasoning-chevron` CSS class instead of borrowing `metrics-chevron`; corresponding rule added to `globals.css`
+- **fix** `checkpointing.py` `_setup_via_autocommit`: migration loop now starts at `max(version + 1, 1)` so `migrations[0]` (which bootstraps the tracking table) is never applied twice on a fresh database
+
+---
+
 ## [0.3.0] — frontend-streaming-chat-composer
 
 ### Context Window Ring Indicator
@@ -10,7 +66,7 @@
 
 ### Conversation Integrity
 
-- **fix** Multi-turn context loss with checkpointer disabled — `_load_conversation_history()` helper in `backend/routers/chat.py` loads prior messages from PostgreSQL (`ConversationStore.get_messages()`, limit 20) and prepends them to the LangGraph state for every request; both `chat()` and `chat_stream()` paths updated; fixes the model having no memory of previous turns when `CHECKPOINTER_ENABLED=false`
+- **fix** Multi-turn context loss with checkpointer disabled — `_load_conversation_history()` helper in `backend/routers/chat.py` loads prior messages from PostgreSQL (`ConversationStore.get_messages()`, limit 20) and prepends them to the LangGraph state for every request; both `chat()` and `chat_stream()` paths updated; superseded by always-on Postgres checkpointing in v0.3.1
 
 ### Performance / Token Tracking
 

@@ -40,8 +40,9 @@ from __future__ import annotations
 import datetime
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
 
+from langgraph.channels import UntrackedValue
 from langgraph.graph import START, StateGraph
 
 from universal_agentic_framework.llm.budget import (
@@ -173,8 +174,8 @@ class GraphState(TypedDict, total=False):
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
     rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
     rag_doc_count: int   # Number of docs above pill_score_threshold (injected into prompt + shown as pills)
-    loaded_tools: List[Any]  # BaseTool instances from registry
-    candidate_tools: List[Dict[str, Any]]  # Layer 1 pre-filter output: [{tool, name, score}]
+    loaded_tools: Annotated[List[Any], UntrackedValue(list)]  # BaseTool instances — not checkpointed (not serializable)
+    candidate_tools: Annotated[List[Dict[str, Any]], UntrackedValue(list)]  # Layer 1 pre-filter output — not checkpointed
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
     tool_calling_mode_reason: str  # Why selected mode was chosen (configured or downgraded)
     prefilter_intents: Dict[str, Any]  # Intent detection results from Layer 1 for Layer 2 use
@@ -212,16 +213,23 @@ class _ModelInvokeError(RuntimeError):
 
 
 def _tokens_from_usage(
-    usage_metadata: Optional[dict], fallback_text: str
+    usage_metadata: Optional[dict], fallback_text: str, fallback_input_estimate: int = 0
 ) -> Tuple[int, int]:
-    """Return (input_tokens, output_tokens) from usage_metadata or char/4 fallback."""
+    """Return (input_tokens, output_tokens) from usage_metadata or char/4 fallback.
+
+    fallback_input_estimate is used as the input token count when usage_metadata is
+    absent (e.g. the provider did not report usage). Pass it pre-computed from the
+    prompt messages so the context ring always reflects the full accumulated history.
+    """
     if usage_metadata:
         return (
             usage_metadata.get("input_tokens", 0),
             usage_metadata.get("output_tokens", 0),
         )
-    approx = estimate_tokens(fallback_text)
-    return 0, approx
+    output_approx = estimate_tokens(fallback_text)
+    if fallback_input_estimate == 0:
+        logger.debug("_tokens_from_usage: usage_metadata absent and no fallback estimate provided; input_tokens will be 0")
+    return fallback_input_estimate, output_approx
 
 
 def _invoke_with_model_fallback(
@@ -1886,7 +1894,17 @@ def node_generate_response(state: GraphState) -> GraphState:
             )
             response_text = exact_reply
 
-        actual_input_tokens, output_tokens = _tokens_from_usage(_usage_meta, response_text)
+        # Estimate prompt tokens from the messages list so the fallback is never 0
+        # (used when the provider does not report usage_metadata in this turn).
+        _prompt_estimate = estimate_tokens(" ".join(
+            m.content if isinstance(m.content, str)
+            else " ".join(
+                p.get("text", "") if isinstance(p, dict) else str(p)
+                for p in m.content
+            )
+            for m in messages
+        ))
+        actual_input_tokens, output_tokens = _tokens_from_usage(_usage_meta, response_text, _prompt_estimate)
         node_tokens = actual_input_tokens + output_tokens
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
@@ -2301,7 +2319,4 @@ def build_graph() -> StateGraph:
     graph.add_edge("summarize", "update_memory")
     graph.add_edge("update_memory", "cache_stats")
 
-    checkpointer = build_checkpointer(config=load_core_config())
-    if checkpointer is None:
-        return graph.compile()
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=build_checkpointer(config=load_core_config()))

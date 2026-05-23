@@ -331,9 +331,6 @@ class TokensSettings(BaseModel):
 
 
 class CheckpointingSettings(BaseModel):
-    enabled: bool = False
-    backend: Literal["sqlite", "postgres"] = "sqlite"
-    sqlite_path: str = "./data/checkpoints/langgraph_checkpoints.sqlite"
     postgres_dsn: Optional[str] = None
 
 

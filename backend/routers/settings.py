@@ -7,7 +7,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import yaml
@@ -191,7 +191,15 @@ async def _validate_chat_preference(model_name: Optional[str]) -> tuple[Optional
     return await _validate_preferred_model(model_name)
 
 
-async def _fetch_provider_models(provider: Any, preferred_language: str = "en") -> List[str]:
+async def _fetch_provider_models(
+    provider: Any, preferred_language: str = "en"
+) -> Tuple[List[str], Dict[str, int]]:
+    """Return (canonical_model_names, context_window_by_canonical_name).
+
+    context_window_by_canonical_name maps canonical model IDs to max_context_length
+    as reported by the provider's /models endpoint (e.g. LM Studio).
+    Providers that do not report this field (Ollama) return an empty dict.
+    """
     provider_models = [m for m in provider.models.model_dump().values() if m]
     default_model = (
         getattr(provider.models, preferred_language, None)
@@ -219,12 +227,13 @@ async def _fetch_provider_models(provider: Any, preferred_language: str = "en") 
     async with httpx.AsyncClient(timeout=5.0) as client:
         base = str(getattr(provider, "api_base", "") or "").rstrip("/")
         if not base:
-            return []
+            return [], {}
         try:
             resp = await client.get(f"{base}/models")
             resp.raise_for_status()
             data = resp.json()
-            model_names = [m.get("id") for m in data.get("data", []) if m.get("id")]
+            raw_models = [m for m in data.get("data", []) if m.get("id")]
+            model_names = [m.get("id") for m in raw_models]
         except Exception:
             if provider_prefix != "ollama":
                 raise
@@ -232,13 +241,28 @@ async def _fetch_provider_models(provider: Any, preferred_language: str = "en") 
             resp.raise_for_status()
             data = resp.json()
             model_names = [m.get("name") for m in data.get("models", []) if m.get("name")]
+            raw_models = []
 
     canonical_names = [_canonical_model_name(n) for n in model_names]
     canonical_names = [
         n for n in canonical_names
         if not any(skip in n.lower() for skip in ("bge-", "nomic-embed", "embed"))
     ]
-    return sorted(set(canonical_names))
+
+    # Build context window map from whatever the provider reports.
+    # Prefer context_length (the value LM Studio is actually loaded with) over
+    # max_context_length (the model's theoretical upper bound).
+    context_windows: Dict[str, int] = {}
+    for m in raw_models:
+        raw_id = m.get("id")
+        ctx = m.get("context_length") or m.get("max_context_length")
+        if raw_id and ctx:
+            try:
+                context_windows[_canonical_model_name(raw_id)] = int(ctx)
+            except (TypeError, ValueError):
+                pass
+
+    return sorted(set(canonical_names)), context_windows
 
 
 def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any]]) -> tuple[str, str]:
@@ -390,14 +414,14 @@ async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
         core = load_core_config()
-        models = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.fork.language)
+        models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.fork.language)
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
 
 
 @router.get("/system-config", response_model=SystemConfigResponse)
-async def get_system_config() -> Dict[str, Any]:
+async def get_system_config(request: Request) -> Dict[str, Any]:
     """Fetch system configuration: available tools, RAG defaults, default models."""
 
     try:
@@ -426,6 +450,24 @@ async def get_system_config() -> Dict[str, Any]:
             default_model = core_config.llm.get_role_model_name("chat", core_config.fork.language)
         except Exception:
             default_model = getattr(chat_provider.models, core_config.fork.language, None) or chat_provider.models.en or ""
+
+        # Load probe results once — used to overlay context_window_tokens (probe fires at
+        # startup and on model change, so it captures the value the server is loaded with).
+        probe_store = _get_probe_store(request)
+        probe_ctx_by_model: Dict[str, int] = {}
+        if probe_store:
+            try:
+                for row in probe_store.list_probe_results(profile_id=profile_id, limit=200):
+                    mn = str(row.get("model_name") or "")
+                    ctx = (row.get("metadata") or {}).get("context_window_tokens")
+                    if mn and ctx:
+                        try:
+                            probe_ctx_by_model[normalize_model_id(mn)] = int(ctx)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
         model_roles: List[Dict[str, Any]] = []
 
         language = core_config.fork.language
@@ -437,13 +479,23 @@ async def get_system_config() -> Dict[str, Any]:
 
             for provider_id, provider, role_default_model in role_chain:
                 available_models: List[str] = []
+                context_windows: Dict[str, int] = {}
                 model_load_error: Optional[str] = None
                 try:
-                    available_models = await _fetch_provider_models(provider, preferred_language=language)
+                    available_models, context_windows = await _fetch_provider_models(provider, preferred_language=language)
                 except Exception as role_exc:
                     model_load_error = str(role_exc)
 
                 role_settings = getattr(core_config.llm.roles, role_name, None)
+                # Prefer probe store (captures the value the server is actually loaded with,
+                # updated on startup and model change) over the /models endpoint value.
+                probe_ctx = None
+                if role_default_model:
+                    try:
+                        probe_ctx = probe_ctx_by_model.get(normalize_model_id(str(role_default_model)))
+                    except Exception:
+                        pass
+                context_window_tokens = probe_ctx or context_windows.get(str(role_default_model)) or None
                 model_roles.append(
                     {
                         "role": role_name,
@@ -452,6 +504,7 @@ async def get_system_config() -> Dict[str, Any]:
                         "available_models": available_models,
                         "model_load_error": model_load_error,
                         "max_tokens": getattr(role_settings, "max_tokens", None),
+                        "context_window_tokens": context_window_tokens,
                     }
                 )
         display_name = profile_metadata.display_name if profile_metadata else "Base Profile"
@@ -621,6 +674,7 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
                     "probed_at": probe_row.get("probed_at") if probe_row else None,
                     "metadata": metadata if isinstance(metadata, dict) else {},
                     "capabilities": capabilities if isinstance(capabilities, dict) else {},
+                    "supports_reasoning": bool(metadata.get("supports_reasoning", False)) if isinstance(metadata, dict) else False,
                 }
             )
 

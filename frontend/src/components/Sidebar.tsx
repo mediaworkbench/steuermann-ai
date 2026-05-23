@@ -8,6 +8,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import {
   CURRENT_USER_ID,
+  SINGLE_USER_DISPLAY_NAME,
 } from "@/lib/runtime";
 import type { Conversation, SearchResult } from "@/lib/types";
 
@@ -410,7 +411,7 @@ export function Sidebar({
             aria-label={t("sidebar.settingsForUser", { name: profileDisplayName })}
           >
             <span className="text-sm font-bold truncate block w-full min-w-0 text-light-cyan">
-              {profileDisplayName}
+              {SINGLE_USER_DISPLAY_NAME}
             </span>
             <Icon name="settings" className="ml-auto text-light-cyan/70" />
           </Link>

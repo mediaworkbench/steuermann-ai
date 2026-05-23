@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
+import { ReasoningBox } from "./ReasoningBox";
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
@@ -248,6 +249,7 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
   return {
     role: pm.role === "system" ? "assistant" : pm.role,
     content: pm.content,
+    thinking: (pm.metadata?.thinking_content as string | undefined) ?? undefined,
     timestamp: pm.created_at
       ? formatTime(pm.created_at)
       : undefined,
@@ -255,12 +257,16 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
     feedback: pm.feedback ?? undefined,
     metrics: {
       output_tokens: pm.tokens_used ?? undefined,
+      input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
       response_time_ms: pm.response_time_ms ?? undefined,
       model: pm.model_name ?? undefined,
       tools_executed: pm.tools_used?.map((t) => ({
         name: t.name,
         status: t.status,
       })),
+      sources: pm.metadata?.sources as Source[] | undefined,
+      rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
+      rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,
       attachments_used: pm.metadata?.attachments_used as
         | Array<{ id: string; original_name: string }>
         | undefined,
@@ -316,6 +322,8 @@ export function ChatInterface() {
     nodeStatus,
     finalMetadata,
     wasCancelled,
+    thinkingContent,
+    isThinking,
     sendMessage: startStream,
     cancel: cancelStream,
     reset: resetStream,
@@ -378,8 +386,13 @@ export function ChatInterface() {
     (async () => {
       const detail = await fetchConversation(activeId);
       if (cancelled || !detail) return;
-      setContextTokens(0);
-      setMessages(detail.messages.map((msg) => toUiMessage(msg, formatTime)));
+      const loadedMessages = detail.messages.map((msg) => toUiMessage(msg, formatTime));
+      // Restore context ring to the high-water mark from persisted input_tokens.
+      const hwm = loadedMessages
+        .filter((m) => m.role === "assistant")
+        .reduce((max, m) => Math.max(max, m.metrics?.input_tokens ?? 0), 0);
+      setContextTokens(hwm);
+      setMessages(loadedMessages);
       // New chats should start with a collapsed workspace unless explicitly opened.
       if (detail.messages.length === 0) {
         setWorkspaceSidebarOpen(false);
@@ -440,6 +453,7 @@ export function ChatInterface() {
           content: wasCancelled
             ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
             : streamingContent,
+          thinking: thinkingContent || undefined,
           timestamp: formatTime(new Date()),
           metrics: finalMetadata
             ? {
@@ -470,14 +484,44 @@ export function ChatInterface() {
         });
       }
       resetStream();
+
+      // After streaming, fetch the conversation to get DB message IDs so that
+      // feedback (thumbs up/down) can be persisted. _run_persistence on the
+      // backend completes before [DONE] is emitted, so the rows are ready.
+      if (activeId) {
+        fetchConversation(activeId).then((detail) => {
+          if (!detail) return;
+          setMessages((prev) => {
+            const dbMsgs = detail.messages;
+            let dbIdx = 0;
+            return prev.map((msg) => {
+              if (msg.persistedId != null) {
+                // Already has an ID — advance the DB cursor past the matching row.
+                while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].id !== msg.persistedId) dbIdx++;
+                dbIdx++;
+                return msg;
+              }
+              // Find the next DB message with the same role.
+              while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].role !== msg.role) dbIdx++;
+              const dbMsg = dbMsgs[dbIdx];
+              dbIdx++;
+              return dbMsg ? { ...msg, persistedId: dbMsg.id } : msg;
+            });
+          });
+        });
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming]);
 
-  // Update context token count from the most recent completed inference
+  // Update context token count — use high-water mark so the ring never goes backwards.
+  // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
+  // history only grows, so the peak value best reflects cumulative context growth.
+  // contextTokens is already reset to 0 when the active conversation changes.
   useEffect(() => {
-    if (!isStreaming && finalMetadata?.input_tokens !== undefined) {
-      setContextTokens(finalMetadata.input_tokens);
+    const tokens = finalMetadata?.input_tokens;
+    if (!isStreaming && tokens) {
+      setContextTokens((prev) => Math.max(prev, tokens));
     }
   }, [isStreaming, finalMetadata]);
 
@@ -711,9 +755,6 @@ export function ChatInterface() {
     setInput("");
     setTimeout(() => autoResize(), 0);
     sendMessage(userMessage);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
   }
 
   // ── Regenerate: resend the last user message ───────────────────────
@@ -764,6 +805,25 @@ export function ChatInterface() {
     [messages, activeId, t],
   );
 
+  const prevIsStreamingRef = useRef(false);
+  useEffect(() => {
+    if (prevIsStreamingRef.current && !isStreaming) {
+      textareaRef.current?.focus();
+    }
+    prevIsStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  useEffect(() => {
+    const onTabKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (document.activeElement?.closest('[role="dialog"]')) return;
+      e.preventDefault();
+      textareaRef.current?.focus();
+    };
+    document.addEventListener("keydown", onTabKey);
+    return () => document.removeEventListener("keydown", onTabKey);
+  }, []);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape" && isStreaming) {
       cancelStream();
@@ -775,8 +835,8 @@ export function ChatInterface() {
     }
   }
 
-  const maxContextTokens =
-    systemConfig?.model_roles?.find((r) => r.role === "chat")?.max_tokens ?? null;
+  const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
+  const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
 
   return (
     <>
@@ -857,6 +917,10 @@ export function ChatInterface() {
                   />
                   <span>{nodeStatus ?? toolCallStatus?.label}</span>
                 </div>
+              )}
+
+              {(thinkingContent || isThinking) && (
+                <ReasoningBox content={thinkingContent} isStreaming={isThinking} />
               )}
 
               {isStreaming && streamingContent ? (
@@ -962,7 +1026,7 @@ export function ChatInterface() {
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
-              className="w-full bg-transparent border-0 focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-transparent border-0 outline-none focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
               placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
@@ -1233,6 +1297,11 @@ function AssistantMessage({
           )}
         </div>
 
+        {/* Reasoning chain (collapsed by default for completed messages) */}
+        {message.thinking && (
+          <ReasoningBox content={message.thinking} isStreaming={false} />
+        )}
+
         {/* Message text */}
         <div className="text-evergreen text-base leading-relaxed px-1">
           <MarkdownMessage content={message.content} sources={message.metrics?.sources} />
@@ -1347,10 +1416,10 @@ function UserMessage({
     <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse">
       <div
         className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
-                    flex items-center justify-center text-evergreen font-bold shrink-0"
+                    flex items-center justify-center shrink-0"
         aria-hidden="true"
       >
-        JS
+        <Icon name="person" size={18} className="text-white" />
       </div>
       <div className="flex flex-col gap-1 items-end max-w-[85%]">
         <div className="flex items-center gap-2 mr-1">

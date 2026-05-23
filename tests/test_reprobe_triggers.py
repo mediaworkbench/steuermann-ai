@@ -1,36 +1,61 @@
 """Tests for curated reprobe triggers on settings/model changes."""
 
-import os
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from backend.db import DatabasePool, SettingsStore, LLMCapabilityProbeStore, DatabaseConfig
-from backend.fastapi_app import create_app
 from backend.llm_capability_probe import LLMCapabilityProbeResult
 
 
-@pytest.fixture
-def db_pool():
-    """Create isolated test DB pool."""
-    config = DatabaseConfig(
-        dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
-        minconn=1,
-        maxconn=5,
-    )
-    pool = DatabasePool(config)
-    yield pool
-    pool.close()
+class _FakeSettingsStore:
+    """In-memory settings store — prevents writing to the shared dev DB during tests."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict] = {}
+
+    def get_user_settings(self, user_id: str) -> dict | None:
+        return dict(self._store[user_id]) if user_id in self._store else None
+
+    def upsert_user_settings(self, **kwargs) -> dict:
+        record = {
+            "user_id": kwargs["user_id"],
+            "tool_toggles": kwargs["tool_toggles"],
+            "rag_config": kwargs["rag_config"],
+            "analytics_preferences": kwargs["analytics_preferences"],
+            "preferred_model": kwargs["preferred_model"],
+            "preferred_models": kwargs["preferred_models"],
+            "theme": kwargs["theme"],
+            "language": kwargs["language"],
+            "updated_at": None,
+        }
+        self._store[kwargs["user_id"]] = record
+        return dict(record)
+
+
+class _FakeProbeStore:
+    """In-memory probe store — prevents writing fake probe results to the shared dev DB."""
+
+    def __init__(self) -> None:
+        self._results: list = []
+
+    def get_all_results(self) -> list:
+        return list(self._results)
+
+    def upsert_results(self, results: list) -> None:
+        self._results.extend(results)
+
+    def get_results_for_model(self, model_name: str) -> list:
+        return [r for r in self._results if getattr(r, "model_name", None) == model_name]
 
 
 @pytest.fixture
-def settings_store(db_pool):
-    return SettingsStore(db_pool)
+def settings_store():
+    return _FakeSettingsStore()
 
 
 @pytest.fixture
-def probe_store(db_pool):
-    return LLMCapabilityProbeStore(db_pool)
+def probe_store():
+    return _FakeProbeStore()
 
 
 class FakeLLMCapabilityProbeRunner:

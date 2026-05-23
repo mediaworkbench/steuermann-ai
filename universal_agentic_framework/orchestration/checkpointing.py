@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import os
-from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from universal_agentic_framework.monitoring.logging import get_logger
@@ -9,85 +9,141 @@ from universal_agentic_framework.monitoring.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _as_bool(value: Optional[str], default: bool) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def build_checkpointer(config: Any, env: Optional[Mapping[str, str]] = None) -> Any:
-    """Build a LangGraph checkpointer from config/env.
+    """Build an async Postgres checkpointer from config/env.
 
-    Returns None when checkpointing is disabled or unavailable.
+    Returns an AsyncPostgresSaver backed by an AsyncConnectionPool.
+    The pool is created with open=False — call setup_checkpointer() from
+    the ASGI startup event before the first request is served.
+
+    Raises ValueError if no DSN is configured.
     """
-    env_map = env or os.environ
+    env_map = os.environ if env is None else env
 
     checkpointing_cfg = getattr(config, "checkpointing", None)
-    cfg_enabled = bool(getattr(checkpointing_cfg, "enabled", False)) if checkpointing_cfg else False
-
-    enabled = _as_bool(env_map.get("CHECKPOINTER_ENABLED"), cfg_enabled)
-    if not enabled:
-        logger.info("Checkpointing disabled")
-        return None
-
-    backend = (
-        (env_map.get("CHECKPOINTER_BACKEND") or "").strip().lower()
-        or (getattr(checkpointing_cfg, "backend", "sqlite") if checkpointing_cfg else "sqlite")
+    postgres_dsn = (
+        (env_map.get("CHECKPOINTER_POSTGRES_DSN") or "").strip()
+        or (getattr(checkpointing_cfg, "postgres_dsn", None) if checkpointing_cfg else None)
     )
 
-    if backend == "sqlite":
-        sqlite_path = (
-            (env_map.get("CHECKPOINTER_DB_PATH") or "").strip()
-            or (getattr(checkpointing_cfg, "sqlite_path", "./data/checkpoints/langgraph_checkpoints.sqlite") if checkpointing_cfg else "./data/checkpoints/langgraph_checkpoints.sqlite")
+    if not postgres_dsn:
+        raise ValueError(
+            "Checkpointing requires a Postgres DSN. "
+            "Set CHECKPOINTER_POSTGRES_DSN or checkpointing.postgres_dsn in core.yaml."
         )
-        sqlite_file = Path(sqlite_path)
-        sqlite_file.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            from langgraph.checkpoint.sqlite import SqliteSaver
+    from psycopg_pool import AsyncConnectionPool
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-            checkpointer = SqliteSaver.from_conn_string(str(sqlite_file))
-            logger.info("Checkpointing enabled", backend="sqlite", sqlite_path=str(sqlite_file))
-            return checkpointer
-        except Exception as exc:
-            logger.warning(
-                "Failed to initialize sqlite checkpointer, falling back to in-memory",
-                error=str(exc),
+    pool = AsyncConnectionPool(conninfo=postgres_dsn, open=False)
+    checkpointer = AsyncPostgresSaver(pool)
+    checkpointer._postgres_dsn = postgres_dsn  # kept for setup fallback
+    logger.info("Checkpointing enabled", backend="postgres")
+    return checkpointer
+
+
+async def setup_checkpointer(checkpointer: Any) -> None:
+    """Open the connection pool and create checkpoint tables.
+
+    Must be called once from the ASGI startup event before the graph handles
+    any request. Safe to call even if tables already exist.
+
+    langgraph-checkpoint-postgres 3.x migrations 6-8 use CREATE INDEX
+    CONCURRENTLY, which Postgres forbids inside a transaction block.
+    When that error occurs we re-run all pending migrations via a direct
+    autocommit connection so each statement commits individually.
+    """
+    await checkpointer.conn.open(wait=True)
+    try:
+        await checkpointer.setup()
+    except Exception as exc:
+        if "ActiveSqlTransaction" not in type(exc).__name__ and "CONCURRENTLY" not in str(exc):
+            raise
+        logger.warning(
+            "setup() hit ActiveSqlTransaction (CREATE INDEX CONCURRENTLY); "
+            "retrying via autocommit connection",
+            error=str(exc),
+        )
+        await _setup_via_autocommit(checkpointer)
+    logger.info("Checkpointer pool open and tables ready")
+
+
+async def _setup_via_autocommit(checkpointer: Any) -> None:
+    """Re-run pending checkpoint migrations using a direct autocommit connection.
+
+    With autocommit=True every statement is its own implicit transaction, so
+    CREATE INDEX CONCURRENTLY succeeds.  All migrations use IF NOT EXISTS, so
+    re-running already-applied ones is safe.
+    """
+    import psycopg
+    import psycopg.rows
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    dsn = getattr(checkpointer, "_postgres_dsn", None)
+    if not dsn:
+        raise RuntimeError("Cannot run autocommit setup: _postgres_dsn not set on checkpointer")
+
+    migrations = AsyncPostgresSaver.MIGRATIONS
+
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # Always run migration 0 first so the checkpoint_migrations tracking
+            # table exists before we query it. The loop then starts at 1 (or
+            # wherever the DB left off) so migration 0 is never applied twice.
+            await cur.execute(migrations[0])
+            await cur.execute(
+                "SELECT v FROM checkpoint_migrations ORDER BY v DESC LIMIT 1"
             )
-            try:
-                from langgraph.checkpoint.memory import InMemorySaver
-
-                return InMemorySaver()
-            except Exception as fallback_exc:
-                logger.error(
-                    "Failed to initialize in-memory fallback checkpointer",
-                    error=str(fallback_exc),
+            row = await cur.fetchone()
+            version = -1 if row is None else row["v"]
+            for v in range(max(version + 1, 1), len(migrations)):
+                await cur.execute(migrations[v])
+                await cur.execute(
+                    "INSERT INTO checkpoint_migrations (v) VALUES (%s)", (v,)
                 )
-                return None
 
-    if backend == "postgres":
-        postgres_dsn = (
-            (env_map.get("CHECKPOINTER_POSTGRES_DSN") or "").strip()
-            or (getattr(checkpointing_cfg, "postgres_dsn", None) if checkpointing_cfg else None)
-        )
-        if not postgres_dsn:
-            logger.warning("Postgres checkpointer configured but no DSN provided")
-            return None
 
-        try:
-            from langgraph.checkpoint.postgres import PostgresSaver
-
-            checkpointer = PostgresSaver.from_conn_string(postgres_dsn)
-            # Ensure tables exist before first invoke.
-            checkpointer.setup()
-            logger.info("Checkpointing enabled", backend="postgres")
-            return checkpointer
-        except Exception as exc:
-            logger.warning(
-                "Failed to initialize postgres checkpointer",
-                error=str(exc),
+async def _prune_async(checkpointer: Any) -> None:
+    """Run all three pruning DELETEs via the async connection pool."""
+    async with checkpointer.conn.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                DELETE FROM checkpoints
+                WHERE (thread_id, checkpoint_ns, checkpoint_id) NOT IN (
+                    SELECT thread_id, checkpoint_ns, max(checkpoint_id)
+                    FROM checkpoints
+                    GROUP BY thread_id, checkpoint_ns
+                )
+                """
             )
-            return None
+            await cur.execute(
+                """
+                DELETE FROM checkpoint_blobs
+                WHERE (thread_id, checkpoint_ns) NOT IN (
+                    SELECT thread_id, checkpoint_ns FROM checkpoints
+                )
+                """
+            )
+            await cur.execute(
+                """
+                DELETE FROM checkpoint_writes
+                WHERE (thread_id, checkpoint_ns, checkpoint_id) NOT IN (
+                    SELECT thread_id, checkpoint_ns, checkpoint_id FROM checkpoints
+                )
+                """
+            )
+        await conn.commit()
+    logger.info("Checkpoint pruning complete")
 
-    logger.warning("Unsupported checkpointer backend", backend=backend)
-    return None
+
+async def prune_checkpoints(checkpointer: Any) -> None:
+    """Keep only the latest checkpoint per (thread_id, checkpoint_ns).
+
+    Cleans all three AsyncPostgresSaver tables: checkpoints, checkpoint_blobs,
+    checkpoint_writes. Safe to call concurrently.
+    """
+    try:
+        await _prune_async(checkpointer)
+    except Exception as exc:
+        logger.warning("Checkpoint pruning failed", error=str(exc))

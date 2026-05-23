@@ -30,7 +30,4 @@ memory:
     co_occurrence_related_top_k_per_memory: 5
 
 checkpointing:
-  enabled: true
-  backend: "sqlite"
-  sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
