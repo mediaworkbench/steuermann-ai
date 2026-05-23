@@ -26,6 +26,31 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _rewrite_query_for_rag(user_message: str, config, lang: str) -> str:
+    """Rewrite user query for better semantic retrieval via auxiliary model. Fails open."""
+    try:
+        provider = config.llm.get_role_provider("auxiliary")
+        api_base = str(provider.api_base or "").rstrip("/")
+        model_name = config.llm.get_role_model_name("auxiliary", lang)
+        prompt = (
+            "Rewrite this query to improve semantic document retrieval. "
+            "Resolve pronouns, expand abbreviations, keep it concise. "
+            "Output ONLY the rewritten query.\n\n"
+            f"Query: {user_message}\nRewritten:"
+        )
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.post(
+                f"{api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
+                json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "max_tokens": 128},
+            )
+            resp.raise_for_status()
+            rewritten = resp.json()["choices"][0]["message"]["content"].strip()
+            return rewritten if rewritten else user_message
+    except Exception:
+        return user_message
+
+
 def node_retrieve_knowledge(state: GraphState) -> GraphState:
     """Retrieve relevant documents from the knowledge base (RAG)."""
     config = load_core_config()
@@ -70,6 +95,14 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
 
     # All skip paths passed — Qdrant will be queried this turn
     state["rag_attempted"] = True
+
+    _qr_cfg = getattr(rag_config, "query_rewriting", None)
+    if _qr_cfg is not None and _qr_cfg.enabled:
+        lang = state.get("language") or getattr(config.fork, "language", "en")
+        user_msg = _rewrite_query_for_rag(user_msg, config, lang)
+        state.pop("query_embedding", None)  # invalidate prefilter cache; force re-embed of rewritten query
+        logger.info("RAG: query rewritten for retrieval", query_length=len(user_msg))
+
     logger.info("Retrieving knowledge", fork_name=fork_name, query_length=len(user_msg))
 
     with track_node_execution(fork_name, "retrieve_knowledge"):

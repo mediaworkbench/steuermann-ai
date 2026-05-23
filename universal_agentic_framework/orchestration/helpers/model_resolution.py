@@ -61,6 +61,19 @@ def _classify_error(exc: Exception) -> str:
     return "error"
 
 
+def get_auxiliary_model(config, language: str = "en"):
+    """Return (ChatLiteLLM, provider_id, model_name) for the auxiliary role.
+
+    Language accepted for API consistency; ignored by the flat per-role schema.
+    """
+    from universal_agentic_framework.llm.factory import build_litellm_chat
+    provider = config.llm.get_role_provider("auxiliary")
+    model_name = config.llm.get_role_model_name("auxiliary", language)
+    llm = build_litellm_chat(provider, model_name)
+    provider_id = getattr(provider, "provider_id", "auxiliary")
+    return llm, provider_id, model_name
+
+
 def get_model(config, language: str, preferred_model: Optional[str] = None):
     """Return a ChatLiteLLMRouter for the given language/model preference.
 

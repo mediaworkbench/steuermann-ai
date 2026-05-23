@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.2] — auxiliary-model-routing
+
+### Auxiliary Model Routing
+
+- **feat** `node_summarize` now uses the `auxiliary` role instead of the `chat` role — fact extraction runs on the lighter `gemma-4-e2b` model, freeing the chat model for user-facing generation; direct `.invoke()` replaces the Router-based `_invoke_with_model_fallback` call for this secondary task
+- **feat** `ConversationSummarizer.generate_summary()` now uses `LLMFactory.create_auxiliary_llm()` when available; falls back to `create_llm()` for backward compatibility; `initialize_performance_nodes` now passes `LLMFactory(config)` so the summarizer is fully activated (was previously dead code — `llm_factory=None` always returned `None`)
+- **feat** `LLMFactory.create_auxiliary_llm()` — new method returning a `ChatLiteLLM` for the auxiliary role without Router/fallback semantics
+- **feat** `get_auxiliary_model(config, language)` — new helper in `orchestration/helpers/model_resolution.py`; mirrors `get_model()` for the auxiliary role; exported from `helpers/__init__.py`
+- **feat** RAG query rewriting — new `_rewrite_query_for_rag()` helper in `rag_node.py`; rewrites the user query via the auxiliary model (httpx, sync) before embedding to improve semantic retrieval quality; gated behind `rag.query_rewriting.enabled` (default `false`); fails open (returns raw message on any error); invalidates the prefilter embedding cache when active to force re-embedding of the rewritten query
+- **feat** `QueryRewritingConfig` schema added to `config/schemas.py`; `RagSettings.query_rewriting` field added with `enabled: false` default via `Field(default_factory=QueryRewritingConfig)`
+- **config** Starter profile: `chat.max_tokens` reduced 32768 → 16384; `auxiliary.model` changed to `openai/google/gemma-4-e2b`; `auxiliary.max_tokens` reduced 32768 → 16384; `rag.query_rewriting.enabled: false` added
+- **note** Compression threshold lowers from 24,576 → 12,288 tokens as a side effect of the `chat.max_tokens` reduction (`performance_nodes.py` derives threshold from `chat.max_tokens * 0.75`)
+- **test** `test_generate_summary_with_factory` and `test_compress_conversation` updated to mock `create_auxiliary_llm()` instead of `create_llm()`
+
+---
+
 ## [0.3.1] — checkpointing-frontend-reasoning
 
 ### Postgres Checkpointing (Always-On)

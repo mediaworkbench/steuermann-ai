@@ -28,16 +28,12 @@ def test_node_summarize_normalizes_and_prunes_digest_chain(monkeypatch):
         "load_features_config",
         lambda: SimpleNamespace(long_term_memory=True, memory_digest_chain_enabled=True),
     )
-    monkeypatch.setattr(graph_builder, "get_model", lambda *args, **kwargs: object())
+    _fake_msg = SimpleNamespace(content="user fact summary", usage_metadata=None)
+    _fake_llm = SimpleNamespace(invoke=lambda msgs: _fake_msg)
     monkeypatch.setattr(
         graph_builder,
-        "resolve_initial_model_metadata",
-        lambda *args, **kwargs: ("fake_provider", "fake_model"),
-    )
-    monkeypatch.setattr(
-        graph_builder,
-        "_invoke_with_model_fallback",
-        lambda **kwargs: ("user fact summary", "fake_provider", "fake_model", None, None),
+        "get_auxiliary_model",
+        lambda *args, **kwargs: (_fake_llm, "fake_provider", "fake_model"),
     )
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: _DummyContext())
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)

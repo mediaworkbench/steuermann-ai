@@ -177,20 +177,20 @@ class TestConversationSummarizer:
         
         # Mock factory
         mock_factory = MagicMock()
-        mock_factory.create_llm.return_value = mock_llm
-        
+        mock_factory.create_auxiliary_llm.return_value = mock_llm
+
         summarizer = ConversationSummarizer(llm_factory=mock_factory)
-        
+
         messages = [
             {"role": "user", "content": "What is Python?"},
             {"role": "assistant", "content": "Python is a programming language..."}
         ]
-        
+
         summary = await summarizer.generate_summary(messages, "user123")
-        
+
         assert summary is not None
         assert "Summary" in summary
-        mock_factory.create_llm.assert_called_once_with("user123")
+        mock_factory.create_auxiliary_llm.assert_called_once()
         mock_llm.apredict.assert_called_once()
     
     @pytest.mark.asyncio
@@ -201,10 +201,10 @@ class TestConversationSummarizer:
         mock_llm.apredict.return_value = "Previous: User asked about AI and received overview."
         
         mock_factory = MagicMock()
-        mock_factory.create_llm.return_value = mock_llm
-        
+        mock_factory.create_auxiliary_llm.return_value = mock_llm
+
         summarizer = ConversationSummarizer(llm_factory=mock_factory)
-        
+
         # Create a long conversation
         messages = []
         for i in range(20):

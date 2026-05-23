@@ -310,6 +310,10 @@ class ToolRoutingSettings(BaseModel):
     min_spread: confloat(ge=0.0, le=1.0) = 0.10
 
 
+class QueryRewritingConfig(BaseModel):
+    enabled: bool = False
+
+
 class RagSettings(BaseModel):
     enabled: bool = True
     collection_name: Optional[str] = None
@@ -318,6 +322,7 @@ class RagSettings(BaseModel):
     with_payload: Union[bool, List[str]] = True
     with_vectors: bool = False
     timeout_seconds: PositiveInt = 30
+    query_rewriting: QueryRewritingConfig = Field(default_factory=QueryRewritingConfig)
 
 
 class TokensSettings(BaseModel):

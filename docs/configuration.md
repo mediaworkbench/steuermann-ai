@@ -93,7 +93,7 @@ llm:
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3          # 0.0-2.0; higher = more creative
-      max_tokens: 32768
+      max_tokens: 16384
       timeout: 600
 
     embedding:
@@ -114,9 +114,9 @@ llm:
     auxiliary:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/google/gemma-4-e4b"
+      model: "openai/google/gemma-4-e2b"
       temperature: 0.2
-      max_tokens: 32768
+      max_tokens: 16384
       timeout: 600
 
   router:
@@ -134,7 +134,7 @@ llm:
 - `chat` — primary conversational LLM
 - `embedding` — vector embeddings for tool routing and memory retrieval
 - `vision` — multimodal/image processing requests
-- `auxiliary` — Mem0 memory extraction and deduplication; requires at least 16k context window (32k recommended)
+- `auxiliary` — Mem0 memory extraction, conversation summarization, and RAG query rewriting; requires at least 16k context window; starter profile uses 16384
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
