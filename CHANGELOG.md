@@ -14,6 +14,12 @@
 - **note** Compression threshold lowers from 24,576 → 12,288 tokens as a side effect of the `chat.max_tokens` reduction (`performance_nodes.py` derives threshold from `chat.max_tokens * 0.75`)
 - **test** `test_generate_summary_with_factory` and `test_compress_conversation` updated to mock `create_auxiliary_llm()` instead of `create_llm()`
 
+### Optional LLM Roles
+
+- **feat** `auxiliary` role is now optional in `LLMRoles` (`Optional[LLMRoleSettings] = None`); both `get_auxiliary_model()` and `LLMFactory.create_auxiliary_llm()` fall back to the `chat` role when `auxiliary` is not configured — no config change required for profiles that omit it
+- **feat** `vision` role is now optional in `LLMRoles` (`Optional[LLMRoleSettings] = None`); no fallback — callers skip the role gracefully; vision is not yet used in the graph
+- **refactor** `LLMSettings._validate_roles` skips `None` role entries when building the provider registry; `get_role_provider_chain_with_models` raises a clear `ValueError("llm.roles.<name> is not configured")` instead of an obscure `AttributeError` when a None role is explicitly requested
+
 ---
 
 ## [0.3.1] — checkpointing-frontend-reasoning

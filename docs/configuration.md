@@ -127,14 +127,14 @@ llm:
     default_max_parallel_requests: 4
 ```
 
-**Required roles:** All four roles must be present in the profile overlay. Each requires `provider_id`, `api_base`, and `model`.
+**Required roles:** `chat` and `embedding` must be present in every profile overlay. `vision` and `auxiliary` are optional — omitting them is valid.
 
 **Role purposes:**
 
-- `chat` — primary conversational LLM
-- `embedding` — vector embeddings for tool routing and memory retrieval
-- `vision` — multimodal/image processing requests
-- `auxiliary` — Mem0 memory extraction, conversation summarization, and RAG query rewriting; requires at least 16k context window; starter profile uses 16384
+- `chat` — primary conversational LLM *(required)*
+- `embedding` — vector embeddings for tool routing and memory retrieval *(required)*
+- `vision` — multimodal/image processing requests *(optional; not yet used in the graph)*
+- `auxiliary` — Mem0 memory extraction, conversation summarization, and RAG query rewriting; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 

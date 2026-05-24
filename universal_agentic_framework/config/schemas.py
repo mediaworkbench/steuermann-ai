@@ -136,7 +136,7 @@ class LLMRoleSettings(BaseModel):
 class LLMRoles(BaseModel):
     chat: LLMRoleSettings
     embedding: LLMRoleSettings
-    vision: LLMRoleSettings
+    vision: Optional[LLMRoleSettings] = None
     auxiliary: Optional[LLMRoleSettings] = None
 
 
