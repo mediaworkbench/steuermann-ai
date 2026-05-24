@@ -200,32 +200,12 @@ class GraphState(TypedDict, total=False):
 
 **Checkpoint Storage:**
 
-- Backend: configurable (`sqlite` for local/dev, `postgres` for production)
-- Runtime selection: `checkpointing` config block plus `CHECKPOINTER_*` env overrides
-- Enables conversation resumption across restarts
-- Per-session continuity via `configurable.thread_id = session_id` in `/invoke`
-- `session_id` is populated from the `conversation_id` field in `POST /api/chat` — the FastAPI adapter forwards it as `session_id` in the LangGraph request body; when no `conversation_id` is provided, the server generates `"{user_id}_{timestamp}"` as a single-use thread
-
-**Configuration:**
-
-```python
-# Selected by runtime config/env:
-# - sqlite: langgraph.checkpoint.sqlite.SqliteSaver
-# - postgres: langgraph.checkpoint.postgres.PostgresSaver
-# - fallback: no checkpointer (compile without checkpointing)
-```
-
-**Local/dev default pattern:**
-
-- `CHECKPOINTER_ENABLED=false` by default
-- when enabled locally: `CHECKPOINTER_BACKEND=sqlite`
-- sqlite file path persisted via docker volume mount (`./data/checkpoints`)
-
-**Production pattern:**
-
-- `CHECKPOINTER_ENABLED=true`
-- `CHECKPOINTER_BACKEND=postgres`
-- `CHECKPOINTER_POSTGRES_DSN` provided via environment
+- Backend: always PostgreSQL (`PostgresSaver`) — SQLite support and the `enabled` flag have been removed
+- `CHECKPOINTER_POSTGRES_DSN` environment variable (or `checkpointing.postgres_dsn` in `config/core.yaml`) required at startup; raises `ValueError` if missing
+- Load-at-edge pattern: both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge them with each new user message before graph invocation
+- Per-session continuity via `configurable.thread_id = session_id`; ephemeral requests (no `conversation_id`) omit `thread_id` so no checkpoint rows are written
+- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint table flat
+- `GraphState.loaded_tools` and `candidate_tools` use `Annotated[..., UntrackedValue(list)]` to exclude non-serializable `BaseTool` instances from checkpoint writes
 
 ### **4.4 Graph Execution Flow (Three-Tier Tool Selection)**
 
@@ -1287,7 +1267,9 @@ services:
 **Chat attachments and workspace documents (current implementation):**
 
 - Conversation uploads are handled by `POST /api/conversations/{conversation_id}/attachments`.
-- Uploads are validated as UTF-8 text; accepted formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. MIME type is validated per extension.
+- Text uploads are validated as UTF-8; accepted text formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. Image uploads accepted as MIME types `image/jpeg`, `image/png`, `image/gif`, `image/webp` (extensions `.jpg/.jpeg/.png/.gif/.webp`); `extract_text()` is bypassed for images — `extracted_text` is stored as `""`.
+- Image files are stored on disk under the workspace volume (`${WORKSPACES_PATH:-./data/workspaces}`); the same volume is mounted in both the `fastapi` and `langgraph` containers so the orchestrator can read uploaded files.
+- `stored_path` is forwarded with each attachment from `chat.py` to LangGraph state; `build_attachment_context_block()` renders image attachments as file-path references in the system prompt, and `node_call_tools_structured` includes this block in its isolated `SystemMessage` so the model receives a real path rather than a placeholder.
 - Conversation attachment rows are references to those canonical workspace documents (same document ID is reused).
 - Persistent workspace document APIs: `POST/GET/PUT/PATCH/DELETE /api/workspace/documents`, `GET .../download`, `GET/POST .../versions`, `GET .../versions/{ver}`, `POST .../versions/{ver}/restore`.
 - Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
