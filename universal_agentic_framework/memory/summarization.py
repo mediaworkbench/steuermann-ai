@@ -133,7 +133,10 @@ Focus on key topics, decisions, and action items.
 
 Summary:"""
             
-            llm = self.llm_factory.create_llm(user_id)
+            if hasattr(self.llm_factory, "create_auxiliary_llm"):
+                llm = self.llm_factory.create_auxiliary_llm()
+            else:
+                llm = self.llm_factory.create_llm(user_id)
             summary = await llm.apredict(prompt)
             
             logger.debug(f"Generated summary ({len(summary)} chars) for user {user_id}")

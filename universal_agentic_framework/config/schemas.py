@@ -136,8 +136,8 @@ class LLMRoleSettings(BaseModel):
 class LLMRoles(BaseModel):
     chat: LLMRoleSettings
     embedding: LLMRoleSettings
-    vision: LLMRoleSettings
-    auxiliary: LLMRoleSettings
+    vision: Optional[LLMRoleSettings] = None
+    auxiliary: Optional[LLMRoleSettings] = None
 
 
 class LLMRouterRoutingGroupSettings(BaseModel):
@@ -180,6 +180,8 @@ class LLMSettings(BaseModel):
         # Build runtime provider registry directly from roles.
         provider_payload: Dict[str, Dict[str, Any]] = {}
         for role_name, role_cfg in role_entries.items():
+            if role_cfg is None:
+                continue
             provider_payload[f"{role_name}:{role_cfg.provider_id}"] = {
                 "api_base": role_cfg.api_base,
                 "api_key": role_cfg.api_key,
@@ -232,6 +234,8 @@ class LLMSettings(BaseModel):
         language: str,
     ) -> List[tuple[str, ProviderSettings, str]]:
         role = getattr(self.roles, role_name)
+        if role is None:
+            raise ValueError(f"llm.roles.{role_name} is not configured")
         provider = ProviderSettings.model_validate(
             {
                 "api_base": role.api_base,
@@ -310,6 +314,10 @@ class ToolRoutingSettings(BaseModel):
     min_spread: confloat(ge=0.0, le=1.0) = 0.10
 
 
+class QueryRewritingConfig(BaseModel):
+    enabled: bool = False
+
+
 class RagSettings(BaseModel):
     enabled: bool = True
     collection_name: Optional[str] = None
@@ -318,6 +326,7 @@ class RagSettings(BaseModel):
     with_payload: Union[bool, List[str]] = True
     with_vectors: bool = False
     timeout_seconds: PositiveInt = 30
+    query_rewriting: QueryRewritingConfig = Field(default_factory=QueryRewritingConfig)
 
 
 class TokensSettings(BaseModel):

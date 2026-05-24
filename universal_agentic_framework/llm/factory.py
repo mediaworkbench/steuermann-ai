@@ -260,6 +260,16 @@ class LLMFactory:
             model_kwargs=model_kwargs,
         )
 
+    def create_auxiliary_llm(self):
+        """Return a ChatLiteLLM for the auxiliary role (no Router, no fallback chain).
+
+        Falls back to the chat role if auxiliary is not configured.
+        """
+        role_name = "auxiliary" if getattr(getattr(self.config.llm, "roles", None), "auxiliary", None) is not None else "chat"
+        provider = self.config.llm.get_role_provider(role_name)
+        model_name = self.config.llm.get_role_model_name(role_name, "en")
+        return build_litellm_chat(provider, model_name)
+
     def _to_router_params(self, provider: ProviderSettings, model_name: str) -> dict:
         params: dict = {"model": model_name}
         router_defaults = self.config.llm.router

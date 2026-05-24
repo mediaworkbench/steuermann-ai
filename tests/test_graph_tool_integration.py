@@ -16,6 +16,10 @@ def _mock_llm_for_tests(tool_calling: str = "structured"):
     provider = SimpleNamespace(
         type="ollama",
         api_base="http://localhost:11434/v1",
+        api_key=None,
+        temperature=0.2,
+        max_tokens=4096,
+        timeout=60,
         models=SimpleNamespace(en="ollama/llama", model_dump=lambda: {"en": "ollama/llama"}),
         tool_calling=tool_calling,
         get_tool_calling_mode=lambda _model_name: tool_calling,
@@ -61,6 +65,12 @@ def _mock_external_services(monkeypatch):
     monkeypatch.setattr(
         "universal_agentic_framework.orchestration.graph_builder.get_model",
         lambda *_, **__: mock_llm,
+    )
+    mock_aux_llm = Mock()
+    mock_aux_llm.invoke.return_value = SimpleNamespace(content="user fact summary", usage_metadata=None)
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.get_auxiliary_model",
+        lambda *_, **__: (mock_aux_llm, "aux_provider", "aux_model"),
     )
 
 

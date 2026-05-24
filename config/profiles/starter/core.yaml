@@ -16,7 +16,7 @@ llm:
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3
-      max_tokens: 32768
+      max_tokens: 16384
       timeout: 600
       # model_tool_calling:
       #   openai/google/gemma-4-e4b: "native"  # enable when capability probe confirms support
@@ -36,9 +36,9 @@ llm:
     auxiliary:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/google/gemma-4-e4b"
+      model: "openai/google/gemma-4-e2b"
       temperature: 0.2
-      max_tokens: 32768
+      max_tokens: 16384
       timeout: 600
   router:
     routing_strategy: "simple-shuffle"
@@ -61,6 +61,8 @@ rag:
   collection_name: framework
   top_k: 5
   pill_score_threshold: 0.72
+  query_rewriting:
+    enabled: false
   with_payload:
     - text
     - file_path

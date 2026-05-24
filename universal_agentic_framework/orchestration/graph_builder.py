@@ -106,6 +106,7 @@ from universal_agentic_framework.orchestration.helpers import (
     score_tool_similarity,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
+    get_auxiliary_model,
     get_model,
     resolve_initial_model_metadata,
     invoke_with_model_fallback,
@@ -1937,9 +1938,6 @@ def node_summarize(state: GraphState) -> GraphState:
     config = load_core_config()
     lang = state.get("language") or config.fork.language
     fork_name = getattr(config.fork, "name", "default-fork")
-    user_settings = state.get("user_settings", {})
-    preferred_model = user_settings.get("preferred_model")
-    
     logger.info("Summarizing conversation", fork_name=fork_name)
 
     # Keep digest_chain normalized even when compression does not generate a new summary.
@@ -1962,8 +1960,7 @@ def node_summarize(state: GraphState) -> GraphState:
     except Exception as e:
         logger.warning("digest_chain_normalization_failed", error=str(e))
 
-    model = get_model(config, lang, preferred_model=preferred_model)
-    provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model=preferred_model)
+    model, provider, model_name = get_auxiliary_model(config, lang)
 
     # Build a window of the last 3 user+assistant exchanges for richer fact extraction.
     _msgs = state.get("messages", [])
@@ -1999,26 +1996,11 @@ def node_summarize(state: GraphState) -> GraphState:
 
     with track_node_execution(fork_name, "summarize"):
         try:
-            summary, provider, model_name, _, _sum_usage_meta = _invoke_with_model_fallback(
-                config=config,
-                language=lang,
-                payload=prompt,
-                initial_model=model,
-                initial_provider=provider,
-                initial_model_name=model_name,
-                preferred_model=preferred_model,
-            )
+            from langchain_core.messages import HumanMessage as _HumanMessage
+            out = model.invoke([_HumanMessage(content=prompt)])
+            summary = (out.content or "").strip() or f"LLM: {prompt}"
+            _sum_usage_meta = getattr(out, "usage_metadata", None)
             track_llm_call(fork_name, provider, model_name, "success")
-        except _ModelInvokeError as e:
-            track_llm_call(fork_name, e.provider, e.model_name, "error")
-            logger.warning(
-                "Summarization LLM call failed, using fallback",
-                error=str(e),
-                provider=e.provider,
-                model_name=e.model_name,
-            )
-            summary = f"LLM: {prompt}"
-            _sum_usage_meta = None
         except Exception as e:
             track_llm_call(fork_name, provider, model_name, "error")
             logger.warning("Summarization LLM call failed, using fallback", error=str(e))
@@ -2152,7 +2134,8 @@ def build_graph() -> StateGraph:
     """
     # Initialize performance infrastructure
     try:
-        initialize_performance_nodes()
+        _perf_config = load_core_config()
+        initialize_performance_nodes(llm_factory=LLMFactory(_perf_config))
         logger.info("Performance nodes initialized (caching + compression)")
     except Exception as e:
         logger.warning(f"Performance nodes initialization failed: {e}, continuing without caching")
