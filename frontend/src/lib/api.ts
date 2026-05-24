@@ -117,6 +117,8 @@ export interface LLMCapabilityItem {
   capability_mismatch: boolean;
   supports_bind_tools: boolean | null;
   supports_tool_schema: boolean | null;
+  supports_vision: boolean | null;
+  supports_reasoning: boolean;
   api_base?: string | null;
   error_message?: string | null;
   metadata?: Record<string, unknown>;

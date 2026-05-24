@@ -590,6 +590,14 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                                 <span>{item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}</span>
                               </div>
                               <div>
+                                <span className="font-semibold">{t("settingsPanel.detailVision")}: </span>
+                                <span>{item.supports_vision === null || item.supports_vision === undefined ? t("metrics.na") : String(item.supports_vision)}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailReasoning")}: </span>
+                                <span>{String(item.supports_reasoning ?? false)}</span>
+                              </div>
+                              <div>
                                 <span className="font-semibold">{t("settingsPanel.detailMismatch")}: </span>
                                 <span>{String(item.capability_mismatch)}</span>
                               </div>
