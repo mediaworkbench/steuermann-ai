@@ -310,6 +310,7 @@ export function ChatInterface() {
   const [contextTokens, setContextTokens] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
@@ -1064,10 +1065,10 @@ export function ChatInterface() {
                         </button>
                         <button
                           type="button"
-                          disabled
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen/30 cursor-not-allowed"
+                          onClick={() => { imageInputRef.current?.click(); setAttachMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
                         >
-                          <Icon name="image" size={16} />
+                          <Icon name="image" size={16} className="text-evergreen/60" />
                           {t("chat.addImage")}
                         </button>
                       </div>
@@ -1220,6 +1221,13 @@ export function ChatInterface() {
             ref={fileInputRef}
             type="file"
             accept=".txt,.md,text/plain,text/markdown"
+            className="sr-only"
+            onChange={handleAttachmentUpload}
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp"
             className="sr-only"
             onChange={handleAttachmentUpload}
           />

@@ -1274,6 +1274,7 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                 "mime_type": attachment["mime_type"],
                 "size_bytes": attachment["size_bytes"],
                 "extracted_text": attachment["extracted_text"],
+                "stored_path": attachment.get("stored_path", ""),
             }
             for attachment in attachments
         ],
@@ -1605,6 +1606,7 @@ async def chat_stream(
                 "mime_type": a["mime_type"],
                 "size_bytes": a["size_bytes"],
                 "extracted_text": a["extracted_text"],
+                "stored_path": a.get("stored_path", ""),
             }
             for a in attachments
         ],

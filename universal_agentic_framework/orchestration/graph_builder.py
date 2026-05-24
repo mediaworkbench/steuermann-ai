@@ -835,12 +835,16 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 if force_tool_use
                 else "If no tool is needed, respond normally in plain text."
             )
+            attachment_block, _ = build_attachment_context_block(state.get("attachments") or [])
+            attachment_section = f"\n\n{attachment_block}" if attachment_block else ""
+
             system_content = (
                 "You are a helpful assistant with access to tools.\n"
                 "If a tool would help answer the user's question, respond with ONLY a JSON object:\n"
                 '{"tool": "<tool_name>", "args": {<arguments>}}\n'
                 f"{tool_footer}\n\n"
                 f"Available tools:\n{tool_block}"
+                f"{attachment_section}"
             )
 
             messages = [

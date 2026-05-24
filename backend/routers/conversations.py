@@ -330,7 +330,7 @@ async def upload_attachment(
             content,
             file.content_type,
         )
-        extracted_text = attachment_manager.extract_text(content)
+        extracted_text = "" if mime_type.startswith("image/") else attachment_manager.extract_text(content)
 
         attachment_id = str(uuid.uuid4())
         stored_doc = file_manager.store_document_file(

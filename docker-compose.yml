@@ -35,10 +35,12 @@ services:
       - PROMPT_SOURCES=${PROMPT_SOURCES:-}
       - PROMPT_LANG_EN=${PROMPT_LANG_EN:-}
       - PROMPT_LANG_DE=${PROMPT_LANG_DE:-}
+      - CHAT_ATTACHMENTS_ROOT=${CHAT_ATTACHMENTS_ROOT:-/tmp/steuermann-ai/chat-workspaces}
     expose:
       - "8000"
     volumes:
       - ./config:/app/config:ro
+      - ${WORKSPACES_PATH:-./data/workspaces}:/tmp/steuermann-ai/chat-workspaces
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
