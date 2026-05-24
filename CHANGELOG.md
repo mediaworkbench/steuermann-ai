@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.3.3] — vision-model-integration
+
+### Vision Model Integration
+
+- **feat** `analyze_image_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/analyze_image/`; calls `llm.roles.vision` via direct httpx (same pattern as auxiliary model); accepts HTTP/HTTPS image URLs and local file paths from uploaded attachments; returns the vision model's analysis as a plain string; sync (`_run`) and async (`_arun`) paths both implemented directly with `httpx.Client` / `httpx.AsyncClient` to avoid event-loop conflicts inside LangGraph
+- **feat** Tool is automatically excluded from `loaded_tools` in `node_load_tools` when `llm.roles.vision` is not configured in the active profile
+- **feat** Intent boost (+0.2) applied to `analyze_image_tool` in `node_prefilter_tools` when an image URL (ending in `.jpg/.jpeg/.png/.gif/.webp`) is detected in the user message, or when image attachments are present in state
+- **feat** `image_url_in_query` intent key added to `detect_tool_routing_intents()` in `intent_detection.py`
+- **feat** `get_vision_model(config, language)` helper added to `orchestration/helpers/model_resolution.py`; mirrors `get_auxiliary_model()` pattern; raises `ValueError` if vision role is unconfigured (no fallback to chat)
+- **feat** Attachment manager (`backend/attachments.py`) now accepts image MIME types (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) and extensions (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`); binary null-byte check skipped for images; `extracted_text` is set to `""` instead of calling `extract_text()` for image uploads
+- **feat** `build_attachment_context_block()` in `text_processing.py` extended to render image attachments separately from text attachments; image block shows file paths so the chat model can pass them to `analyze_image_tool`
+- **feat** `analyze_image_tool` registered in `config/tools.yaml` (`enabled: true`) and added to `FALLBACK_TOOLS` in `SettingsPanel.tsx` and `ChatInterface.tsx`; tool toggles (enable/disable in chat composer and settings page) work via the existing `tool_toggles` JSONB mechanism — no additional UI code required since `systemConfig.available_tools` is built dynamically from the registry
+- **test** `tests/test_analyze_image_tool.py` — 22 unit tests covering input schema, path-traversal validation, sync/async execution with mocked httpx, error propagation, and tool registration
+
+### Image Attachment Pipeline (Bug Fixes)
+
+- **fix** Upload returned 400 for image files — `extract_text()` in `backend/attachments.py` calls `content.decode("utf-8-sig")` and raises `AttachmentValidationError` on binary data; `conversations.py` now bypasses the call entirely for image MIME types: `extracted_text = "" if mime_type.startswith("image/") else attachment_manager.extract_text(content)`
+- **fix** `analyze_image_tool` received a `MISSING_IMAGE_SOURCE` placeholder — `stored_path` was not included in the attachment dicts forwarded from `backend/routers/chat.py` to LangGraph; `build_attachment_context_block()` silently skipped attachments with an absent `stored_path`; fixed by adding `"stored_path": attachment.get("stored_path", "")` to both the streaming and non-streaming attachment comprehensions in `chat.py`
+- **fix** `analyze_image_tool` received an `[IMAGE REQUIRED]` placeholder in structured mode — `node_call_tools_structured` builds an isolated `SystemMessage` that previously omitted the attachment context block; the model had no file path visible and generated a placeholder; fixed by appending `build_attachment_context_block(state.get("attachments") or [])` result to the structured tool-calling system prompt in `graph_builder.py`
+- **fix** `Image file not found` at inference time — the `workspaces` volume was mounted only in the `fastapi` container; the `langgraph` container could not access uploaded files; fixed by adding `CHAT_ATTACHMENTS_ROOT` env var and `${WORKSPACES_PATH:-./data/workspaces}:/tmp/steuermann-ai/chat-workspaces` volume mount to the `langgraph` service in `docker-compose.yml`
+
+### Vision Capability Detection
+
+- **feat** `_detect_vision_from_model_entry(m: dict) -> bool | None` — new helper in `backend/llm_capability_probe.py`; inspects a single `/models` entry and returns `True`/`False`/`None` (unknown); covers all field shapes used by LM Studio, Ollama, and OpenRouter: `"type": "vlm"/"vision"/"multimodal"`, `"capabilities"` as list or dict, direct `"vision": true` boolean, and `"modality"` string containing `"image"` or `"vision"`
+- **feat** `_fetch_model_metadata()` (replaces `_fetch_context_window()`) — tries the LM Studio native API (`{server_root}/api/v0/models`) first, which returns rich fields (`type`, `loaded_context_length`, `capabilities`); falls back to the standard OpenAI-compat path (`{api_base}/models`) for other providers; returns a dict with `context_window_tokens` and/or `supports_vision` (both omitted when unknown); native API uses `loaded_context_length` over `max_context_length` (actual loaded window); compat API uses `context_length` over `max_context_length`
+- **feat** `supports_vision` added to `GET /api/llm/capabilities` response items — surfaced from `metadata.get("supports_vision")` in `backend/routers/settings.py`; `null` when the provider did not return vision information
+- **feat** "Supports vision" and "Supports reasoning" rows added to the expanded capability detail in `frontend/src/components/SettingsPanel.tsx`; EN/DE i18n keys `detailVision` / `detailReasoning` added to `frontend/src/i18n/messages.ts`; `LLMCapabilityItem` interface in `frontend/src/lib/api.ts` extended with `supports_vision: boolean | null` and `supports_reasoning: boolean`
+- **test** `tests/test_llm_capability_probe.py` extended: `TestDetectVisionFromModelEntry` class with 11 tests covering all detection paths; `TestFetchModelMetadata` class with 4 tests using a dual-endpoint mock (native returns rich data, compat fallback, no-vision unknown, network error); total tests in the file: 19
+
+### Chat Composer UI
+
+- **feat** "Add Image" button in the chat composer is now functional — previously hardcoded `disabled`; wired to a dedicated hidden `<input type="file" accept="image/*">` with a separate `imageInputRef`; clicking opens the OS file picker; upload goes through the existing `handleAttachmentUpload` handler
+- **feat** Workspace Reference button inserts at cursor position instead of replacing the textarea content — captures `selectionStart` / `selectionEnd` before inserting and restores cursor focus via `requestAnimationFrame`; browsers preserve selection positions after a textarea loses focus so reading them at click time is safe
+- **feat** Edit and History buttons are hidden for image workspace documents — both buttons wrapped in `!doc.mime_type?.startsWith("image/")` guards in `frontend/src/components/WorkspaceSidebar.tsx`
+
+---
+
 ## [0.3.2] — auxiliary-model-routing
 
 ### Auxiliary Model Routing

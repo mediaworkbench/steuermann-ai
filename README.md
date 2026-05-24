@@ -131,11 +131,13 @@ Tools are discovered dynamically from YAML manifests and can be LangChain-native
   - **Workspace File Operations** — per-conversation sandboxed file read/write/list with intent verification
   - **Web Search** — DuckDuckGo search via MCP server
   - **Webpage Extraction** — fetch and parse web page content via MCP
+  - **Image Analysis** — analyze images from HTTP/HTTPS URLs or uploaded file attachments via the configured `llm.roles.vision` model; automatically excluded when no vision role is configured
 - **MCP server integration** — connect any MCP-compatible tool server using the official SDK with streamable HTTP transport
 - **Semantic tool routing** — queries are scored against tool descriptions using similarity matching with intent detection, so the right tools are selected without brittle keyword rules
 - **Three tool-calling modes**: `native` (model function calling), `structured` (JSON schema in prompt), and `react` (Thought → Action → Observation loop)
 - **Automatic mode downgrade** — detects if a model doesn't support native tool calling and automatically falls back to structured mode without breaking the conversation flow
-- **Multi-provider LLM support** — role-based provider chains with automatic fallback and LiteLLM router policy, owned by `config/profiles/<profile_id>/core.yaml`. LLM capability probing detects tool-calling support at startup and on model changes
+- **Multi-provider LLM support** — role-based provider chains with automatic fallback and LiteLLM router policy, owned by `config/profiles/<profile_id>/core.yaml`. LLM capability probing detects tool-calling support and vision support at startup and on model changes
+- **Vision capability detection** — `_fetch_model_metadata()` queries the provider's `/models` endpoint (LM Studio native API first for rich metadata, OpenAI-compat fallback) and detects `supports_vision` from `type`, `capabilities`, `vision`, and `modality` fields; result surfaced in `GET /api/llm/capabilities` and the Settings panel
 - **Tool-calling mode enforcement** — mode validation ensures consistency across all tool routing layers (prefilter, routing decision, and Layer 2 invocation nodes)
 - **Profile-level tool configuration** — enable, disable, or reconfigure tools per deployment profile
 
@@ -154,7 +156,7 @@ The framework is language-aware at every layer — from LLM model selection to p
 
 A production-oriented Next.js application — not a demo chat widget — with real settings management, analytics, and operational dashboards.
 
-- **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history
+- **Chat interface** with streaming responses, Markdown rendering, source footnotes, and conversation history; image attachments (jpeg/png/gif/webp) can be uploaded directly from the composer and passed to the vision model for analysis
 - **Settings panel** — model selection, language preferences, tool toggles, RAG configuration, knowledge re-ingestion, and a "Reset All Databases" operation (truncates Postgres user data, deletes all Qdrant collections, wipes workspace files)
 - **Metrics dashboard** at `/metrics` with two views:
   - **Real-Time** — requests, tokens, latency, active sessions, attachment stats, LLM call breakdown, live memory metrics panel (auto-refreshes every 10 seconds)

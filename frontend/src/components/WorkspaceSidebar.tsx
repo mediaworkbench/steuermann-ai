@@ -562,6 +562,7 @@ export function WorkspaceSidebar({
                             </button>
                           </div>
                         ) : null}
+                        {!doc.mime_type?.startsWith("image/") && (
                         <button
                           onClick={() => loadDocumentIntoEditor(doc.id)}
                           disabled={processingAction === doc.id || isLoading}
@@ -574,6 +575,7 @@ export function WorkspaceSidebar({
                           <Icon name="edit" size={14} className="mr-1 inline" />
                           {t("workspace.edit")}
                         </button>
+                        )}
                         <button
                           onClick={() => handleInsertLiveRefCommand(doc)}
                           disabled={processingAction === doc.id || isLoading}
@@ -598,6 +600,7 @@ export function WorkspaceSidebar({
                           <Icon name="download" size={14} className="mr-1 inline" />
                           {t("workspace.download")}
                         </button>
+                        {!doc.mime_type?.startsWith("image/") && (
                         <button
                           onClick={() => handleLoadHistory(doc.id)}
                           disabled={processingAction === doc.id || isLoading}
@@ -610,6 +613,7 @@ export function WorkspaceSidebar({
                           <Icon name="history" size={14} className="mr-1 inline" />
                           History
                         </button>
+                        )}
                         <button
                           onClick={() => { setRenamingDocId(doc.id); setRenameValue(doc.filename); }}
                           disabled={processingAction === doc.id || isLoading}

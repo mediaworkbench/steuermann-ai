@@ -300,6 +300,14 @@ def node_load_tools(state: GraphState) -> GraphState:
                 )
                 tools = filtered_tools
 
+            # Exclude analyze_image_tool when the vision role is not configured.
+            vision_role = getattr(getattr(core_config.llm, "roles", None), "vision", None)
+            if vision_role is None:
+                before = len(tools)
+                tools = [t for t in tools if t.name != "analyze_image_tool"]
+                if len(tools) < before:
+                    logger.info("analyze_image_tool excluded: llm.roles.vision not configured")
+
             state["loaded_tools"] = tools
             logger.info(
                 "Tools loaded",
@@ -386,6 +394,11 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 user_msg=user_msg, language=routing_language
             )
 
+            image_attachment_present = any(
+                str(a.get("mime_type", "")).startswith("image/")
+                for a in (state.get("attachments") or [])
+            )
+
             if intents["asks_about_tools"]:
                 logger.info("Meta-question detected: skipping tool pre-filter")
                 state.update(empty_state)
@@ -416,6 +429,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
                     similarity += intent_boost
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
+                    similarity += intent_boost
+                elif tool_name == "analyze_image_tool" and (
+                    intents.get("image_url_in_query") or image_attachment_present
+                ):
                     similarity += intent_boost
 
                 # Hard intent override: when user explicitly asks for web search,
@@ -818,12 +835,16 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 if force_tool_use
                 else "If no tool is needed, respond normally in plain text."
             )
+            attachment_block, _ = build_attachment_context_block(state.get("attachments") or [])
+            attachment_section = f"\n\n{attachment_block}" if attachment_block else ""
+
             system_content = (
                 "You are a helpful assistant with access to tools.\n"
                 "If a tool would help answer the user's question, respond with ONLY a JSON object:\n"
                 '{"tool": "<tool_name>", "args": {<arguments>}}\n'
                 f"{tool_footer}\n\n"
                 f"Available tools:\n{tool_block}"
+                f"{attachment_section}"
             )
 
             messages = [

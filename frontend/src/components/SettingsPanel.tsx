@@ -29,6 +29,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
   { id: "extract_webpage_mcp", label: "Extract Webpage" },
+  { id: "analyze_image_tool", label: "Analyze Image" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
   { id: "file_ops_tool", label: "File Ops" },
@@ -587,6 +588,14 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                               <div>
                                 <span className="font-semibold">{t("settingsPanel.detailBindTools")}: </span>
                                 <span>{item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailVision")}: </span>
+                                <span>{item.supports_vision === null || item.supports_vision === undefined ? t("metrics.na") : String(item.supports_vision)}</span>
+                              </div>
+                              <div>
+                                <span className="font-semibold">{t("settingsPanel.detailReasoning")}: </span>
+                                <span>{String(item.supports_reasoning ?? false)}</span>
                               </div>
                               <div>
                                 <span className="font-semibold">{t("settingsPanel.detailMismatch")}: </span>

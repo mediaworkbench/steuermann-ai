@@ -135,6 +135,11 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
     if url_in_query and not url_in_query.startswith(("http://", "https://")):
         url_in_query = f"https://{url_in_query}"
 
+    # Image URL: http(s) URL ending with an image file extension
+    image_url_in_query = bool(
+        re.search(r"https?://\S+\.(?:jpg|jpeg|png|gif|webp)\b", user_msg, re.IGNORECASE)
+    )
+
     # Meta-question detection: skip tool execution for questions about available tools
     asks_about_tools = any(
         keyword in user_msg_lower
@@ -191,6 +196,7 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_calculation": mentions_calculation,
         "mentions_web_search": mentions_web_search,
         "url_in_query": url_in_query,
+        "image_url_in_query": image_url_in_query,
         "asks_about_tools": asks_about_tools,
         "wants_save_to_rag": wants_save_to_rag,
         "enhanced_web_query": enhanced_web_query,

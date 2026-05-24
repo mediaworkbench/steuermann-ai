@@ -41,6 +41,7 @@ import type {
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
   { id: "extract_webpage_mcp", label: "Extract Webpage" },
+  { id: "analyze_image_tool", label: "Analyze Image" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
   { id: "file_ops_tool", label: "File Ops" },
@@ -309,6 +310,7 @@ export function ChatInterface() {
   const [contextTokens, setContextTokens] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
@@ -1063,10 +1065,10 @@ export function ChatInterface() {
                         </button>
                         <button
                           type="button"
-                          disabled
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen/30 cursor-not-allowed"
+                          onClick={() => { imageInputRef.current?.click(); setAttachMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
                         >
-                          <Icon name="image" size={16} />
+                          <Icon name="image" size={16} className="text-evergreen/60" />
                           {t("chat.addImage")}
                         </button>
                       </div>
@@ -1222,6 +1224,13 @@ export function ChatInterface() {
             className="sr-only"
             onChange={handleAttachmentUpload}
           />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp"
+            className="sr-only"
+            onChange={handleAttachmentUpload}
+          />
         </div>
       </div>
       </div>
@@ -1237,9 +1246,17 @@ export function ChatInterface() {
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
         onInsertCommand={(command) => {
-          setInput(command);
+          const textarea = textareaRef.current;
+          const start = textarea?.selectionStart ?? input.length;
+          const end = textarea?.selectionEnd ?? input.length;
+          const newValue = input.slice(0, start) + command + input.slice(end);
+          setInput(newValue);
           requestAnimationFrame(() => {
-            textareaRef.current?.focus();
+            if (textarea) {
+              textarea.focus();
+              const newCursor = start + command.length;
+              textarea.setSelectionRange(newCursor, newCursor);
+            }
             autoResize();
           });
         }}

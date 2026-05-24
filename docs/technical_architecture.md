@@ -200,32 +200,12 @@ class GraphState(TypedDict, total=False):
 
 **Checkpoint Storage:**
 
-- Backend: configurable (`sqlite` for local/dev, `postgres` for production)
-- Runtime selection: `checkpointing` config block plus `CHECKPOINTER_*` env overrides
-- Enables conversation resumption across restarts
-- Per-session continuity via `configurable.thread_id = session_id` in `/invoke`
-- `session_id` is populated from the `conversation_id` field in `POST /api/chat` — the FastAPI adapter forwards it as `session_id` in the LangGraph request body; when no `conversation_id` is provided, the server generates `"{user_id}_{timestamp}"` as a single-use thread
-
-**Configuration:**
-
-```python
-# Selected by runtime config/env:
-# - sqlite: langgraph.checkpoint.sqlite.SqliteSaver
-# - postgres: langgraph.checkpoint.postgres.PostgresSaver
-# - fallback: no checkpointer (compile without checkpointing)
-```
-
-**Local/dev default pattern:**
-
-- `CHECKPOINTER_ENABLED=false` by default
-- when enabled locally: `CHECKPOINTER_BACKEND=sqlite`
-- sqlite file path persisted via docker volume mount (`./data/checkpoints`)
-
-**Production pattern:**
-
-- `CHECKPOINTER_ENABLED=true`
-- `CHECKPOINTER_BACKEND=postgres`
-- `CHECKPOINTER_POSTGRES_DSN` provided via environment
+- Backend: always PostgreSQL (`PostgresSaver`) — SQLite support and the `enabled` flag have been removed
+- `CHECKPOINTER_POSTGRES_DSN` environment variable (or `checkpointing.postgres_dsn` in `config/core.yaml`) required at startup; raises `ValueError` if missing
+- Load-at-edge pattern: both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge them with each new user message before graph invocation
+- Per-session continuity via `configurable.thread_id = session_id`; ephemeral requests (no `conversation_id`) omit `thread_id` so no checkpoint rows are written
+- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint table flat
+- `GraphState.loaded_tools` and `candidate_tools` use `Annotated[..., UntrackedValue(list)]` to exclude non-serializable `BaseTool` instances from checkpoint writes
 
 ### **4.4 Graph Execution Flow (Three-Tier Tool Selection)**
 
@@ -472,6 +452,8 @@ Memory is loaded explicitly at graph start and written only by dedicated memory 
 
 Mem0 extraction behavior is profile-configurable through `memory.mem0.infer_enabled`. When enabled, Mem0 performs extraction/deduplication before persistence; when disabled, the pipeline stores summary text via verbatim fallback. Extraction model selection follows `llm.roles.auxiliary`.
 
+**LLM role usage summary:** `llm.roles.chat` drives primary generation. `llm.roles.auxiliary` is used by `node_summarize`, Mem0 extraction, RAG query rewriting, and workspace intent classification. `llm.roles.vision` is invoked exclusively by `analyze_image_tool` — the chat model calls the tool explicitly when it needs to analyze an uploaded image or image URL; the tool makes a direct httpx POST to the vision provider's `/chat/completions` endpoint using the OpenAI vision message format. `llm.roles.embedding` drives semantic routing and RAG retrieval.
+
 Mem0 API contract note: the adapter is aligned to Mem0's filters-based API shape (v3+). Entity scoping for memory search/list/delete is expected via `filters={"user_id": ...}` rather than legacy top-level entity kwargs. Direct item operations follow the canonical OSS SDK signatures: `get(memory_id)`, `delete(memory_id)`, and `update(memory_id, data=..., metadata=...)`.
 
 Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
@@ -652,7 +634,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 1. Embed user query using configured embedding model
 2. Score query against all tool descriptions (cosine similarity)
-3. Apply intent boosting (+0.2 for detected datetime, calculation, URL intents)
+3. Apply intent boosting (+0.2 for detected datetime, calculation, URL, and image intents)
 4. Apply gates: min_top_score (0.7) and min_spread (0.10)
 5. Filter candidates by similarity_threshold (0.55) and top-K (5)
 6. Store candidates in state — NO tools are executed at this layer
@@ -1285,7 +1267,9 @@ services:
 **Chat attachments and workspace documents (current implementation):**
 
 - Conversation uploads are handled by `POST /api/conversations/{conversation_id}/attachments`.
-- Uploads are validated as UTF-8 text; accepted formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. MIME type is validated per extension.
+- Text uploads are validated as UTF-8; accepted text formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. Image uploads accepted as MIME types `image/jpeg`, `image/png`, `image/gif`, `image/webp` (extensions `.jpg/.jpeg/.png/.gif/.webp`); `extract_text()` is bypassed for images — `extracted_text` is stored as `""`.
+- Image files are stored on disk under the workspace volume (`${WORKSPACES_PATH:-./data/workspaces}`); the same volume is mounted in both the `fastapi` and `langgraph` containers so the orchestrator can read uploaded files.
+- `stored_path` is forwarded with each attachment from `chat.py` to LangGraph state; `build_attachment_context_block()` renders image attachments as file-path references in the system prompt, and `node_call_tools_structured` includes this block in its isolated `SystemMessage` so the model receives a real path rather than a placeholder.
 - Conversation attachment rows are references to those canonical workspace documents (same document ID is reused).
 - Persistent workspace document APIs: `POST/GET/PUT/PATCH/DELETE /api/workspace/documents`, `GET .../download`, `GET/POST .../versions`, `GET .../versions/{ver}`, `POST .../versions/{ver}/restore`.
 - Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.

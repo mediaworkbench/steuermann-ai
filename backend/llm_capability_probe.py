@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Literal, Optional
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, Field
@@ -24,28 +25,84 @@ _REASONING_MODEL_PATTERNS: list[str] = [
 ]
 
 
-def _fetch_context_window(api_base: str, model_name: str) -> Optional[int]:
-    """Query the provider's /models endpoint for the model's configured context window.
+def _detect_vision_from_model_entry(m: dict) -> "bool | None":
+    """Return True/False/None from a single /models entry.
 
-    Prefers context_length (the value the server is loaded with) over max_context_length
-    (the model's theoretical ceiling). Returns None on any error so callers degrade gracefully.
+    None means no recognisable vision field was present — caller treats as unknown.
+    Checks multiple shapes used by LM Studio, Ollama, and OpenRouter.
     """
-    # Strip LiteLLM provider prefix (e.g. "openai/google/gemma-4-e4b" → "google/gemma-4-e4b")
+    # LM Studio: "type": "vlm"
+    model_type = str(m.get("type") or "").lower()
+    if model_type in ("vlm", "vision", "multimodal"):
+        return True
+
+    caps = m.get("capabilities")
+
+    if isinstance(caps, list):
+        caps_lower = [str(c).lower() for c in caps]
+        if any(v in caps_lower for v in ("vision", "image", "multimodal", "visual")):
+            return True
+        return False  # field present but vision not listed
+
+    if isinstance(caps, dict):
+        if caps.get("vision") or caps.get("image") or caps.get("multimodal"):
+            return True
+        if caps:  # dict has entries but none indicate vision
+            return False
+
+    if "vision" in m:
+        return bool(m["vision"])
+
+    modality = str(m.get("modality") or "").lower()
+    if modality and ("image" in modality or "vision" in modality):
+        return True
+
+    return None  # field absent — unknown
+
+
+def _fetch_model_metadata(api_base: str, model_name: str) -> "dict[str, Any]":
+    """Fetch model metadata (context window, vision support) from the provider's /models endpoint.
+
+    Tries the LM Studio native API (/api/v0/models) first — it returns rich fields like
+    `type`, `loaded_context_length`, and `capabilities`. Falls back to the standard
+    OpenAI-compat path ({api_base}/models) for other providers.
+    Missing or unknown fields are omitted from the returned dict.
+    """
     raw_id = model_name.split("/", 1)[-1] if "/" in model_name else model_name
+
+    parsed = urlparse(api_base)
+    server_root = f"{parsed.scheme}://{parsed.netloc}"
+    candidates = [
+        (f"{server_root}/api/v0/models", True),   # LM Studio native — rich metadata
+        (f"{api_base.rstrip('/')}/models", False),  # OpenAI-compat fallback
+    ]
+
+    result: Dict[str, Any] = {}
     try:
         with httpx.Client(timeout=3.0) as client:
-            resp = client.get(f"{api_base.rstrip('/')}/models")
-            resp.raise_for_status()
-            data = resp.json()
-            for m in data.get("data", []):
-                mid = str(m.get("id", ""))
-                if mid in (raw_id, model_name):
-                    ctx = m.get("context_length") or m.get("max_context_length")
-                    if ctx:
-                        return int(ctx)
+            for url, is_native in candidates:
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                except Exception:
+                    continue
+                for m in resp.json().get("data", []):
+                    if str(m.get("id", "")) in (raw_id, model_name):
+                        # Native API: prefer loaded_context_length, then max_context_length
+                        # Compat API: prefer context_length, then max_context_length
+                        if is_native:
+                            ctx = m.get("loaded_context_length") or m.get("max_context_length")
+                        else:
+                            ctx = m.get("context_length") or m.get("max_context_length")
+                        if ctx:
+                            result["context_window_tokens"] = int(ctx)
+                        vision = _detect_vision_from_model_entry(m)
+                        if vision is not None:
+                            result["supports_vision"] = vision
+                        return result  # found in this endpoint — done
     except Exception as exc:  # noqa: BLE001
-        logger.debug("Failed to fetch context window for %s: %s", model_name, exc)
-    return None
+        logger.debug("Failed to fetch model metadata for %s: %s", model_name, exc)
+    return result
 
 
 @dataclass(frozen=True)
@@ -165,9 +222,8 @@ class LLMCapabilityProbeRunner:
         }
 
         if api_base:
-            ctx_win = _fetch_context_window(api_base, target.model_name)
-            if ctx_win:
-                metadata["context_window_tokens"] = ctx_win
+            model_meta = _fetch_model_metadata(api_base, target.model_name)
+            metadata.update(model_meta)
 
         if tool_mode != "native":
             return LLMCapabilityProbeResult(
