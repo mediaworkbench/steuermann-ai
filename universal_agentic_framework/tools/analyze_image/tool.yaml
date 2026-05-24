@@ -1,0 +1,29 @@
+name: "analyze_image_tool"
+version: "1.0.0"
+category: "vision"
+description: "Analyze images using the configured vision model"
+
+# Language-specific descriptions (used by semantic tool routing)
+descriptions:
+  en: "Analyze an image using the vision model. Accepts an image URL (http/https) or a local file path from an uploaded attachment. Use when the user asks to describe, read, interpret, identify objects in, or extract text from an image or photo. Trigger phrases: what is in this image, describe the image, analyze the photo, what does this picture show, read the text in the image, identify the objects, what do you see."
+  de: "Analysiert ein Bild mit dem Vision-Modell. Akzeptiert eine Bild-URL (http/https) oder einen lokalen Dateipfad eines hochgeladenen Anhangs. Verwenden wenn der Nutzer ein Bild beschreiben, lesen, interpretieren, Objekte darin identifizieren oder Text daraus extrahieren möchte. Auslösephrasen: was ist auf diesem Bild, beschreibe das Bild, analysiere das Foto, was zeigt dieses Bild, lies den Text im Bild, identifiziere die Objekte."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.analyze_image.tool:AnalyzeImageTool"
+
+dependencies: []
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

@@ -41,6 +41,7 @@ import type {
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
   { id: "extract_webpage_mcp", label: "Extract Webpage" },
+  { id: "analyze_image_tool", label: "Analyze Image" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
   { id: "file_ops_tool", label: "File Ops" },

@@ -300,6 +300,14 @@ def node_load_tools(state: GraphState) -> GraphState:
                 )
                 tools = filtered_tools
 
+            # Exclude analyze_image_tool when the vision role is not configured.
+            vision_role = getattr(getattr(core_config.llm, "roles", None), "vision", None)
+            if vision_role is None:
+                before = len(tools)
+                tools = [t for t in tools if t.name != "analyze_image_tool"]
+                if len(tools) < before:
+                    logger.info("analyze_image_tool excluded: llm.roles.vision not configured")
+
             state["loaded_tools"] = tools
             logger.info(
                 "Tools loaded",
@@ -386,6 +394,11 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 user_msg=user_msg, language=routing_language
             )
 
+            image_attachment_present = any(
+                str(a.get("mime_type", "")).startswith("image/")
+                for a in (state.get("attachments") or [])
+            )
+
             if intents["asks_about_tools"]:
                 logger.info("Meta-question detected: skipping tool pre-filter")
                 state.update(empty_state)
@@ -416,6 +429,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
                     similarity += intent_boost
                 elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
+                    similarity += intent_boost
+                elif tool_name == "analyze_image_tool" and (
+                    intents.get("image_url_in_query") or image_attachment_present
+                ):
                     similarity += intent_boost
 
                 # Hard intent override: when user explicitly asks for web search,

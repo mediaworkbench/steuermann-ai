@@ -76,6 +76,20 @@ def get_auxiliary_model(config, language: str = "en"):
     return llm, provider_id, model_name
 
 
+def get_vision_model(config, language: str = "en"):
+    """Return (ChatLiteLLM, provider_id, model_name) for the vision role.
+
+    Raises ValueError if llm.roles.vision is not configured — callers should
+    check for vision role availability before calling this.
+    """
+    from universal_agentic_framework.llm.factory import build_litellm_chat
+    provider = config.llm.get_role_provider("vision")
+    model_name = config.llm.get_role_model_name("vision", language)
+    llm = build_litellm_chat(provider, model_name)
+    provider_id = getattr(provider, "provider_id", "vision")
+    return llm, provider_id, model_name
+
+
 def get_model(config, language: str, preferred_model: Optional[str] = None):
     """Return a ChatLiteLLMRouter for the given language/model preference.
 

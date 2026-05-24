@@ -472,6 +472,8 @@ Memory is loaded explicitly at graph start and written only by dedicated memory 
 
 Mem0 extraction behavior is profile-configurable through `memory.mem0.infer_enabled`. When enabled, Mem0 performs extraction/deduplication before persistence; when disabled, the pipeline stores summary text via verbatim fallback. Extraction model selection follows `llm.roles.auxiliary`.
 
+**LLM role usage summary:** `llm.roles.chat` drives primary generation. `llm.roles.auxiliary` is used by `node_summarize`, Mem0 extraction, RAG query rewriting, and workspace intent classification. `llm.roles.vision` is invoked exclusively by `analyze_image_tool` — the chat model calls the tool explicitly when it needs to analyze an uploaded image or image URL; the tool makes a direct httpx POST to the vision provider's `/chat/completions` endpoint using the OpenAI vision message format. `llm.roles.embedding` drives semantic routing and RAG retrieval.
+
 Mem0 API contract note: the adapter is aligned to Mem0's filters-based API shape (v3+). Entity scoping for memory search/list/delete is expected via `filters={"user_id": ...}` rather than legacy top-level entity kwargs. Direct item operations follow the canonical OSS SDK signatures: `get(memory_id)`, `delete(memory_id)`, and `update(memory_id, data=..., metadata=...)`.
 
 Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
@@ -652,7 +654,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 1. Embed user query using configured embedding model
 2. Score query against all tool descriptions (cosine similarity)
-3. Apply intent boosting (+0.2 for detected datetime, calculation, URL intents)
+3. Apply intent boosting (+0.2 for detected datetime, calculation, URL, and image intents)
 4. Apply gates: min_top_score (0.7) and min_spread (0.10)
 5. Filter candidates by similarity_threshold (0.55) and top-K (5)
 6. Store candidates in state — NO tools are executed at this layer

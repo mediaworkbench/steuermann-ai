@@ -37,6 +37,10 @@ tools:
       save_to_rag: false
       rag_data_path: ""
 
+  - name: analyze_image_tool
+    path: universal_agentic_framework/tools/analyze_image
+    enabled: true
+
   - name: mcp_stub
     path: universal_agentic_framework/tools/mcp_stub
     enabled: false

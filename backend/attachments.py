@@ -28,11 +28,18 @@ class AttachmentManagerConfig:
     root_dir: Path
     max_file_bytes: int = 524_288
     retention_hours: int = 168
-    allowed_extensions: tuple[str, ...] = (".txt", ".md")
+    allowed_extensions: tuple[str, ...] = (
+        ".txt", ".md",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp",
+    )
     allowed_mime_types: tuple[str, ...] = (
         "text/plain",
         "text/markdown",
         "text/x-markdown",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
     )
 
     @classmethod
@@ -98,7 +105,8 @@ class ChatAttachmentManager:
                 f"Content type '{normalized_content_type}' not allowed. Allowed: {', '.join(self.config.allowed_mime_types)}"
             )
 
-        if b"\x00" in content:
+        is_image = normalized_content_type.startswith("image/")
+        if not is_image and b"\x00" in content:
             raise AttachmentValidationError("Binary content is not allowed for text attachments.")
 
         return safe_name, normalized_content_type or self._mime_type_for_suffix(suffix)
@@ -123,7 +131,10 @@ class ChatAttachmentManager:
         content_type: Optional[str] = None,
     ) -> dict[str, object]:
         safe_name, normalized_content_type = self.validate_upload(filename, content, content_type)
-        extracted_text = self.extract_text(content)
+        if normalized_content_type.startswith("image/"):
+            extracted_text = ""
+        else:
+            extracted_text = self.extract_text(content)
         stored_path = self.build_storage_path(conversation_id, attachment_id, safe_name)
         stored_path.write_bytes(content)
 

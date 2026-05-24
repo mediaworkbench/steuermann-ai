@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.3] — vision-model-integration
+
+### Vision Model Integration
+
+- **feat** `analyze_image_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/analyze_image/`; calls `llm.roles.vision` via direct httpx (same pattern as auxiliary model); accepts HTTP/HTTPS image URLs and local file paths from uploaded attachments; returns the vision model's analysis as a plain string; sync (`_run`) and async (`_arun`) paths both implemented directly with `httpx.Client` / `httpx.AsyncClient` to avoid event-loop conflicts inside LangGraph
+- **feat** Tool is automatically excluded from `loaded_tools` in `node_load_tools` when `llm.roles.vision` is not configured in the active profile
+- **feat** Intent boost (+0.2) applied to `analyze_image_tool` in `node_prefilter_tools` when an image URL (ending in `.jpg/.jpeg/.png/.gif/.webp`) is detected in the user message, or when image attachments are present in state
+- **feat** `image_url_in_query` intent key added to `detect_tool_routing_intents()` in `intent_detection.py`
+- **feat** `get_vision_model(config, language)` helper added to `orchestration/helpers/model_resolution.py`; mirrors `get_auxiliary_model()` pattern; raises `ValueError` if vision role is unconfigured (no fallback to chat)
+- **feat** Attachment manager (`backend/attachments.py`) now accepts image MIME types (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) and extensions (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`); binary null-byte check skipped for images; `extracted_text` is set to `""` instead of calling `extract_text()` for image uploads
+- **feat** `build_attachment_context_block()` in `text_processing.py` extended to render image attachments separately from text attachments; image block shows file paths so the chat model can pass them to `analyze_image_tool`
+- **feat** `analyze_image_tool` registered in `config/tools.yaml` (`enabled: true`) and added to `FALLBACK_TOOLS` in `SettingsPanel.tsx` and `ChatInterface.tsx`; tool toggles (enable/disable in chat composer and settings page) work via the existing `tool_toggles` JSONB mechanism — no additional UI code required since `systemConfig.available_tools` is built dynamically from the registry
+- **test** `tests/test_analyze_image_tool.py` — 22 unit tests covering input schema, path-traversal validation, sync/async execution with mocked httpx, error propagation, and tool registration
+
+---
+
 ## [0.3.2] — auxiliary-model-routing
 
 ### Auxiliary Model Routing
