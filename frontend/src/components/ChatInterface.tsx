@@ -1246,9 +1246,17 @@ export function ChatInterface() {
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
         onInsertCommand={(command) => {
-          setInput(command);
+          const textarea = textareaRef.current;
+          const start = textarea?.selectionStart ?? input.length;
+          const end = textarea?.selectionEnd ?? input.length;
+          const newValue = input.slice(0, start) + command + input.slice(end);
+          setInput(newValue);
           requestAnimationFrame(() => {
-            textareaRef.current?.focus();
+            if (textarea) {
+              textarea.focus();
+              const newCursor = start + command.length;
+              textarea.setSelectionRange(newCursor, newCursor);
+            }
             autoResize();
           });
         }}
