@@ -137,7 +137,7 @@ class LLMRoles(BaseModel):
     chat: LLMRoleSettings
     embedding: LLMRoleSettings
     vision: LLMRoleSettings
-    auxiliary: LLMRoleSettings
+    auxiliary: Optional[LLMRoleSettings] = None
 
 
 class LLMRouterRoutingGroupSettings(BaseModel):
@@ -180,6 +180,8 @@ class LLMSettings(BaseModel):
         # Build runtime provider registry directly from roles.
         provider_payload: Dict[str, Dict[str, Any]] = {}
         for role_name, role_cfg in role_entries.items():
+            if role_cfg is None:
+                continue
             provider_payload[f"{role_name}:{role_cfg.provider_id}"] = {
                 "api_base": role_cfg.api_base,
                 "api_key": role_cfg.api_key,
@@ -232,6 +234,8 @@ class LLMSettings(BaseModel):
         language: str,
     ) -> List[tuple[str, ProviderSettings, str]]:
         role = getattr(self.roles, role_name)
+        if role is None:
+            raise ValueError(f"llm.roles.{role_name} is not configured")
         provider = ProviderSettings.model_validate(
             {
                 "api_base": role.api_base,
