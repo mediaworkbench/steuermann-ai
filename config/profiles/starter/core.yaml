@@ -62,7 +62,8 @@ rag:
   top_k: 5
   pill_score_threshold: 0.72
   query_rewriting:
-    enabled: false
+    enabled: true
+    num_variants: 2
   with_payload:
     - text
     - file_path

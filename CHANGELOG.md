@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.4] — auxiliary-model-expansion
+
+### Auxiliary Model — Expanded Use
+
+- **feat** RAG query rewriting enabled by default in the starter profile (`rag.query_rewriting.enabled: true`); previously shipped but gated off.
+- **feat** Multi-query expansion for RAG — `QueryRewritingConfig` gains `num_variants: int` (default `1`); starter profile sets `num_variants: 2`; `_rewrite_query_for_rag()` in `rag_node.py` generates N semantically varied queries in a single auxiliary call; `node_retrieve_knowledge` batch-embeds all variants, unions Qdrant result sets, and deduplicates via the existing `filter_and_deduplicate()` helper.
+- **feat** Conversation auto-titling — after the first full exchange (message count == 2), a background task calls the auxiliary model to generate a ≤6-word title and persists it via `ConversationStore.update_conversation()`; implemented for both the non-streaming (`/api/chat`) and streaming (`/api/chat/stream`) paths; fails silently on any error.
+- **feat** Structured tool retry re-prompts via auxiliary — `node_call_tools_structured` resolves `retry_model = get_auxiliary_model()` once on entry; all retry iterations (force_tool_use, unknown tool name, arg validation failure) use `retry_model` instead of the full chat model; falls back to `chat` when auxiliary is unconfigured.
+
+---
+
 ## [0.3.3] — vision-model-integration
 
 ### Vision Model Integration

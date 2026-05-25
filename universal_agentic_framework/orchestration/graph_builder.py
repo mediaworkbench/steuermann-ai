@@ -799,6 +799,11 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
             model = get_model(config, lang, preferred_model=preferred_model)
+            try:
+                _aux, _, _ = get_auxiliary_model(config, lang)
+                retry_model = _aux if _aux else model
+            except Exception:
+                retry_model = model
 
             tools = [c["tool"] for c in candidates]
             tool_lookup = {getattr(t, "name", ""): t for t in tools}
@@ -884,7 +889,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 return "\n".join(part for part in _extract_parts(raw_content) if part)
 
             for attempt in range(max_retries + 1):
-                response = model.invoke(messages)
+                response = (retry_model if attempt > 0 else model).invoke(messages)
                 response_text = _normalize_structured_response_text(
                     response.content if hasattr(response, "content") else response
                 )

@@ -26,29 +26,43 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _rewrite_query_for_rag(user_message: str, config, lang: str) -> str:
-    """Rewrite user query for better semantic retrieval via auxiliary model. Fails open."""
+def _rewrite_query_for_rag(user_message: str, config, lang: str, num_variants: int = 1) -> list[str]:
+    """Rewrite/expand user query for better semantic retrieval via auxiliary model. Fails open."""
     try:
         provider = config.llm.get_role_provider("auxiliary")
         api_base = str(provider.api_base or "").rstrip("/")
         model_name = config.llm.get_role_model_name("auxiliary", lang)
-        prompt = (
-            "Rewrite this query to improve semantic document retrieval. "
-            "Resolve pronouns, expand abbreviations, keep it concise. "
-            "Output ONLY the rewritten query.\n\n"
-            f"Query: {user_message}\nRewritten:"
-        )
+        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
+        if num_variants <= 1:
+            prompt = (
+                "Rewrite this query to improve semantic document retrieval. "
+                "Resolve pronouns, expand abbreviations, keep it concise. "
+                "Output ONLY the rewritten query.\n\n"
+                f"Query: {user_message}\nRewritten:"
+            )
+            max_tokens = 128
+        else:
+            prompt = (
+                f"Generate exactly {num_variants} semantically varied search queries for document retrieval. "
+                "Resolve pronouns, expand abbreviations. "
+                f"Output ONLY the {num_variants} queries, one per line, no numbering or extra text.\n\n"
+                f"Query: {user_message}"
+            )
+            max_tokens = 80 * num_variants
         with httpx.Client(timeout=8.0) as client:
             resp = client.post(
                 f"{api_base}/chat/completions",
                 headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
-                json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "max_tokens": 128},
+                json={"model": bare_model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
             )
             resp.raise_for_status()
-            rewritten = resp.json()["choices"][0]["message"]["content"].strip()
-            return rewritten if rewritten else user_message
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            if num_variants <= 1:
+                return [content] if content else [user_message]
+            variants = [line.strip() for line in content.splitlines() if line.strip()]
+            return variants[:num_variants] if variants else [user_message]
     except Exception:
-        return user_message
+        return [user_message]
 
 
 def node_retrieve_knowledge(state: GraphState) -> GraphState:
@@ -97,24 +111,30 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     state["rag_attempted"] = True
 
     _qr_cfg = getattr(rag_config, "query_rewriting", None)
+    queries = [user_msg]  # default: single original query
     if _qr_cfg is not None and _qr_cfg.enabled:
         lang = state.get("language") or getattr(config.fork, "language", "en")
-        user_msg = _rewrite_query_for_rag(user_msg, config, lang)
-        state.pop("query_embedding", None)  # invalidate prefilter cache; force re-embed of rewritten query
-        logger.info("RAG: query rewritten for retrieval", query_length=len(user_msg))
+        num_variants = getattr(_qr_cfg, "num_variants", 1)
+        queries = _rewrite_query_for_rag(user_msg, config, lang, num_variants)
+        state.pop("query_embedding", None)  # invalidate prefilter cache; force re-embed of rewritten queries
+        logger.info("RAG: query rewritten for retrieval", num_variants=len(queries), first_query_length=len(queries[0]))
 
-    logger.info("Retrieving knowledge", fork_name=fork_name, query_length=len(user_msg))
+    logger.info("Retrieving knowledge", fork_name=fork_name, num_queries=len(queries))
 
     with track_node_execution(fork_name, "retrieve_knowledge"):
         try:
             # Reuse the module-level cached provider (same instance as node_prefilter_tools).
             embedder, _ = get_routing_embedding_provider(config)
 
-            # Reuse the embedding node_prefilter_tools already computed for this message.
-            # Falls back to encoding only when prefilter was skipped (e.g. greeting shortcut).
-            query_embedding = state.get("query_embedding") or embedder.encode(user_msg)
-
-            logger.info("RAG: Got embedding", embedding_size=len(query_embedding), from_cache=bool(state.get("query_embedding")))
+            # Embed query variants. Single variant reuses the prefilter cache when available.
+            if len(queries) == 1:
+                single_embedding = state.get("query_embedding") or embedder.encode(queries[0])
+                logger.info("RAG: Got embedding", embedding_size=len(single_embedding), from_cache=bool(state.get("query_embedding")))
+                query_embeddings = [single_embedding]
+            else:
+                # Batch encode all variants; encoder accepts list[str] → list[list[float]]
+                query_embeddings = embedder.encode(queries)
+                logger.info("RAG: Got batch embeddings", num_embeddings=len(query_embeddings))
 
             # Resolve effective config: system baseline, then user overrides on top
             cfg = resolve_rag_config(user_rag_config, rag_config)
@@ -138,11 +158,15 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
                     threshold, cfg["timeout_seconds"], label,
                 )
 
-            raw_results = _search(query_embedding, "full_query")
+            # Union results from all query variants
+            raw_results: list[dict] = []
+            for i, embedding in enumerate(query_embeddings):
+                label = f"variant_{i}" if len(query_embeddings) > 1 else "full_query"
+                raw_results.extend(_search(embedding, label))
 
-            # Dual-query: focused keyword search merged with full-query results
-            keyword = extract_rag_keyword(user_msg)
-            if keyword and keyword != user_msg.lower():
+            # Dual-query: focused keyword search merged with variant results (keyed on primary query)
+            keyword = extract_rag_keyword(queries[0])
+            if keyword and keyword != queries[0].lower():
                 kw_results = _search(embedder.encode(keyword), "keyword")
                 if kw_results:
                     raw_results = raw_results + kw_results

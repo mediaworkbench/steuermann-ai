@@ -316,6 +316,7 @@ class ToolRoutingSettings(BaseModel):
 
 class QueryRewritingConfig(BaseModel):
     enabled: bool = False
+    num_variants: int = 1  # 1 = single rewritten query; 2-3 = multi-query expansion
 
 
 class RagSettings(BaseModel):

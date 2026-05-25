@@ -134,7 +134,7 @@ llm:
 - `chat` — primary conversational LLM *(required)*
 - `embedding` — vector embeddings for tool routing and memory retrieval *(required)*
 - `vision` — multimodal/image processing requests *(optional; not yet used in the graph)*
-- `auxiliary` — Mem0 memory extraction, conversation summarization, and RAG query rewriting; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
+- `auxiliary` — Mem0 memory extraction, conversation summarization, RAG query rewriting/expansion, workspace intent classification, structured tool retry re-prompts, and conversation auto-titling; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
@@ -279,6 +279,9 @@ rag:
   collection_name: "framework" # Must match ingestion collection
   top_k: 5 # Max results per query
   score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
+  query_rewriting:
+    enabled: true       # Rewrite/expand queries via auxiliary model before Qdrant search
+    num_variants: 2     # 1 = single rewritten query; 2-3 = multi-query expansion (union results)
   with_payload:
     - text
     - file_path
@@ -293,6 +296,7 @@ rag:
 - `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
 - `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
+- `query_rewriting.num_variants` controls how many semantically varied search queries are generated. `1` rewrites the query once; `2` or `3` produces multiple variants whose Qdrant results are unioned before deduplication, improving recall for ambiguous or short queries. Uses `llm.roles.auxiliary`.
 
 ### User-Level RAG Override (`rag_config` in user settings)
 
