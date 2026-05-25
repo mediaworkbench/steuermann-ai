@@ -1052,6 +1052,48 @@ curl http://localhost:6333/collections
 
 ---
 
+## Docker Network Configuration
+
+By default, only the Next.js frontend (3000) and FastAPI (8001) are bound to the host. Internal services — Qdrant (6333), Prometheus (9090), PostgreSQL (5432), and Redis (6379) — are only reachable within the Docker network.
+
+To expose them for local development (e.g. to use the Qdrant dashboard or query Prometheus directly), copy the included override template:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+docker compose up -d
+```
+
+Docker Compose merges `docker-compose.override.yml` automatically. Delete the file to return to production-safe isolation.
+
+### Remapping ports
+
+Use the same override file to remap ports if the defaults conflict with other local services:
+
+```yaml
+# docker-compose.override.yml
+services:
+  nextjs:
+    ports:
+      - "9000:3000" # remap Next.js to 9000
+  fastapi:
+    ports:
+      - "9001:8001" # remap FastAPI to 9001
+```
+
+If you remap ports, update the corresponding `.env` variables: `NEXT_PUBLIC_API_BASE` (FastAPI), `QDRANT_PORT`, `POSTGRES_PORT`.
+
+### Raspberry Pi 5 / ARM64
+
+If Qdrant fails with `Unsupported system page size`, add this to your override:
+
+```yaml
+services:
+  qdrant:
+    image: haktansuren/qdrant-pi5-fixed-jemalloc
+```
+
+---
+
 ## See Also
 
 - [Profile Setup Guide](profile_creation.md) - Creating new profiles
