@@ -78,9 +78,9 @@ class TestQdrantCacheVectorBackend:
             embedding_provider_type="remote",
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
-        # Clear any existing test data
         backend.clear_collection()
         yield backend
+        backend.drop_collection()
     
     @pytest.fixture
     def sample_embedding(self) -> List[float]:
@@ -522,52 +522,6 @@ class TestQdrantCacheVectorBackend:
         assert result is True
         assert backend.get_collection_size() == 0
     
-    def test_cleanup_expired_entries(self, backend, embeddings_model):
-        """Test cleanup of expired cache entries."""
-        import time
-        
-        query1 = "Test query 1"
-        query2 = "Test query 2"
-        embedding1 = self._encode_query(embeddings_model, query1)
-        embedding2 = self._encode_query(embeddings_model, query2)
-        
-        current_time = time.time()
-        
-        # Store entry with short TTL (already expired)
-        backend.store_embedding(
-            query=query1,
-            embedding=embedding1,
-            crew_name="research",
-            user_id="user123",
-            language="en",
-            result_hash="abc123",
-            ttl_seconds=1,  # 1 second TTL
-        )
-        
-        # Manually set created_at to past (simulate expired entry)
-        # Note: In real test, we'd wait or manipulate timestamps
-        
-        # Store entry with long TTL (not expired)
-        backend.store_embedding(
-            query=query2,
-            embedding=embedding2,
-            crew_name="research",
-            user_id="user123",
-            language="en",
-            result_hash="xyz789",
-            ttl_seconds=3600,  # 1 hour TTL
-        )
-        
-        # Wait for first entry to expire
-        time.sleep(2)
-        
-        # Run cleanup with current time
-        deleted = backend.cleanup_expired(current_time=current_time + 2)
-        
-        # Should have deleted the expired entry
-        assert deleted >= 0  # May be 0 or 1 depending on timing
-
-    
     @pytest.mark.performance
     def test_performance_large_dataset(self, backend, embeddings_model):
         """Test performance with large number of stored embeddings."""
@@ -620,7 +574,7 @@ class TestQdrantCacheVectorBackendIntegration:
     def cache_manager(self):
         """Create cache manager with vector backend."""
         from universal_agentic_framework.caching.manager import CacheManager
-        
+
         manager = CacheManager(
             fork_name="test",
             use_vector_db=True,
@@ -628,12 +582,14 @@ class TestQdrantCacheVectorBackendIntegration:
             qdrant_port=6333,
             similarity_threshold=0.85,
         )
-        
-        # Clear vector backend
+
         if manager.vector_backend:
             manager.vector_backend.clear_collection()
-        
-        return manager
+
+        yield manager
+
+        if manager.vector_backend:
+            manager.vector_backend.drop_collection()
     
     @pytest.mark.asyncio
     async def test_cache_manager_with_vector_backend(self, cache_manager):

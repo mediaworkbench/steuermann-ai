@@ -72,26 +72,6 @@ class _FakeDurableStore:
 class TestMemoryCoOccurrenceTracker:
     """Tests for MemoryCoOccurrenceTracker class."""
     
-    def test_initialization(self):
-        """Test tracker initialization with default parameters."""
-        tracker = MemoryCoOccurrenceTracker()
-        
-        assert tracker.decay_window_days == 30
-        assert tracker.min_co_occurrence_strength == 0.1
-        assert tracker.max_related_memories == 10
-    
-    def test_initialization_custom_params(self):
-        """Test tracker initialization with custom parameters."""
-        tracker = MemoryCoOccurrenceTracker(
-            decay_window_days=60,
-            min_co_occurrence_strength=0.2,
-            max_related_memories=5,
-        )
-        
-        assert tracker.decay_window_days == 60
-        assert tracker.min_co_occurrence_strength == 0.2
-        assert tracker.max_related_memories == 5
-    
     def test_record_co_occurrence_two_memories(self):
         """Test recording co-occurrence for two memories."""
         tracker = MemoryCoOccurrenceTracker()

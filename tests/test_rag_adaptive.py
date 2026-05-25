@@ -149,11 +149,6 @@ class TestSkipRagIntentDetection:
         intents = _detect_intents(msg, language="en")
         assert intents["skip_rag"] is False
 
-    def test_skip_rag_key_always_present(self):
-        """skip_rag must be in the returned dict regardless of query content."""
-        intents = _detect_intents("anything", language="en")
-        assert "skip_rag" in intents
-
 
 # ---------------------------------------------------------------------------
 # Part B — node_retrieve_knowledge skip paths

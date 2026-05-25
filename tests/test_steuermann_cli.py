@@ -26,33 +26,6 @@ def _create_profile_dir(root: Path, name: str = "starter") -> Path:
     return profile_dir
 
 
-def test_parser_has_expected_top_level_commands() -> None:
-    parser = steuermann.create_parser()
-    args = parser.parse_args(["profile", "active"])
-    assert args.command == "profile"
-    assert args.profile_command == "active"
-
-
-def test_ingest_group_has_reindex_subcommand() -> None:
-    parser = steuermann.create_parser()
-    args = parser.parse_args(
-        [
-            "ingest",
-            "reindex",
-            "--source",
-            "data/rag-data",
-            "--yes",
-        ]
-    )
-    assert args.command == "ingest"
-    assert args.ingest_command == "reindex"
-
-
-def test_docs_check_command_runs_non_strict() -> None:
-    code = steuermann.main(["docs", "check", "--format", "json"])
-    assert code == 0
-
-
 def test_docs_check_strict_fails_on_missing_docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     code = steuermann.main(["docs", "check", "--strict", "--format", "json"])

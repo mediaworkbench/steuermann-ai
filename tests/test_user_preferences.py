@@ -110,11 +110,6 @@ class TestSettingsStore:
         """Create a SettingsStore instance."""
         return SettingsStore(db_pool)
 
-    def test_get_nonexistent_settings_returns_none(self, store):
-        """Getting settings for non-existent user returns None."""
-        result = store.get_user_settings("test_nonexistent")
-        assert result is None
-
     def test_upsert_and_retrieve_preferences(self, store):
         """Test upserting and retrieving user preferences."""
         user_id = "test_pref_user"

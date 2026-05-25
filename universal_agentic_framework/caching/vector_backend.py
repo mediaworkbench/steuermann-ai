@@ -491,6 +491,16 @@ class QdrantCacheVectorBackend:
             logger.error(f"Failed to clear collection: {e}")
             return False
     
+    def drop_collection(self) -> bool:
+        """Drop the collection entirely. Use for test teardown to keep Qdrant clean."""
+        try:
+            self._client.delete_collection(self.collection_name)
+            logger.info(f"Dropped collection {self.collection_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to drop collection: {e}")
+            return False
+
     def health_check(self) -> bool:
         """Check if Qdrant backend is healthy and accessible."""
         try:

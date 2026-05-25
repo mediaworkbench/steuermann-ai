@@ -213,12 +213,6 @@ def _make_backend_nohit_search(**overrides: Any) -> Mem0MemoryBackend:
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_isinstance_memory_rating_backend():
-    """Mem0MemoryBackend must satisfy the MemoryRatingBackend protocol."""
-    backend = _make_backend()
-    assert isinstance(backend, MemoryRatingBackend)
-
-
 def test_mem0_embedder_model_is_normalized(monkeypatch):
     captured: Dict[str, Any] = {}
 

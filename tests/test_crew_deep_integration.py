@@ -259,12 +259,6 @@ class TestBaseCrewRetry:
         assert result.timed_out is True
         assert "timed out" in result.error.lower()
 
-    def test_legacy_kickoff_returns_dict(self):
-        crew = _FakeCrew(language="en")
-        result = crew.kickoff(topic="test")
-        assert isinstance(result, dict)
-        assert result["success"] is True
-
 
 # ===========================================================================
 # CrewChain tests

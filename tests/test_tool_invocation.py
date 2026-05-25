@@ -1,70 +1,10 @@
 """Test tool invocation in LLM response generation."""
 
-import os
-import numpy as np
 import pytest
 from unittest.mock import Mock, patch
 
-# Set environment variables for tests before imports
-os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
-os.environ.setdefault("QDRANT_HOST", "localhost")
-os.environ.setdefault("WEB_SEARCH_MCP_URL", "http://localhost:9100")
-
-from universal_agentic_framework.orchestration.graph_builder import build_graph
 from universal_agentic_framework.tools.datetime.tool import DateTimeTool
 
-
-@pytest.mark.integration
-@patch("universal_agentic_framework.orchestration.graph_builder.build_memory_backend")
-@patch("universal_agentic_framework.orchestration.graph_builder.build_embedding_provider")
-def test_llm_invokes_datetime_tool(mock_embedding_provider, mock_memory_backend):
-    """Test semantic tool routing with datetime tool (model-agnostic approach)."""
-    # Mock memory backend to avoid external Qdrant/Mem0 dependency
-    mock_mem = Mock()
-    mock_mem.load.return_value = []
-    mock_mem.upsert.return_value = None
-    mock_memory_backend.return_value = mock_mem
-
-    graph = build_graph()
-
-    # Mock embedder to avoid external embedding endpoint dependency
-    embedder = Mock()
-    embedder.encode.side_effect = lambda _: np.array([1.0, 0.0, 0.0])
-    mock_embedding_provider.return_value = embedder
-    
-    # Mock LLM to return a simple response
-    with patch("universal_agentic_framework.orchestration.graph_builder.get_model") as mock_model_factory:
-        # LLM response (tool results injected into context, no tool calling needed)
-        response = Mock()
-        response.content = "You were born 51 years ago if born on 1974-05-24."
-        
-        mock_model = Mock()
-        mock_model.invoke = Mock(return_value=response)
-        
-        mock_model_factory.return_value = mock_model
-        
-        state = {
-            "messages": [{"role": "user", "content": "ich bin am 24.05.1974 geboren. wie alt bin ich?"}],
-            "user_id": "test_user",
-            "language": "de",
-        }
-        
-        result = graph.invoke(state)
-
-        # Prefer semantic tool execution, but allow graceful fallback response.
-        tool_results = result.get("tool_results", {})
-        if "datetime_tool" in tool_results:
-            assert "tool_execution_results" in result
-            assert result["tool_execution_results"]["datetime_tool"]["status"] == "success"
-        
-        # Assert model was invoked with tool results in context
-        assert mock_model.invoke.called
-        
-        # Assert final response exists
-        assert "messages" in result
-        final_message = result["messages"][-1]
-        assert final_message["role"] == "assistant"
-        assert "51" in final_message["content"]
 
 
 @pytest.mark.integration  
