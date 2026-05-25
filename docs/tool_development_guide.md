@@ -395,6 +395,47 @@ SEARXNG_ENDPOINT=http://searxng:8080  # If self-hosted
 
 ---
 
+### Reference Implementation: Vision Tools
+
+All vision tools share helpers from `universal_agentic_framework/tools/vision_utils.py`:
+
+| Helper | Signature | Purpose |
+|--------|-----------|---------|
+| `_resolve_local_image` | `(image_source, base_dir) -> (bytes, mime_type)` | Validates path is inside `base_dir`, reads file bytes, prevents traversal |
+| `_build_data_url` | `(image_bytes, mime_type) -> str` | Base64-encodes image bytes to a `data:` URL |
+| `_load_vision_api_config` | `() -> (api_base, bare_model, temperature, api_key)` | Reads `llm.roles.vision` from the active profile; raises `ValueError` if unconfigured |
+| `_build_request_payload` | `(bare_model, temperature, prompt, data_url, max_tokens, *, system_prompt=None) -> dict` | Builds an OpenAI-compatible multimodal `/chat/completions` payload; prepends a system message when `system_prompt` is provided |
+
+**Prompt patterns:**
+
+- **General analysis** (`analyze_image_tool`): no system prompt; pass user question as `prompt`.
+- **OCR** (`ocr_tool`): fixed system prompt instructs the model to behave as an OCR engine and output only extracted text.
+- **Structured JSON** (`analyze_document_tool`, `analyze_chart_tool`): fixed system prompt specifies the exact JSON schema to return; `_clean_json_output()` strips any markdown fences the model adds anyway.
+- **Deterministic** (`image_metadata_tool`, `read_barcodes_tool`): no vision model call; use Pillow / pyzbar directly; vision LLM exclusion in `node_load_tools` does **not** apply.
+
+**Routing (spread-gate safety):**
+
+`analyze_image_tool` gets a broad `+0.2` boost whenever any image is present (URL or attachment). The specialised tools use **compound conditions** to avoid score-ties that would trigger the spread gate:
+
+```python
+elif tool_name == "ocr_tool" and (image_in_query or image_attachment) and mentions_ocr:
+    similarity += intent_boost
+```
+
+Each specialised tool only gets the boost when the image signal **plus** the tool-specific keyword signal are both present. `analyze_image_tool` therefore acts as the default fallback for image queries with no other keyword signal.
+
+**Vision model gating:**
+
+In `node_load_tools` (`graph_builder.py`), the set `_VISION_LLM_TOOLS` is filtered out when `llm.roles.vision` is `None`:
+
+```python
+_VISION_LLM_TOOLS = {"analyze_image_tool", "ocr_tool", "analyze_document_tool", "analyze_chart_tool"}
+```
+
+Add any new vision-LLM tools to this set. Library-based tools (`image_metadata_tool`, `read_barcodes_tool`) are **not** in this set and remain loadable regardless of vision config.
+
+---
+
 ## Quick Reference
 
 ### Available tools
@@ -406,6 +447,12 @@ SEARXNG_ENDPOINT=http://searxng:8080  # If self-hosted
 | `file_ops_tool` | LangChain | Utilities | read, write, list, info, exists — **disabled** in default config; use `WorkspaceFileOpsTool` for per-conversation file access |
 | `web_search_mcp` | MCP | Information | search ([DuckDuckGo MCP server](https://github.com/nickclyde/duckduckgo-mcp-server)) |
 | `extract_webpage_mcp` | MCP | Information | fetch_content |
+| `analyze_image_tool` | LangChain | Vision | Describe / analyze an image. Requires `llm.roles.vision`. |
+| `ocr_tool` | LangChain | Vision | Extract text verbatim from an image. Requires `llm.roles.vision`. |
+| `analyze_document_tool` | LangChain | Vision | Extract structured JSON from invoices, receipts, forms, contracts. Requires `llm.roles.vision`. |
+| `analyze_chart_tool` | LangChain | Vision | Extract chart type, axes, series, and observations from charts/graphs. Requires `llm.roles.vision`. |
+| `image_metadata_tool` | LangChain | Vision | Extract EXIF and file metadata (camera, date, GPS, dimensions). Uses Pillow; no vision model required. |
+| `read_barcodes_tool` | LangChain | Vision | Decode barcodes and QR codes. Uses pyzbar; no vision model required. Requires `libzbar0` in Docker. |
 
 ### Config files
 

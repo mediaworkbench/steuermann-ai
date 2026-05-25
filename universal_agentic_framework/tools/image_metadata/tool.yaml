@@ -1,0 +1,29 @@
+name: "image_metadata_tool"
+version: "1.0.0"
+category: "vision"
+description: "Extract EXIF and file metadata from images using Pillow (no vision model required)"
+
+descriptions:
+  en: "Extract metadata from an image — file format, dimensions, DPI, and EXIF data such as camera model, capture date, and GPS coordinates. Does not use the vision model; metadata is read directly from the file. Use when the user asks about when a photo was taken, where it was taken, what camera was used, or what resolution the image is. Trigger phrases: when was this photo taken, where was this taken, what camera, what resolution, photo metadata, EXIF, GPS location of photo."
+  de: "Metadaten aus einem Bild extrahieren — Dateiformat, Abmessungen, DPI und EXIF-Daten wie Kameramodell, Aufnahmedatum und GPS-Koordinaten. Kein Vision-Modell erforderlich; Metadaten werden direkt aus der Datei gelesen. Auslösephrasen: wann wurde das Foto aufgenommen, wo wurde es aufgenommen, welche Kamera, welche Auflösung, Bildgröße, EXIF-Daten, GPS-Daten."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.image_metadata.tool:ImageMetadataTool"
+
+dependencies:
+  - "Pillow"
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

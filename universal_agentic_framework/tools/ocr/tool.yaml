@@ -1,0 +1,28 @@
+name: "ocr_tool"
+version: "1.0.0"
+category: "vision"
+description: "Extract text from images using the configured vision model"
+
+descriptions:
+  en: "Extract text from an image using OCR (Optical Character Recognition). Accepts an image URL (http/https) or a local file path from an uploaded attachment. Use when the user asks to read, transcribe, or extract text visible in an image — such as text on whiteboards, receipts, handwritten notes, screenshots, or signs. Trigger phrases: read the text, extract text, what does it say, transcribe, OCR, what text is in the image, read the writing, text erkennen."
+  de: "Text aus einem Bild extrahieren mittels OCR (Texterkennung). Akzeptiert eine Bild-URL (http/https) oder einen lokalen Dateipfad eines hochgeladenen Anhangs. Verwenden wenn der Nutzer Text in einem Bild lesen, abschreiben oder extrahieren möchte — zum Beispiel Text auf Whiteboards, Quittungen, handgeschriebenen Notizen, Screenshots oder Schildern. Auslösephrasen: Text erkennen, Text lesen, Text extrahieren, lese den Text, was steht da, transkribieren, OCR."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.ocr.tool:OcrTool"
+
+dependencies: []
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

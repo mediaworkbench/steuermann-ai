@@ -1,6 +1,6 @@
-"""Vision model image analysis tool."""
+"""OCR tool — extract text from images using the configured vision model."""
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 import httpx
 import structlog
@@ -16,42 +16,40 @@ from universal_agentic_framework.tools.vision_utils import (
 
 logger = structlog.get_logger()
 
-_DEFAULT_PROMPT = "Describe this image in detail."
+_SYSTEM_PROMPT = (
+    "You are an OCR engine. Extract all text visible in this image exactly as it appears. "
+    "Output only the extracted text, preserving line breaks and formatting. "
+    "Do not describe the image or add commentary. If no text is visible, output: [No text found]"
+)
 
 
-class AnalyzeImageInput(BaseModel):
-    """Input for image analysis."""
+class OcrInput(BaseModel):
+    """Input for OCR text extraction."""
 
     image_source: str = Field(
         description="Image URL (http/https) or absolute local file path from an uploaded attachment.",
     )
-    prompt: str = Field(
-        default=_DEFAULT_PROMPT,
-        description="What to analyze or look for in the image.",
-    )
 
 
-class AnalyzeImageTool(BaseTool):
-    """Analyze images using the configured vision model."""
+class OcrTool(BaseTool):
+    """Extract text from images using the configured vision model."""
 
-    name: str = "analyze_image_tool"
+    name: str = "ocr_tool"
     description: str = (
-        "Analyze an image using the vision model. "
+        "Extract text from an image using OCR (Optical Character Recognition). "
         "Accepts an image URL (http/https) or a local file path from an uploaded attachment. "
-        "Use when the user asks to describe, identify, read text from, or interpret an image."
+        "Use when the user asks to read, transcribe, or extract text visible in an image — "
+        "such as text on whiteboards, receipts, handwritten notes, screenshots, or signs. "
+        "Trigger phrases: read the text, extract text, what does it say, transcribe, OCR, "
+        "what text is in the image, read the writing."
     )
-    args_schema: type[BaseModel] = AnalyzeImageInput
+    args_schema: type[BaseModel] = OcrInput
 
     attachments_base_dir: str = "/tmp/steuermann-ai/chat-workspaces"
     max_image_bytes: int = 10 * 1024 * 1024
 
-    def _run(
-        self,
-        image_source: str,
-        prompt: str = _DEFAULT_PROMPT,
-        **kwargs,
-    ) -> str:
-        """Analyze an image synchronously."""
+    def _run(self, image_source: str, **kwargs) -> str:
+        """Extract text from image synchronously."""
         try:
             api_base, bare_model, temperature, api_key = _load_vision_api_config()
             if not api_base:
@@ -70,7 +68,10 @@ class AnalyzeImageTool(BaseTool):
                 return f"Error: Image is too large ({len(image_bytes):,} bytes; limit is {self.max_image_bytes:,} bytes)."
 
             data_url = _build_data_url(image_bytes, mime_type)
-            payload = _build_request_payload(bare_model, temperature, prompt, data_url, max_tokens=2048)
+            payload = _build_request_payload(
+                bare_model, temperature, "Extract all text from this image.", data_url,
+                max_tokens=4096, system_prompt=_SYSTEM_PROMPT,
+            )
 
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
@@ -82,16 +83,11 @@ class AnalyzeImageTool(BaseTool):
                 return resp.json()["choices"][0]["message"]["content"]
 
         except Exception as exc:
-            logger.error("analyze_image_tool failed", error=str(exc), image_source=image_source)
-            return f"Error analyzing image: {exc}"
+            logger.error("ocr_tool failed", error=str(exc), image_source=image_source)
+            return f"Error extracting text: {exc}"
 
-    async def _arun(
-        self,
-        image_source: str,
-        prompt: str = _DEFAULT_PROMPT,
-        **kwargs,
-    ) -> str:
-        """Analyze an image asynchronously."""
+    async def _arun(self, image_source: str, **kwargs) -> str:
+        """Extract text from image asynchronously."""
         try:
             api_base, bare_model, temperature, api_key = _load_vision_api_config()
             if not api_base:
@@ -110,7 +106,10 @@ class AnalyzeImageTool(BaseTool):
                 return f"Error: Image is too large ({len(image_bytes):,} bytes; limit is {self.max_image_bytes:,} bytes)."
 
             data_url = _build_data_url(image_bytes, mime_type)
-            payload = _build_request_payload(bare_model, temperature, prompt, data_url, max_tokens=2048)
+            payload = _build_request_payload(
+                bare_model, temperature, "Extract all text from this image.", data_url,
+                max_tokens=4096, system_prompt=_SYSTEM_PROMPT,
+            )
 
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
@@ -122,5 +121,5 @@ class AnalyzeImageTool(BaseTool):
                 return resp.json()["choices"][0]["message"]["content"]
 
         except Exception as exc:
-            logger.error("analyze_image_tool failed", error=str(exc), image_source=image_source)
-            return f"Error analyzing image: {exc}"
+            logger.error("ocr_tool failed", error=str(exc), image_source=image_source)
+            return f"Error extracting text: {exc}"

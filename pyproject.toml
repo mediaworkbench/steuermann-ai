@@ -32,6 +32,8 @@ uvicorn = "^0.35.0"
 redis = "^5.0.0"
 apscheduler = "^3.10.4"
 psycopg2-binary = "^2.9"
+pillow = "^10.0"
+pyzbar = "^0.1.9"
 
 [tool.poetry.group.fastapi.dependencies]
 langchain = "^1.2.15"
