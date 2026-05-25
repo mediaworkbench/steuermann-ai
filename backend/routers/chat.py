@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -547,6 +548,47 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
         "save": _has_workspace_save_intent(message),
         "new_version": False,
     }
+
+
+async def _generate_conversation_title(
+    conversation_id: str,
+    user_message: str,
+    assistant_message: str,
+    conv_store,
+) -> None:
+    """Generate a ≤6-word title after the first exchange and persist it. Fails silently."""
+    try:
+        config = load_core_config()
+        provider = config.llm.get_role_provider("auxiliary")
+        api_base = str(provider.api_base or "").rstrip("/")
+        if not api_base:
+            return
+        model_name = config.llm.get_role_model_name("auxiliary", "en")
+        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
+        prompt = (
+            "Generate a short title (maximum 6 words, no punctuation) that captures "
+            "the topic of this conversation. Output ONLY the title.\n\n"
+            f"User: {user_message[:300]}\n"
+            f"Assistant: {assistant_message[:200]}"
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                json={
+                    "model": bare_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 20,
+                },
+                headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
+            )
+            resp.raise_for_status()
+            title = resp.json()["choices"][0]["message"]["content"].strip()
+            if title:
+                conv_store.update_conversation(conversation_id, title=title)
+                logger.debug("Auto-title generated for conversation %s: %s", conversation_id, title)
+    except Exception as exc:
+        logger.debug("Auto-title generation failed (non-critical): %s", exc)
 
 
 def _extract_writeback_summary(content: str) -> Optional[str]:
@@ -1207,7 +1249,7 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
-async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
+async def chat(request: Request, request_body: ChatRequest, background_tasks: BackgroundTasks) -> ChatResponse:
     """Route a chat request to the LangGraph container."""
     start_time = time.time()
     effective_user_id = get_effective_user_id(request_body.user_id)
@@ -1480,6 +1522,16 @@ async def chat(request: Request, request_body: ChatRequest) -> ChatResponse:
                     "rag_doc_count": rag_doc_count,
                 },
             )
+            # Auto-title on first exchange (2 messages = 1 user + 1 assistant)
+            msgs = conv_store.get_messages(conversation_id, limit=3)
+            if len(msgs) == 2:
+                background_tasks.add_task(
+                    _generate_conversation_title,
+                    conversation_id=conversation_id,
+                    user_message=request_body.message,
+                    assistant_message=assistant_msg,
+                    conv_store=conv_store,
+                )
         except Exception as exc:
             # Don't fail the chat request if persistence fails
             logger.warning(f"Failed to persist messages to conversation {conversation_id}: {exc}")
@@ -1805,6 +1857,22 @@ async def chat_stream(
                             if stripped == "data: [DONE]":
                                 _writeback_result = _do_writeback()
                                 _run_persistence(writeback=_writeback_result)
+                                # Auto-title on first exchange
+                                if conversation_id:
+                                    try:
+                                        _conv_store = request.app.state.conversation_store
+                                        _msgs = _conv_store.get_messages(conversation_id, limit=3)
+                                        if len(_msgs) == 2:
+                                            asyncio.create_task(
+                                                _generate_conversation_title(
+                                                    conversation_id=conversation_id,
+                                                    user_message=request_body.message,
+                                                    assistant_message="".join(_accumulated_tokens),
+                                                    conv_store=_conv_store,
+                                                )
+                                            )
+                                    except Exception:
+                                        pass
                                 if _writeback_result and _writeback_result.get("status") == "saved":
                                     yield f"event: writeback\ndata: {json.dumps(_writeback_result)}\n\n"
                                 yield "data: [DONE]\n\n"
