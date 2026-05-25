@@ -2,8 +2,6 @@
 
 import json
 import re
-from typing import ClassVar, Optional
-
 import httpx
 import structlog
 from langchain_core.tools import BaseTool

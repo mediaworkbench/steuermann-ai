@@ -39,7 +39,8 @@ def _load_vision_api_config() -> tuple[str, str, str, Optional[str]]:
     api_base = str(provider.api_base or "").rstrip("/")
     model_name = config.llm.get_role_model_name("vision", "en")
     bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
-    return api_base, bare_model, str(provider.temperature or 0.2), provider.api_key
+    temp = provider.temperature if provider.temperature is not None else 0.2
+    return api_base, bare_model, str(temp), provider.api_key
 
 
 def _build_request_payload(

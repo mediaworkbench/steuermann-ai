@@ -31,7 +31,7 @@ def _decode_barcodes(image_bytes: bytes) -> dict:
         }
 
     with Image.open(io.BytesIO(image_bytes)) as img:
-        decoded = pyzbar_decode(img)
+        decoded = pyzbar_decode(img.convert("RGB"))
 
     codes = []
     for item in decoded:

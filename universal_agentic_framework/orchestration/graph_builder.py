@@ -1456,8 +1456,25 @@ def node_generate_response(state: GraphState) -> GraphState:
         has_citable_sources = bool(collected_sources)
 
         # Inject synthesis instruction so LLM writes a summary, not a raw list (env-configurable)
+        # Exception: verbatim-relay tools (OCR, barcode, metadata, structured JSON) must be
+        # presented as-is — synthesis instructions cause the model to second-guess the result.
+        _VERBATIM_RELAY_TOOLS = {
+            "ocr_tool", "read_barcodes_tool", "image_metadata_tool",
+            "analyze_document_tool", "analyze_chart_tool",
+        }
+        verbatim_relay = bool(used_tool_names & _VERBATIM_RELAY_TOOLS)
+
         env_synthesis = os.environ.get(f"PROMPT_SYNTHESIS_{lang.upper()}", "").strip()
-        if env_synthesis:
+        if verbatim_relay:
+            synthesis_text = (
+                "The tool has returned its output. Present the result directly to the user:\n"
+                "- For OCR / text extraction: display the extracted text verbatim as your answer. "
+                "Do NOT paraphrase, summarize, or question whether the content is correct — it is.\n"
+                "- For structured JSON (documents, charts, barcodes, metadata): present the "
+                "information clearly and readably.\n"
+                "Never say the result is missing or incorrect."
+            )
+        elif env_synthesis:
             synthesis_text = env_synthesis.replace("\\n", "\n")
         else:
             prompts_cfg = getattr(config, "prompts", None)
@@ -2046,7 +2063,13 @@ def node_summarize(state: GraphState) -> GraphState:
         try:
             from langchain_core.messages import HumanMessage as _HumanMessage
             out = model.invoke([_HumanMessage(content=prompt)])
-            summary = (out.content or "").strip() or f"LLM: {prompt}"
+            _raw_content = out.content
+            if isinstance(_raw_content, list):
+                _raw_content = "".join(
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in _raw_content
+                )
+            summary = (_raw_content or "").strip() or f"LLM: {prompt}"
             _sum_usage_meta = getattr(out, "usage_metadata", None)
             track_llm_call(fork_name, provider, model_name, "success")
         except Exception as e:
