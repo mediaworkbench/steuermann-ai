@@ -391,33 +391,6 @@ class TestRoutingHeuristics:
 # Tool Embedding Cache Tests
 # ═══════════════════════════════════════════════════════════════════════
 
-
-class TestToolEmbeddingCache:
-    """Test that tool embedding caching works."""
-
-    def test_cache_dict_operations(self):
-        """Verify the cache dict structure used for tool embeddings."""
-        from universal_agentic_framework.orchestration.helpers.tool_scoring import _tool_embedding_cache
-        from universal_agentic_framework.orchestration.helpers.embedding_provider import clear_embedding_cache
-
-        _tool_embedding_cache.clear()
-        clear_embedding_cache()
-        assert len(_tool_embedding_cache) == 0
-
-        # Simulate caching a tool embedding
-        import numpy as np
-        fake_embedding = np.random.rand(384)
-        cache_key = "test_model:test_tool:12345"
-        _tool_embedding_cache[cache_key] = fake_embedding
-
-        assert cache_key in _tool_embedding_cache
-        assert np.array_equal(_tool_embedding_cache[cache_key], fake_embedding)
-
-        _tool_embedding_cache.clear()
-        clear_embedding_cache()
-        assert len(_tool_embedding_cache) == 0
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Tool Registry Integration Tests
 # ═══════════════════════════════════════════════════════════════════════

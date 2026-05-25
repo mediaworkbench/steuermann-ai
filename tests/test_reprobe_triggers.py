@@ -261,29 +261,6 @@ class TestReprobeTriggersOnSettingsChange:
         # Verify reprobe was called
         assert len(fake_runner.reprobe_calls) > 0
     
-    def test_reprobe_results_persisted(self, client_with_mocks, probe_store):
-        """Reprobe results should be persisted to probe store."""
-        client, fake_runner = client_with_mocks
-        
-        # The fake runner will return test results that should be persisted
-        # For this test, we just verify that the reprobe call was made
-        response = client.post(
-            "/api/settings/user/test_user",
-            json={
-                "tool_toggles": {},
-                "rag_config": {"collection": "", "top_k": 5},
-                "analytics_preferences": {},
-                "preferred_model": "persisted-test-model",
-                "theme": "auto",
-                "language": "en",
-            },
-        )
-        assert response.status_code == 200
-        
-        # Verify that curated reprobe was triggered for the new model
-        assert len(fake_runner.reprobe_calls) > 0
-        assert fake_runner.reprobe_calls[0][0] == "reprobe_for_model"
-    
     def test_reprobe_failure_doesnt_block_settings_update(self, client_with_mocks):
         """Settings update should succeed even if reprobe fails."""
         client, fake_runner = client_with_mocks

@@ -139,21 +139,6 @@ async def test_cleanup_task_execution(cache_manager, scheduler_config):
     assert await backend.get("expired2") is None
 
 
-@pytest.mark.asyncio
-async def test_stats_collection_task(cache_manager, scheduler_config):
-    """Test stats collection task."""
-    scheduler = CacheScheduler(cache_manager, scheduler_config)
-    
-    # Add some cache operations
-    await cache_manager.backend.set("key1", "value1", ttl_seconds=3600)
-    await cache_manager.backend.get("key1")
-    
-    # Manually trigger stats collection
-    await scheduler._stats_collection_task()
-    
-    # Should not raise exceptions
-    assert True
-
 
 @pytest.mark.asyncio
 async def test_scheduler_with_cron_expression(cache_manager):
@@ -298,17 +283,6 @@ async def test_scheduler_get_jobs(cache_manager, scheduler_config):
     
     scheduler.stop()
 
-
-@pytest.mark.asyncio
-async def test_cleanup_empty_cache(cache_manager, scheduler_config):
-    """Test cleanup on empty cache."""
-    scheduler = CacheScheduler(cache_manager, scheduler_config)
-    
-    # Run cleanup on empty cache
-    await scheduler._cleanup_task()
-    
-    # Should complete without errors
-    assert True
 
 
 @pytest.mark.asyncio

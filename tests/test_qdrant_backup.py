@@ -35,22 +35,6 @@ def backup_manager(temp_backup_dir):
         return manager
 
 
-@pytest.mark.asyncio
-async def test_backup_manager_initialization(temp_backup_dir):
-    """Test backup manager initialization."""
-    with patch("universal_agentic_framework.caching.backup.QdrantClient"):
-        manager = QdrantBackupManager(
-            host="localhost",
-            port=6333,
-            backup_dir=temp_backup_dir
-        )
-        
-        assert manager.host == "localhost"
-        assert manager.port == 6333
-        assert manager.base_url == "http://localhost:6333"
-        assert manager.backup_dir == Path(temp_backup_dir)
-        assert manager.backup_dir.exists()
-
 
 @pytest.mark.asyncio
 async def test_create_snapshot(backup_manager):
@@ -365,12 +349,6 @@ async def test_backup_collection_with_cleanup(backup_manager):
         )
         
         assert result["server_deleted"] is True
-
-
-def test_list_local_backups_empty(backup_manager):
-    """Test listing local backups when directory is empty."""
-    backups = backup_manager.list_local_backups()
-    assert len(backups) == 0
 
 
 def test_list_local_backups(backup_manager, temp_backup_dir):

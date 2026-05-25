@@ -149,58 +149,53 @@ class TestCachePerformanceBenchmark:
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
-        
-        # Store embeddings in Qdrant
-        logger.info(f"Storing {cache_size} embeddings in Qdrant...")
-        for i, (query, embedding) in enumerate(zip(queries, embeddings)):
-            vector_backend.store_embedding(
-                query=query,
-                embedding=embedding,
-                crew_name="research",
-                user_id="user123",
-                language="en",
-                result_hash=f"hash_{i}",
-            )
-        
-        # Benchmark queries
-        test_queries = queries[:10]  # Test with 10 queries
-        test_embeddings = [self._encode_query(embeddings_model, q) for q in test_queries]
-        
-        in_memory_times = []
-        qdrant_times = []
-        
-        for query_emb in test_embeddings:
-            # Benchmark in-memory search
-            _, in_memory_time = self._benchmark_in_memory_search(
-                embeddings, query_emb, threshold=0.80, top_k=5
-            )
-            in_memory_times.append(in_memory_time)
-            
-            # Benchmark Qdrant search
-            _, qdrant_time = self._benchmark_qdrant_search(
-                vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
-            )
-            qdrant_times.append(qdrant_time)
-        
-        # Calculate statistics
-        in_memory_avg = statistics.mean(in_memory_times)
-        in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]  # 95th percentile
-        qdrant_avg = statistics.mean(qdrant_times)
-        qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
-        speedup = in_memory_avg / qdrant_avg
-        
-        logger.info(f"=== Benchmark Results (n={cache_size}) ===")
-        logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
-        logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
-        logger.info(f"Speedup:   {speedup:.1f}x")
-        
-        # Assertions (at 100 embeddings, Qdrant may be slower due to network overhead)
-        assert qdrant_avg < 100, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
-        # For small datasets, expect similar or slightly slower performance
-        logger.info(f"Note: At n=100, network overhead dominates. Speedup expected at n>=1000")
-        
-        # Cleanup
-        vector_backend.clear_collection()
+
+        try:
+            # Store embeddings in Qdrant
+            logger.info(f"Storing {cache_size} embeddings in Qdrant...")
+            for i, (query, embedding) in enumerate(zip(queries, embeddings)):
+                vector_backend.store_embedding(
+                    query=query,
+                    embedding=embedding,
+                    crew_name="research",
+                    user_id="user123",
+                    language="en",
+                    result_hash=f"hash_{i}",
+                )
+
+            # Benchmark queries
+            test_queries = queries[:10]  # Test with 10 queries
+            test_embeddings = [self._encode_query(embeddings_model, q) for q in test_queries]
+
+            in_memory_times = []
+            qdrant_times = []
+
+            for query_emb in test_embeddings:
+                _, in_memory_time = self._benchmark_in_memory_search(
+                    embeddings, query_emb, threshold=0.80, top_k=5
+                )
+                in_memory_times.append(in_memory_time)
+
+                _, qdrant_time = self._benchmark_qdrant_search(
+                    vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
+                )
+                qdrant_times.append(qdrant_time)
+
+            in_memory_avg = statistics.mean(in_memory_times)
+            in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]
+            qdrant_avg = statistics.mean(qdrant_times)
+            qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
+            speedup = in_memory_avg / qdrant_avg
+
+            logger.info(f"=== Benchmark Results (n={cache_size}) ===")
+            logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
+            logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
+            logger.info(f"Speedup:   {speedup:.1f}x")
+
+            assert qdrant_avg < 100, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
+            logger.info(f"Note: At n=100, network overhead dominates. Speedup expected at n>=1000")
+        finally:
+            vector_backend.drop_collection()
     
     def test_benchmark_1000_embeddings(self, embeddings_model):
         """Benchmark with 1000 cached embeddings."""
@@ -228,57 +223,52 @@ class TestCachePerformanceBenchmark:
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
-        
-        # Store embeddings in Qdrant
-        logger.info(f"Storing {cache_size} embeddings in Qdrant...")
-        for i, (query, embedding) in enumerate(zip(queries, embeddings)):
-            vector_backend.store_embedding(
-                query=query,
-                embedding=embedding,
-                crew_name="research",
-                user_id="user123",
-                language="en",
-                result_hash=f"hash_{i}",
-            )
-        
-        # Benchmark queries
-        test_queries = queries[:20]  # Test with 20 queries
-        test_embeddings = embeddings[:20]
-        
-        in_memory_times = []
-        qdrant_times = []
-        
-        for query_emb in test_embeddings:
-            # Benchmark in-memory search
-            _, in_memory_time = self._benchmark_in_memory_search(
-                embeddings, query_emb, threshold=0.80, top_k=5
-            )
-            in_memory_times.append(in_memory_time)
-            
-            # Benchmark Qdrant search
-            _, qdrant_time = self._benchmark_qdrant_search(
-                vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
-            )
-            qdrant_times.append(qdrant_time)
-        
-        # Calculate statistics
-        in_memory_avg = statistics.mean(in_memory_times)
-        in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]
-        qdrant_avg = statistics.mean(qdrant_times)
-        qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
-        speedup = in_memory_avg / qdrant_avg
-        
-        logger.info(f"=== Benchmark Results (n={cache_size}) ===")
-        logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
-        logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
-        logger.info(f"Speedup:   {speedup:.1f}x")
-        
-        # Assertions (expect significant improvement at 1000 embeddings)
-        assert qdrant_avg < 100, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
-        assert speedup >= 2.5, f"Qdrant speedup insufficient: {speedup:.1f}x (expected >=2.5x)"
-        
-        # Cleanup
-        vector_backend.clear_collection()
+
+        try:
+            # Store embeddings in Qdrant
+            logger.info(f"Storing {cache_size} embeddings in Qdrant...")
+            for i, (query, embedding) in enumerate(zip(queries, embeddings)):
+                vector_backend.store_embedding(
+                    query=query,
+                    embedding=embedding,
+                    crew_name="research",
+                    user_id="user123",
+                    language="en",
+                    result_hash=f"hash_{i}",
+                )
+
+            test_queries = queries[:20]
+            test_embeddings = embeddings[:20]
+
+            in_memory_times = []
+            qdrant_times = []
+
+            for query_emb in test_embeddings:
+                _, in_memory_time = self._benchmark_in_memory_search(
+                    embeddings, query_emb, threshold=0.80, top_k=5
+                )
+                in_memory_times.append(in_memory_time)
+
+                _, qdrant_time = self._benchmark_qdrant_search(
+                    vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
+                )
+                qdrant_times.append(qdrant_time)
+
+            in_memory_avg = statistics.mean(in_memory_times)
+            in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]
+            qdrant_avg = statistics.mean(qdrant_times)
+            qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
+            speedup = in_memory_avg / qdrant_avg
+
+            logger.info(f"=== Benchmark Results (n={cache_size}) ===")
+            logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
+            logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
+            logger.info(f"Speedup:   {speedup:.1f}x")
+
+            assert qdrant_avg < 100, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
+            assert speedup >= 2.5, f"Qdrant speedup insufficient: {speedup:.1f}x (expected >=2.5x)"
+        finally:
+            vector_backend.drop_collection()
     
     @pytest.mark.slow
     def test_benchmark_10000_embeddings(self, embeddings_model):
@@ -310,76 +300,57 @@ class TestCachePerformanceBenchmark:
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
-        
-        # Store embeddings in Qdrant
-        logger.info(f"Storing {cache_size} embeddings in Qdrant...")
-        for i, (query, embedding) in enumerate(zip(queries, embeddings)):
-            vector_backend.store_embedding(
-                query=query,
-                embedding=embedding,
-                crew_name="research",
-                user_id="user123",
-                language="en",
-                result_hash=f"hash_{i}",
-            )
-            
-            if (i + 1) % 1000 == 0:
-                logger.info(f"  Stored {i + 1}/{cache_size} embeddings...")
-        
-        # Benchmark queries
-        test_queries = queries[:20]  # Test with 20 queries
-        test_embeddings = embeddings[:20]
-        
-        in_memory_times = []
-        qdrant_times = []
-        
-        logger.info("Running benchmark queries...")
-        for query_emb in test_embeddings:
-            # Benchmark in-memory search
-            _, in_memory_time = self._benchmark_in_memory_search(
-                embeddings, query_emb, threshold=0.80, top_k=5
-            )
-            in_memory_times.append(in_memory_time)
-            
-            # Benchmark Qdrant search
-            _, qdrant_time = self._benchmark_qdrant_search(
-                vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
-            )
-            qdrant_times.append(qdrant_time)
-        
-        # Calculate statistics
-        in_memory_avg = statistics.mean(in_memory_times)
-        in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]
-        qdrant_avg = statistics.mean(qdrant_times)
-        qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
-        speedup = in_memory_avg / qdrant_avg
-        
-        logger.info(f"=== Benchmark Results (n={cache_size}) ===")
-        logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
-        logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
-        logger.info(f"Speedup:   {speedup:.1f}x")
-        
-        # Assertions (expect massive improvement at 10000 embeddings)
-        assert qdrant_avg < 200, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
-        assert speedup > 5.0, f"Qdrant speedup insufficient: {speedup:.1f}x (expected >5x)"
-        
-        # Cleanup
-        vector_backend.clear_collection()
-    
-    def test_benchmark_summary_report(self, embeddings_model):
-        """Generate summary report comparing all cache sizes."""
-        logger.info("=" * 60)
-        logger.info("CACHE PERFORMANCE BENCHMARK SUMMARY")
-        logger.info("=" * 60)
-        logger.info("Run individual benchmark tests for detailed results:")
-        logger.info("  pytest tests/test_cache_performance_benchmark.py -v -s")
-        logger.info("")
-        logger.info("Expected Performance:")
-        logger.info("  100 embeddings:    2-5x speedup")
-        logger.info("  1,000 embeddings:  2.5-15x speedup")
-        logger.info("  10,000 embeddings: 20-100x speedup")
-        logger.info("=" * 60)
 
+        try:
+            # Store embeddings in Qdrant
+            logger.info(f"Storing {cache_size} embeddings in Qdrant...")
+            for i, (query, embedding) in enumerate(zip(queries, embeddings)):
+                vector_backend.store_embedding(
+                    query=query,
+                    embedding=embedding,
+                    crew_name="research",
+                    user_id="user123",
+                    language="en",
+                    result_hash=f"hash_{i}",
+                )
+
+                if (i + 1) % 1000 == 0:
+                    logger.info(f"  Stored {i + 1}/{cache_size} embeddings...")
+
+            test_queries = queries[:20]
+            test_embeddings = embeddings[:20]
+
+            in_memory_times = []
+            qdrant_times = []
+
+            logger.info("Running benchmark queries...")
+            for query_emb in test_embeddings:
+                _, in_memory_time = self._benchmark_in_memory_search(
+                    embeddings, query_emb, threshold=0.80, top_k=5
+                )
+                in_memory_times.append(in_memory_time)
+
+                _, qdrant_time = self._benchmark_qdrant_search(
+                    vector_backend, query_emb, "research", "user123", "en", threshold=0.80, top_k=5
+                )
+                qdrant_times.append(qdrant_time)
+
+            in_memory_avg = statistics.mean(in_memory_times)
+            in_memory_p95 = statistics.quantiles(in_memory_times, n=20)[18]
+            qdrant_avg = statistics.mean(qdrant_times)
+            qdrant_p95 = statistics.quantiles(qdrant_times, n=20)[18]
+            speedup = in_memory_avg / qdrant_avg
+
+            logger.info(f"=== Benchmark Results (n={cache_size}) ===")
+            logger.info(f"In-Memory: avg={in_memory_avg:.2f}ms, p95={in_memory_p95:.2f}ms")
+            logger.info(f"Qdrant:    avg={qdrant_avg:.2f}ms, p95={qdrant_p95:.2f}ms")
+            logger.info(f"Speedup:   {speedup:.1f}x")
+
+            assert qdrant_avg < 200, f"Qdrant search too slow: {qdrant_avg:.2f}ms"
+            assert speedup > 5.0, f"Qdrant speedup insufficient: {speedup:.1f}x (expected >5x)"
+        finally:
+            vector_backend.drop_collection()
+    
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

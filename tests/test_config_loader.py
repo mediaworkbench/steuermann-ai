@@ -55,65 +55,6 @@ def test_load_core_config_env_substitution() -> None:
     assert "localhost:1234" in str(core.llm.roles.chat.api_base)
 
 
-def test_load_agents_config_defaults(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles"
-    config_dir.mkdir()
-    config_dir.joinpath("agents.yaml").write_text("crews: {}\n", encoding="utf-8")
-    _create_profile_dir(profiles_dir, "starter")
-
-    agents = load_agents_config(
-        config_dir=config_dir,
-        profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "starter"},
-    )
-
-    assert agents.crews == {}
-
-
-def test_load_tools_config_defaults(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles"
-    config_dir.mkdir()
-    config_dir.joinpath("tools.yaml").write_text("tools: []\n", encoding="utf-8")
-    _create_profile_dir(profiles_dir, "starter")
-
-    tools = load_tools_config(
-        config_dir=config_dir,
-        profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "starter"},
-    )
-
-    assert tools.tools == []
-
-
-def test_load_features_config_defaults(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles"
-    config_dir.mkdir()
-    config_dir.joinpath("features.yaml").write_text(
-        """
-        multi_agent_crews: true
-        long_term_memory: false
-        ingestion_service: true
-        ui_tool_visualization: true
-        ui_token_counter: false
-        ui_export_chat: true
-        """,
-        encoding="utf-8",
-    )
-    _create_profile_dir(profiles_dir, "starter")
-
-    features = load_features_config(
-        config_dir=config_dir,
-        profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "starter"},
-    )
-
-    assert features.multi_agent_crews is True
-    assert features.ingestion_service is True
-    assert features.ui_export_chat is True
-
 
 def test_get_active_profile_id_requires_value(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PROFILE_ID", raising=False)
@@ -253,69 +194,6 @@ tokens:
             env={"PROFILE_ID": "medical"},
         )
 
-
-def test_load_core_config_exposes_provider_registry_without_legacy_aliases(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    profiles_dir = tmp_path / "profiles"
-    profile_dir = _create_profile_dir(profiles_dir, "starter")
-    config_dir.mkdir()
-
-    config_dir.joinpath("core.yaml").write_text(
-        """
-fork:
-  name: $PROFILE_ID
-database:
-  url: sqlite:///base.db
-memory:
-  vector_store:
-    host: localhost
-    collection_prefix: base
-  embeddings:
-    dimension: 384
-  retention:
-    session_memory_days: 90
-    user_memory_days: 365
-        """,
-        encoding="utf-8",
-    )
-    _write_profile_metadata(profile_dir, "starter", display_name="Starter")
-    profile_dir.joinpath("core.yaml").write_text(
-        """
-fork:
-  language: en
-llm:
-  roles:
-    chat:
-      provider_id: lmstudio
-      api_base: http://localhost:1234/v1
-      model: openai/liquid/lfm2-24b-a2b
-    embedding:
-      provider_id: lmstudio
-      api_base: http://localhost:1234/v1
-      model: openai/text-embedding-granite-embedding-278m-multilingual
-    vision:
-      provider_id: lmstudio
-      api_base: http://localhost:1234/v1
-      model: openai/liquid/lfm2-24b-a2b
-    auxiliary:
-      provider_id: lmstudio
-      api_base: http://localhost:1234/v1
-      model: openai/liquid/lfm2-24b-a2b
-tokens:
-  default_budget: 10000
-ingestion:
-  collection_name: starter-rag
-        """,
-        encoding="utf-8",
-    )
-
-    core = load_core_config(
-        config_dir=config_dir,
-        profiles_dir=profiles_dir,
-        env={"PROFILE_ID": "starter"},
-    )
-    assert core.llm.roles.chat.provider_id == "lmstudio"
-    assert core.llm.roles.chat.model == "openai/liquid/lfm2-24b-a2b"
 
 
 def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:

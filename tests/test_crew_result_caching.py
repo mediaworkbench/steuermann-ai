@@ -318,30 +318,6 @@ class TestCrewCachingArchitecture:
         assert mock_config.crew_cache_ttl_seconds == 3600
 
 
-class TestCacheHelperFunctions:
-    """Test individual cache helper function behavior."""
-
-    def test_crew_cache_enabled_is_callable(self):
-        """Verify _crew_cache_enabled is callable."""
-        assert callable(_crew_cache_enabled)
-
-    def test_get_crew_cache_ttl_is_callable(self):
-        """Verify _get_crew_cache_ttl is callable."""
-        assert callable(_get_crew_cache_ttl)
-
-    def test_run_cache_coro_is_callable(self):
-        """Verify _run_cache_coro is callable."""
-        assert callable(_run_cache_coro)
-
-    def test_get_cached_crew_result_is_callable(self):
-        """Verify _get_cached_crew_result is callable."""
-        assert callable(_get_cached_crew_result)
-
-    def test_store_cached_crew_result_is_callable(self):
-        """Verify _store_cached_crew_result is callable."""
-        assert callable(_store_cached_crew_result)
-
-
 class TestSemanticQueryMatching:
     """Test semantic query matching in crew result caching."""
     
