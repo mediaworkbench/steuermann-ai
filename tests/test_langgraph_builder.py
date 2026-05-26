@@ -29,6 +29,13 @@ def patch_factories(monkeypatch):
 
     monkeypatch.setattr(LLMFactory, "get_model", _fake_get_model)
     monkeypatch.setattr(LLMFactory, "get_router_model", _fake_get_router_model)
+    monkeypatch.setattr(LLMFactory, "create_auxiliary_llm", lambda self: _FakeChatModel())
+
+    # node_summarize calls get_auxiliary_model() directly (not via LLMFactory)
+    monkeypatch.setattr(
+        "universal_agentic_framework.orchestration.graph_builder.get_auxiliary_model",
+        lambda config, language="en": (_FakeChatModel(), "fake-provider", "fake-model"),
+    )
 
     # Patch memory backend to in-memory
     def _fake_build_backend(config, client=None, embedder=None):
