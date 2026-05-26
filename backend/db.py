@@ -1866,6 +1866,16 @@ class WorkspaceDocumentStore:
             conn.commit()
         return deleted
 
+    def delete_all_documents(self, user_id: str) -> int:
+        """Delete all workspace documents for a user. Returns the number of rows deleted."""
+        statement = "DELETE FROM workspace_documents WHERE user_id = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (user_id,))
+                count = cur.rowcount
+            conn.commit()
+        return count
+
     def attach_document_reference(
         self,
         conversation_id: str,

@@ -137,6 +137,10 @@ class WorkspaceFileResponse(BaseModel):
     modified_at: Optional[str] = None
 
 
+class AttachFromWorkspaceRequest(BaseModel):
+    document_id: str
+
+
 class WorkspaceResponse(BaseModel):
     conversation_id: str
     user_id: str
@@ -404,6 +408,60 @@ async def delete_attachment(conversation_id: str, attachment_id: str, request: R
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error(f"Failed to delete attachment: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{conversation_id}/attachments/from-workspace",
+    response_model=AttachmentUploadResponse,
+    status_code=201,
+)
+async def attach_from_workspace(
+    conversation_id: str,
+    body: AttachFromWorkspaceRequest,
+    request: Request,
+):
+    """Link an existing workspace document to a conversation as an attachment.
+
+    No file copy is made — the attachment record points to the same stored file.
+    Deleting the conversation attachment only soft-deletes the reference; the
+    workspace document and its file are untouched.
+    """
+    store = _get_store(request)
+    attachment_store = _get_attachment_store(request)
+    document_store = getattr(request.app.state, "workspace_document_store", None)
+    if document_store is None:
+        raise HTTPException(status_code=500, detail="Workspace document store not initialized")
+
+    conv = store.get_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    effective_user_id = get_effective_user_id()
+    if effective_user_id != conv["user_id"]:
+        raise HTTPException(status_code=403, detail="Conversation does not belong to user")
+
+    doc = document_store.get_document(document_id=body.document_id, user_id=effective_user_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Workspace document not found")
+
+    try:
+        attachment_id = str(uuid.uuid4())
+        attachment = attachment_store.create_attachment(
+            attachment_id=attachment_id,
+            conversation_id=conversation_id,
+            user_id=effective_user_id,
+            original_name=doc["filename"],
+            stored_path=doc["stored_path"],
+            mime_type=doc["mime_type"],
+            size_bytes=doc["size_bytes"],
+            sha256=doc["sha256"],
+            extracted_text=doc.get("content_text", ""),
+            expires_at=None,
+        )
+        return {"attachment": attachment}
+    except Exception as exc:
+        logger.error(f"Failed to attach workspace document: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

@@ -2,6 +2,19 @@
 
 ## [0.3.5] — vision-tools-expansion
 
+### Workspace — Image & Document UX
+
+- **feat** Workspace sidebar now accepts image uploads (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`) alongside text documents; images are stored persistently in `workspace_documents` with `content_text = ""`
+- **feat** `GET /api/workspace/documents/{id}/thumbnail` — lazy JPEG thumbnail endpoint (max 320×240); generated on first request via Pillow with RGB conversion (handles RGBA and palette-mode sources); cached on disk as `<stored_path>.thumb.jpg`; auth-protected; 404 if document is not an image or file is missing
+- **feat** `DELETE /api/workspace/documents` — bulk-clear all workspace documents for the current user; removes DB records first (FK cascade cleans versions + `chat_document_refs`), then files and thumbnails on a best-effort basis; returns `{"deleted": count}`
+- **feat** `POST /api/conversations/{id}/attachments/from-workspace` — links an existing workspace document to a conversation without copying the file; creates a new `conversation_attachments` record pointing to the same stored path; `AttachFromWorkspaceRequest` Pydantic model added to `conversations.py`
+- **feat** Image file cards in the workspace sidebar show a thumbnail with file-size overlay; clicking the thumbnail inserts the filename reference at the chat cursor (replaces the Reference button for images)
+- **feat** All file cards (images and text) gain an **Attach** button (visible when a conversation is open) that attaches the workspace file to the active conversation and shows an attachment chip in the chat input
+- **feat** Upload area redesigned: 2/3-width upload button (now accepts docs + images), 1/3-width red Nuke All button with inline two-step confirmation (Cancel / Delete All)
+- **feat** File size limit raised from 512 KB → **10 MB** for both chat attachments (`CHAT_ATTACHMENTS_MAX_FILE_BYTES`) and workspace documents (`WORKSPACE_MAX_FILE_BYTES`)
+- **db** `WorkspaceDocumentStore.delete_all_documents(user_id)` added to `backend/db.py`
+- **env** New env var `WORKSPACE_MAX_FILE_BYTES` (default `10485760`); `CHAT_ATTACHMENTS_MAX_FILE_BYTES` default updated to `10485760` in `.env.example`
+
 ### Vision Tools
 
 - **refactor** Extracted four shared helpers (`_resolve_local_image`, `_build_data_url`, `_load_vision_api_config`, `_build_request_payload`) from `analyze_image/tool.py` into `universal_agentic_framework/tools/vision_utils.py`; all vision tools import from this module; `_build_request_payload` gains a `system_prompt` keyword arg that prepends a `{"role": "system", "content": ...}` message — used by OCR/document/chart tools; `analyze_image_tool` passes no system prompt (existing behavior preserved)
