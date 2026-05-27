@@ -446,7 +446,8 @@ No additional configuration needed.
 
 ## See Also
 
-- [Technical Architecture](technical_architecture.md) - System design
+- [Deployment Guide](deployment_guide.md) - Docker topology, monitoring infrastructure, and operational setup
+- [Technical Architecture](technical_architecture.md) - Core execution design, graph flow, and service boundaries
 - [Configuration Guide](configuration.md) - Config reference
 - [Status & Roadmap](status.md) - Current state and future work
 

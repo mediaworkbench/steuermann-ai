@@ -127,4 +127,5 @@ The following remain worth exploring, but should be treated as workload-specific
 
 - **[monitoring.md](monitoring.md)**
 - **[configuration.md](configuration.md)**
+- **[deployment_guide.md](deployment_guide.md)** — Docker topology and operational performance considerations
 - **[technical_architecture.md](technical_architecture.md)**

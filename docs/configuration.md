@@ -990,38 +990,7 @@ tokens:
 
 ## Troubleshooting
 
-### Config not loading
-
-**Symptom:** `FileNotFoundError: config/core.yaml`
-
-**Solution:** Ensure profile config files exist:
-
-```bash
-ls -la config/
-# Should show: core.yaml, agents.yaml, tools.yaml, features.yaml
-```
-
-### LLM connection failed
-
-**Symptom:** `ConnectionError: Could not connect to http://host.docker.internal:11434`
-
-**Solution:** Check Ollama is running on host:
-
-```bash
-curl http://localhost:11434/api/tags
-# Should return list of models
-```
-
-### Qdrant connection failed
-
-**Symptom:** `ConnectionRefusedError: [Errno 111] Connection refused`
-
-**Solution:** Ensure Qdrant is running:
-
-```bash
-docker ps | grep qdrant
-curl http://localhost:6333/collections
-```
+See [troubleshooting.md](troubleshooting.md) for common failure modes and diagnostic commands.
 
 ---
 
