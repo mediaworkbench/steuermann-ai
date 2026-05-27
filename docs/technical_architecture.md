@@ -137,7 +137,6 @@ steuermann-ai/
 │           ├── tools.yaml
 │           ├── ui.yaml
 │           └── prompts/
-├── plugins/
 ├── frontend/
 ├── backend/
 ├── monitoring/
@@ -147,7 +146,7 @@ steuermann-ai/
 
 **Key principles:**
 
-- Prefer profile overlays and plugins over direct edits to `universal_agentic_framework/core/`.
+- Prefer profile overlays over direct edits to `universal_agentic_framework/orchestration/`.
 - Keep tool descriptions and `tool_routing` configuration aligned.
 - Keep prompt overrides close to the active profile instead of branching framework code.
 - Validate profile behavior against the current repository revision after upgrades.
@@ -170,30 +169,64 @@ steuermann-ai/
 
 ### **4.2 Graph State Management**
 
-**GraphState Schema:**
+**GraphState Schema** (defined in `universal_agentic_framework/orchestration/graph_builder.py`):
 
 ```python
-from typing import Any, Dict, List, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from langgraph.checkpoint.base import UntrackedValue
 
 class GraphState(TypedDict, total=False):
-  """Core state for current graph executions."""
-  messages: List[Dict[str, Any]]
-  user_id: str
-  language: str
 
-  # Memory and knowledge
-  loaded_memory: List[Dict[str, Any]]
-  knowledge_context: List[Dict[str, Any]]
-  rag_attempted: bool   # True only when Qdrant was actually queried this turn
-  rag_doc_count: int    # Docs above score_threshold injected (0 when none passed)
+    # Conversation / input
+    messages: List[Dict[str, Any]]
+    attachments: List[Dict[str, Any]]               # Uploaded conversation attachments from adapter
+    attachment_context: List[Dict[str, Any]]         # Prompt-ready normalized attachment snippets
+    workspace_documents: List[Dict[str, Any]]        # User workspace documents resolved by adapter
+    workspace_document_context: List[Dict[str, Any]] # Prompt-ready normalized workspace snippets
+    workspace_writeback_requested: bool
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document for writeback (bypasses 600-token truncation)
 
-  # Tools
-  loaded_tools: List[Any]
-  tool_results: Dict[str, str]
+    # Session identity
+    user_id: str
+    session_id: str          # Session identifier for co-occurrence tracking
+    language: str
+    fork_name: str           # Fork identifier for Prometheus metrics (legacy label key)
+    profile_id: str          # Active deployment profile identifier
+    user_settings: Dict[str, Any]           # tool_toggles, rag_config, preferred_model, theme, language
+    llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
 
-  # Execution tracking
-  tokens_used: int
-  summary_text: str
+    # Memory / RAG
+    loaded_memory: List[Dict[str, Any]]
+    digest_context: List[Dict[str, Any]]     # Digest subset from loaded memory retrieval
+    memory_analytics: Dict[str, Any]         # Importance scores, related count
+    knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
+    rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
+    rag_doc_count: int   # Docs above score_threshold injected into prompt
+
+    # Tools
+    loaded_tools: Annotated[List[Any], UntrackedValue(list)]              # BaseTool instances — not checkpointed
+    candidate_tools: Annotated[List[Dict[str, Any]], UntrackedValue(list)]  # Layer 1 output — not checkpointed
+    tool_calling_mode: str          # "native" | "structured" | "react"
+    tool_calling_mode_reason: str   # Why the mode was selected or downgraded
+    prefilter_intents: Dict[str, Any]           # Intent detection results from Layer 1
+    tool_results: Dict[str, str]                # Tool name → execution result
+    tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name → structured execution envelope
+    routing_metadata: Dict[str, str]            # Tool name → reason for selection
+
+    # Crews
+    crew_results: Dict[str, Any]  # Multi-agent crew execution results
+
+    # Tokens / metrics
+    tokens_used: int
+    turn_tokens_used: int    # Current invocation token usage for per-turn budgeting
+    input_tokens: int        # Input token count (separate tracking)
+    output_tokens: int       # Output token count (separate tracking)
+    provider_used: str       # Actual provider used for response generation
+    model_used: str          # Actual model used for response generation
+    summary_text: str
+    digest_chain: List[Dict[str, Any]]  # Rolling conversation digest metadata
+    sources: List[Dict[str, Any]]       # [{type: "web"|"rag", label: str, url: str|None}]
+    query_embedding: List[float]        # Precomputed user-message embedding (reused by RAG)
 ```
 
 ### **4.3 Persistence Layer**
@@ -219,45 +252,63 @@ User Request (Next.js)
   ├──> Load checkpoint (if exists)
   ├──> Initialize GraphState
   ├──> Execute graph nodes
-  │    ├──> load_tools_node
+  │    │
+  │    ├──> [_route_start] START conditional edge
+  │    │    ├──> crews (direct dispatch — bypass tool nodes entirely)
+  │    │    └──> load_tools (normal path)
+  │    │
+  │    ├──> load_tools
   │    │    └──> Load all available tools from registry
   │    │
-  │    ├──> prefilter_tools_node (LAYER 1 — Semantic Pre-filter)
-  │    │    ├──> Embed user query
+  │    ├──> prefilter_tools (LAYER 1 — Semantic Pre-filter)
+  │    │    ├──> Embed user query (result stored as query_embedding — reused by RAG)
   │    │    ├──> Score query against tool descriptions (cosine similarity)
-  │    │    ├──> Apply intent boosting (datetime, calc, URL intents)
+  │    │    ├──> Apply intent boosting (+0.2 for datetime, calc, URL, analyze_image,
+  │    │    │     ocr, analyze_document, analyze_chart, read_barcodes patterns)
   │    │    ├──> Apply gates: min_top_score (0.7), min_spread (0.10)
   │    │    ├──> Filter by similarity_threshold (0.55), top-K (5)
   │    │    └──> Store candidate_tools in state (NO execution)
   │    │
   │    ├──> [route_tool_strategy] (conditional edge)
-  │    │    ├──> call_tools_native   (LAYER 2 — bind_tools, LLM decides)
+  │    │    ├──> call_tools_native     (LAYER 2 — bind_tools, LLM decides)
   │    │    ├──> call_tools_structured (LAYER 2 — JSON schema in prompt)
-  │    │    ├──> call_tools_react    (LAYER 2 — ReAct loop)
-  │    │    └──> no_tools            (0 candidates → skip Layer 2)
+  │    │    ├──> call_tools_react      (LAYER 2 — ReAct loop)
+  │    │    └──> no_tools              (0 candidates → skip Layer 2)
   │    │    Each Layer 2 node includes LAYER 3 — schema validation + retry
   │    │
-  │    ├──> load_memory_node
-  │    ├──> retrieve_knowledge_node (RAG, score_threshold: 0.6)
+  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here)
+  │    │
+  │    ├──> [route_to_crew] (conditional edge)
+  │    │    ├──> research_crew / analytics_crew / code_generation_crew / planning_crew
+  │    │    ├──> crew_chain / crew_parallel
+  │    │    └──> memory_query_cache (no crew → continue normal flow)
+  │    │
+  │    ├──> memory_query_cache  (Redis cache probe for memory)
+  │    ├──> load_memory
+  │    ├──> retrieve_knowledge  (RAG, score_threshold: 0.6)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
   │    │      3. Intent: skip_rag heuristic (greeting/math/datetime/tool-meta)
   │    │    rag_attempted=True / rag_doc_count=N set only when Qdrant is queried
   │    │
-  │    ├──> respond_node
+  │    ├──> memory_cache_store
+  │    │
+  │    ├──> respond
   │    │    ├──> Inject tool_results into context
   │    │    ├──> Inject knowledge_context from RAG
-  │    │    └──> Invoke LLM
+  │    │    └──> Invoke LLM (chat role)
   │    │
-  │    ├──> summarization_node
-  │    └──> update_memory_node
+  │    ├──> compress_conversation  (rolling digest, bounded history)
+  │    ├──> summarize
+  │    ├──> update_memory
+  │    └──> cache_stats
   │
-    └──> Return response
-      │
-      └──> FastAPI Adapter
-          │
-          └──> Next.js (render to user)
+  └──> Return response
+        │
+        └──> FastAPI Adapter
+              │
+              └──> Next.js (render to user)
 ```
 
 #### Key Design: Three-Tier Tool Selection
@@ -1110,108 +1161,32 @@ Profile customization is declarative — profiles override configs and register 
 
 ### **13.1 Service Composition**
 
-**docker-compose.yml (Template):**
+**Service Topology** (source of truth: `docker-compose.yml` at the repo root):
 
-```yaml
-version: "3.8"
+The stack runs 9 services on the `steuermann-network` Docker network:
 
-services:
-  langgraph-server:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.langgraph
-    ports:
-      - "8123:8123"
-    environment:
-      - PROFILE_ID=${PROFILE_ID}
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/framework
-      - QDRANT_HOST=qdrant
-    depends_on:
-      - postgres
-      - qdrant
-    volumes:
-      - ./config:/app/config:ro
-      - ./plugins:/app/plugins:ro
-    restart: unless-stopped
+| Service | Image / Build | Exposed port | Role |
+| --- | --- | --- | --- |
+| `langgraph` | `docker/Dockerfile.langgraph` | `8000` (internal only) | LangGraph orchestration engine |
+| `fastapi` | `docker/Dockerfile.fastapi` | `8001:8001` (host) | FastAPI adapter — auth, metrics proxy, chat proxy |
+| `nextjs` | `docker/Dockerfile.nextjs` | `3000:3000` (host) | Next.js frontend (chat, settings, metrics) |
+| `ingestion` | `docker/Dockerfile.ingestion` | — | Qdrant document ingestion watcher |
+| `postgres` | `postgres:15.5-alpine` | `5432:5432` | Conversation storage + LangGraph checkpoints |
+| `redis` | `redis:7.2-alpine` | `6379:6379` | LLM response cache, memory cache, summary cache |
+| `qdrant` | `qdrant/qdrant:latest` | `6333` (internal) | Vector store for RAG and Mem0 memory |
+| `prometheus` | `prom/prometheus:v2.48.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
+| `duckduckgo-mcp` | `mcp/duckduckgo` | `8000` (internal) | DuckDuckGo web-search MCP server |
 
-  nextjs:
-    build:
-      context: ./frontend
-      dockerfile: ../docker/Dockerfile.nextjs
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8001
-    volumes:
-      - ./frontend:/app:ro
+**Key wiring details:**
 
-  fastapi:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.fastapi
-    ports:
-      - "8001:8001"
-    environment:
-      - LANGGRAPH_URL=http://langgraph:8000
-    volumes:
-      - ./backend:/app/backend:ro
-      - ./config:/app/config:ro
-    depends_on:
-      - langgraph-server
-    restart: unless-stopped
-
-  ingestion:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.ingestion
-    environment:
-      - QDRANT_HOST=qdrant
-      - PROFILE_ID=${PROFILE_ID}
-    volumes:
-      - ./config:/app/config:ro
-      - /mnt/knowledge-sources:/data/ingest:ro
-    depends_on:
-      - qdrant
-    restart: unless-stopped
-    profiles:
-      - ingestion # Optional service
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=framework
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=framework
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  qdrant:
-    image: qdrant/qdrant:v1.7.4
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    restart: unless-stopped
-
-volumes:
-  postgres-data:
-  qdrant-data:
-  prometheus-data:
-
-networks:
-  default:
-    name: framework-network
-```
+- `langgraph` connects to `postgres`, `qdrant`, `redis`, and `duckduckgo-mcp` (health-checked before start)
+- `fastapi` connects to `langgraph` (health-checked) and `prometheus` for metrics proxying
+- `nextjs` connects to `fastapi` (health-checked)
+- `ingestion` connects to `qdrant` and the profile config; mounts `./data/rag-data` read-only
+- LangGraph and ingestion both mount `./config` read-only; workspaces mount via `WORKSPACES_PATH`
+- No `plugins/` volume — there is no plugins directory; tool registration is via `config/tools.yaml`
+- Postgres connection uses split env vars (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`), not a single `DATABASE_URL`
+- `CHECKPOINTER_POSTGRES_DSN` is set separately (defaults to `postgresql://framework:<pw>@postgres:5432/framework`)
 
 ### **13.2 Profile-Specific Overrides**
 

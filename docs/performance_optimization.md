@@ -54,7 +54,7 @@ Start here:
 Review these settings first when the system feels slow:
 
 ```yaml
-# config/core.yaml
+# config/profiles/<profile_id>/core.yaml
 rag:
   top_k: 5
   score_threshold: 0.6
@@ -71,13 +71,9 @@ memory:
 ```bash
 # .env / container runtime
 REDIS_URL=redis://redis:6379/0
-CACHE_LLM_TTL=86400
-CACHE_MEMORY_TTL=3600
-CACHE_SUMMARY_TTL=604800
-SUMMARIZE_MAX_TOKENS=4096
-SUMMARIZE_MIN_MESSAGES=10
-SUMMARIZE_KEEP_RECENT=5
 ```
+
+> **Note:** Cache TTL values (`CACHE_LLM_TTL`, `CACHE_MEMORY_TTL`, `CACHE_SUMMARY_TTL`) and summarization thresholds (`SUMMARIZE_MAX_TOKENS`, `SUMMARIZE_MIN_MESSAGES`, `SUMMARIZE_KEEP_RECENT`) are not currently read from environment variables. Defaults are hardcoded in `universal_agentic_framework/caching/manager.py` (LLM cache: 86400 s, memory cache: 3600 s). To change them, update the defaults in code and rebuild.
 
 ---
 

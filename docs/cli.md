@@ -134,7 +134,7 @@ Show the value of a specific dot-path key and trace its provenance (which layer 
 steuermann config explain --key <dot.path> [--profile <id>] [--format json]
 ```
 
-- `--key` — dot-path to the key (e.g. `core.llm.providers.ollama.temperature` or `core.llm.roles.chat.providers`)
+- `--key` — dot-path to the key (e.g. `core.llm.roles.chat.temperature` or `core.rag.collection_name`)
 
 **Example:**
 ```bash
@@ -204,7 +204,7 @@ steuermann config set \
 ```bash
 poetry run steuermann config set \
   --profile starter \
-  --key core.llm.providers.ollama.temperature \
+  --key core.llm.roles.chat.temperature \
   --value 0.5
 ```
 
@@ -212,7 +212,7 @@ poetry run steuermann config set \
 ```bash
 poetry run steuermann config set \
   --profile starter \
-  --key core.llm.providers.ollama.temperature \
+  --key core.llm.roles.chat.temperature \
   --value 0.5 \
   --apply --confirm APPLY
 ```
@@ -235,7 +235,7 @@ steuermann config unset \
 ```bash
 poetry run steuermann config unset \
   --profile starter \
-  --key core.llm.providers.ollama.temperature \
+  --key core.llm.roles.chat.temperature \
   --apply --confirm APPLY
 ```
 
@@ -370,13 +370,13 @@ poetry run pytest -q
 # Dry-run first
 poetry run steuermann config set \
   --profile my-profile \
-  --key core.llm.providers.ollama.temperature \
+  --key core.llm.roles.chat.temperature \
   --value 0.3
 
 # Apply after review
 poetry run steuermann config set \
   --profile my-profile \
-  --key core.llm.providers.ollama.temperature \
+  --key core.llm.roles.chat.temperature \
   --value 0.3 \
   --apply --confirm APPLY
 ```

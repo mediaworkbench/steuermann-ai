@@ -133,7 +133,7 @@ llm:
 
 - `chat` — primary conversational LLM *(required)*
 - `embedding` — vector embeddings for tool routing and memory retrieval *(required)*
-- `vision` — multimodal/image processing requests *(optional; not yet used in the graph)*
+- `vision` — multimodal/image processing requests *(optional; actively used by `analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, and `analyze_chart_tool`; library tools `image_metadata_tool` and `read_barcodes_tool` do not require it; falls back to `chat` role if omitted)*
 - `auxiliary` — Mem0 memory extraction, conversation summarization, RAG query rewriting/expansion, workspace intent classification, structured tool retry re-prompts, and conversation auto-titling; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
 
 **Model strings use LiteLLM's `provider/model-name` format:**
@@ -516,11 +516,11 @@ backstory: "" # Missing context
 ```yaml
 tools:
   - name: "patient_database"                    # Unique tool identifier
-    path: "plugins/patient_database"             # Path relative to repository root
+    path: "universal_agentic_framework/tools/patient_database"  # Path relative to repository root
     enabled: true
 
   - name: "medical_calculator"
-    path: "plugins/medical_calculator"
+    path: "universal_agentic_framework/tools/medical_calculator"
     enabled: true
 
   - name: "datetime_tool"                        # Built-in framework tool
@@ -530,9 +530,10 @@ tools:
 
 **Tool discovery:**
 
-- Built-in tools live in `universal_agentic_framework/tools/<name>/` (not `plugins/`)
+- All tools (built-in and custom) live in `universal_agentic_framework/tools/<name>/`
 - Each tool directory requires `__init__.py`, `tool.py`, and `tool.yaml`
-- All tools (built-in and custom) must be explicitly listed here to be loaded
+- All tools must be explicitly listed here to be loaded (`loading_mode: explicit`)
+- A `plugins/` directory for profile-specific tools is planned but does not exist yet
 
 ---
 

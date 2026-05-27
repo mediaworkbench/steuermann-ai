@@ -15,7 +15,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 - **Template**: The shared codebase in this repository.
 - **Profile overlay**: Domain-specific configuration under `config/profiles/<profile_id>/` plus optional plugins.
-- **Protected core**: Domain behavior should be customized through profile overlays, prompt overrides, and plugins rather than direct edits in `universal_agentic_framework/core/`.
+- **Protected core**: Domain behavior should be customized through profile overlays and prompt overrides rather than direct edits in `universal_agentic_framework/orchestration/`.
 
 ---
 
