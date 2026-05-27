@@ -1,0 +1,28 @@
+name: "analyze_chart_tool"
+version: "1.0.0"
+category: "vision"
+description: "Extract structured data from charts and data visualizations using the configured vision model"
+
+descriptions:
+  en: "Extract structured data from a chart, graph, or data visualization image. Accepts an image URL (http/https) or a local file path from an uploaded attachment. Returns JSON with chart type, axis labels, data series, and key observations. Use when the user asks to analyze, read, or extract data from a chart or graph. Trigger phrases: analyze chart, read the graph, extract data from plot, what does the chart show, describe the trend, bar chart, line graph, pie chart, data visualization."
+  de: "Strukturierte Daten aus einem Diagramm oder einer Datenvisualisierung extrahieren. Akzeptiert eine Bild-URL (http/https) oder einen lokalen Dateipfad eines hochgeladenen Anhangs. Gibt JSON zurück mit Diagrammtyp, Achsenbeschriftungen, Datenreihen und wichtigen Beobachtungen. Auslösephrasen: Diagramm analysieren, Grafik auslesen, Daten aus dem Diagramm extrahieren, was zeigt das Diagramm, Trend beschreiben, Balkendiagramm, Liniendiagramm."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.analyze_chart.tool:AnalyzeChartTool"
+
+dependencies: []
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

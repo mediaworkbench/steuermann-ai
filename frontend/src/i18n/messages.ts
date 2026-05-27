@@ -252,6 +252,14 @@ export type Messages = {
     saveChangesFailed: string;
     uploaded: string;
     commandReferenceTemplate: string;
+    attach: string;
+    attachSuccess: string;
+    attachFailed: string;
+    nukeAll: string;
+    nukeConfirm: string;
+    nukeSuccess: string;
+    nukeFailed: string;
+    thumbnailClickHint: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -686,6 +694,14 @@ export const messages: Record<Locale, Messages> = {
       saveChangesFailed: "Failed to save changes",
       uploaded: "Uploaded",
       commandReferenceTemplate: "\"{filename}\" (id: {id})",
+      attach: "Attach",
+      attachSuccess: "Attached to conversation",
+      attachFailed: "Could not attach file",
+      nukeAll: "Clear all",
+      nukeConfirm: "Delete all?",
+      nukeSuccess: "Deleted {count} file(s)",
+      nukeFailed: "Could not clear workspace",
+      thumbnailClickHint: "Click to insert reference",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1118,6 +1134,14 @@ export const messages: Record<Locale, Messages> = {
       saveChangesFailed: "Änderungen konnten nicht gespeichert werden",
       uploaded: "Hochgeladen",
       commandReferenceTemplate: "\"{filename}\" (ID: {id})",
+      attach: "Anhängen",
+      attachSuccess: "Zur Konversation hinzugefügt",
+      attachFailed: "Datei konnte nicht angehängt werden",
+      nukeAll: "Alle löschen",
+      nukeConfirm: "Alle löschen?",
+      nukeSuccess: "{count} Datei(en) gelöscht",
+      nukeFailed: "Workspace konnte nicht geleert werden",
+      thumbnailClickHint: "Klicken zum Einfügen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

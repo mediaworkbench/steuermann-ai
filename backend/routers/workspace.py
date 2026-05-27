@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
@@ -127,7 +129,10 @@ _ALLOWED_EXTENSIONS: frozenset[str] = frozenset({
     ".txt", ".md", ".markdown",
     ".json", ".yaml", ".yml",
     ".csv", ".html", ".xml",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp",
 })
+
+_IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})
 
 _EXT_TO_MIME: dict[str, str] = {
     ".md": "text/markdown",
@@ -138,6 +143,11 @@ _EXT_TO_MIME: dict[str, str] = {
     ".csv": "text/csv",
     ".html": "text/html",
     ".xml": "text/xml",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
 }
 
 # Per-extension allowed MIME types — text/plain is accepted universally as a browser fallback
@@ -151,7 +161,14 @@ _EXT_ALLOWED_MIMES: dict[str, frozenset[str]] = {
     ".csv": frozenset({"text/csv", "text/plain"}),
     ".html": frozenset({"text/html", "text/plain"}),
     ".xml": frozenset({"text/xml", "application/xml", "text/plain"}),
+    ".jpg": frozenset({"image/jpeg"}),
+    ".jpeg": frozenset({"image/jpeg"}),
+    ".png": frozenset({"image/png"}),
+    ".gif": frozenset({"image/gif"}),
+    ".webp": frozenset({"image/webp"}),
 }
+
+_WORKSPACE_MAX_FILE_BYTES: int = int(os.getenv("WORKSPACE_MAX_FILE_BYTES", "10485760"))
 
 
 def _validate_text_file(filename: str, content_type: Optional[str] = None) -> str:
@@ -163,13 +180,17 @@ def _validate_text_file(filename: str, content_type: Optional[str] = None) -> st
     Raises:
         AttachmentValidationError: If file format is invalid
     """
-    from pathlib import Path
     ext = Path(filename).suffix.lower()
 
     if ext not in _ALLOWED_EXTENSIONS:
         raise AttachmentValidationError(
             f"File type '{ext or '(none)'}' not supported. "
             f"Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}"
+        )
+
+    if ext in _IMAGE_EXTENSIONS:
+        raise AttachmentValidationError(
+            f"Image files must be uploaded as images, not text documents. Use the image upload path for '{ext}' files."
         )
 
     normalized_content_type = (content_type or "").strip().lower().split(";")[0].strip()
@@ -185,17 +206,53 @@ def _validate_text_file(filename: str, content_type: Optional[str] = None) -> st
 
 def _validate_utf8_text(content: bytes) -> str:
     """Validate and decode UTF-8 text content.
-    
+
     Raises:
         AttachmentValidationError: If content is not valid UTF-8
     """
     if b"\x00" in content:
         raise AttachmentValidationError("Binary content is not allowed for text files.")
-    
+
     try:
         return content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise AttachmentValidationError("File must be valid UTF-8 text.") from exc
+
+
+def _validate_image_file(filename: str, content_type: Optional[str] = None) -> str:
+    """Validate image file format (extension + mime type).
+
+    Returns:
+        Normalized MIME type
+
+    Raises:
+        AttachmentValidationError: If file format is invalid
+    """
+    ext = Path(filename).suffix.lower()
+
+    if ext not in _IMAGE_EXTENSIONS:
+        raise AttachmentValidationError(
+            f"File type '{ext or '(none)'}' is not a supported image format. "
+            f"Supported: {', '.join(sorted(_IMAGE_EXTENSIONS))}"
+        )
+
+    normalized_content_type = (content_type or "").strip().lower().split(";")[0].strip()
+    if not normalized_content_type:
+        normalized_content_type = _EXT_TO_MIME[ext]
+    elif normalized_content_type not in _EXT_ALLOWED_MIMES.get(ext, frozenset()):
+        # browsers occasionally send application/octet-stream for images — accept it
+        if normalized_content_type != "application/octet-stream":
+            raise AttachmentValidationError(
+                f"Content type '{normalized_content_type}' is not allowed for '{ext}' files."
+            )
+        normalized_content_type = _EXT_TO_MIME[ext]
+
+    return normalized_content_type
+
+
+def _thumb_path(stored_path: str) -> Path:
+    """Derive the cached thumbnail path for an image document."""
+    return Path(str(stored_path) + ".thumb.jpg")
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
@@ -206,49 +263,54 @@ async def upload_document(
     request: Request,
     file: UploadFile = File(...),
 ) -> Dict[str, Any]:
-    """Upload a new document to user workspace.
-    
-    Supports plain text and markdown files (.txt, .md, .markdown).
+    """Upload a new document or image to user workspace.
+
+    Supports text/markdown files and images (jpg, jpeg, png, gif, webp).
     Stores both filesystem copy and database metadata.
     """
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
-    
+
     effective_user_id = get_effective_user_id()
     document_id = str(uuid.uuid4())
-    
+    filename = file.filename or "document.txt"
+
     try:
-        # Read file content
         content = await file.read()
-        
-        # Validate file format
-        normalized_mime_type = _validate_text_file(file.filename or "document.txt", file.content_type)
-        
-        # Validate UTF-8 text
-        content_text = _validate_utf8_text(content)
-        
-        # Store file in filesystem
+
+        if len(content) > _WORKSPACE_MAX_FILE_BYTES:
+            raise AttachmentValidationError(
+                f"File too large ({len(content):,} bytes, max {_WORKSPACE_MAX_FILE_BYTES:,})."
+            )
+
+        ext = Path(filename).suffix.lower()
+        if ext in _IMAGE_EXTENSIONS:
+            normalized_mime_type = _validate_image_file(filename, file.content_type)
+            content_text = ""
+        else:
+            normalized_mime_type = _validate_text_file(filename, file.content_type)
+            content_text = _validate_utf8_text(content)
+
         stored_metadata = file_manager.store_document_file(
             user_id=effective_user_id,
             document_id=document_id,
-            filename=file.filename or "document.txt",
+            filename=filename,
             content=content,
         )
-        
-        # Create database record
+
         doc = document_store.create_document(
             document_id=document_id,
             user_id=effective_user_id,
-            filename=file.filename or "document.txt",
+            filename=filename,
             stored_path=str(stored_metadata["stored_path"]),
             mime_type=normalized_mime_type,
             size_bytes=int(stored_metadata["size_bytes"]),
             sha256=str(stored_metadata["sha256"]),
             content_text=content_text,
         )
-        
+
         return {"document": doc}
-    
+
     except AttachmentValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except WorkspaceValidationError as exc:
@@ -388,7 +450,6 @@ async def patch_document(
     if not _SAFE_FILENAME_RE.match(new_filename):
         raise HTTPException(status_code=400, detail="Invalid filename: only letters, digits, spaces, hyphens, underscores, and dots are allowed")
 
-    from pathlib import Path
     ext = Path(new_filename).suffix.lower()
     if ext not in _ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -436,7 +497,8 @@ async def delete_document(
             document_id=document_id,
             stored_path=existing_doc["stored_path"],
         )
-        
+        _thumb_path(existing_doc["stored_path"]).unlink(missing_ok=True)
+
         # Delete from database
         deleted = document_store.delete_document(document_id=document_id, user_id=effective_user_id)
         if not deleted:
@@ -492,6 +554,75 @@ async def download_document(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.error(f"Failed to download document: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/documents/{document_id}/thumbnail", response_class=FileResponse)
+async def get_document_thumbnail(
+    document_id: str,
+    request: Request,
+) -> FileResponse:
+    """Return a JPEG thumbnail (max 320×240) for an image workspace document.
+
+    Thumbnails are generated lazily on first request and cached on disk alongside the
+    original file as ``<stored_path>.thumb.jpg``.
+    """
+    from PIL import Image as PilImage  # noqa: PLC0415 — lazy import; Pillow is optional dep
+
+    document_store = _get_document_store(request)
+    effective_user_id = get_effective_user_id()
+
+    doc = document_store.get_document(document_id=document_id, user_id=effective_user_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.get("mime_type", "").startswith("image/"):
+        raise HTTPException(status_code=404, detail="Document is not an image")
+
+    stored_path = doc["stored_path"]
+    if not Path(stored_path).exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    thumb = _thumb_path(stored_path)
+    if not thumb.exists():
+        try:
+            img = PilImage.open(stored_path).convert("RGB")
+            img.thumbnail((320, 240))
+            img.save(str(thumb), format="JPEG", quality=85, optimize=True)
+        except Exception as exc:
+            logger.error(f"Thumbnail generation failed for {document_id}: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to generate thumbnail") from exc
+
+    return FileResponse(str(thumb), media_type="image/jpeg")
+
+
+@router.delete("/documents", status_code=200)
+async def delete_all_documents(
+    request: Request,
+) -> Dict[str, Any]:
+    """Delete all workspace documents for the current user.
+
+    DB records are removed first (within a single DELETE), then files are
+    cleaned up on a best-effort basis so the database is always consistent.
+    """
+    document_store = _get_document_store(request)
+    effective_user_id = get_effective_user_id()
+
+    try:
+        docs = document_store.list_documents(user_id=effective_user_id, limit=10000, offset=0)
+        stored_paths = [d["stored_path"] for d in docs]
+
+        count = document_store.delete_all_documents(user_id=effective_user_id)
+
+        for sp in stored_paths:
+            try:
+                Path(sp).unlink(missing_ok=True)
+                _thumb_path(sp).unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning(f"Could not remove file {sp}: {exc}")
+
+        return {"deleted": count}
+    except Exception as exc:
+        logger.error(f"Failed to clear workspace documents: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

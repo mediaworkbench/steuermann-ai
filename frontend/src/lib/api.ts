@@ -709,6 +709,46 @@ export async function deleteConversationAttachment(
   }
 }
 
+export async function attachWorkspaceDocumentToConversation(
+  conversationId: string,
+  documentId: string,
+): Promise<ConversationAttachment | null> {
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/attachments/from-workspace`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document_id: documentId }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      console.error("Failed to attach workspace document:", error?.detail || response.status);
+      return null;
+    }
+    const data = await response.json();
+    return (data.attachment || null) as ConversationAttachment | null;
+  } catch (error) {
+    console.error("Error attaching workspace document:", error);
+    return null;
+  }
+}
+
+export async function clearAllWorkspaceDocuments(): Promise<number> {
+  try {
+    const response = await fetch(`${API_BASE}/api/workspace/documents`, {
+      method: "DELETE",
+    });
+    if (!response.ok) return 0;
+    const data = await response.json();
+    return typeof data.deleted === "number" ? data.deleted : 0;
+  } catch (error) {
+    console.error("Error clearing workspace documents:", error);
+    return 0;
+  }
+}
+
 export async function runWorkspaceAction(
   conversationId: string,
   message: string,

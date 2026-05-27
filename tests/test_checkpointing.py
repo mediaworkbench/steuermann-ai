@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 from types import SimpleNamespace
@@ -80,10 +81,19 @@ def test_build_checkpointer_env_takes_precedence_over_config(monkeypatch):
 
 
 @pytest.mark.integration
-def test_postgres_checkpointer_persists_across_turns():
-    """Two sequential graph invocations with the same thread_id accumulate messages."""
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("RUN_LIVE_STACK_TESTS", "").strip().lower() not in {"1", "true", "yes"},
+    reason="Set RUN_LIVE_STACK_TESTS=1 to run tests requiring a live PostgreSQL instance.",
+)
+async def test_postgres_checkpointer_persists_across_turns():
+    """Two sequential graph invocations with the same thread_id accumulate messages.
+
+    AsyncPostgresSaver requires a running event loop for both construction and
+    all checkpoint operations, so this test is async throughout.
+    """
     pytest.importorskip("psycopg_pool")
-    import os
+    from universal_agentic_framework.orchestration.checkpointing import setup_checkpointer
     from universal_agentic_framework.orchestration.graph_builder import build_graph
 
     dsn = os.environ.get(
@@ -92,38 +102,46 @@ def test_postgres_checkpointer_persists_across_turns():
     )
     config = _config(postgres_dsn=dsn)
     checkpointer = build_checkpointer(config=config, env={})
+    # Open the connection pool (timeout=10 s so the test fails fast when Postgres
+    # is not reachable rather than blocking for the pool's default 30 s retry window).
+    await checkpointer.conn.open(wait=True, timeout=10.0)
+    await checkpointer.setup()
 
     graph = build_graph()
     thread_id = "test-multi-turn-integration"
     cfg = {"configurable": {"thread_id": thread_id}}
 
-    # First turn
-    ct1 = checkpointer.get_tuple(cfg)
-    existing = ct1.checkpoint.get("channel_values", {}).get("messages", []) if ct1 else []
-    state1 = {
-        "messages": existing + [{"role": "user", "content": "What is 2+2?"}],
-        "user_id": "test-user",
-        "language": "en",
-    }
-    graph.invoke(state1, config=cfg)
+    try:
+        # First turn
+        ct1 = await checkpointer.aget_tuple(cfg)
+        existing = ct1.checkpoint.get("channel_values", {}).get("messages", []) if ct1 else []
+        state1 = {
+            "messages": existing + [{"role": "user", "content": "What is 2+2?"}],
+            "user_id": "test-user",
+            "language": "en",
+        }
+        await graph.ainvoke(state1, config=cfg)
 
-    # Verify checkpoint was written
-    ct2 = checkpointer.get_tuple(cfg)
-    assert ct2 is not None
-    messages_after_turn1 = ct2.checkpoint.get("channel_values", {}).get("messages", [])
-    assert any(m["role"] == "user" for m in messages_after_turn1)
+        # Verify checkpoint was written
+        ct2 = await checkpointer.aget_tuple(cfg)
+        assert ct2 is not None
+        messages_after_turn1 = ct2.checkpoint.get("channel_values", {}).get("messages", [])
+        assert any(m["role"] == "user" for m in messages_after_turn1)
 
-    # Second turn — load from checkpoint
-    state2 = {
-        "messages": messages_after_turn1 + [{"role": "user", "content": "Now what is 3+3?"}],
-        "user_id": "test-user",
-        "language": "en",
-    }
-    graph.invoke(state2, config=cfg)
+        # Second turn — load from checkpoint
+        state2 = {
+            "messages": messages_after_turn1 + [{"role": "user", "content": "Now what is 3+3?"}],
+            "user_id": "test-user",
+            "language": "en",
+        }
+        await graph.ainvoke(state2, config=cfg)
 
-    ct3 = checkpointer.get_tuple(cfg)
-    assert ct3 is not None
-    messages_after_turn2 = ct3.checkpoint.get("channel_values", {}).get("messages", [])
-    user_contents = [m["content"] for m in messages_after_turn2 if m["role"] == "user"]
-    assert any("2+2" in c for c in user_contents)
-    assert any("3+3" in c for c in user_contents)
+        ct3 = await checkpointer.aget_tuple(cfg)
+        assert ct3 is not None
+        messages_after_turn2 = ct3.checkpoint.get("channel_values", {}).get("messages", [])
+        user_contents = [m["content"] for m in messages_after_turn2 if m["role"] == "user"]
+        assert any("2+2" in c for c in user_contents)
+        assert any("3+3" in c for c in user_contents)
+    finally:
+        # Always close the pool so the event loop is not left with open connections.
+        await checkpointer.conn.close()

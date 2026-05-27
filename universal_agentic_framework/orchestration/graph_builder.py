@@ -300,13 +300,15 @@ def node_load_tools(state: GraphState) -> GraphState:
                 )
                 tools = filtered_tools
 
-            # Exclude analyze_image_tool when the vision role is not configured.
+            # Exclude all vision-LLM tools when the vision role is not configured.
+            _VISION_LLM_TOOLS = {"analyze_image_tool", "ocr_tool", "analyze_document_tool", "analyze_chart_tool"}
             vision_role = getattr(getattr(core_config.llm, "roles", None), "vision", None)
             if vision_role is None:
                 before = len(tools)
-                tools = [t for t in tools if t.name != "analyze_image_tool"]
-                if len(tools) < before:
-                    logger.info("analyze_image_tool excluded: llm.roles.vision not configured")
+                tools = [t for t in tools if t.name not in _VISION_LLM_TOOLS]
+                excluded = before - len(tools)
+                if excluded:
+                    logger.info("Vision LLM tools excluded: llm.roles.vision not configured", count=excluded)
 
             state["loaded_tools"] = tools
             logger.info(
@@ -433,6 +435,26 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 elif tool_name == "analyze_image_tool" and (
                     intents.get("image_url_in_query") or image_attachment_present
                 ):
+                    similarity += intent_boost
+                elif tool_name == "ocr_tool" and (
+                    intents.get("image_in_query") or image_attachment_present
+                ) and intents.get("mentions_ocr"):
+                    similarity += intent_boost
+                elif tool_name == "analyze_document_tool" and (
+                    intents.get("image_in_query") or image_attachment_present
+                ) and intents.get("mentions_document"):
+                    similarity += intent_boost
+                elif tool_name == "analyze_chart_tool" and (
+                    intents.get("image_in_query") or image_attachment_present
+                ) and intents.get("mentions_chart"):
+                    similarity += intent_boost
+                elif tool_name == "image_metadata_tool" and (
+                    intents.get("image_in_query") or image_attachment_present
+                ) and intents.get("mentions_image_metadata"):
+                    similarity += intent_boost
+                elif tool_name == "read_barcodes_tool" and (
+                    intents.get("image_in_query") or image_attachment_present
+                ) and intents.get("mentions_barcode"):
                     similarity += intent_boost
 
                 # Hard intent override: when user explicitly asks for web search,
@@ -1434,8 +1456,25 @@ def node_generate_response(state: GraphState) -> GraphState:
         has_citable_sources = bool(collected_sources)
 
         # Inject synthesis instruction so LLM writes a summary, not a raw list (env-configurable)
+        # Exception: verbatim-relay tools (OCR, barcode, metadata, structured JSON) must be
+        # presented as-is — synthesis instructions cause the model to second-guess the result.
+        _VERBATIM_RELAY_TOOLS = {
+            "ocr_tool", "read_barcodes_tool", "image_metadata_tool",
+            "analyze_document_tool", "analyze_chart_tool",
+        }
+        verbatim_relay = bool(used_tool_names & _VERBATIM_RELAY_TOOLS)
+
         env_synthesis = os.environ.get(f"PROMPT_SYNTHESIS_{lang.upper()}", "").strip()
-        if env_synthesis:
+        if verbatim_relay:
+            synthesis_text = (
+                "The tool has returned its output. Present the result directly to the user:\n"
+                "- For OCR / text extraction: display the extracted text verbatim as your answer. "
+                "Do NOT paraphrase, summarize, or question whether the content is correct — it is.\n"
+                "- For structured JSON (documents, charts, barcodes, metadata): present the "
+                "information clearly and readably.\n"
+                "Never say the result is missing or incorrect."
+            )
+        elif env_synthesis:
             synthesis_text = env_synthesis.replace("\\n", "\n")
         else:
             prompts_cfg = getattr(config, "prompts", None)
@@ -2024,7 +2063,13 @@ def node_summarize(state: GraphState) -> GraphState:
         try:
             from langchain_core.messages import HumanMessage as _HumanMessage
             out = model.invoke([_HumanMessage(content=prompt)])
-            summary = (out.content or "").strip() or f"LLM: {prompt}"
+            _raw_content = out.content
+            if isinstance(_raw_content, list):
+                _raw_content = "".join(
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in _raw_content
+                )
+            summary = (_raw_content or "").strip() or f"LLM: {prompt}"
             _sum_usage_meta = getattr(out, "usage_metadata", None)
             track_llm_call(fork_name, provider, model_name, "success")
         except Exception as e:

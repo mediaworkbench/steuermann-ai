@@ -1,0 +1,28 @@
+name: "analyze_document_tool"
+version: "1.0.0"
+category: "vision"
+description: "Extract structured data from document images using the configured vision model"
+
+descriptions:
+  en: "Extract structured data from a document image — invoices, receipts, forms, or contracts. Accepts an image URL (http/https) or a local file path from an uploaded attachment. Returns JSON with vendor, date, total, currency, and line items. Use when the user asks to scan, digitize, or extract data from a document. Trigger phrases: scan invoice, extract from receipt, digitize document, read the bill, what does the invoice say, invoice data, form digitization, receipt scanner."
+  de: "Strukturierte Daten aus einem Dokumentbild extrahieren — Rechnungen, Quittungen, Formulare oder Verträge. Akzeptiert eine Bild-URL (http/https) oder einen lokalen Dateipfad eines hochgeladenen Anhangs. Gibt JSON zurück mit Anbieter, Datum, Betrag, Währung und Einzelposten. Auslösephrasen: Rechnung scannen, Quittung auslesen, Beleg digitalisieren, Formular auslesen, Rechnungsdaten extrahieren."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.analyze_document.tool:AnalyzeDocumentTool"
+
+dependencies: []
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

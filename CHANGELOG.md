@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.3.5] — vision-tools-expansion
+
+### Workspace — Image & Document UX
+
+- **feat** Workspace sidebar now accepts image uploads (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`) alongside text documents; images are stored persistently in `workspace_documents` with `content_text = ""`
+- **feat** `GET /api/workspace/documents/{id}/thumbnail` — lazy JPEG thumbnail endpoint (max 320×240); generated on first request via Pillow with RGB conversion (handles RGBA and palette-mode sources); cached on disk as `<stored_path>.thumb.jpg`; auth-protected; 404 if document is not an image or file is missing
+- **feat** `DELETE /api/workspace/documents` — bulk-clear all workspace documents for the current user; removes DB records first (FK cascade cleans versions + `chat_document_refs`), then files and thumbnails on a best-effort basis; returns `{"deleted": count}`
+- **feat** `POST /api/conversations/{id}/attachments/from-workspace` — links an existing workspace document to a conversation without copying the file; creates a new `conversation_attachments` record pointing to the same stored path; `AttachFromWorkspaceRequest` Pydantic model added to `conversations.py`
+- **feat** Image file cards in the workspace sidebar show a thumbnail with file-size overlay; clicking the thumbnail inserts the filename reference at the chat cursor (replaces the Reference button for images)
+- **feat** All file cards (images and text) gain an **Attach** button (visible when a conversation is open) that attaches the workspace file to the active conversation and shows an attachment chip in the chat input
+- **feat** Upload area redesigned: 2/3-width upload button (now accepts docs + images), 1/3-width red Nuke All button with inline two-step confirmation (Cancel / Delete All)
+- **feat** File size limit raised from 512 KB → **10 MB** for both chat attachments (`CHAT_ATTACHMENTS_MAX_FILE_BYTES`) and workspace documents (`WORKSPACE_MAX_FILE_BYTES`)
+- **db** `WorkspaceDocumentStore.delete_all_documents(user_id)` added to `backend/db.py`
+- **env** New env var `WORKSPACE_MAX_FILE_BYTES` (default `10485760`); `CHAT_ATTACHMENTS_MAX_FILE_BYTES` default updated to `10485760` in `.env.example`
+
+### Vision Tools
+
+- **refactor** Extracted four shared helpers (`_resolve_local_image`, `_build_data_url`, `_load_vision_api_config`, `_build_request_payload`) from `analyze_image/tool.py` into `universal_agentic_framework/tools/vision_utils.py`; all vision tools import from this module; `_build_request_payload` gains a `system_prompt` keyword arg that prepends a `{"role": "system", "content": ...}` message — used by OCR/document/chart tools; `analyze_image_tool` passes no system prompt (existing behavior preserved)
+- **feat** `ocr_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/ocr/`; accepts image URL or local attachment path; sends a fixed OCR-engine system prompt ("output only the extracted text, preserving line breaks, no commentary") and the image to `llm.roles.vision`; `max_tokens: 4096`; intent boost when image + OCR keyword present; auto-disabled when `llm.roles.vision` is absent
+- **feat** `analyze_document_tool` — extracts structured JSON from invoice/receipt/form/contract images; input: `image_source` + `document_type` hint (`auto`/`invoice`/`receipt`/`form`/`contract`); output: `{"document_type", "vendor", "date", "total", "currency", "line_items", "notes"}` with `null` for absent fields; `_clean_json_output()` strips markdown fences from LLM response; intent boost when image + document keyword present; auto-disabled without `llm.roles.vision`
+- **feat** `analyze_chart_tool` — extracts structured JSON from chart/graph images; output: `{"chart_type", "title", "x_axis", "y_axis", "series", "key_observations"}`; `_clean_json_output()` applied; intent boost when image + chart keyword present; auto-disabled without `llm.roles.vision`
+- **feat** `image_metadata_tool` — extracts EXIF and file metadata from images using Pillow (`PIL.Image.getexif()`, public API); handles GPS IFD tag 34853 and decimal degree conversion; for remote URLs uses `httpx` to fetch bytes then feeds to PIL; output: `{"filename", "format", "mode", "width", "height", "dpi", "exif"}`; no vision LLM required — always available when Pillow is installed; intent boost when image + metadata keyword present
+- **feat** `read_barcodes_tool` — decodes barcodes and QR codes from images using pyzbar; output: `{"found": bool, "codes": [{"type", "data", "position"}]}`; graceful `ImportError` fallback when pyzbar/libzbar0 is unavailable returns an error string instead of crashing; no vision LLM required; intent boost when image + barcode keyword present
+- **feat** Vision LLM tool exclusion extended: `_VISION_LLM_TOOLS` set in `graph_builder.py` now covers `{"analyze_image_tool", "ocr_tool", "analyze_document_tool", "analyze_chart_tool"}`; all four are filtered from `loaded_tools` when `llm.roles.vision` is `None`; library-based tools (`image_metadata_tool`, `read_barcodes_tool`) are not in this set and load regardless of vision config
+- **feat** Five new intent flags added to `detect_tool_routing_intents()`: `image_in_query` (image URL or attachment), `mentions_ocr`, `mentions_document`, `mentions_chart`, `mentions_image_metadata`, `mentions_barcode`; all new vision tools use compound boost conditions (image signal AND keyword signal) to avoid triggering the spread gate when multiple tools score close together
+- **feat** All five new tools registered in `config/tools.yaml` (`enabled: true`), added to `FALLBACK_TOOLS` in `frontend/src/components/ChatInterface.tsx` and `SettingsPanel.tsx`, and added to the fallback `available_tools` list in `backend/routers/settings.py`; per-session toggle and settings-page enable/disable work without additional UI code
+- **test** `tests/test_vision_utils.py` — 12 unit tests for shared helpers (data URL building, local image resolution with traversal prevention, request payload construction with/without system prompt)
+- **test** `tests/test_ocr_tool.py` — 16 unit tests (input schema, sync/async httpx mocks, error propagation, tool registration)
+- **test** `tests/test_analyze_document_tool.py` — 17 unit tests (includes `TestBuildUserPrompt` and `TestCleanJsonOutput` for JSON fence stripping)
+- **test** `tests/test_analyze_chart_tool.py` — 16 unit tests (includes `TestCleanJsonOutput`)
+- **test** `tests/test_image_metadata_tool.py` — 21 unit tests (includes `TestSafeValue`, `TestExtractMetadata` with mocked Pillow)
+- **test** `tests/test_read_barcodes_tool.py` — 36 passed, 1 skipped (live pyzbar integration); mock strategy uses `patch.dict("sys.modules", ...)` to inject a fake pyzbar module for tests that run without `libzbar0` installed
+- **ops** `pillow = "^10.0"` and `pyzbar = "^0.1.9"` added to `[tool.poetry.group.langgraph.dependencies]` in `pyproject.toml`
+- **ops** `libzbar0` added to runtime apt dependencies in `docker/Dockerfile.langgraph` (required by pyzbar; builder stage unchanged — only the runtime image needs the shared library)
+
+---
+
 ## [0.3.4] — auxiliary-model-expansion
 
 ### Auxiliary Model — Expanded Use

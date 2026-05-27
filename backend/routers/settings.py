@@ -549,8 +549,14 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
         return {
             "available_tools": [
                 {"id": "web_search_mcp", "label": "Web Search"},
-                {"id": "datetime_tool", "label": "Datetime Tool"},
                 {"id": "extract_webpage_mcp", "label": "Extract Webpage"},
+                {"id": "analyze_image_tool", "label": "Analyze Image"},
+                {"id": "ocr_tool", "label": "OCR"},
+                {"id": "analyze_document_tool", "label": "Analyze Document"},
+                {"id": "analyze_chart_tool", "label": "Analyze Chart"},
+                {"id": "image_metadata_tool", "label": "Image Metadata"},
+                {"id": "read_barcodes_tool", "label": "Read Barcodes"},
+                {"id": "datetime_tool", "label": "Datetime"},
                 {"id": "calculator_tool", "label": "Calculator"},
                 {"id": "file_ops_tool", "label": "File Operations"},
             ],

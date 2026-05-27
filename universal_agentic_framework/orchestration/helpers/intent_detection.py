@@ -140,6 +140,64 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         re.search(r"https?://\S+\.(?:jpg|jpeg|png|gif|webp)\b", user_msg, re.IGNORECASE)
     )
 
+    # Convenience flag used by vision-tool compound boosts (image URL or attachment)
+    image_in_query = image_url_in_query
+
+    # OCR: user wants text extracted from an image
+    mentions_ocr = bool(
+        re.search(r"\bocr\b", user_msg_lower)
+        or re.search(
+            r"\b(read|extract|transcribe|lese|lies|extrahier|Text erkennen|Text lesen|was steht)\b.*\b(text|writing|schrift|beschriftung)\b",
+            user_msg_lower,
+        )
+        or any(k in user_msg_lower for k in [
+            "what does it say", "what does the text say", "read the text",
+            "extract text", "text in the image", "text im bild",
+        ])
+    )
+
+    # Document analysis: user wants structured data from a document image
+    mentions_document = bool(
+        re.search(r"\b(invoice|receipt|form|contract|rechnung|quittung|beleg|formular|vertrag)\b", user_msg_lower)
+        or any(k in user_msg_lower for k in [
+            "scan document", "digitize document", "extract from document",
+            "document data", "bill data", "Dokument scannen", "Beleg auslesen",
+            "Formular digitalisieren", "Rechnungsdaten",
+        ])
+    )
+
+    # Chart analysis: user wants data extracted from a chart or graph
+    mentions_chart = bool(
+        re.search(
+            r"\b(chart|graph|plot|trend|visualization|diagramm|grafik|kurve|balkendiagramm|liniendiagramm|kreisdiagramm)\b",
+            user_msg_lower,
+        )
+        or any(k in user_msg_lower for k in [
+            "bar chart", "line graph", "pie chart", "scatter plot", "histogram",
+            "what does the chart show", "extract data from chart",
+            "was zeigt das diagramm", "Daten aus dem Diagramm",
+        ])
+    )
+
+    # Image metadata / EXIF: user wants file metadata, not visual analysis
+    mentions_image_metadata = bool(
+        re.search(r"\b(exif|metadata|metadaten)\b", user_msg_lower)
+        or any(k in user_msg_lower for k in [
+            "when was this photo taken", "where was this taken", "what camera",
+            "what resolution", "gps location of photo", "photo metadata",
+            "wann wurde das foto", "welche kamera", "bildgröße",
+        ])
+    )
+
+    # Barcode / QR code: user wants to decode a barcode or QR code
+    mentions_barcode = bool(
+        re.search(r"\b(barcode|qr.?code|qr code|bar code)\b", user_msg_lower)
+        or any(k in user_msg_lower for k in [
+            "scan code", "scan this code", "read barcode", "decode qr",
+            "product code", "qr-code scannen", "barcode lesen", "code auslesen",
+        ])
+    )
+
     # Meta-question detection: skip tool execution for questions about available tools
     asks_about_tools = any(
         keyword in user_msg_lower
@@ -197,6 +255,12 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_web_search": mentions_web_search,
         "url_in_query": url_in_query,
         "image_url_in_query": image_url_in_query,
+        "image_in_query": image_in_query,
+        "mentions_ocr": mentions_ocr,
+        "mentions_document": mentions_document,
+        "mentions_chart": mentions_chart,
+        "mentions_image_metadata": mentions_image_metadata,
+        "mentions_barcode": mentions_barcode,
         "asks_about_tools": asks_about_tools,
         "wants_save_to_rag": wants_save_to_rag,
         "enhanced_web_query": enhanced_web_query,

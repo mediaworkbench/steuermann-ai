@@ -41,6 +41,26 @@ tools:
     path: universal_agentic_framework/tools/analyze_image
     enabled: true
 
+  - name: ocr_tool
+    path: universal_agentic_framework/tools/ocr
+    enabled: true
+
+  - name: analyze_document_tool
+    path: universal_agentic_framework/tools/analyze_document
+    enabled: true
+
+  - name: analyze_chart_tool
+    path: universal_agentic_framework/tools/analyze_chart
+    enabled: true
+
+  - name: image_metadata_tool
+    path: universal_agentic_framework/tools/image_metadata
+    enabled: true
+
+  - name: read_barcodes_tool
+    path: universal_agentic_framework/tools/read_barcodes
+    enabled: true
+
   - name: mcp_stub
     path: universal_agentic_framework/tools/mcp_stub
     enabled: false

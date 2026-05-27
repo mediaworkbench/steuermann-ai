@@ -26,7 +26,7 @@ class WorkspaceValidationError(ValueError):
 @dataclass(frozen=True)
 class AttachmentManagerConfig:
     root_dir: Path
-    max_file_bytes: int = 524_288
+    max_file_bytes: int = 10_485_760
     retention_hours: int = 168
     allowed_extensions: tuple[str, ...] = (
         ".txt", ".md",
@@ -45,7 +45,7 @@ class AttachmentManagerConfig:
     @classmethod
     def from_env(cls) -> "AttachmentManagerConfig":
         root_dir = Path(os.getenv("CHAT_ATTACHMENTS_ROOT", _DEFAULT_ATTACHMENTS_ROOT))
-        max_file_bytes = int(os.getenv("CHAT_ATTACHMENTS_MAX_FILE_BYTES", "524288"))
+        max_file_bytes = int(os.getenv("CHAT_ATTACHMENTS_MAX_FILE_BYTES", "10485760"))
         retention_hours = int(os.getenv("CHAT_ATTACHMENTS_RETENTION_HOURS", "168"))
         return cls(
             root_dir=root_dir,

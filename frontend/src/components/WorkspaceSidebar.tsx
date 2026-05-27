@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Icon } from "./Icon";
-import { uploadConversationAttachment } from "@/lib/api";
+import { uploadConversationAttachment, attachWorkspaceDocumentToConversation, clearAllWorkspaceDocuments } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { ConversationAttachment } from "@/lib/types";
@@ -71,6 +71,7 @@ export function WorkspaceSidebar({
   const [editorContent, setEditorContent] = useState("");
   const [editorHeight, setEditorHeight] = useState(220);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [nukePending, setNukePending] = useState(false);
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [historyDocId, setHistoryDocId] = useState<string | null>(null);
@@ -349,6 +350,39 @@ export function WorkspaceSidebar({
     [onInsertCommand, t]
   );
 
+  const handleAttachFromWorkspace = useCallback(
+    async (doc: WorkspaceDocument) => {
+      if (!conversationId) return;
+      setProcessingAction(doc.id);
+      try {
+        const attachment = await attachWorkspaceDocumentToConversation(conversationId, doc.id);
+        if (attachment) {
+          onAttachmentUploaded?.(attachment);
+          toast.success(t("workspace.attachSuccess"), { description: doc.filename });
+        } else {
+          toast.error(t("workspace.attachFailed"));
+        }
+      } finally {
+        setProcessingAction(null);
+      }
+    },
+    [conversationId, onAttachmentUploaded, t],
+  );
+
+  const handleClearAllDocuments = useCallback(async () => {
+    setNukePending(false);
+    setUploadingFile(true);
+    try {
+      const count = await clearAllWorkspaceDocuments();
+      toast.success(t("workspace.nukeSuccess", { count }));
+      onDocumentsRefresh?.();
+    } catch {
+      toast.error(t("workspace.nukeFailed"));
+    } finally {
+      setUploadingFile(false);
+    }
+  }, [onDocumentsRefresh, t]);
+
   const handleLoadHistory = useCallback(async (docId: string) => {
     setHistoryDocId(docId);
     setHistoryLoading(true);
@@ -462,20 +496,51 @@ export function WorkspaceSidebar({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.markdown,.json,.yaml,.yml,.csv,.html,.xml"
+              accept=".txt,.md,.markdown,.json,.yaml,.yml,.csv,.html,.xml,.jpg,.jpeg,.png,.gif,.webp"
               onChange={handleUploadFile}
               disabled={uploadingFile || isLoading}
               className="hidden"
-              aria-label="Upload document"
+              aria-label="Upload document or image"
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingFile || isLoading}
-              className="w-full px-3 py-2 rounded-lg border border-pacific-blue/40 bg-pacific-blue/5 text-pacific-blue hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Icon name="upload_file" size={16} />
-              {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => { setNukePending(false); fileInputRef.current?.click(); }}
+                disabled={uploadingFile || isLoading}
+                className="flex-[2] px-3 py-2 rounded-lg border border-pacific-blue/40 bg-pacific-blue/5 text-pacific-blue hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <Icon name="upload_file" size={16} />
+                {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
+              </button>
+              {documents.length > 0 && (
+                nukePending ? (
+                  <div className="flex-1 flex gap-1">
+                    <button
+                      onClick={() => setNukePending(false)}
+                      className="flex-1 px-2 py-2 rounded-lg border border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 text-xs font-medium transition-colors"
+                    >
+                      <Icon name="close" size={14} className="mx-auto" />
+                    </button>
+                    <button
+                      onClick={handleClearAllDocuments}
+                      disabled={uploadingFile}
+                      className="flex-1 px-2 py-2 rounded-lg border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 text-xs font-medium transition-colors"
+                      title={t("workspace.nukeConfirm")}
+                    >
+                      <Icon name="delete_forever" size={14} className="mx-auto" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNukePending(true)}
+                    disabled={uploadingFile || isLoading}
+                    className="flex-1 px-2 py-2 rounded-lg border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                    title={t("workspace.nukeAll")}
+                  >
+                    <Icon name="delete_sweep" size={16} />
+                  </button>
+                )
+              )}
+            </div>
           </div>
 
           {/* Documents section */}
@@ -497,27 +562,49 @@ export function WorkspaceSidebar({
                       className="w-full px-3 py-2 flex items-center justify-between text-left"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <Icon
-                          name={
-                            doc.filename.endsWith(".md")
-                              ? "description"
-                              : "text_snippet"
-                          }
-                          size={16}
-                          className="text-evergreen/60 shrink-0"
-                        />
+                        {doc.mime_type?.startsWith("image/") ? (
+                          <div
+                            className="relative w-16 h-11 shrink-0 rounded overflow-hidden bg-gray-200 cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handleInsertLiveRefCommand(doc); }}
+                            title={t("workspace.thumbnailClickHint")}
+                          >
+                            <img
+                              src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
+                              alt={doc.filename}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            <span
+                              className="absolute bottom-0 left-0 right-0 text-center bg-black/50 text-white truncate px-0.5"
+                              style={{ fontSize: "8px", lineHeight: "13px" }}
+                            >
+                              {formatFileSize(doc.size_bytes)}
+                            </span>
+                          </div>
+                        ) : (
+                          <Icon
+                            name={
+                              doc.filename.endsWith(".md")
+                                ? "description"
+                                : "text_snippet"
+                            }
+                            size={16}
+                            className="text-evergreen/60 shrink-0"
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-medium text-evergreen truncate">
                             {doc.filename}
                           </p>
                           <p className="text-xs text-evergreen/50">
-                            {formatFileSize(doc.size_bytes)}
-                            {doc.updated_at && (
-                              <>
-                                {" "}
-                                • v{doc.version}
-                              </>
-                            )}
+                            {doc.mime_type?.startsWith("image/")
+                              ? t("workspace.thumbnailClickHint")
+                              : (
+                                <>
+                                  {formatFileSize(doc.size_bytes)}
+                                  {doc.updated_at && <> • v{doc.version}</>}
+                                </>
+                              )}
                           </p>
                         </div>
                       </div>
@@ -576,18 +663,34 @@ export function WorkspaceSidebar({
                           {t("workspace.edit")}
                         </button>
                         )}
-                        <button
-                          onClick={() => handleInsertLiveRefCommand(doc)}
-                          disabled={processingAction === doc.id || isLoading}
-                          className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
-                                     bg-evergreen/5 text-evergreen border border-evergreen/20
-                                     hover:bg-evergreen/10 disabled:opacity-40 disabled:cursor-not-allowed
-                                     transition-colors"
-                          title={t("workspace.reference")}
-                        >
-                          <Icon name="chat" size={14} className="mr-1 inline" />
-                          {t("workspace.reference")}
-                        </button>
+                        {!doc.mime_type?.startsWith("image/") && (
+                          <button
+                            onClick={() => handleInsertLiveRefCommand(doc)}
+                            disabled={processingAction === doc.id || isLoading}
+                            className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                                       bg-evergreen/5 text-evergreen border border-evergreen/20
+                                       hover:bg-evergreen/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                       transition-colors"
+                            title={t("workspace.reference")}
+                          >
+                            <Icon name="chat" size={14} className="mr-1 inline" />
+                            {t("workspace.reference")}
+                          </button>
+                        )}
+                        {conversationId && (
+                          <button
+                            onClick={() => handleAttachFromWorkspace(doc)}
+                            disabled={processingAction === doc.id || isLoading}
+                            className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                                       bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
+                                       hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                       transition-colors"
+                            title={t("workspace.attach")}
+                          >
+                            <Icon name="attach_file" size={14} className="mr-1 inline" />
+                            {t("workspace.attach")}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDownloadDocument(doc.id)}
                           disabled={processingAction === doc.id || isLoading}

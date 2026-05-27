@@ -1,0 +1,30 @@
+name: "read_barcodes_tool"
+version: "1.0.0"
+category: "vision"
+description: "Decode barcodes and QR codes from images using pyzbar (no vision model required)"
+
+descriptions:
+  en: "Decode barcodes and QR codes from an image. Returns JSON with decoded data, barcode type (QR_CODE, EAN13, CODE128, etc.), and position for each code found. Does not use the vision model; decoding is deterministic. Use when the user asks to scan or read a barcode or QR code. Trigger phrases: scan barcode, read QR code, decode QR, what does this QR code say, scan this code, product barcode, QR code scanner."
+  de: "Barcodes und QR-Codes aus einem Bild dekodieren. Gibt JSON zurück mit dekodierten Daten, Barcode-Typ und Position. Kein Vision-Modell erforderlich. Auslösephrasen: QR-Code scannen, Barcode lesen, QR-Code dekodieren, was steht im QR-Code, Produktbarcode, Code auslesen."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.read_barcodes.tool:ReadBarcodesTool"
+
+dependencies:
+  - "pyzbar"
+  - "Pillow"
+
+config_schema:
+  attachments_base_dir:
+    type: "string"
+    default: "/tmp/steuermann-ai/chat-workspaces"
+    description: "Base directory for uploaded attachments (must match CHAT_ATTACHMENTS_ROOT env var)"
+  max_image_bytes:
+    type: "integer"
+    default: 10485760
+    description: "Maximum image size in bytes (default 10 MB)"
+
+permissions:
+  - "system:compute"
+
+cost_per_call: 0.0

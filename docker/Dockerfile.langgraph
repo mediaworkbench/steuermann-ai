@@ -39,6 +39,7 @@ WORKDIR /app
 # Runtime-only system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages and app code from builder
