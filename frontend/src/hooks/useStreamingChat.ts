@@ -35,8 +35,9 @@ export interface UseStreamingChatReturn {
 function buildMetadataFromSSE(parsed: Record<string, unknown>): ChatResponse["metadata"] {
   const toolResults = (parsed.tool_results as Record<string, unknown>) ?? {};
   const toolKeys = Object.keys(toolResults);
+  const ragAttempted = parsed.rag_attempted as boolean | undefined;
   const knowledgeCtx = parsed.knowledge_context;
-  if (Array.isArray(knowledgeCtx) && knowledgeCtx.length > 0) {
+  if (ragAttempted || (Array.isArray(knowledgeCtx) && knowledgeCtx.length > 0)) {
     toolKeys.push("knowledge_base");
   }
 

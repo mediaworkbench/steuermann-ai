@@ -446,9 +446,11 @@ async def attach_from_workspace(
         raise HTTPException(status_code=404, detail="Workspace document not found")
 
     try:
-        attachment_id = str(uuid.uuid4())
+        # Pass the workspace document's own ID — create_attachment inserts this as
+        # chat_document_refs.document_id (FK → workspace_documents.id), so it must
+        # be the existing document ID, not a freshly generated UUID.
         attachment = attachment_store.create_attachment(
-            attachment_id=attachment_id,
+            attachment_id=doc["id"],
             conversation_id=conversation_id,
             user_id=effective_user_id,
             original_name=doc["filename"],

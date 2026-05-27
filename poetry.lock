@@ -3638,7 +3638,7 @@ version = "10.4.0"
 description = "Python Imaging Library (Fork)"
 optional = false
 python-versions = ">=3.8"
-groups = ["langgraph"]
+groups = ["fastapi", "langgraph"]
 files = [
     {file = "pillow-10.4.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:4d9667937cfa347525b319ae34375c37b9ee6b525440f3ef48542fcf66f2731e"},
     {file = "pillow-10.4.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:543f3dc61c18dafb755773efc89aae60d06b6596a63914107f75459cf984164d"},
@@ -6865,4 +6865,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "0385cc34cc26f0f3b1253b8a1cda3451f2ec7089c5b97a0d3a4ed5ebf340c919"
+content-hash = "a8f9b6648002c0d37115b41db48feabda55651632ef3d3b85ec3b8687afce8b8"

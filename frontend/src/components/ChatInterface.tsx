@@ -266,10 +266,12 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
       input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
       response_time_ms: pm.response_time_ms ?? undefined,
       model: pm.model_name ?? undefined,
-      tools_executed: pm.tools_used?.map((t) => ({
-        name: t.name,
-        status: t.status,
-      })),
+      tools_executed: [
+        ...(pm.tools_used?.map((t) => ({ name: t.name, status: t.status })) ?? []),
+        ...(pm.metadata?.rag_attempted
+          ? [{ name: "knowledge_base" as const, status: "success" as const }]
+          : []),
+      ],
       sources: pm.metadata?.sources as Source[] | undefined,
       rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
       rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,
@@ -1059,7 +1061,7 @@ export function ChatInterface() {
                   {attachMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
-                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[160px] z-20">
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-40 z-20">
                         <button
                           type="button"
                           onClick={() => { fileInputRef.current?.click(); setAttachMenuOpen(false); }}
@@ -1094,7 +1096,7 @@ export function ChatInterface() {
                   {toolsMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
-                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-[200px] z-20">
+                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-50 z-20">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Tools</p>
                         {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
                           const enabled = toolToggles[tool.id] !== false;
@@ -1150,7 +1152,7 @@ export function ChatInterface() {
                   <button
                     type="button"
                     onClick={() => setModelMenuOpen((v) => !v)}
-                    className="flex items-center gap-0.5 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-[140px]"
+                    className="flex items-center gap-0.5 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-35"
                     aria-label="Select model"
                   >
                     <span className="truncate">{formatModelName(chatModel, systemConfig?.default_model)}</span>
@@ -1159,7 +1161,7 @@ export function ChatInterface() {
                   {modelMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setModelMenuOpen(false)} />
-                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-[220px] max-h-52 overflow-y-auto z-20">
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-55 max-h-52 overflow-y-auto z-20">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Chat model</p>
                         {availableChatModels.map((model) => (
                           <button
