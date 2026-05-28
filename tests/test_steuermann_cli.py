@@ -406,34 +406,6 @@ def test_config_set_apply_requires_confirm_token(
     assert "--confirm APPLY" in payload["error"]
 
 
-def test_config_unset_apply_requires_confirm_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    profile_dir = _create_profile_dir(tmp_path)
-    (profile_dir / "core.yaml").write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-
-    code = steuermann.main(
-        [
-            "config",
-            "unset",
-            "--profile",
-            "starter",
-            "--key",
-            "core.llm.temperature",
-            "--apply",
-            "--format",
-            "json",
-        ]
-    )
-    assert code == 1
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "error"
-    assert "--confirm APPLY" in payload["error"]
-
 
 def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "config" / "contracts").mkdir(parents=True)
@@ -680,43 +652,6 @@ def test_config_set_apply_accepts_interactive_confirm(
     assert data["llm"]["temperature"] == 0.2
 
 
-def test_config_unset_apply_accepts_interactive_confirm(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    profile_dir = _create_profile_dir(tmp_path)
-    core_path = profile_dir / "core.yaml"
-    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _prompt: "APPLY")
-    monkeypatch.setattr(
-        steuermann,
-        "_validate_one_profile",
-        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
-    )
-
-    code = steuermann.main(
-        [
-            "config",
-            "unset",
-            "--profile",
-            "starter",
-            "--key",
-            "core.llm.temperature",
-            "--apply",
-            "--format",
-            "json",
-        ]
-    )
-    assert code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "ok"
-    assert payload["confirmation_source"] == "interactive"
-    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
-    assert "llm" not in data
-
 
 def test_profile_bundle_import_does_not_modify_existing_profiles(
     tmp_path: Path,
@@ -784,7 +719,7 @@ def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch
         "_validate_one_profile",
         lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": ["warning"]},
     )
-    monkeypatch.setattr(steuermann, "_iter_profiles", lambda: [])
+    monkeypatch.setattr(steuermann, "_iter_profiles", lambda: ["starter"])
     code = steuermann.main(["config", "validate", "--strict", "--format", "json"])
     assert code == 1
 

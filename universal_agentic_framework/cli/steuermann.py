@@ -768,7 +768,17 @@ def _validate_one_profile(profile_id: str) -> dict[str, Any]:
 
 
 def cmd_config_validate(args: argparse.Namespace) -> int:
-    profiles = [args.profile] if args.profile else ["base"] + _iter_profiles()
+    if args.profile:
+        if args.profile == "base":
+            payload = {
+                "status": "error",
+                "error": "base is not a runnable profile; specify a named profile with --profile",
+            }
+            _print_payload(payload, args.format)
+            return 1
+        profiles = [args.profile]
+    else:
+        profiles = _iter_profiles()
     results = [_validate_one_profile(profile) for profile in profiles]
     has_error = any(item["status"] == "error" for item in results)
     has_warning = any(item.get("warnings") for item in results)
@@ -855,7 +865,7 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
     original_text = core_path.read_text(encoding="utf-8")
     core_path.write_text(
-        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        yaml.safe_dump(updated_data, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -937,7 +947,7 @@ def cmd_config_unset(args: argparse.Namespace) -> int:
 
     original_text = core_path.read_text(encoding="utf-8")
     core_path.write_text(
-        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        yaml.safe_dump(updated_data, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -1421,7 +1431,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Set a profile-safe key in profile core overlay (dry-run by default)",
     )
     set_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
-    set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.roles.chat.temperature")
     set_parser.add_argument("--value", required=True, help="New value parsed as YAML scalar/object")
     set_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
     set_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
@@ -1433,7 +1443,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Unset a profile-safe key in profile core overlay (dry-run by default)",
     )
     unset_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
-    unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.roles.chat.temperature")
     unset_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
     unset_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
     _add_common_format_arg(unset_parser)

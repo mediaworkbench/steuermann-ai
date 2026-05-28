@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.6] — docs-tools-frontend
+
+### CLI & Docs
+
+- **fix** `steuermann config validate` (no `--profile`) always exited 1 because `"base"` was included in the default profile list; `get_active_profile_id` rejects `"base"` as a runtime profile, which was surfaced as a validation error — removed `"base"` from the list; passing `--profile base` explicitly now returns a clean error message
+- **fix** `steuermann config set` / `config unset` `--help` showed `core.llm.temperature` as the example key path; corrected to `core.llm.roles.chat.temperature`
+- **fix** `config set --apply` / `config unset --apply` rewrote `core.yaml` with `sort_keys=True, allow_unicode=False`, destroying key order and escaping non-ASCII values; changed to `allow_unicode=True` with natural key order preserved
+- **refactor** Removed unused `RoleProviderRef` class from `universal_agentic_framework/config/schemas.py` (leftover from earlier schema design, never imported or called)
+- **docs** `docs/configuration.md` — replaced phantom checkpointing section (`enabled`, `backend`, `sqlite_path`, `CHECKPOINTER_ENABLED/BACKEND/DB_PATH` env vars) with the actual single-field schema (`postgres_dsn`); corrected all `score_threshold:` config key references to `pill_score_threshold:` (Pydantic field name; the old name was silently ignored at parse time); removed `FORK_LANGUAGE=de` from required env vars (not read anywhere in the runtime)
+- **test** Removed 2 redundant CLI tests (`test_config_unset_apply_requires_confirm_token`, `test_config_unset_apply_accepts_interactive_confirm`) that mirrored their `config set` equivalents while testing the same shared `_resolve_apply_confirmation` function
+
+---
+
 ## [0.3.5] — vision-tools-expansion
 
 ### Workspace — Image & Document UX

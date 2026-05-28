@@ -278,7 +278,7 @@ rag:
   enabled: true
   collection_name: "framework" # Must match ingestion collection
   top_k: 5 # Max results per query
-  score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
+  pill_score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
   query_rewriting:
     enabled: true       # Rewrite/expand queries via auxiliary model before Qdrant search
     num_variants: 2     # 1 = single rewritten query; 2-3 = multi-query expansion (union results)
@@ -294,7 +294,7 @@ rag:
 **Notes:**
 
 - `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
-- `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
+- `pill_score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 - `query_rewriting.num_variants` controls how many semantically varied search queries are generated. `1` rewrites the query once; `2` or `3` produces multiple variants whose Qdrant results are unioned before deduplication, improving recall for ambiguous or short queries. Uses `llm.roles.auxiliary`.
 
@@ -359,33 +359,24 @@ tokens:
 
 ### Checkpointing Configuration
 
-LangGraph checkpointing is configurable and can be enabled in local/dev and production.
+LangGraph checkpointing uses PostgreSQL and is always on. The only configurable field is the DSN:
 
 ```yaml
 checkpointing:
-  enabled: true # Base config default — overridden by CHECKPOINTER_ENABLED env var
-  backend: "sqlite" # Options: sqlite, postgres
-  sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
 ```
 
-**Note:** `config/core.yaml` defaults `enabled: true`, but the docker-compose environment sets `CHECKPOINTER_ENABLED=false`. Because environment variables take precedence over config files, **checkpointing is effectively disabled by default** in the Docker stack. Set `CHECKPOINTER_ENABLED=true` in `.env` to enable it.
-
-**Runtime env overrides:**
+Set `CHECKPOINTER_POSTGRES_DSN` in `.env` or pass it directly:
 
 ```bash
-CHECKPOINTER_ENABLED=true
-CHECKPOINTER_BACKEND=sqlite
-CHECKPOINTER_DB_PATH=/data/checkpoints/langgraph_checkpoints.sqlite
 CHECKPOINTER_POSTGRES_DSN=postgresql://user:pass@postgres:5432/framework
 ```
 
 **Behavior notes:**
 
-- If checkpointing is disabled, graph compile falls back to standard non-checkpointed mode.
-- If sqlite or postgres checkpointer initialization fails, runtime falls back safely and logs a warning.
-- The FastAPI `/invoke` path passes `configurable.thread_id` from `session_id` to support per-session checkpoint continuity.
-- In docker-compose, the `langgraph` service mounts `./data/checkpoints:/data/checkpoints` for local sqlite persistence.
+- `PostgresSaver` is the sole checkpointing backend — there is no SQLite fallback and no `enabled` flag.
+- Per-session continuity is maintained via `configurable.thread_id = session_id`. Ephemeral requests that omit `conversation_id` skip checkpointing entirely.
+- Startup pruning and periodic pruning (every 100 invocations) keep the checkpoints table flat.
 
 ### Tool Routing Configuration (Three-Tier Architecture)
 
@@ -655,7 +646,6 @@ custom_components:
 ```bash
 # Profile identification
 PROFILE_ID=starter
-FORK_LANGUAGE=de
 
 # Database
 POSTGRES_HOST=postgres
@@ -815,7 +805,9 @@ The same payload includes `drift_report.by_domain` counters for quick filtering 
 
 ```yaml
 llm:
-  temperature: 3.0 # ❌ Must be 0.0-2.0
+  roles:
+    chat:
+      temperature: 3.0 # ❌ Must be 0.0-2.0
 ```
 
 **Missing required field:**
@@ -916,7 +908,7 @@ rag:
   enabled: true
   collection_name: "simple-assistant"
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.6
 ```
 
 ### Production Configuration (German Medical AI)
@@ -979,7 +971,7 @@ rag:
   enabled: true
   collection_name: "medical-ai-de"
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.6
 
 tokens:
   default_budget: 15000

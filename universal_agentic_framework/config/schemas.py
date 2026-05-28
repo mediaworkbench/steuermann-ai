@@ -96,23 +96,6 @@ class LLMProviders(BaseModel):
         return registry
 
 
-class RoleProviderRef(BaseModel):
-    provider_id: str
-    model: Optional[str] = None
-    models: Optional[ProviderModelMap] = None
-
-    @model_validator(mode="after")
-    def _normalize_models(self) -> "RoleProviderRef":
-        if self.model:
-            self.model = normalize_model_id(str(self.model))
-        if self.models:
-            for language, model_name in self.models.model_dump().items():
-                if not model_name:
-                    continue
-                setattr(self.models, language, normalize_model_id(str(model_name)))
-        return self
-
-
 class LLMRoleSettings(BaseModel):
     provider_id: str
     api_base: str
