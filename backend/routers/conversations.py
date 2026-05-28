@@ -35,7 +35,7 @@ class CreateConversationRequest(BaseModel):
     user_id: str = Field(default="anonymous")
     title: str = Field(default="New conversation")
     language: str = Field(default="en")
-    fork_name: Optional[str] = None
+    profile_name: Optional[str] = None
 
 
 class UpdateConversationRequest(BaseModel):
@@ -65,7 +65,7 @@ class ConversationResponse(BaseModel):
     user_id: str
     title: str
     language: str
-    fork_name: Optional[str] = None
+    profile_name: Optional[str] = None
     archived: bool
     pinned: bool
     metadata: Dict[str, Any] = {}
@@ -205,7 +205,7 @@ async def create_conversation(body: CreateConversationRequest, request: Request)
             user_id=effective_user_id,
             title=body.title,
             language=body.language,
-            fork_name=body.fork_name,
+            profile_name=body.profile_name,
         )
         return conv
     except Exception as exc:

@@ -39,7 +39,7 @@ class FakeConversationStore:
         user_id: str,
         title: str = "New conversation",
         language: str = "en",
-        fork_name: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         conv = {
@@ -47,7 +47,7 @@ class FakeConversationStore:
             "user_id": user_id,
             "title": title,
             "language": language,
-            "fork_name": fork_name,
+            "profile_name": profile_name,
             "archived": False,
             "pinned": False,
             "metadata": {},

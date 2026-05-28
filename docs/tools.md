@@ -6,7 +6,7 @@ This page is the user-facing reference for every tool built into Steuermann. For
 
 ## How Tools Are Loaded
 
-Tools are registered in `config/tools.yaml` and loaded at graph startup via the tool registry. Which tools are active for a given request is determined by a three-tier selection process:
+Tools are registered in `config/profiles/<profile_id>/tools.yaml` and loaded at graph startup via the tool registry. Which tools are active for a given request is determined by a three-tier selection process:
 
 1. **Layer 1 — Semantic prefilter:** Each query is embedded and scored via cosine similarity against tool descriptions. Intent boosts (+0.2) raise the score for tools that match recognized patterns (see the table below). Only tools above `similarity_threshold: 0.55` and passing the spread gate pass through.
 2. **Layer 2 — LLM-driven selection:** The language model receives the candidate tools and decides which to call, in `native`, `structured`, or `react` mode depending on the model's capabilities.
@@ -56,7 +56,7 @@ Evaluates arithmetic and mathematical expressions.
 
 **Intent boost triggers:** Numeric expressions with operators (`*`, `/`, `+`, `-`, `^`, `%`), `sqrt(`, `log(`, `calculate`, `berechne`, `calcule`.
 
-**Configuration:** No profile-level config knobs. Enabled/disabled via `config/tools.yaml`.
+**Configuration:** No profile-level config knobs. Enabled/disabled via `config/profiles/<id>/tools.yaml`.
 
 ---
 
@@ -121,7 +121,7 @@ Searches the web via DuckDuckGo and optionally fetches page content. Runs as a M
 
 **Returns:** Search results as a structured list of (title, snippet, URL) tuples, or page content as raw text.
 
-**Configuration keys** in the tool manifest (`config/tools.yaml`):
+**Configuration keys** in the tool manifest (`config/profiles/<id>/tools.yaml`):
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -262,7 +262,7 @@ tools:
       max_results: 10
 ```
 
-Tools not listed in the profile overlay inherit the state defined in `config/tools.yaml` (the base registry).
+The profile's `tools.yaml` is the sole source of truth — there is no base registry to inherit from.
 
 ---
 

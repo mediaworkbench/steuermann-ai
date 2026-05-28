@@ -413,7 +413,12 @@ def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch:
         "schema_version": 1,
         "contract_name": "test",
         "precedence": ["base", "profile", "environment"],
-        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "sections": {
+            "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
+            "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
+            "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
+            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
+        },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
@@ -440,11 +445,16 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
         "schema_version": 1,
         "contract_name": "test",
         "precedence": ["base", "profile", "environment"],
-        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "sections": {
+            "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
+            "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
+            "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
+            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
+        },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
-            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
+            "allowed_core_prefixes": ["profile.language", "profile.locale", "profile.timezone", "profile.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
             "disallowed_feature_flags": ["authentication"],  # missing ingestion_service, monitoring
         },
     }
@@ -809,14 +819,12 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                         "profile_mutability": "partial",
                     },
                     "tools": {
-                        "source_file": "config/tools.yaml",
                         "profile_overlay_file": "config/profiles/<profile_id>/tools.yaml",
-                        "profile_mutability": "partial",
+                        "profile_mutability": "full",
                     },
                     "agents": {
-                        "source_file": "config/agents.yaml",
                         "profile_overlay_file": "config/profiles/<profile_id>/agents.yaml",
-                        "profile_mutability": "partial",
+                        "profile_mutability": "full",
                     },
                 },
                 "policies": {
@@ -828,10 +836,10 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                 "severity_policy": {"blocking": "error", "advisory": "warning"},
                 "profile_safety": {
                     "allowed_core_prefixes": [
-                        "fork.language",
-                        "fork.locale",
-                        "fork.timezone",
-                        "fork.supported_languages",
+                        "profile.language",
+                        "profile.locale",
+                        "profile.timezone",
+                        "profile.supported_languages",
                         "llm",
                         "prompts",
                         "tool_routing",

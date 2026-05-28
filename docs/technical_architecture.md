@@ -190,7 +190,7 @@ class GraphState(TypedDict, total=False):
     user_id: str
     session_id: str          # Session identifier for co-occurrence tracking
     language: str
-    fork_name: str           # Fork identifier for Prometheus metrics (legacy label key)
+    profile_name: str        # Profile identifier for Prometheus metrics label
     profile_id: str          # Active deployment profile identifier
     user_settings: Dict[str, Any]           # tool_toggles, rag_config, preferred_model, theme, language
     llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
@@ -360,7 +360,7 @@ def _validate_and_log_tool_calling_mode(
     state: GraphState, 
     expected_mode: str, 
     node_name: str,
-    fork_name: str
+    profile_name: str
 ) -> Tuple[bool, str]:
     """Validate tool-calling mode matches expectations at invocation.
     
@@ -464,7 +464,7 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 
 **Process types:** Sequential (default, predictable), Hierarchical (manager delegates), Consensus (multi-agent voting).
 
-**Configuration:** `config/agents.yaml` defines crew agents, roles, tools, and process types.
+**Configuration:** `config/profiles/<id>/agents.yaml` defines crew agents, roles, tools, and process types.
 
 → **Full guide:** [CrewAI Extension Guide](crewai_extension_guide.md)
 
@@ -756,7 +756,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 Tools are discovered via a hybrid approach:
 
 - **Core tools** are auto-discovered from `universal_agentic_framework/tools/` subdirectories with `tool.yaml` manifests
-- **Profile tools** are explicitly registered in `config/tools.yaml`
+- **Profile tools** are explicitly registered in `config/profiles/<id>/tools.yaml`
 - **MCP tools** are HTTP services wrapped with `MCPServerTool`
 
 Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, permissions, and cost estimates in its `tool.yaml` manifest.

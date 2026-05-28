@@ -15,13 +15,13 @@ The framework includes 4 specialized crews:
 - **Code Generation Crew**: Code implementation and scaffolding
 - **Planning Crew**: Project planning and task breakdown
 
-All crews are configured in `config/agents.yaml` and integrated into the LangGraph orchestration pipeline.
+All crews are configured in `config/profiles/<id>/agents.yaml` and integrated into the LangGraph orchestration pipeline.
 
 ---
 
 ## Quick Start: Three-Step Process
 
-### Step 1: Add Configuration to `config/agents.yaml`
+### Step 1: Add Configuration to `config/profiles/<id>/agents.yaml`
 
 ```yaml
 crews:
@@ -262,7 +262,7 @@ def build_graph(...):
 
 ## Configuration Templates
 
-See the existing crew definitions in `config/agents.yaml` for complete examples. The essential structure:
+See the existing crew definitions in `config/profiles/<id>/agents.yaml` for complete examples. The essential structure:
 
 ```yaml
 crews:

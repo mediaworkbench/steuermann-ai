@@ -56,7 +56,7 @@ _invocation_count: int = 0
 
 # Initialize system info metrics
 initialize_system_info(version="1.0.0", environment="production")
-logger.info("LangGraph server initialized", fork=CONFIG.fork.name)
+logger.info("LangGraph server initialized", profile=CONFIG.profile.name)
 
 # Pre-load and probe embedding provider — server must not start with a broken stack.
 # Retries with exponential backoff (capped at 16 s per attempt) for ~2 min total.
@@ -105,13 +105,13 @@ async def _startup() -> None:
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
     """Health check endpoint."""
-    return {"status": "ok", "fork": CONFIG.fork.name}
+    return {"status": "ok", "profile": CONFIG.profile.name}
 
 
 @app.get("/health/live")
 async def health_live() -> Dict[str, str]:
     """Liveness endpoint for process/container health."""
-    return {"status": "ok", "check": "liveness", "fork": CONFIG.fork.name}
+    return {"status": "ok", "check": "liveness", "profile": CONFIG.profile.name}
 
 
 @app.get("/health/ready")
@@ -126,7 +126,7 @@ async def health_ready() -> Dict[str, Any]:
     return {
         "status": "ok" if ready else "not_ready",
         "check": "readiness",
-        "fork": CONFIG.fork.name,
+        "profile": CONFIG.profile.name,
         "graph_ready": graph_ready,
         "config_ready": config_ready,
     }
@@ -170,9 +170,9 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Track session
         ACTIVE_SESSIONS.add(user_id)
-        update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
+        update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
         
-        fork_name = CONFIG.fork.name
+        profile_name = CONFIG.profile.name
         profile_id = ACTIVE_PROFILE_ID
         
         logger.info(
@@ -200,7 +200,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "user_id": user_id,
             "session_id": session_id,
             "language": language,
-            "fork_name": fork_name,
+            "profile_name": profile_name,
             "profile_id": profile_id,
             "user_settings": request.get("user_settings", {}),  # Include user settings from request
             # Preserve adapter-provided probe snapshots so Layer 1 can resolve
@@ -211,10 +211,10 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
         }
         
-        logger.debug("Graph state prepared", session_id=session_id, fork_name=fork_name)
+        logger.debug("Graph state prepared", session_id=session_id, profile_name=profile_name)
         
         # Track request with metrics
-        with track_graph_request(fork_name) as ctx:
+        with track_graph_request(profile_name) as ctx:
             try:
                 invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
 
@@ -347,8 +347,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     language = request.get("language", "en")
     bind_context(user_id=user_id)
     ACTIVE_SESSIONS.add(user_id)
-    update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
-    fork_name = CONFIG.fork.name
+    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+    profile_name = CONFIG.profile.name
     profile_id = ACTIVE_PROFILE_ID
 
     # Ephemeral sessions (no session_id) are not checkpointed
@@ -366,7 +366,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "user_id": user_id,
         "session_id": session_id,
         "language": language,
-        "fork_name": fork_name,
+        "profile_name": profile_name,
         "profile_id": profile_id,
         "user_settings": request.get("user_settings", {}),
         "llm_capability_probes": request.get("llm_capability_probes", []),
@@ -394,7 +394,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _full_thinking = ""    # accumulated thinking text for metadata
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
-            with track_graph_request(fork_name) as ctx:
+            with track_graph_request(profile_name) as ctx:
                 async for event in _events_iter:
                     kind: str = event.get("event", "")
                     name: str = event.get("name", "")

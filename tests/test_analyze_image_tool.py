@@ -199,7 +199,7 @@ class TestAnalyzeImageToolRegistration:
         assert yaml_path.is_file(), f"tool.yaml not found at {yaml_path}"
 
     def test_tool_in_tools_config(self):
-        config_path = Path(__file__).parent.parent / "config" / "tools.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "profiles" / "starter" / "tools.yaml"
         content = config_path.read_text()
         assert "analyze_image_tool" in content
 

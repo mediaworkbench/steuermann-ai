@@ -255,7 +255,7 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         Modified state with crew_results and research output added
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     
     # Extract user message
     messages = state.get("messages", [])
@@ -269,7 +269,7 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     if cached_result:
         logger.info(
             "Research crew cache hit",
-            fork_name=fork_name,
+            profile_name=profile_name,
             language=language,
         )
         state["crew_results"] = state.get("crew_results", {})
@@ -283,12 +283,12 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(
         "Research crew node invoked",
-        fork_name=fork_name,
+        profile_name=profile_name,
         message_length=len(user_msg),
         language=language,
     )
     
-    with track_node_execution(fork_name, "research_crew"):
+    with track_node_execution(profile_name, "research_crew"):
         try:
             from universal_agentic_framework.crews import ResearchCrew
             
@@ -298,11 +298,11 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             
             # Track crew metrics
             status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(fork_name, "research", crew_result.execution_time_ms / 1000, status)
+            track_crew_execution(profile_name, "research", crew_result.execution_time_ms / 1000, status)
             for _ in range(crew_result.retries_attempted):
-                track_crew_retry(fork_name, "research")
+                track_crew_retry(profile_name, "research")
             if crew_result.timed_out:
-                track_crew_timeout(fork_name, "research")
+                track_crew_timeout(profile_name, "research")
             
             # Store crew results in state
             state["crew_results"] = state.get("crew_results", {})
@@ -311,7 +311,7 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             if result.get("success"):
                 logger.info(
                     "Research crew completed successfully",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     language=language,
                 )
                 _store_cached_crew_result("research", state, user_msg, language, result)
@@ -323,7 +323,7 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.error(
                     "Research crew execution failed",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     error=result.get("error"),
                 )
             
@@ -332,7 +332,7 @@ def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.error(
                 "Research crew node error",
-                fork_name=fork_name,
+                profile_name=profile_name,
                 error=str(e),
                 exc_info=True,
             )
@@ -497,7 +497,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         Modified state with crew_results and analysis output added
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     
     # Extract user message
     messages = state.get("messages", [])
@@ -509,7 +509,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(
         "Analytics crew node invoked",
-        fork_name=fork_name,
+        profile_name=profile_name,
         message_length=len(user_msg),
         language=language,
     )
@@ -518,7 +518,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     if cached_result:
         logger.info(
             "Analytics crew cache hit",
-            fork_name=fork_name,
+            profile_name=profile_name,
             language=language,
         )
         state["crew_results"] = state.get("crew_results", {})
@@ -530,7 +530,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             })
         return state
     
-    with track_node_execution(fork_name, "analytics_crew"):
+    with track_node_execution(profile_name, "analytics_crew"):
         try:
             from universal_agentic_framework.crews import AnalyticsCrew
             
@@ -539,11 +539,11 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             result = crew_result.model_dump()
             
             status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(fork_name, "analytics", crew_result.execution_time_ms / 1000, status)
+            track_crew_execution(profile_name, "analytics", crew_result.execution_time_ms / 1000, status)
             for _ in range(crew_result.retries_attempted):
-                track_crew_retry(fork_name, "analytics")
+                track_crew_retry(profile_name, "analytics")
             if crew_result.timed_out:
-                track_crew_timeout(fork_name, "analytics")
+                track_crew_timeout(profile_name, "analytics")
             
             # Store crew results in state
             state["crew_results"] = state.get("crew_results", {})
@@ -552,7 +552,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             if result.get("success"):
                 logger.info(
                     "Analytics crew completed successfully",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     language=language,
                 )
                 _store_cached_crew_result("analytics", state, user_msg, language, result)
@@ -564,7 +564,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.error(
                     "Analytics crew execution failed",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     error=result.get("error"),
                 )
             
@@ -573,7 +573,7 @@ def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.error(
                 "Analytics crew node error",
-                fork_name=fork_name,
+                profile_name=profile_name,
                 error=str(e),
                 exc_info=True,
             )
@@ -761,7 +761,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         Modified state with crew_results and code output added
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     
     # Extract user message
     messages = state.get("messages", [])
@@ -773,7 +773,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(
         "Code generation crew node invoked",
-        fork_name=fork_name,
+        profile_name=profile_name,
         message_length=len(user_msg),
         language=language,
     )
@@ -782,7 +782,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     if cached_result:
         logger.info(
             "Code generation crew cache hit",
-            fork_name=fork_name,
+            profile_name=profile_name,
             language=language,
         )
         state["crew_results"] = state.get("crew_results", {})
@@ -803,7 +803,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             })
         return state
     
-    with track_node_execution(fork_name, "code_generation_crew"):
+    with track_node_execution(profile_name, "code_generation_crew"):
         try:
             from universal_agentic_framework.crews import CodeGenerationCrew
             
@@ -812,11 +812,11 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             result = crew_result.model_dump()
             
             status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(fork_name, "code_generation", crew_result.execution_time_ms / 1000, status)
+            track_crew_execution(profile_name, "code_generation", crew_result.execution_time_ms / 1000, status)
             for _ in range(crew_result.retries_attempted):
-                track_crew_retry(fork_name, "code_generation")
+                track_crew_retry(profile_name, "code_generation")
             if crew_result.timed_out:
-                track_crew_timeout(fork_name, "code_generation")
+                track_crew_timeout(profile_name, "code_generation")
             
             # Store crew results in state
             state["crew_results"] = state.get("crew_results", {})
@@ -825,7 +825,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             if result.get("success"):
                 logger.info(
                     "Code generation crew completed successfully",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     language=language,
                 )
                 _store_cached_crew_result("code_generation", state, user_msg, language, result)
@@ -853,7 +853,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.error(
                     "Code generation crew execution failed",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     error=result.get("error"),
                 )
             
@@ -862,7 +862,7 @@ def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.error(
                 "Code generation crew node error",
-                fork_name=fork_name,
+                profile_name=profile_name,
                 error=str(e),
                 exc_info=True,
             )
@@ -1037,7 +1037,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         Modified state with crew_results and planning output added
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     
     # Extract user message
     messages = state.get("messages", [])
@@ -1049,7 +1049,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(
         "Planning crew node invoked",
-        fork_name=fork_name,
+        profile_name=profile_name,
         message_length=len(user_msg),
         language=language,
     )
@@ -1058,7 +1058,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
     if cached_result:
         logger.info(
             "Planning crew cache hit",
-            fork_name=fork_name,
+            profile_name=profile_name,
             language=language,
         )
         state["crew_results"] = state.get("crew_results", {})
@@ -1079,7 +1079,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             })
         return state
     
-    with track_node_execution(fork_name, "planning_crew"):
+    with track_node_execution(profile_name, "planning_crew"):
         try:
             from universal_agentic_framework.crews import PlanningCrew
             
@@ -1088,11 +1088,11 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             result = crew_result.model_dump()
             
             status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(fork_name, "planning", crew_result.execution_time_ms / 1000, status)
+            track_crew_execution(profile_name, "planning", crew_result.execution_time_ms / 1000, status)
             for _ in range(crew_result.retries_attempted):
-                track_crew_retry(fork_name, "planning")
+                track_crew_retry(profile_name, "planning")
             if crew_result.timed_out:
-                track_crew_timeout(fork_name, "planning")
+                track_crew_timeout(profile_name, "planning")
             
             # Store crew results in state
             state["crew_results"] = state.get("crew_results", {})
@@ -1101,7 +1101,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             if result.get("success"):
                 logger.info(
                     "Planning crew completed successfully",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     language=language,
                 )
                 _store_cached_crew_result("planning", state, user_msg, language, result)
@@ -1129,7 +1129,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.error(
                     "Planning crew execution failed",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     error=result.get("error"),
                 )
             
@@ -1138,7 +1138,7 @@ def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.error(
                 "Planning crew node error",
-                fork_name=fork_name,
+                profile_name=profile_name,
                 error=str(e),
                 exc_info=True,
             )
@@ -1172,7 +1172,7 @@ def node_crew_chain(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
 
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     messages = state.get("messages", [])
     if not messages:
         return state
@@ -1210,7 +1210,7 @@ def node_crew_chain(state: Dict[str, Any]) -> Dict[str, Any]:
             fail_fast=chain_def.fail_fast,
         )
 
-        with track_crew_chain(fork_name, chain_def.name):
+        with track_crew_chain(profile_name, chain_def.name):
             ctx = chain.execute({"topic": user_msg, "query": user_msg, "requirement": user_msg, "project_description": user_msg})
 
         state["crew_results"] = state.get("crew_results", {})
@@ -1255,7 +1255,7 @@ def node_crew_parallel(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
 
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     messages = state.get("messages", [])
     if not messages:
         return state
@@ -1274,7 +1274,7 @@ def node_crew_parallel(state: Dict[str, Any]) -> Dict[str, Any]:
             "analytics": {"query": user_msg},
         }
 
-        with track_crew_parallel(fork_name):
+        with track_crew_parallel(profile_name):
             results = CrewParallelExecutor.execute_parallel(
                 crew_names=crew_names,
                 language=language,

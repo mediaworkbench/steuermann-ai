@@ -20,7 +20,7 @@ def _cache_key(config: CoreConfig) -> Tuple:
     vs = config.memory.vector_store
     emb = config.memory.embeddings
     llm = config.llm.get_role_provider("auxiliary")
-    embedding_model = config.llm.get_role_model_name("embedding", config.fork.language)
+    embedding_model = config.llm.get_role_model_name("embedding", config.profile.language)
     embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
     mem0 = config.memory.mem0
     return (
@@ -56,7 +56,7 @@ def build_memory_backend(
 
     if vs.type.lower() == "mem0":
         llm_provider = config.llm.get_role_provider("auxiliary")
-        embedding_model = config.llm.get_role_model_name("embedding", config.fork.language)
+        embedding_model = config.llm.get_role_model_name("embedding", config.profile.language)
         embedding_remote_endpoint = config.llm.get_embedding_remote_endpoint()
         mem0_settings = config.memory.mem0
 
@@ -73,7 +73,7 @@ def build_memory_backend(
             embedding_model=embedding_model,
             dimension=emb.dimension,
             embedding_remote_endpoint=embedding_remote_endpoint,
-            llm_model=config.llm.get_role_model_name("auxiliary", config.fork.language),
+            llm_model=config.llm.get_role_model_name("auxiliary", config.profile.language),
             llm_api_base=str(llm_provider.api_base) if llm_provider.api_base else None,
             llm_temperature=float(llm_provider.temperature or 0.0),
             llm_max_tokens=int(llm_provider.max_tokens) if llm_provider.max_tokens else None,

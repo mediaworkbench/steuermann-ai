@@ -14,13 +14,11 @@ sections:
     profile_overlay_file: config/profiles/<profile_id>/features.yaml
     profile_mutability: partial
   tools:
-    source_file: config/tools.yaml
     profile_overlay_file: config/profiles/<profile_id>/tools.yaml
-    profile_mutability: partial
+    profile_mutability: full
   agents:
-    source_file: config/agents.yaml
     profile_overlay_file: config/profiles/<profile_id>/agents.yaml
-    profile_mutability: partial
+    profile_mutability: full
 policies:
   docs_mutation: disabled
   manual_config_editing: supported
@@ -31,10 +29,10 @@ severity_policy:
   advisory: warning
 profile_safety:
   allowed_core_prefixes:
-    - fork.language
-    - fork.locale
-    - fork.timezone
-    - fork.supported_languages
+    - profile.language
+    - profile.locale
+    - profile.timezone
+    - profile.supported_languages
     - llm
     - ingestion
     - prompts

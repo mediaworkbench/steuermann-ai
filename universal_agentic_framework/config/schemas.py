@@ -11,12 +11,16 @@ from universal_agentic_framework.llm.provider_registry import normalize_model_id
 PROFILE_ID_PATTERN = r"^[a-z0-9_-]+$"
 
 
-class ForkSettings(BaseModel):
+class ProfileSettings(BaseModel):
     name: str
     language: str = Field(..., min_length=2, max_length=5)
     locale: Optional[str] = None
     timezone: Optional[str] = None
     supported_languages: List[str] = Field(default_factory=list)
+
+
+# Legacy alias — kept for any external references; use ProfileSettings going forward.
+ForkSettings = ProfileSettings
 
 
 class ProviderModelMap(BaseModel):
@@ -349,7 +353,7 @@ class LanguagePrompts(BaseModel):
 
 
 class PromptsSettings(BaseModel):
-    """Optional prompt templates for fork customization.
+    """Optional prompt templates for profile customization.
 
     Supports both legacy inline format (response_system as str/dict) and
     the new per-language prompt file format (languages dict).
@@ -376,7 +380,7 @@ class PromptsSettings(BaseModel):
 
 
 class CoreConfig(BaseModel):
-    fork: ForkSettings
+    profile: ProfileSettings
     llm: LLMSettings
     database: DatabaseSettings
     memory: MemorySettings

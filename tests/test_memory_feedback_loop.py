@@ -225,8 +225,8 @@ def test_rate_memory_fires_feedback_signal_when_retrieved(rate_client, monkeypat
 
     fired: list[str] = []
 
-    def _fake_track(fork_name: str) -> None:
-        fired.append(fork_name)
+    def _fake_track(profile_name: str) -> None:
+        fired.append(profile_name)
 
     monkeypatch.setattr(memories_module, "track_memory_rated_after_retrieval", _fake_track)
     monkeypatch.setattr(
@@ -246,8 +246,8 @@ def test_rate_memory_no_feedback_signal_when_not_retrieved(rate_client, monkeypa
 
     fired: list[str] = []
 
-    def _fake_track(fork_name: str) -> None:
-        fired.append(fork_name)
+    def _fake_track(profile_name: str) -> None:
+        fired.append(profile_name)
 
     monkeypatch.setattr(memories_module, "track_memory_rated_after_retrieval", _fake_track)
     monkeypatch.setattr(

@@ -171,10 +171,10 @@ On failure after writing, the original file is automatically restored from backu
 
 | Prefix | Description |
 |---|---|
-| `fork.language` | Profile language code |
-| `fork.locale` | Locale string |
-| `fork.timezone` | Timezone |
-| `fork.supported_languages` | Languages offered in the settings UI |
+| `profile.language` | Profile language code |
+| `profile.locale` | Locale string |
+| `profile.timezone` | Timezone |
+| `profile.supported_languages` | Languages offered in the settings UI |
 | `llm` | All LLM provider settings (temperature, models, timeouts, etc.) |
 | `prompts` | Prompt template overrides |
 | `tool_routing` | Tool routing thresholds and model |

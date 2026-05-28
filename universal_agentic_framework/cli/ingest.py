@@ -85,7 +85,7 @@ def resolve_runtime_ingestion_defaults() -> RuntimeIngestionDefaults:
             core_config.llm.get_embedding_remote_endpoint(),
             os.getenv("EMBEDDING_SERVER"),
         ),
-        embedding_model=core_config.llm.get_role_model_name("embedding", core_config.fork.language),
+        embedding_model=core_config.llm.get_role_model_name("embedding", core_config.profile.language),
         embedding_dimension=int(core_config.memory.embeddings.dimension),
         qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
         qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),

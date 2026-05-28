@@ -153,7 +153,7 @@ class LLMCapabilityProbeRunner:
     def reprobe_model(self, provider_id: str, model_name: str) -> LLMCapabilityProbeResult:
         """Reprobe a specific provider+model combination by explicit provider_id."""
         llm_cfg = self._core_config.llm
-        role_chain = llm_cfg.get_role_provider_chain_with_models("chat", self._core_config.fork.language)
+        role_chain = llm_cfg.get_role_provider_chain_with_models("chat", self._core_config.profile.language)
         for pid, provider, _ in role_chain:
             if str(pid) == provider_id:
                 target = ProbeTarget(provider_id=provider_id, provider=provider, model_name=model_name)
@@ -176,7 +176,7 @@ class LLMCapabilityProbeRunner:
                 continue
 
             try:
-                role_chain = llm_cfg.get_role_provider_chain_with_models(role_name, self._core_config.fork.language)
+                role_chain = llm_cfg.get_role_provider_chain_with_models(role_name, self._core_config.profile.language)
             except Exception as exc:
                 logger.warning(
                     "Skipping role during probe target collection",

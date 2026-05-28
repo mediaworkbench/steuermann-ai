@@ -388,7 +388,7 @@ def test_chat_forwards_llm_capability_probes(client) -> None:
 def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = SimpleNamespace(api_base="http://localhost:1234/v1")
     core_config = SimpleNamespace(
-        fork=SimpleNamespace(language="en"),
+        profile=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
             get_role_provider_chain_with_models=lambda role_name, _lang: [
                 ("lmstudio", provider, "openai/test-model")
@@ -404,7 +404,7 @@ def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pyt
 def test_resolve_provider_endpoint_does_not_fallback_to_legacy_primary(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = SimpleNamespace(api_base="http://localhost:9999/v1")
     core_config = SimpleNamespace(
-        fork=SimpleNamespace(language="en"),
+        profile=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
             get_role_provider_chain_with_models=lambda role_name, _lang: [
                 ("other", provider, "ollama/test-model")
@@ -454,8 +454,8 @@ def test_chat_tracks_profile_mismatch_metric_when_langgraph_profile_differs(clie
 
     tracked: list[tuple[str, str, str]] = []
 
-    def _track_mismatch(*, fork_name: str, active_profile_id: str, reported_profile_id: str) -> None:
-        tracked.append((fork_name, active_profile_id, reported_profile_id))
+    def _track_mismatch(*, profile_name: str, active_profile_id: str, reported_profile_id: str) -> None:
+        tracked.append((profile_name, active_profile_id, reported_profile_id))
 
     monkeypatch.setattr(chat_module, "track_profile_id_mismatch", _track_mismatch)
 
@@ -481,8 +481,8 @@ def test_chat_falls_back_to_active_profile_when_langgraph_profile_missing(client
 
     tracked: list[tuple[str, str, str]] = []
 
-    def _track_mismatch(*, fork_name: str, active_profile_id: str, reported_profile_id: str) -> None:
-        tracked.append((fork_name, active_profile_id, reported_profile_id))
+    def _track_mismatch(*, profile_name: str, active_profile_id: str, reported_profile_id: str) -> None:
+        tracked.append((profile_name, active_profile_id, reported_profile_id))
 
     monkeypatch.setattr(chat_module, "track_profile_id_mismatch", _track_mismatch)
 
@@ -967,8 +967,8 @@ def test_workspace_write_revised_requires_explicit_intent(client, monkeypatch: p
 
     tracked_intent_denials: list[tuple[str, str, str]] = []
 
-    def _track_intent_denied(fork_name: str, operation: str, reason: str) -> None:
-        tracked_intent_denials.append((fork_name, operation, reason))
+    def _track_intent_denied(profile_name: str, operation: str, reason: str) -> None:
+        tracked_intent_denials.append((profile_name, operation, reason))
 
     monkeypatch.setattr(chat_module, "track_workspace_intent_denied", _track_intent_denied)
 

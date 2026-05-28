@@ -388,8 +388,8 @@ Configuration uses hierarchical loading: **Base → Profile Overlay → Environm
 
 - `config/core.yaml` — deployment-global defaults (database, memory, checkpointing)
 - `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, router policy, RAG, token budgets, ingestion
-- `config/agents.yaml` — CrewAI crew definitions
-- `config/tools.yaml` — Tool enable/disable and overrides
+- `config/profiles/<id>/agents.yaml` — CrewAI crew definitions
+- `config/profiles/<id>/tools.yaml` — Tool enable/disable and overrides
 - `config/features.yaml` — Feature flags with dependency validation
 
 Profile customization is declarative — profiles override configs and register components, while direct core edits are avoided unless the shared template itself is being improved.
@@ -425,7 +425,7 @@ The stack runs 9 services on the `steuermann-network` Docker network:
 - `nextjs` connects to `fastapi` (health-checked)
 - `ingestion` connects to `qdrant` and the profile config; mounts `./data/rag-data` read-only
 - LangGraph and ingestion both mount `./config` read-only; workspaces mount via `WORKSPACES_PATH`
-- No `plugins/` volume — there is no plugins directory; tool registration is via `config/tools.yaml`
+- No `plugins/` volume — there is no plugins directory; tool registration is via `config/profiles/<id>/tools.yaml`
 - Postgres connection uses split env vars (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`), not a single `DATABASE_URL`
 - `CHECKPOINTER_POSTGRES_DSN` is set separately (defaults to `postgresql://framework:<pw>@postgres:5432/framework`)
 
@@ -605,8 +605,8 @@ Use a repository-first upgrade flow:
 
 Focus on these surfaces after an upgrade:
 
-- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, `config/tools.yaml`, and `config/agents.yaml`
-- Prompt override file layout under `config/prompts/` and `config/profiles/<profile_id>/prompts/`
+- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, `config/profiles/<id>/tools.yaml`, and `config/profiles/<id>/agents.yaml`
+- Prompt override file layout under `config/profiles/<id>/prompts/` and `config/profiles/<profile_id>/prompts/`
 - Profile metadata surfaced through the FastAPI and chat metadata contracts
 - Monitoring dashboards and metrics label expectations
 - Ingestion and retrieval alignment for `rag.collection_name`, embeddings, and chunking settings

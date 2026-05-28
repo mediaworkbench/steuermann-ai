@@ -73,27 +73,26 @@ LangGraph `/metrics`
 
 ## Metrics Reference
 
-Note: Prometheus metric label keys still use the legacy label name
-`fork_name`. The value should be the active `PROFILE_ID`.
+Note: Prometheus metric label key is `profile_name`. The value is the active `PROFILE_ID`.
 
 ### Graph Execution Metrics
 
 ```promql
 # Total graph invocations by status
-langgraph_requests_total{fork_name="starter", status="success"}
+langgraph_requests_total{profile_name="starter", status="success"}
 
 # Request duration histogram
-langgraph_request_duration_seconds{fork_name="starter"}
+langgraph_request_duration_seconds{profile_name="starter"}
 
 # Active sessions gauge
-langgraph_active_sessions{fork_name="starter"}
+langgraph_active_sessions{profile_name="starter"}
 ```
 
 ### Token Metrics
 
 ```promql
 # Total tokens consumed
-langgraph_tokens_used_total{fork_name="starter", model="gemma3:4b", node="respond"}
+langgraph_tokens_used_total{profile_name="starter", model="gemma3:4b", node="respond"}
 
 # Tokens per request
 sum(rate(langgraph_tokens_used_total[5m])) / sum(rate(langgraph_requests_total{status="success"}[5m]))
@@ -103,7 +102,7 @@ sum(rate(langgraph_tokens_used_total[5m])) / sum(rate(langgraph_requests_total{s
 
 ```promql
 # Node execution duration
-langgraph_node_duration_seconds{fork_name="starter", node="respond"}
+langgraph_node_duration_seconds{profile_name="starter", node="respond"}
 
 # Node execution rate
 rate(langgraph_node_duration_seconds_count[5m])
@@ -113,23 +112,23 @@ rate(langgraph_node_duration_seconds_count[5m])
 
 ```promql
 # LLM calls by provider and status
-langgraph_llm_calls_total{fork_name="starter", provider="ollama", status="success"}
+langgraph_llm_calls_total{profile_name="starter", provider="ollama", status="success"}
 ```
 
 ### Attachment Metrics
 
 ```promql
 # Total turns where attachment context was injected into the prompt
-langgraph_attachments_injected_total{fork_name="starter"}
+langgraph_attachments_injected_total{profile_name="starter"}
 
 # Total turns without attachments
-langgraph_attachments_none_total{fork_name="starter"}
+langgraph_attachments_none_total{profile_name="starter"}
 
 # Total times the refusal guardrail retry was triggered
-langgraph_attachment_refusal_retries_total{fork_name="starter"}
+langgraph_attachment_refusal_retries_total{profile_name="starter"}
 
 # Total successful retries after refusal detection
-langgraph_attachment_refusal_retries_success_total{fork_name="starter"}
+langgraph_attachment_refusal_retries_success_total{profile_name="starter"}
 
 # Retry success rate (guardrail effectiveness)
 langgraph_attachment_refusal_retries_success_total / langgraph_attachment_refusal_retries_total
@@ -139,23 +138,23 @@ langgraph_attachment_refusal_retries_success_total / langgraph_attachment_refusa
 
 ```promql
 # Memory operations by type
-langgraph_memory_operations_total{fork_name="starter", operation="load"}
+langgraph_memory_operations_total{profile_name="starter", operation="load"}
 
 # Memory importance ranking duration
-langgraph_memory_importance_ranking_duration_seconds{fork_name="starter"}
+langgraph_memory_importance_ranking_duration_seconds{profile_name="starter"}
 
 # Co-occurrence graph statistics
-langgraph_memory_co_occurrence_graph_nodes{fork_name="starter"}
-langgraph_memory_co_occurrence_graph_edges{fork_name="starter"}
+langgraph_memory_co_occurrence_graph_nodes{profile_name="starter"}
+langgraph_memory_co_occurrence_graph_edges{profile_name="starter"}
 
 # Memory quality score distribution
-langgraph_memory_quality_score{fork_name="starter"}
+langgraph_memory_quality_score{profile_name="starter"}
 
 # Related memories retrieved
-langgraph_memory_related_retrieved{fork_name="starter"}
+langgraph_memory_related_retrieved{profile_name="starter"}
 
 # Memory age in days
-langgraph_memory_age_days{fork_name="starter"}
+langgraph_memory_age_days{profile_name="starter"}
 ```
 
 ### Memory Retrieval Quality / Feedback Loop Metrics
@@ -165,10 +164,10 @@ These counters instrument the relationship between what the agent retrieves and 
 ```promql
 # Total memories served in chat context, by prior-rating state and rating bucket
 # Labels: fork_name, rated (yes/no), rating_bucket (none/low/mid/high)
-langgraph_memory_retrieval_signal_total{fork_name="starter"}
+langgraph_memory_retrieval_signal_total{profile_name="starter"}
 
 # Memories rated by the user shortly after being retrieved (feedback loop fired)
-langgraph_memory_rated_after_retrieval_total{fork_name="starter"}
+langgraph_memory_rated_after_retrieval_total{profile_name="starter"}
 
 # Derived: feedback coverage (what fraction of retrieved memories get rated)
 sum(langgraph_memory_rated_after_retrieval_total) /
@@ -193,7 +192,7 @@ These metrics instrument thumbs up/down feedback on assistant messages separatel
 ```promql
 # Total assistant-message feedback actions in chat
 # Labels: fork_name, value (up/down/removed)
-langgraph_message_feedback_total{fork_name="starter"}
+langgraph_message_feedback_total{profile_name="starter"}
 ```
 
 **Dashboard**: These are surfaced in the **Metrics → Trends** tab under "Message Quality" via the backend analytics endpoint `/api/analytics/message-quality`.

@@ -203,7 +203,7 @@ def _ensure_analytics_tables(db_pool: DatabasePool) -> None:
             tokens_used INTEGER,
             request_duration_seconds FLOAT,
             status TEXT,
-            fork_name TEXT,
+            profile_name TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
@@ -712,7 +712,7 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             user_id TEXT NOT NULL,
             title TEXT NOT NULL DEFAULT 'New conversation',
             language TEXT NOT NULL DEFAULT 'en',
-            fork_name TEXT,
+            profile_name TEXT,
             archived BOOLEAN NOT NULL DEFAULT false,
             pinned BOOLEAN NOT NULL DEFAULT false,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -1025,17 +1025,17 @@ class ConversationStore:
         user_id: str,
         title: str = "New conversation",
         language: str = "en",
-        fork_name: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         statement = """
-            INSERT INTO conversations (id, user_id, title, language, fork_name)
+            INSERT INTO conversations (id, user_id, title, language, profile_name)
             VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, user_id, title, language, fork_name,
+            RETURNING id, user_id, title, language, profile_name,
                       archived, pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (conversation_id, user_id, title, language, fork_name))
+                cur.execute(statement, (conversation_id, user_id, title, language, profile_name))
                 row = cur.fetchone()
             conn.commit()
         return _normalize_conversation_row(row)
@@ -1061,7 +1061,7 @@ class ConversationStore:
                 total = int(count_row["count"]) if count_row else 0
 
         list_stmt = f"""
-            SELECT c.id, c.user_id, c.title, c.language, c.fork_name,
+            SELECT c.id, c.user_id, c.title, c.language, c.profile_name,
                    c.archived, c.pinned, c.metadata, c.created_at, c.updated_at,
                    (SELECT content FROM messages WHERE conversation_id = c.id
                     ORDER BY created_at DESC LIMIT 1) AS last_message,
@@ -1081,7 +1081,7 @@ class ConversationStore:
     def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
         """Get a single conversation (without messages)."""
         statement = """
-            SELECT id, user_id, title, language, fork_name,
+            SELECT id, user_id, title, language, profile_name,
                    archived, pinned, metadata, created_at, updated_at
             FROM conversations WHERE id = %s;
         """
@@ -1115,7 +1115,7 @@ class ConversationStore:
         statement = f"""
             UPDATE conversations SET {', '.join(set_clauses)}
             WHERE id = %s
-            RETURNING id, user_id, title, language, fork_name,
+            RETURNING id, user_id, title, language, profile_name,
                       archived, pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
@@ -1918,7 +1918,7 @@ def _normalize_conversation_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "user_id": row.get("user_id"),
         "title": row.get("title"),
         "language": row.get("language"),
-        "fork_name": row.get("fork_name"),
+        "profile_name": row.get("profile_name"),
         "archived": row.get("archived", False),
         "pinned": row.get("pinned", False),
         "metadata": md,
@@ -2064,13 +2064,13 @@ class AnalyticsStore:
         tokens_used: Optional[int] = None,
         request_duration_seconds: Optional[float] = None,
         status: str = "success",
-        fork_name: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ) -> bool:
         """Log an analytics event."""
         statement = """
             INSERT INTO analytics_events (
                 user_id, event_type, model_name, tokens_used, 
-                request_duration_seconds, status, fork_name
+                request_duration_seconds, status, profile_name
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s);
         """
@@ -2086,7 +2086,7 @@ class AnalyticsStore:
                             tokens_used,
                             request_duration_seconds,
                             status,
-                            fork_name,
+                            profile_name,
                         ),
                     )
                 conn.commit()

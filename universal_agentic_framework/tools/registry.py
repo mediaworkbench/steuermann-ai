@@ -314,12 +314,12 @@ class ToolRegistry:
         self, 
         config: Optional[Any] = None, 
         base_dir: Optional[Path] = None,
-        fork_language: str = "en",
+        profile_language: str = "en",
         extra_tools_dir: Optional[Path] = None,
     ) -> None:
         self.config = self._normalize_config(config)
         self.tools: Dict[str, BaseTool] = {}
-        self.fork_language = fork_language
+        self.profile_language = profile_language
         self._builtin_dir = Path(__file__).parent
         self._base_dir = Path(base_dir) if base_dir else Path.cwd()
         self._extra_tools_dir = Path(extra_tools_dir) if extra_tools_dir else None
@@ -504,8 +504,8 @@ class ToolRegistry:
         5. Generic description from manifest
         6. Tool name as fallback
         """
-        # Get fork language from loaded config
-        fork_language = self._get_fork_language()
+        # Get profile language from loaded config
+        profile_language = self._get_profile_language()
         
         # Check config entry for override; also capture default_tool for sub-tool description lookup
         tool_specific_key = None
@@ -523,17 +523,17 @@ class ToolRegistry:
                 tool_descriptions = manifest_data.get("tool_descriptions", {})
                 if isinstance(tool_descriptions, dict):
                     tool_desc = tool_descriptions.get(tool_specific_key, {})
-                    if isinstance(tool_desc, dict) and fork_language in tool_desc:
-                        return tool_desc[fork_language]
+                    if isinstance(tool_desc, dict) and profile_language in tool_desc:
+                        return tool_desc[profile_language]
                     if isinstance(tool_desc, dict) and "en" in tool_desc:
                         return tool_desc["en"]
             
             # Check generic language-specific descriptions
             descriptions = manifest_data.get("descriptions", {})
             if isinstance(descriptions, dict):
-                # Try fork language
-                if fork_language in descriptions:
-                    return descriptions[fork_language]
+                # Try profile language
+                if profile_language in descriptions:
+                    return descriptions[profile_language]
                 # Try English as fallback
                 if "en" in descriptions:
                     return descriptions["en"]
@@ -541,9 +541,9 @@ class ToolRegistry:
         # Fall back to generic description
         return manifest.description or manifest.name
 
-    def _get_fork_language(self) -> str:
-        """Get fork language from instance variable or default to 'en'."""
-        return self.fork_language or "en"
+    def _get_profile_language(self) -> str:
+        """Get profile language from instance variable or default to 'en'."""
+        return self.profile_language or "en"
 
     def _is_enabled(self, manifest: ToolManifest) -> bool:
         """Return enabled flag from config entry or manifest default (True)."""

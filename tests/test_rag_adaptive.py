@@ -29,7 +29,7 @@ def _make_rag_config(enabled=True, collection_name="test-collection", *, top_k=5
 
 def _make_core_config(rag_enabled=True):
     return SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en"),
+        profile=SimpleNamespace(name="test-fork", language="en"),
         rag=_make_rag_config(enabled=rag_enabled),
         memory=SimpleNamespace(
             embeddings=SimpleNamespace(dimension=768),

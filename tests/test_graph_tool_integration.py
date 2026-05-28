@@ -156,7 +156,7 @@ def test_graph_injects_tool_and_knowledge_context(
 
     # Config mock
     mock_config.return_value = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
+        profile=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
             embeddings=SimpleNamespace(dimension=3),
@@ -245,7 +245,7 @@ def test_rag_request_uses_config(
     mock_provider_factory.return_value = mock_embedder
 
     mock_config.return_value = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
+        profile=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
             embeddings=SimpleNamespace(dimension=3),
@@ -320,7 +320,7 @@ def test_rag_disabled_via_features(
     mock_provider_factory.return_value = mock_embedder
 
     mock_config.return_value = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
+        profile=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
             embeddings=SimpleNamespace(dimension=3),
@@ -375,7 +375,7 @@ def test_rag_keyword_fallback_search(
     mock_provider_factory.return_value = mock_embedder
 
     mock_config.return_value = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
+        profile=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
             embeddings=SimpleNamespace(dimension=3),
@@ -459,7 +459,7 @@ def test_long_term_memory_disabled_via_features(
     mock_provider_factory.return_value = mock_embedder
 
     mock_config.return_value = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
+        profile=SimpleNamespace(name="test-fork", language="en", timezone="UTC"),
         memory=SimpleNamespace(
             vector_store=SimpleNamespace(type="qdrant", host="qdrant", port=6333, collection_prefix="test"),
             embeddings=SimpleNamespace(dimension=3),

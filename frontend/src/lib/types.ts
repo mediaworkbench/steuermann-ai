@@ -130,7 +130,7 @@ export interface Conversation {
   user_id: string;
   title: string;
   language: string;
-  fork_name?: string | null;
+  profile_name?: string | null;
   archived: boolean;
   pinned: boolean;
   metadata: Record<string, unknown>;

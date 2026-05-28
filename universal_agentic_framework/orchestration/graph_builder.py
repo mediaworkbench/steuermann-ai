@@ -165,7 +165,7 @@ class GraphState(TypedDict, total=False):
     user_id: str
     session_id: str  # Session identifier for co-occurrence tracking
     language: str
-    fork_name: str  # Fork identifier for metrics
+    profile_name: str  # Fork identifier for metrics
     profile_id: str  # Active deployment profile identifier
     user_settings: Dict[str, Any]  # User preferences: tool_toggles, rag_config, preferred_model, theme, language
     llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
@@ -261,15 +261,15 @@ def node_load_tools(state: GraphState) -> GraphState:
     """Load tools from registry based on config/tools.yaml."""
     tools_config = load_tools_config()
     core_config = load_core_config()
-    fork_name = getattr(core_config.fork, "name", "default-fork")
+    profile_name = getattr(core_config.profile, "name", "default-profile")
     profile_id = state.get("profile_id") or get_active_profile_id()
-    fork_language = getattr(core_config.fork, "language", "en")
-    # Use conversation language from state; fall back to fork_language from config
-    conversation_language = state.get("language") or fork_language
+    profile_language = getattr(core_config.profile, "language", "en")
+    # Use conversation language from state; fall back to profile_language from config
+    conversation_language = state.get("language") or profile_language
 
-    logger.info("Loading tools from registry", fork_name=fork_name, language=conversation_language)
+    logger.info("Loading tools from registry", profile_name=profile_name, language=conversation_language)
 
-    with track_node_execution(fork_name, "load_tools"):
+    with track_node_execution(profile_name, "load_tools"):
         try:
             from universal_agentic_framework.config import get_profile_dir
 
@@ -278,7 +278,7 @@ def node_load_tools(state: GraphState) -> GraphState:
 
             registry = ToolRegistry(
                 config=tools_config,
-                fork_language=conversation_language,
+                profile_language=conversation_language,
                 extra_tools_dir=profile_tools_dir,
             )
             tools = registry.discover_and_load()
@@ -331,7 +331,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
     forcing execution.
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
 
     loaded_tools = state.get("loaded_tools", [])
     user_msg = (
@@ -356,12 +356,12 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
     logger.info(
         "Pre-filtering tools (Layer 1)",
-        fork_name=fork_name,
+        profile_name=profile_name,
         tools_count=len(loaded_tools),
         query_length=len(user_msg),
     )
 
-    with track_node_execution(fork_name, "prefilter_tools"):
+    with track_node_execution(profile_name, "prefilter_tools"):
         try:
             import re
 
@@ -388,7 +388,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 getattr(config, "tool_routing", None), "intent_boost", 0.2
             )
             routing_language = state.get("language") or getattr(
-                config.fork, "language", "en"
+                config.profile, "language", "en"
             )
 
             # Detect intents for score boosting
@@ -559,7 +559,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     Mode enforcement: Validates that tool_calling_mode is 'native' before proceeding.
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     max_retries = getattr(getattr(config, "tool_routing", None), "max_retries", 2)
 
     candidates = state.get("candidate_tools", [])
@@ -568,7 +568,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
-        state, "native", "call_tools_native", fork_name
+        state, "native", "call_tools_native", profile_name
     )
     if not is_valid:
         logger.warning(
@@ -590,15 +590,15 @@ def node_call_tools_native(state: GraphState) -> GraphState:
 
     logger.info(
         "Layer 2 native tool calling",
-        fork_name=fork_name,
+        profile_name=profile_name,
         candidates=len(candidates),
     )
 
-    with track_node_execution(fork_name, "call_tools_native"):
+    with track_node_execution(profile_name, "call_tools_native"):
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            lang = state.get("language") or getattr(config.fork, "language", "en")
+            lang = state.get("language") or getattr(config.profile, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
             model = get_model(config, lang, preferred_model=preferred_model)
@@ -693,11 +693,11 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         parse_error = True
                         continue
 
-                    # Validate args against schema if available
+                    # Validate args against schema if available; also strips unknown fields.
                     schema = getattr(tool_obj, "args_schema", None)
                     if schema:
                         try:
-                            schema(**tool_args)
+                            tool_args = schema(**tool_args).model_dump()
                         except Exception as val_err:
                             logger.warning(
                                 "Tool call validation failed",
@@ -773,7 +773,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     Mode enforcement: Validates that tool_calling_mode is 'structured' before proceeding.
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     max_retries = getattr(getattr(config, "tool_routing", None), "max_retries", 2)
 
     candidates = state.get("candidate_tools", [])
@@ -782,7 +782,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
-        state, "structured", "call_tools_structured", fork_name
+        state, "structured", "call_tools_structured", profile_name
     )
     if not is_valid:
         logger.warning(
@@ -807,17 +807,17 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     logger.info(
         "Layer 2 structured tool calling",
-        fork_name=fork_name,
+        profile_name=profile_name,
         candidates=len(candidates),
         force_tool_use=force_tool_use,
     )
 
-    with track_node_execution(fork_name, "call_tools_structured"):
+    with track_node_execution(profile_name, "call_tools_structured"):
         try:
             import json
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            lang = state.get("language") or getattr(config.fork, "language", "en")
+            lang = state.get("language") or getattr(config.profile, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
             model = get_model(config, lang, preferred_model=preferred_model)
@@ -924,7 +924,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                         logger.info(
                             "Model declined tool call despite force_tool_use; retrying with stricter prompt",
                             attempt=attempt,
-                            fork_name=fork_name,
+                            profile_name=profile_name,
                         )
                         from langchain_core.messages import AIMessage
                         messages.append(AIMessage(content=response_text))
@@ -961,11 +961,11 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                         continue
                     break
 
-                # Validate args
+                # Validate args against schema; also strips unknown fields.
                 schema = getattr(tool_obj, "args_schema", None)
                 if schema:
                     try:
-                        schema(**tool_args)
+                        tool_args = schema(**tool_args).model_dump()
                     except Exception as val_err:
                         logger.warning(
                             "Structured tool call validation failed",
@@ -1022,7 +1022,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     Mode enforcement: Validates that tool_calling_mode is 'react' before proceeding.
     """
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     max_iterations = getattr(getattr(config, "tool_routing", None), "max_retries", 2) + 1
 
     candidates = state.get("candidate_tools", [])
@@ -1031,7 +1031,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
-        state, "react", "call_tools_react", fork_name
+        state, "react", "call_tools_react", profile_name
     )
     if not is_valid:
         logger.warning(
@@ -1049,16 +1049,16 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
     logger.info(
         "Layer 2 ReAct tool calling",
-        fork_name=fork_name,
+        profile_name=profile_name,
         candidates=len(candidates),
     )
 
-    with track_node_execution(fork_name, "call_tools_react"):
+    with track_node_execution(profile_name, "call_tools_react"):
         try:
             import re
             from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
-            lang = state.get("language") or getattr(config.fork, "language", "en")
+            lang = state.get("language") or getattr(config.profile, "language", "en")
             user_settings = state.get("user_settings", {})
             preferred_model = user_settings.get("preferred_model")
             model = get_model(config, lang, preferred_model=preferred_model)
@@ -1135,6 +1135,14 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                     ))
                     continue
 
+                # Strip unknown fields before calling _run().
+                react_schema = getattr(tool_obj, "args_schema", None)
+                if react_schema:
+                    try:
+                        tool_args = react_schema(**tool_args).model_dump()
+                    except Exception:
+                        pass  # schema mismatch handled by _run's own error path
+
                 try:
                     result = tool_obj._run(**tool_args)
                     record_tool_success(
@@ -1172,13 +1180,13 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
 def node_load_memory(state: GraphState) -> GraphState:
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     features_config = load_features_config()
     
-    logger.info("Loading memory", user_id=state.get("user_id"), fork_name=fork_name)
+    logger.info("Loading memory", user_id=state.get("user_id"), profile_name=profile_name)
 
     if not getattr(features_config, "long_term_memory", False):
-        logger.info("Long-term memory disabled via features flag", fork_name=fork_name)
+        logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
         state["loaded_memory"] = []
         return state
     
@@ -1190,10 +1198,10 @@ def node_load_memory(state: GraphState) -> GraphState:
         "Memory features",
         include_related=include_related,
         top_k=top_k,
-        fork_name=fork_name
+        profile_name=profile_name
     )
     
-    with track_node_execution(fork_name, "load_memory"):
+    with track_node_execution(profile_name, "load_memory"):
         backend = build_memory_backend(config)
         try:
             result = load_memory_node(
@@ -1202,7 +1210,7 @@ def node_load_memory(state: GraphState) -> GraphState:
                 top_k=top_k,
                 include_related=include_related
             )
-            track_memory_operation(fork_name, "load", "success")
+            track_memory_operation(profile_name, "load", "success")
             
             # Log analytics if available
             analytics = result.get("memory_analytics", {})
@@ -1215,15 +1223,15 @@ def node_load_memory(state: GraphState) -> GraphState:
             )
             return result
         except Exception as e:
-            track_memory_operation(fork_name, "load", "error")
+            track_memory_operation(profile_name, "load", "error")
             logger.error("Memory load failed", error=str(e), user_id=state.get("user_id"))
             raise
 
 
 def node_generate_response(state: GraphState) -> GraphState:
     config = load_core_config()
-    lang = state.get("language") or config.fork.language
-    fork_name = getattr(config.fork, "name", "default-fork")
+    lang = state.get("language") or config.profile.language
+    profile_name = getattr(config.profile, "name", "default-profile")
     
     # Check for user's preferred model
     user_settings = state.get("user_settings", {})
@@ -1232,7 +1240,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     logger.info(
         "Generating response",
         language=lang,
-        fork_name=fork_name,
+        profile_name=profile_name,
         preferred_model=preferred_model or "default"
     )
 
@@ -1246,30 +1254,21 @@ def node_generate_response(state: GraphState) -> GraphState:
             user_msg = msg.get("content", "")
             break
     
-    # Build context-aware prompt with clear role definition.
-    # Resolution order: env var → config prompt files → emergency fallback
-    env_prompt = os.environ.get(f"PROMPT_SYSTEM_{lang.upper()}", "").strip()
-    if env_prompt:
-        system_prompt = env_prompt.replace("\\n", "\n")
-    else:
-        prompts_cfg = getattr(config, "prompts", None)
-        configured_prompt = prompts_cfg.get_prompt(lang, "response_system", fallback_lang="en") if prompts_cfg else None
-        system_prompt = configured_prompt or (
-            "You are a helpful AI assistant.\n"
-            "Answer the user's question clearly and factually.\n"
-            "Use the knowledge base and available tools when relevant to provide better answers."
-        )
-    
-    # Enforce response language to avoid drift into unintended languages (env-configurable)
-    env_lang = os.environ.get(f"PROMPT_LANG_{lang.upper()}", "").strip()
-    if env_lang:
-        language_instruction = env_lang
-    else:
-        prompts_cfg = getattr(config, "prompts", None)
-        language_instruction = (
-            (prompts_cfg.get_prompt(lang, "language_enforcement", fallback_lang="en") if prompts_cfg else None)
-            or f"Respond exclusively in language code '{lang}'."
-        )
+    # Build context-aware prompt. Resolution order: profile prompt files → emergency fallback.
+    prompts_cfg = getattr(config, "prompts", None)
+    configured_prompt = prompts_cfg.get_prompt(lang, "response_system", fallback_lang="en") if prompts_cfg else None
+    system_prompt = configured_prompt or (
+        "You are a helpful AI assistant.\n"
+        "Answer the user's question clearly and factually.\n"
+        "Use the knowledge base and available tools when relevant to provide better answers."
+    )
+
+    # Enforce response language to avoid drift into unintended languages.
+    prompts_cfg = getattr(config, "prompts", None)
+    language_instruction = (
+        (prompts_cfg.get_prompt(lang, "language_enforcement", fallback_lang="en") if prompts_cfg else None)
+        or f"Respond exclusively in language code '{lang}'."
+    )
     system_prompt += f"\n\n=== RESPONSE LANGUAGE ===\n{language_instruction}\n=== END RESPONSE LANGUAGE ===\n"
 
     system_prompt += f"\n[Today: {datetime.date.today().isoformat()}. Treat this as 'now' for any recent/current queries.]"
@@ -1294,9 +1293,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                 "Never output strings like <|tool_call_start|>, <|tool_call_end|>, or JSON function-call payloads.\n"
                 "You must return plain natural-language text only."
             )
-            env_tooling = os.environ.get("PROMPT_TOOLING_MODE", "").strip()
-            tooling_text = env_tooling.replace("\\n", "\n") if env_tooling else _default_tooling
-            system_prompt += f"\n\n=== TOOLING MODE ===\n{tooling_text}\n=== END TOOLING MODE ===\n"
+            system_prompt += f"\n\n=== TOOLING MODE ===\n{_default_tooling}\n=== END TOOLING MODE ===\n"
             
             # Add tool catalog so model understands capabilities
             tool_catalog_lines = ["\n\n=== AVAILABLE TOOLS ==="]
@@ -1388,14 +1385,14 @@ def node_generate_response(state: GraphState) -> GraphState:
         )
         # Track attachment injection metric
         from universal_agentic_framework.monitoring.metrics import ATTACHMENTS_INJECTED_TOTAL
-        fork_name = state.get("fork_name", "unknown")
-        ATTACHMENTS_INJECTED_TOTAL.labels(fork_name=fork_name).inc()
+        profile_name = state.get("profile_name", "unknown")
+        ATTACHMENTS_INJECTED_TOTAL.labels(profile_name=profile_name).inc()
     else:
         state["attachment_context"] = []
         # Track requests with no attachments
         from universal_agentic_framework.monitoring.metrics import ATTACHMENTS_NONE_TOTAL
-        fork_name = state.get("fork_name", "unknown")
-        ATTACHMENTS_NONE_TOTAL.labels(fork_name=fork_name).inc()
+        profile_name = state.get("profile_name", "unknown")
+        ATTACHMENTS_NONE_TOTAL.labels(profile_name=profile_name).inc()
 
     # Add resolved workspace documents as explicitly labeled reference context.
     workspace_documents = state.get("workspace_documents") or []
@@ -1464,7 +1461,6 @@ def node_generate_response(state: GraphState) -> GraphState:
         }
         verbatim_relay = bool(used_tool_names & _VERBATIM_RELAY_TOOLS)
 
-        env_synthesis = os.environ.get(f"PROMPT_SYNTHESIS_{lang.upper()}", "").strip()
         if verbatim_relay:
             synthesis_text = (
                 "The tool has returned its output. Present the result directly to the user:\n"
@@ -1474,14 +1470,11 @@ def node_generate_response(state: GraphState) -> GraphState:
                 "information clearly and readably.\n"
                 "Never say the result is missing or incorrect."
             )
-        elif env_synthesis:
-            synthesis_text = env_synthesis.replace("\\n", "\n")
         else:
             prompts_cfg = getattr(config, "prompts", None)
             prompt_key = "synthesis_with_sources" if has_citable_sources else "synthesis"
             synthesis_text = (prompts_cfg.get_prompt(lang, prompt_key, fallback_lang="en") if prompts_cfg else None)
             if not synthesis_text:
-                # Emergency fallback
                 synthesis_text = (
                     "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
                     "Do NOT list raw result items. Write a fluent summary that directly answers the user's question."
@@ -1503,8 +1496,7 @@ def node_generate_response(state: GraphState) -> GraphState:
         allowed_lines = [f"- {src}" for src in allowed_sources]
         allowed_lines.extend([f"- {url}" for url in sorted(allowed_urls)])
         allowed_block = "\n".join(allowed_lines)
-        env_sources_instr = os.environ.get("PROMPT_SOURCES", "").strip()
-        sources_instruction = env_sources_instr or (
+        sources_instruction = (
             "Wenn du Quellen nennst, nutze NUR Eintraege aus ALLOWED_SOURCES. "
             "Erfinde keine neuen Links oder Quellen."
         )
@@ -1629,7 +1621,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                 workspace_document_context_docs=len(workspace_document_context),
                 tools_executed=len(tool_results))
 
-    with track_node_execution(fork_name, "respond"):
+    with track_node_execution(profile_name, "respond"):
         _usage_meta: Optional[dict] = None
         try:
             response_text, provider, model_name, active_model, _usage_meta = _invoke_with_model_fallback(
@@ -1649,10 +1641,10 @@ def node_generate_response(state: GraphState) -> GraphState:
                 raise ValueError("LLM returned unexpected list instead of response message")
 
             logger.info("LLM response received", response_length=len(response_text), response_preview=response_text[:200])
-            track_llm_call(fork_name, provider, model_name, "success")
+            track_llm_call(profile_name, provider, model_name, "success")
         except _ModelInvokeError as e:
             error_type = getattr(e, "error_type", "error")
-            track_llm_call(fork_name, e.provider, e.model_name, error_type)
+            track_llm_call(profile_name, e.provider, e.model_name, error_type)
             log_fn = logger.error if error_type in ("error", "auth_error") else logger.warning
             log_fn(
                 "LLM call failed",
@@ -1675,7 +1667,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             else:
                 response_text = f"LLM Error: {str(e)[:100]}"
         except Exception as e:
-            track_llm_call(fork_name, provider, model_name, "error")
+            track_llm_call(profile_name, provider, model_name, "error")
             logger.error("LLM call failed", error=str(e), exc_info=True, provider=provider, model_name=model_name)
             response_text = f"LLM Error: {str(e)[:100]}"
 
@@ -1728,8 +1720,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                         )
                     ),
                 }
-                env_synth = os.environ.get(f"PROMPT_SYNTHESIS_{lang.upper()}", "").strip()
-                synth_instr = env_synth.replace("\\n", "\n") if env_synth else _synth_default.get(lang, _synth_default["en"])
+                synth_instr = _synth_default.get(lang, _synth_default["en"])
 
                 # Build a focused data-only prompt — no tool catalog at all
                 retry_parts = [
@@ -1798,8 +1789,8 @@ def node_generate_response(state: GraphState) -> GraphState:
                     )
                     # Track attachment refusal retry trigger
                     from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_TOTAL
-                    fork_name = state.get("fork_name", "unknown")
-                    ATTACHMENT_REFUSAL_RETRIES_TOTAL.labels(fork_name=fork_name).inc()
+                    profile_name = state.get("profile_name", "unknown")
+                    ATTACHMENT_REFUSAL_RETRIES_TOTAL.labels(profile_name=profile_name).inc()
                     
                     correction_prompt = (
                         system_prompt
@@ -1829,7 +1820,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                         logger.info("Attachment correction retry succeeded", response_length=len(response_text))
                         # Track successful attachment retry
                         from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL
-                        ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL.labels(fork_name=fork_name).inc()
+                        ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL.labels(profile_name=profile_name).inc()
                     except Exception as correction_err:
                         logger.error("Attachment correction retry failed", error=str(correction_err))
 
@@ -1975,7 +1966,7 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
-        track_tokens(fork_name, model_name, "respond", node_tokens)
+        track_tokens(profile_name, model_name, "respond", node_tokens)
 
         state["tokens_used"] = tokens_used
         state["turn_tokens_used"] = (state.get("turn_tokens_used") or 0) + node_tokens
@@ -2001,9 +1992,9 @@ def node_generate_response(state: GraphState) -> GraphState:
 
 def node_summarize(state: GraphState) -> GraphState:
     config = load_core_config()
-    lang = state.get("language") or config.fork.language
-    fork_name = getattr(config.fork, "name", "default-fork")
-    logger.info("Summarizing conversation", fork_name=fork_name)
+    lang = state.get("language") or config.profile.language
+    profile_name = getattr(config.profile, "name", "default-profile")
+    logger.info("Summarizing conversation", profile_name=profile_name)
 
     # Keep digest_chain normalized even when compression does not generate a new summary.
     try:
@@ -2059,7 +2050,7 @@ def node_summarize(state: GraphState) -> GraphState:
 
     input_tokens = count_tokens_for_model(model_name, prompt)
 
-    with track_node_execution(fork_name, "summarize"):
+    with track_node_execution(profile_name, "summarize"):
         try:
             from langchain_core.messages import HumanMessage as _HumanMessage
             out = model.invoke([_HumanMessage(content=prompt)])
@@ -2071,9 +2062,9 @@ def node_summarize(state: GraphState) -> GraphState:
                 )
             summary = (_raw_content or "").strip() or f"LLM: {prompt}"
             _sum_usage_meta = getattr(out, "usage_metadata", None)
-            track_llm_call(fork_name, provider, model_name, "success")
+            track_llm_call(profile_name, provider, model_name, "success")
         except Exception as e:
-            track_llm_call(fork_name, provider, model_name, "error")
+            track_llm_call(profile_name, provider, model_name, "error")
             logger.warning("Summarization LLM call failed, using fallback", error=str(e))
             summary = f"LLM: {prompt}"
             _sum_usage_meta = None
@@ -2083,7 +2074,7 @@ def node_summarize(state: GraphState) -> GraphState:
 
         tokens_used = (state.get("tokens_used") or 0) + node_tokens
 
-        track_tokens(fork_name, model_name, "summarize", node_tokens)
+        track_tokens(profile_name, model_name, "summarize", node_tokens)
         
         state["tokens_used"] = tokens_used
         state["turn_tokens_used"] = (state.get("turn_tokens_used") or 0) + node_tokens
@@ -2100,14 +2091,14 @@ def node_summarize(state: GraphState) -> GraphState:
 
 def node_update_memory(state: GraphState) -> GraphState:
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     features_config = load_features_config()
     
     user_id = state.get("user_id")
-    logger.info("Updating memory", user_id=user_id, fork_name=fork_name)
+    logger.info("Updating memory", user_id=user_id, profile_name=profile_name)
 
     if not getattr(features_config, "long_term_memory", False):
-        logger.info("Long-term memory disabled via features flag", fork_name=fork_name)
+        logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
         return state
 
     # Trivial exchange filter: skip memory write for low-content turns.
@@ -2157,7 +2148,7 @@ def node_update_memory(state: GraphState) -> GraphState:
 
     update_tokens = estimate_tokens(summary_text)
 
-    with track_node_execution(fork_name, "update_memory"):
+    with track_node_execution(profile_name, "update_memory"):
         try:
             digest_chain = state.get("digest_chain") or []
             if not getattr(features_config, "memory_digest_chain_enabled", True):
@@ -2184,11 +2175,11 @@ def node_update_memory(state: GraphState) -> GraphState:
             )
             result["tokens_used"] = (result.get("tokens_used") or 0) + update_tokens
             result["turn_tokens_used"] = (result.get("turn_tokens_used") or 0) + update_tokens
-            track_memory_operation(fork_name, "update", "success")
+            track_memory_operation(profile_name, "update", "success")
             logger.info("Memory updated successfully", user_id=user_id)
             return result
         except Exception as e:
-            track_memory_operation(fork_name, "update", "error")
+            track_memory_operation(profile_name, "update", "error")
             logger.error("Memory update failed", error=str(e), user_id=user_id, exc_info=True)
             # Don't re-raise - allow conversation to continue even if memory update fails
             return state

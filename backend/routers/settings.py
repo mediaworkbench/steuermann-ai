@@ -414,7 +414,7 @@ async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
         core = load_core_config()
-        models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.fork.language)
+        models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.profile.language)
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
@@ -447,9 +447,9 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
 
         chat_provider = core_config.llm.get_role_provider("chat")
         try:
-            default_model = core_config.llm.get_role_model_name("chat", core_config.fork.language)
+            default_model = core_config.llm.get_role_model_name("chat", core_config.profile.language)
         except Exception:
-            default_model = getattr(chat_provider.models, core_config.fork.language, None) or chat_provider.models.en or ""
+            default_model = getattr(chat_provider.models, core_config.profile.language, None) or chat_provider.models.en or ""
 
         # Load probe results once — used to overlay context_window_tokens (probe fires at
         # startup and on model change, so it captures the value the server is loaded with).
@@ -470,7 +470,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
 
         model_roles: List[Dict[str, Any]] = []
 
-        language = core_config.fork.language
+        language = core_config.profile.language
         for role_name in ("chat", "embedding", "vision", "auxiliary"):
             try:
                 role_chain = core_config.llm.get_role_provider_chain_with_models(role_name, language)
@@ -511,14 +511,14 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
         role_label = profile_ui.branding.role_label or display_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL", "Local Profile")
         app_name = profile_ui.branding.app_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME", "Single User")
 
-        supported_languages = core_config.fork.supported_languages
+        supported_languages = core_config.profile.supported_languages
         if not supported_languages:
             # Derive from prompt files if not explicitly configured
             prompts_cfg = core_config.prompts
             if prompts_cfg and prompts_cfg.languages:
                 supported_languages = sorted(prompts_cfg.languages.keys())
             else:
-                supported_languages = [core_config.fork.language]
+                supported_languages = [core_config.profile.language]
 
         return {
             "available_tools": available_tools,
@@ -644,7 +644,7 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
     # Iterate through roles (chat first for primary visibility, then vision, auxiliary)
     for role_name in ["chat", "vision", "auxiliary"]:
         try:
-            role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.fork.language)
+            role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.profile.language)
         except Exception:
             continue
 

@@ -31,7 +31,7 @@ class ResearchCrew(BaseCrew):
     - Analyst: Synthesizes findings and extracts key insights
     - Writer: Produces structured, well-organized reports
 
-    Configured via ``config/agents.yaml`` → ``crews.research``.
+    Configured via ``config/profiles/<profile_id>/agents.yaml`` → ``crews.research``.
     """
 
     crew_name = "research"
@@ -43,7 +43,7 @@ class ResearchCrew(BaseCrew):
     def _build_agents(self) -> None:
         crew_config = self.agents_config.crews.get(self.crew_name)
         if not crew_config:
-            raise ValueError(f"'{self.crew_name}' crew not configured in config/agents.yaml")
+            raise ValueError(f"'{self.crew_name}' crew not configured in config/profiles/<profile_id>/agents.yaml")
 
         llm = self._get_llm()
 

@@ -106,7 +106,7 @@ async def log_event(
     tokens_used: int | None = Query(default=None),
     request_duration_seconds: float | None = Query(default=None),
     status: str = Query(default="success"),
-    fork_name: str | None = Query(default=None),
+    profile_name: str | None = Query(default=None),
     request: Request = None,
 ) -> Dict[str, str]:
     """Log an analytics event."""
@@ -119,7 +119,7 @@ async def log_event(
         tokens_used=tokens_used,
         request_duration_seconds=request_duration_seconds,
         status=status,
-        fork_name=fork_name,
+        profile_name=profile_name,
     )
     
     if success:

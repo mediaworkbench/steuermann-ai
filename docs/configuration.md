@@ -14,7 +14,7 @@ The runtime configuration model is:
 
 **Loading order:** repository defaults → profile overlay → environment variables
 
-The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
+The docs use **profile** as the product term. The schema uses the top-level config key `profile` throughout.
 
 `PROFILE_ID` is required at runtime. `base` is no longer a runnable profile id; it only refers to repository-level defaults.
 
@@ -27,7 +27,7 @@ Configuration files remain directly editable. The `steuermann` CLI is a validati
 ### Profile Identification
 
 ```yaml
-fork:
+profile:
   name: "medical-ai-de" # Unique profile identifier
   language: "de" # Primary language (ISO 639-1: en, de, fr, es, etc.)
   supported_languages: ["de", "en"] # Languages exposed to the settings UI for this profile
@@ -39,16 +39,16 @@ fork:
 
 **Language behavior:**
 
-- `fork.language` is the profile's primary/default language.
-- `fork.supported_languages` is optional and controls which languages the settings UI offers.
-- If `supported_languages` is not set, the backend falls back to prompt file languages, then to `fork.language`.
+- `profile.language` is the profile's primary/default language.
+- `profile.supported_languages` is optional and controls which languages the settings UI offers.
+- If `supported_languages` is not set, the backend falls back to prompt file languages, then to `profile.language`.
 - Chat requests use the saved user setting as the source of truth for language selection.
 
 ### Prompt Configuration
 
 Prompt text is stored in per-language files rather than inline inside `core.yaml`.
 
-**Base prompts:** `config/prompts/<language>.yaml`
+**Base prompts:** `config/profiles/<id>/prompts/<language>.yaml`
 
 **Profile overrides:** `config/profiles/<profile_id>/prompts/<language>.yaml`
 
@@ -212,7 +212,7 @@ memory:
     type: "mem0" # Mem0 OSS embedded mode (hard cutover)
     host: "qdrant" # Docker service name or hostname for Mem0 vector storage
     port: 6333 # Qdrant port
-    collection_prefix: "${fork.name}" # Mem0 collection name uses this prefix
+    collection_prefix: "${PROFILE_ID}" # Mem0 collection name uses this prefix (set via env var)
 
   embeddings:
     model: "text-embedding-granite-embedding-278m-multilingual" # embedding model
@@ -753,7 +753,7 @@ All configurations are validated using Pydantic at startup:
 ```python
 from universal_agentic_framework.config.loader import load_core_config
 
-config = load_core_config(fork_config_dir=Path("config"))
+config = load_core_config(config_dir=Path("config"))
 # Raises ValidationError if invalid
 ```
 
@@ -813,7 +813,7 @@ llm:
 **Missing required field:**
 
 ```yaml
-fork:
+profile:
   name: "my-profile"
   # ❌ Missing required 'language' field
 ```
@@ -863,7 +863,7 @@ memory:
 
 ```yaml
 # config/profiles/simple-assistant/core.yaml (profile overlay)
-fork:
+profile:
   name: "simple-assistant"
   language: "en"
 
@@ -915,7 +915,7 @@ rag:
 
 ```yaml
 # config/profiles/medical-ai-de/core.yaml
-fork:
+profile:
   name: "medical-ai-de"
   language: "de"
   locale: "de_DE"
@@ -1010,8 +1010,8 @@ See [troubleshooting.md](troubleshooting.md) for common failure modes and diagno
 
 ### Multi-Language
 
-- ✅ Keep one primary profile language via `fork.language`
-- ✅ Optionally expose multiple UI languages via `fork.supported_languages`
+- ✅ Keep one primary profile language via `profile.language`
+- ✅ Optionally expose multiple UI languages via `profile.supported_languages`
 - ✅ Use language-specific chat models where helpful
 - ✅ Prefer multilingual embeddings for mixed-language retrieval
 - ✅ Accept ingested documents in any language and tag detected language metadata
