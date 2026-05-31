@@ -1517,9 +1517,11 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
                     "workspace_document_writeback": workspace_document_writeback,
                     "profile_id": profile_id,
                     "input_tokens": input_tokens or None,
+                    "output_tokens": output_tokens or None,
                     "sources": sources or [],
                     "rag_attempted": rag_attempted,
                     "rag_doc_count": rag_doc_count,
+                    **({"map_data": result.get("map_data")} if result.get("map_data") else {}),
                 },
             )
             # Auto-title on first exchange (2 messages = 1 user + 1 assistant)
@@ -1774,12 +1776,16 @@ async def chat_stream(
                         "workspace_document_writeback": writeback,
                         "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
                         "input_tokens": int(_metadata.get("input_tokens", 0)) or None,
+                        "output_tokens": int(_metadata.get("output_tokens", 0)) or None,
                         "sources": _metadata.get("sources") or [],
                         "rag_attempted": bool(_metadata.get("rag_attempted", False)),
                         "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),
+                        **({
+                            "map_data": _metadata["map_data"]
+                        } if _metadata.get("map_data") else {}),
                     },
                 )
             except Exception as exc:

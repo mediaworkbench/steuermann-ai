@@ -265,7 +265,7 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
     persistedId: pm.id,
     feedback: pm.feedback ?? undefined,
     metrics: {
-      output_tokens: pm.tokens_used ?? undefined,
+      output_tokens: (pm.metadata?.output_tokens as number | undefined) ?? pm.tokens_used ?? undefined,
       input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
       response_time_ms: pm.response_time_ms ?? undefined,
       model: pm.model_name ?? undefined,
@@ -293,6 +293,7 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
             is_related?: boolean;
           }>
         | undefined,
+      map_data: pm.metadata?.map_data as import("@/lib/types").MapData | undefined,
     },
   };
 }
