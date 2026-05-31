@@ -19,143 +19,149 @@ export function MapWidget({ data }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Cancellation flag: prevents the async IIFE from using a dead container
-    // if the component unmounts while the dynamic import is in flight.
     let cancelled = false;
     let mapInstance: import("maplibre-gl").Map | null = null;
 
     (async () => {
-      // maplibre-gl v5 uses named exports only — no default export.
-      const maplibregl = await import("maplibre-gl");
+      try {
+        const maplibregl = await import("maplibre-gl");
 
-      // Bail out if the component unmounted before the import resolved.
-      if (cancelled || !containerRef.current) return;
+        if (cancelled || !containerRef.current) return;
 
-      // Centre for the initial render (overridden by fitBounds for distance/multi)
-      const center: [number, number] =
-        data.type === "location" && data.lat != null && data.lon != null
-          ? [data.lon, data.lat]
-          : data.type === "distance" && data.midpoint
-          ? [data.midpoint.lon, data.midpoint.lat]
-          : data.locations && data.locations.length > 0
-          ? [
-              data.locations.reduce((s, l) => s + l.lon, 0) / data.locations.length,
-              data.locations.reduce((s, l) => s + l.lat, 0) / data.locations.length,
-            ]
-          : [0, 0];
+        const center: [number, number] =
+          data.type === "location" && data.lat != null && data.lon != null
+            ? [data.lon, data.lat]
+            : data.type === "distance" && data.midpoint
+            ? [data.midpoint.lon, data.midpoint.lat]
+            : data.locations && data.locations.length > 0
+            ? [
+                data.locations.reduce((s, l) => s + l.lon, 0) / data.locations.length,
+                data.locations.reduce((s, l) => s + l.lat, 0) / data.locations.length,
+              ]
+            : [0, 0];
 
-      // Fetch the style JSON and strip terrain + raster-dem sources to prevent
-      // MapLibre from attempting to parse DEM tiles that have null numeric properties.
-      const styleResp = await fetch(OPENFREEMAP_STYLE);
-      const styleJson = await styleResp.json();
-      delete styleJson.terrain;
-      if (styleJson.sources) {
-        for (const key of Object.keys(styleJson.sources)) {
-          if (styleJson.sources[key].type === "raster-dem") {
-            delete styleJson.sources[key];
+        // Fetch and sanitize the style: strip terrain + raster-dem sources so
+        // MapLibre doesn't attempt to parse DEM tiles with null numeric properties.
+        const styleResp = await fetch(OPENFREEMAP_STYLE);
+        const styleJson = await styleResp.json();
+        delete styleJson.terrain;
+        if (styleJson.sources) {
+          for (const key of Object.keys(styleJson.sources)) {
+            if (styleJson.sources[key].type === "raster-dem") {
+              delete styleJson.sources[key];
+            }
           }
         }
-      }
 
-      mapInstance = new maplibregl.Map({
-        container: containerRef.current,
-        style: styleJson,
-        center,
-        zoom: data.zoom,
-        scrollZoom: false,
-        boxZoom: false,
-        doubleClickZoom: false,
-        dragRotate: false,
-        touchZoomRotate: false,
-        attributionControl: false,
-      });
+        // Check again — component may have unmounted during the style fetch.
+        if (cancelled || !containerRef.current) return;
 
-      // Attribution at bottom-right (compact) — keeps bottom-left clear for the distance badge.
-      mapInstance.addControl(
-        new maplibregl.AttributionControl({ compact: true }),
-        "bottom-right"
-      );
+        mapInstance = new maplibregl.Map({
+          container: containerRef.current,
+          style: styleJson,
+          center,
+          zoom: data.zoom,
+          scrollZoom: false,
+          boxZoom: false,
+          doubleClickZoom: false,
+          dragRotate: false,
+          touchZoomRotate: false,
+          attributionControl: false,
+        });
 
-      mapInstance.on("load", () => {
-        // Guard: map may have been removed between load scheduling and firing.
-        if (cancelled || !mapInstance) return;
+        // Attribution at bottom-right (compact) — keeps bottom-left clear for the distance badge.
+        mapInstance.addControl(
+          new maplibregl.AttributionControl({ compact: true }),
+          "bottom-right"
+        );
 
-        if (data.type === "location" && data.lat != null && data.lon != null && data.zoom > SHOW_PIN_THRESHOLD) {
-          new maplibregl.Marker({ color: "#2563eb" })
-            .setLngLat([data.lon, data.lat])
-            .setPopup(new maplibregl.Popup({ closeButton: false }).setText(data.label ?? ""))
-            .addTo(mapInstance);
-        }
+        mapInstance.on("load", () => {
+          if (cancelled || !mapInstance) return;
 
-        if (data.type === "distance" && data.locations && data.locations.length === 2) {
-          const [a, b] = data.locations;
+          if (
+            data.type === "location" &&
+            data.lat != null &&
+            data.lon != null &&
+            data.zoom > SHOW_PIN_THRESHOLD
+          ) {
+            new maplibregl.Marker({ color: "#2563eb" })
+              .setLngLat([data.lon, data.lat])
+              .setPopup(new maplibregl.Popup({ closeButton: false }).setText(data.label ?? ""))
+              .addTo(mapInstance);
+          }
 
-          new maplibregl.Marker({ color: "#2563eb" })
-            .setLngLat([a.lon, a.lat])
-            .setPopup(new maplibregl.Popup({ closeButton: false }).setText(a.label))
-            .addTo(mapInstance);
+          if (data.type === "distance" && data.locations && data.locations.length === 2) {
+            const [a, b] = data.locations;
 
-          new maplibregl.Marker({ color: "#dc2626" })
-            .setLngLat([b.lon, b.lat])
-            .setPopup(new maplibregl.Popup({ closeButton: false }).setText(b.label))
-            .addTo(mapInstance);
+            new maplibregl.Marker({ color: "#2563eb" })
+              .setLngLat([a.lon, a.lat])
+              .setPopup(new maplibregl.Popup({ closeButton: false }).setText(a.label))
+              .addTo(mapInstance);
 
-          // Dashed line between the two pins
-          mapInstance.addSource("distance-line", {
-            type: "geojson",
-            data: {
-              type: "Feature",
-              geometry: {
-                type: "LineString",
-                coordinates: [
-                  [a.lon, a.lat],
-                  [b.lon, b.lat],
-                ],
+            new maplibregl.Marker({ color: "#dc2626" })
+              .setLngLat([b.lon, b.lat])
+              .setPopup(new maplibregl.Popup({ closeButton: false }).setText(b.label))
+              .addTo(mapInstance);
+
+            mapInstance.addSource("distance-line", {
+              type: "geojson",
+              data: {
+                type: "Feature",
+                geometry: {
+                  type: "LineString",
+                  coordinates: [
+                    [a.lon, a.lat],
+                    [b.lon, b.lat],
+                  ],
+                },
+                properties: {},
               },
-              properties: {},
-            },
-          });
-          mapInstance.addLayer({
-            id: "distance-line",
-            type: "line",
-            source: "distance-line",
-            layout: { "line-join": "round", "line-cap": "round" },
-            paint: {
-              "line-color": "#6366f1",
-              "line-width": 2,
-              "line-dasharray": [4, 3],
-            },
-          });
+            });
+            mapInstance.addLayer({
+              id: "distance-line",
+              type: "line",
+              source: "distance-line",
+              layout: { "line-join": "round", "line-cap": "round" },
+              paint: {
+                "line-color": "#6366f1",
+                "line-width": 2,
+                "line-dasharray": [4, 3],
+              },
+            });
 
-          mapInstance.fitBounds(
-            [
-              [Math.min(a.lon, b.lon), Math.min(a.lat, b.lat)],
-              [Math.max(a.lon, b.lon), Math.max(a.lat, b.lat)],
-            ],
-            { padding: 32, animate: false }
-          );
-        }
+            mapInstance.fitBounds(
+              [
+                [Math.min(a.lon, b.lon), Math.min(a.lat, b.lat)],
+                [Math.max(a.lon, b.lon), Math.max(a.lat, b.lat)],
+              ],
+              { padding: 32, animate: false }
+            );
+          }
 
-        if (data.type === "multi" && data.locations && data.locations.length > 0) {
-          const colors = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
-          data.locations.forEach((loc, i) => {
-            new maplibregl.Marker({ color: colors[i % colors.length] })
-              .setLngLat([loc.lon, loc.lat])
-              .setPopup(new maplibregl.Popup({ closeButton: false }).setText(loc.label))
-              .addTo(mapInstance!);
-          });
+          if (data.type === "multi" && data.locations && data.locations.length > 0) {
+            const colors = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
+            data.locations.forEach((loc, i) => {
+              new maplibregl.Marker({ color: colors[i % colors.length] })
+                .setLngLat([loc.lon, loc.lat])
+                .setPopup(new maplibregl.Popup({ closeButton: false }).setText(loc.label))
+                .addTo(mapInstance!);
+            });
 
-          const lons = data.locations.map((l) => l.lon);
-          const lats = data.locations.map((l) => l.lat);
-          mapInstance.fitBounds(
-            [
-              [Math.min(...lons), Math.min(...lats)],
-              [Math.max(...lons), Math.max(...lats)],
-            ],
-            { padding: 32, animate: false }
-          );
-        }
-      });
+            const lons = data.locations.map((l) => l.lon);
+            const lats = data.locations.map((l) => l.lat);
+            mapInstance.fitBounds(
+              [
+                [Math.min(...lons), Math.min(...lats)],
+                [Math.max(...lons), Math.max(...lats)],
+              ],
+              { padding: 32, animate: false }
+            );
+          }
+        });
+      } catch {
+        // Style fetch or MapLibre init failed — container stays blank.
+        // Nothing to clean up since mapInstance was never assigned.
+      }
     })();
 
     return () => {
@@ -165,18 +171,18 @@ export function MapWidget({ data }: Props) {
   }, [data]);
 
   return (
-    <div className="relative w-full max-w-sm overflow-hidden rounded-lg border border-border shadow-sm" style={{ height: "192px" }}>
-      {/* Map canvas — explicit pixel height guarantees MapLibre gets a sized container */}
+    <div
+      className="relative w-full max-w-sm overflow-hidden rounded-lg border border-border shadow-sm"
+      style={{ height: "192px" }}
+    >
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
-      {/* Distance badge — bottom-left, above attribution area */}
       {data.type === "distance" && data.distance_km != null && (
         <div className="absolute bottom-6 left-2 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
           {data.distance_km} km · {data.distance_miles} mi
         </div>
       )}
 
-      {/* Open full map — top-right to avoid conflicting with bottom-right attribution */}
       <a
         href={data.osm_url}
         target="_blank"

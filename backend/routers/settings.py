@@ -867,10 +867,15 @@ def reset_all_databases(request: Request) -> Dict[str, Any]:
     return {"status": "ok", "errors": [], **results}
 
 
+_ACRONYMS = {"ocr", "mcp", "rag", "ai", "llm"}
+
 def _format_tool_name(name: str) -> str:
-    """Convert tool name from snake_case to Title Case."""
+    """Convert tool name from snake_case to Title Case, preserving known acronyms."""
     pretty = name.replace("_tool", "").replace("_mcp", "").replace("_", " ").strip()
-    return " ".join(word.capitalize() for word in pretty.split())
+    return " ".join(
+        word.upper() if word.lower() in _ACRONYMS else word.capitalize()
+        for word in pretty.split()
+    )
 
 
 def _resolve_env_placeholder(value: Any, default: str) -> str:

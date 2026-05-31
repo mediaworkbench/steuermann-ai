@@ -474,13 +474,11 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                         )
                         similarity = forced_floor
 
-                # Hard intent override for map_tool: location queries are often
-                # phrased naturally ("show me Berlin", "Zeig mir Berlin") without
-                # explicit trigger words, so also apply the floor when the raw
-                # semantic similarity is high enough to indicate a clear match.
-                if tool_name == "map_tool" and (
-                    intents.get("mentions_map") or similarity >= 0.60
-                ):
+                # Hard intent override for map_tool: only fire when the user has
+                # explicitly signalled a map/location intent (mentions_map=True).
+                # A bare semantic similarity floor without intent signal causes
+                # false positives on unrelated queries that happen to score ≥0.60.
+                if tool_name == "map_tool" and intents.get("mentions_map"):
                     min_top_score_cfg = getattr(
                         getattr(config, "tool_routing", None), "min_top_score", 0.7
                     )
@@ -490,8 +488,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                             "Applying map intent override",
                             original_similarity=round(similarity, 4),
                             forced_similarity=round(forced_floor, 4),
-                            via_intent=bool(intents.get("mentions_map")),
-                            via_similarity=similarity >= 0.60,
                         )
                         similarity = forced_floor
 

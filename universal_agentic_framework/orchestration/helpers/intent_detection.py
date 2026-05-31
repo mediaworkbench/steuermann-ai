@@ -209,8 +209,7 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
             "how far", "distance from", "distance between",
             # German
             "wo ist", "wo liegt", "wo befindet", "karte von",
-            "zeig mir", "zeige mir", "zeig auf der karte",
-            "zeig mir auf der karte", "zeig mir die karte",
+            "zeig auf der karte", "zeig mir auf der karte", "zeig mir die karte",
             "wie weit", "entfernung", "abstand zwischen",
         ])
     )
