@@ -7,6 +7,7 @@ import uuid
 import os
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
@@ -607,6 +608,45 @@ async def set_message_feedback(
         return msg
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ── Compact ───────────────────────────────────────────────────────────
+
+
+_LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
+
+
+@router.post("/{conversation_id}/compact")
+async def compact_conversation(conversation_id: str, request: Request):
+    """Manually compress the LangGraph checkpoint for a conversation.
+
+    Calls the LangGraph service's /compact endpoint, which force-runs the
+    summarization step and saves a compressed checkpoint.  The ConversationStore
+    (displayed message history) is left unchanged by design — only the checkpoint
+    (what the LLM receives next turn) is updated.
+
+    Returns ``{"status": "ok", "estimated_tokens": N}`` on success, or
+    ``{"status": "skipped", ...}`` if the conversation is too short to compress.
+    """
+    store = _get_store(request)
+    conv = store.get_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    user_id = get_effective_user_id(conv.get("user_id", "anonymous"))
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{_LANGGRAPH_URL}/compact",
+                json={"session_id": conversation_id, "user_id": user_id},
+            )
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"LangGraph service unavailable: {exc}") from exc
 
 
 # ── Export ────────────────────────────────────────────────────────────

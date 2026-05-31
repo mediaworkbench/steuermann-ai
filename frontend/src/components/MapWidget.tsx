@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { StyleSpecification } from "maplibre-gl";
 import type { MapData } from "@/lib/types";
 
 // CSS is imported globally in layout.tsx — MapLibre must not import it here
@@ -11,7 +12,7 @@ const SHOW_PIN_THRESHOLD = 5; // skip marker for zoom ≤ this (continent/world 
 
 // Module-level cache so repeated mounts (multiple map results in history) share
 // one fetch instead of re-requesting the style JSON each time.
-let cachedStyle: Record<string, unknown> | null = null;
+let cachedStyle: StyleSpecification | null = null;
 
 // MapLibre v4.x throws when a numeric comparison operator receives null from a
 // tile feature property. Wrap bare `["get", "prop"]` expressions inside ordered
@@ -87,7 +88,7 @@ export function MapWidget({ data }: Props) {
                   : layer
             );
           }
-          cachedStyle = styleJson;
+          cachedStyle = styleJson as StyleSpecification;
         }
 
         // Check again — component may have unmounted during the style fetch.

@@ -20,6 +20,7 @@ from fastapi.responses import Response, StreamingResponse
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
 from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
+from universal_agentic_framework.orchestration.performance_nodes import compress_state
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
     track_graph_request,
@@ -661,6 +662,68 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/compact")
+async def compact_conversation(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Manually compress a conversation's LangGraph checkpoint.
+
+    Loads the checkpoint for ``session_id``, runs force-compression (bypassing the
+    auto-compact token threshold), and saves the compressed messages back.  The
+    ConversationStore (UI message log) is intentionally left unchanged — only the
+    checkpoint (what the LLM sees next turn) is updated.
+
+    Returns ``status: "skipped"`` if the conversation is too short to compress
+    (≤ keep_recent_count messages), or ``status: "ok"`` with ``estimated_tokens``.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    session_id = request.get("session_id")
+    user_id = request.get("user_id", "unknown")
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    config = {"configurable": {"thread_id": session_id}}
+    ct = await GRAPH.checkpointer.aget_tuple(config)
+    if not ct:
+        raise HTTPException(status_code=404, detail="No checkpoint found for this session")
+
+    channel_values = ct.checkpoint.get("channel_values", {})
+    state = {**channel_values, "user_id": user_id}
+
+    compressed = await compress_state(state, force=True)
+
+    if compressed.get("messages") == channel_values.get("messages"):
+        return {"status": "skipped", "estimated_tokens": compressed.get("tokens_used", 0)}
+
+    new_checkpoint_id = str(uuid.uuid4())
+    new_checkpoint = {
+        **ct.checkpoint,
+        "id": new_checkpoint_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "channel_values": {
+            **channel_values,
+            "messages": compressed["messages"],
+            "tokens_used": compressed.get("tokens_used", 0),
+            "digest_chain": compressed.get("digest_chain", []),
+        },
+    }
+    save_config = {
+        "configurable": {
+            "thread_id": session_id,
+            "checkpoint_ns": ct.config["configurable"].get("checkpoint_ns", ""),
+        }
+    }
+    new_versions = ct.checkpoint.get("channel_versions", {})
+    await GRAPH.checkpointer.aput(save_config, new_checkpoint, ct.metadata or {}, new_versions)
+
+    logger.info("Manual compact complete", session_id=session_id, estimated_tokens=compressed.get("tokens_used", 0))
+    return {
+        "status": "ok",
+        "estimated_tokens": compressed.get("tokens_used", 0),
+    }
 
 
 @app.get("/metrics")

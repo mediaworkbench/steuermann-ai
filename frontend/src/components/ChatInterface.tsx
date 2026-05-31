@@ -297,6 +297,15 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
   };
 }
 
+function CtxRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-evergreen/60">{label}</span>
+      <span className="text-evergreen tabular-nums">{value}</span>
+    </div>
+  );
+}
+
 export function ChatInterface() {
   const { t, formatTime } = useI18n();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -316,7 +325,9 @@ export function ChatInterface() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
+  const [isCompacting, setIsCompacting] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -535,7 +546,7 @@ export function ChatInterface() {
   // contextTokens is already reset to 0 when the active conversation changes.
   useEffect(() => {
     const tokens = finalMetadata?.input_tokens;
-    if (!isStreaming && tokens) {
+    if (!isStreaming && tokens != null && tokens > 0) {
       setContextTokens((prev) => Math.max(prev, tokens));
     }
   }, [isStreaming, finalMetadata]);
@@ -697,6 +708,13 @@ export function ChatInterface() {
       setLoading(true);
       startTimeRef.current = Date.now();
 
+      // Estimate context size immediately so the ring updates while the LLM generates.
+      // chars / 4 ≈ tokens; the real input_tokens replaces this when the metadata SSE arrives.
+      const _estTokens = Math.round(
+        messages.reduce((s, m) => s + m.content.length, 0) / 4 + userMessage.length / 4,
+      );
+      setContextTokens((prev) => Math.max(prev, _estTokens));
+
       await startStream({
         message: userMessage,
         userId: CURRENT_USER_ID,
@@ -849,6 +867,33 @@ export function ChatInterface() {
     [messages, activeId, t],
   );
 
+  const handleCompactContext = useCallback(async () => {
+    if (!activeId) return;
+    setIsCompacting(true);
+    try {
+      const res = await fetch(`/api/proxy/api/conversations/${activeId}/compact`, {
+        method: "POST",
+        headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
+      });
+      if (res.ok) {
+        const data = await res.json() as { status: string; estimated_tokens?: number };
+        if (data.status === "ok" && (data.estimated_tokens ?? 0) > 0) {
+          setContextTokens(data.estimated_tokens!);
+          setContextMenuOpen(false);
+          toast.success("Context compacted");
+        } else if (data.status === "skipped") {
+          toast.info("Nothing to compact — context is already small");
+        } else {
+          setContextMenuOpen(false);
+        }
+      } else {
+        toast.error("Compact failed");
+      }
+    } finally {
+      setIsCompacting(false);
+    }
+  }, [activeId]);
+
   const prevIsStreamingRef = useRef(false);
   useEffect(() => {
     if (prevIsStreamingRef.current && !isStreaming) {
@@ -881,6 +926,14 @@ export function ChatInterface() {
 
   const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
   const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
+
+  const userMessageCount = messages.filter((m) => m.role === "user").length;
+  const assistantMessageCount = messages.filter((m) => m.role === "assistant").length;
+  const _ctxPct = maxContextTokens ? Math.min(100, Math.round((contextTokens / maxContextTokens) * 100)) : 0;
+  const _ctxBarColor =
+    _ctxPct >= 85 ? "bg-red-500"
+    : _ctxPct >= 60 ? "bg-amber-500"
+    : "bg-evergreen/60";
 
   return (
     <>
@@ -1169,11 +1222,70 @@ export function ChatInterface() {
               {/* Right group: model, mic, send */}
               <div className="flex items-center gap-1.5">
 
-                {/* Context usage ring */}
-                <ContextRingIndicator
-                  contextTokens={contextTokens}
-                  maxContextTokens={maxContextTokens}
-                />
+                {/* Context usage ring + overlay */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setContextMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                    aria-label="Context window details"
+                  >
+                    <ContextRingIndicator
+                      contextTokens={contextTokens}
+                      maxContextTokens={maxContextTokens}
+                    />
+                  </button>
+
+                  {contextMenuOpen && maxContextTokens && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-60 z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">
+                          Context Window
+                        </p>
+
+                        {/* Usage bar + numbers */}
+                        <div className="px-3 pb-2">
+                          <div className="flex items-center justify-between text-xs text-evergreen mb-1">
+                            <span>{contextTokens.toLocaleString()} tokens</span>
+                            <span className="text-evergreen/50">{_ctxPct}%</span>
+                          </div>
+                          <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${_ctxBarColor}`}
+                              style={{ width: `${_ctxPct}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                        </div>
+
+                        <div className="border-t border-gray-100 my-1" />
+
+                        {/* Message counts */}
+                        <div className="px-3 py-1 space-y-0.5">
+                          <p className="text-[10px] font-semibold text-evergreen/40 uppercase tracking-wide mb-1">Messages</p>
+                          <CtxRow label="User" value={userMessageCount} />
+                          <CtxRow label="Assistant" value={assistantMessageCount} />
+                        </div>
+
+                        <div className="border-t border-gray-100 my-1" />
+
+                        {/* Compact button */}
+                        <div className="px-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isStreaming || isCompacting || !activeId || contextTokens === 0}
+                            onClick={handleCompactContext}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-evergreen rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Icon name="compress" size={16} className="text-evergreen/60" />
+                            {isCompacting ? "Compacting…" : "Compact Context"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Model selector */}
                 <div className="relative">

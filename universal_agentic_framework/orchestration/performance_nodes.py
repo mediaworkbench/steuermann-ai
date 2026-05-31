@@ -150,18 +150,16 @@ async def memory_cache_store_node(state: dict) -> dict:
     return state
 
 
-async def conversation_compression_node(state: dict) -> dict:
-    """Node for compressing conversations to manage token usage.
-    
-    Checks if conversation has grown too large and summarizes old messages.
-    
-    State keys used:
-        - messages: Conversation messages
-        - user_id: User identifier
-        - tokens_used: Current token count (output: updated after compression)
-    
+async def compress_state(state: dict, force: bool = False) -> dict:
+    """Core compression logic shared by the auto-compression graph node and the manual
+    /compact endpoint.
+
+    Args:
+        state: Graph state dict containing at least ``messages`` and ``user_id``.
+        force: When True, skip the should_summarize threshold check and always compress.
+
     Returns:
-        Updated state with optionally compressed messages
+        Updated state (may be unchanged if there is nothing to compress).
     """
     summarizer = get_summarizer()
 
@@ -169,46 +167,58 @@ async def conversation_compression_node(state: dict) -> dict:
         messages = state.get("messages", [])
         user_id = state.get("user_id", "unknown")
 
-        # Derive compression threshold from the chat role's max_tokens (75 % of context window).
-        # Fall back to a conservative 24576 (= 75 % of 32768) when config is unavailable.
-        try:
-            from universal_agentic_framework.config import load_core_config as _load_cfg
-            _cfg = _load_cfg()
-            _max_ctx = getattr(_cfg.llm.roles.chat, "max_tokens", None) or 32768
-        except Exception:
-            _max_ctx = 32768
-        compression_threshold = int(_max_ctx * 0.75)
+        if not force:
+            # Derive compression threshold from the chat role's max_tokens (75% of context window).
+            # Fall back to a conservative 24576 (= 75% of 32768) when config is unavailable.
+            try:
+                from universal_agentic_framework.config import load_core_config as _load_cfg
+                _cfg = _load_cfg()
+                _max_ctx = getattr(_cfg.llm.roles.chat, "max_tokens", None) or 32768
+            except Exception:
+                _max_ctx = 32768
+            compression_threshold = int(_max_ctx * 0.75)
 
-        # Check if summarization needed — rely on token count, not message count.
-        if not summarizer.should_summarize(messages, max_tokens=compression_threshold, min_messages=2):
-            return state
-        
-        logger.info(f"Compressing conversation for user {user_id}")
-        
-        # Compress conversation
+            if not summarizer.should_summarize(messages, max_tokens=compression_threshold, min_messages=2):
+                return state
+
+        logger.info(f"Compressing conversation for user {user_id} (force={force})")
+
         compressed = await summarizer.compress_conversation(messages, user_id)
-        
-        # Log savings
-        savings = summarizer.calculate_savings(len(messages), len(compressed))
-        logger.info(
-            f"Compression savings for {user_id}: "
-            f"removed {savings['messages_removed']} messages, "
-            f"saved ~{savings['estimated_tokens_saved']} tokens"
-        )
-        
-        state["messages"] = compressed
 
-        # Persist rolling digest metadata for downstream memory updates.
+        if len(compressed) < len(messages):
+            savings = summarizer.calculate_savings(len(messages), len(compressed))
+            logger.info(
+                f"Compression savings for {user_id}: "
+                f"removed {savings['messages_removed']} messages, "
+                f"saved ~{savings['estimated_tokens_saved']} tokens"
+            )
+        else:
+            logger.info(f"Compression skipped for {user_id}: too few messages to compress ({len(messages)} messages)")
+
+        state["messages"] = compressed
         state["digest_chain"] = summarizer.extract_digest_chain(compressed)
-        
-        # Update token count estimate
-        new_tokens = summarizer.calculate_conversation_tokens(compressed)
-        state["tokens_used"] = new_tokens
-        
+        state["tokens_used"] = summarizer.calculate_conversation_tokens(compressed)
+
     except Exception as e:
-        logger.warning(f"Compression node error: {e}")
-    
+        logger.warning(f"Compression error: {e}")
+
     return state
+
+
+async def conversation_compression_node(state: dict) -> dict:
+    """Node for compressing conversations to manage token usage.
+
+    Checks if conversation has grown too large and summarizes old messages.
+
+    State keys used:
+        - messages: Conversation messages
+        - user_id: User identifier
+        - tokens_used: Current token count (output: updated after compression)
+
+    Returns:
+        Updated state with optionally compressed messages
+    """
+    return await compress_state(state, force=False)
 
 
 async def cache_stats_node(state: dict) -> dict:
