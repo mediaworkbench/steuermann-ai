@@ -198,6 +198,23 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         ])
     )
 
+    # Map / geocoding: user wants to see a location or measure distance
+    mentions_map = bool(
+        re.search(r"\b(locate|karte)\b", user_msg_lower)
+        or any(k in user_msg_lower for k in [
+            # English
+            "where is", "where are", "map of", "show me the map",
+            "show on map", "find on map", "on the map",
+            "show me on", "put on the map",
+            "how far", "distance from", "distance between",
+            # German
+            "wo ist", "wo liegt", "wo befindet", "karte von",
+            "zeig mir", "zeige mir", "zeig auf der karte",
+            "zeig mir auf der karte", "zeig mir die karte",
+            "wie weit", "entfernung", "abstand zwischen",
+        ])
+    )
+
     # Meta-question detection: skip tool execution for questions about available tools
     asks_about_tools = any(
         keyword in user_msg_lower
@@ -261,6 +278,7 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_chart": mentions_chart,
         "mentions_image_metadata": mentions_image_metadata,
         "mentions_barcode": mentions_barcode,
+        "mentions_map": mentions_map,
         "asks_about_tools": asks_about_tools,
         "wants_save_to_rag": wants_save_to_rag,
         "enhanced_web_query": enhanced_web_query,

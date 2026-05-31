@@ -8,6 +8,8 @@ import { Icon } from "./Icon";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { ReasoningBox } from "./ReasoningBox";
+import dynamic from "next/dynamic";
+const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
@@ -49,6 +51,7 @@ const FALLBACK_TOOLS = [
   { id: "read_barcodes_tool", label: "Read Barcodes" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
+  { id: "map_tool", label: "Map" },
   { id: "file_ops_tool", label: "File Ops" },
 ] as const;
 
@@ -479,6 +482,7 @@ export function ChatInterface() {
                 memories_used: finalMetadata.memories_used,
                 rag_attempted: finalMetadata.rag_attempted,
                 rag_doc_count: finalMetadata.rag_doc_count,
+                map_data: finalMetadata.map_data,
               }
             : undefined,
         },
@@ -1330,6 +1334,13 @@ function AssistantMessage({
         <div className="text-evergreen text-base leading-relaxed px-1">
           <MarkdownMessage content={message.content} sources={message.metrics?.sources} />
         </div>
+
+        {/* Map widget — rendered when map_tool was used */}
+        {message.metrics?.map_data && (
+          <div className="mt-2 px-1 w-full">
+            <MapWidget data={message.metrics.map_data} />
+          </div>
+        )}
 
         {/* Source badges — only show RAG sources when docs were actually injected */}
         <SourceBadges

@@ -37,6 +37,7 @@ const FALLBACK_TOOLS = [
   { id: "read_barcodes_tool", label: "Read Barcodes" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
+  { id: "map_tool", label: "Map" },
   { id: "file_ops_tool", label: "File Ops" },
 ];
 

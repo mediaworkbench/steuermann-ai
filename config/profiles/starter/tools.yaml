@@ -14,6 +14,10 @@ tools:
     path: universal_agentic_framework/tools/calculator
     enabled: true
 
+  - name: map_tool
+    path: universal_agentic_framework/tools/map
+    enabled: true
+
   - name: file_ops_tool
     path: universal_agentic_framework/tools/file_ops
     enabled: true

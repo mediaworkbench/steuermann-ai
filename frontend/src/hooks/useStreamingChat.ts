@@ -52,6 +52,7 @@ function buildMetadataFromSSE(parsed: Record<string, unknown>): ChatResponse["me
     rag_doc_count: parsed.rag_doc_count as number | undefined,
     memories_used: parsed.loaded_memory as ChatResponse["metadata"]["memories_used"],
     workspace_document_writeback: null,
+    map_data: parsed.map_data as ChatResponse["metadata"]["map_data"],
   };
 }
 

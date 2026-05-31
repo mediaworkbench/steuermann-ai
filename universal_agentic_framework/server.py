@@ -388,6 +388,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _done_emitted = False
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
+        _captured_map_data = None  # populated from tool-call node output, not respond node
         _in_thinking = False   # currently inside a <think> block
         _close_tag = ""        # matching close tag for the current block
         _pending_buf = ""      # guards against tags split across chunk boundaries
@@ -571,6 +572,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     # Emit metadata + [DONE] immediately after the respond
                                     # node so the client can render pills without waiting
                                     # for summarize + update_memory (~43 s).
+                                    _map_data = _captured_map_data
                                     meta_payload = {
                                         "tokens_used": _final_output.get("tokens_used", 0),
                                         "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
@@ -585,6 +587,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "loaded_memory": _final_output.get("loaded_memory", []),
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
+                                        "map_data": _map_data,
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -603,6 +606,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 tool_names = list(tool_results.keys())
                                 t_name = tool_names[0] if tool_names else name
                                 yield f"event: tool_call\ndata: {json.dumps({'name': t_name, 'status': 'end', 'label': _tool_label(t_name)})}\n\n"
+                                _tool_exec = output.get("tool_execution_results") or {}
+                                if "map_tool" in _tool_exec:
+                                    _captured_map_data = _tool_exec["map_tool"].get("data")
 
                 ctx["status"] = "success"
 
@@ -619,6 +625,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                 elif _pending_buf:
                     yield f"event: token\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
                     _pending_buf = ""
+                _map_data = _captured_map_data
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
                     "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
@@ -633,6 +640,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "loaded_memory": _final_output.get("loaded_memory", []),
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
+                    "map_data": _map_data,
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

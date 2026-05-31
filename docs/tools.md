@@ -24,6 +24,7 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | --- | --- | --- | --- |
 | `calculator_tool` | Utility | No | Yes — math expressions, `berechne`, `calculate`, `sqrt(...)` |
 | `datetime_tool` | Utility | No | Yes — date/time patterns, `heute`, `time`, `date` |
+| `map_tool` | Utility | No | Yes — "where is", "map of", "how far", "distance between", "locate" |
 | `file_ops_tool` | Utility | No | No |
 | `web_search_mcp` | Network (MCP) | No | No direct boost — URL detection boosts content extraction routing |
 | `analyze_image_tool` | Vision | **Yes** | Yes — image URL (`.jpg/.png/.gif/.webp`) in message or image attachment in state |
@@ -75,6 +76,28 @@ Returns the current date and time, optionally in a specified timezone.
 **Intent boost triggers:** `today`, `heute`, `what time`, `what day`, `current date`, `now`, `jetzt`, `uhrzeit`, `datum`.
 
 **Configuration key:** `default_timezone` in `config/profiles/<profile_id>/core.yaml` (defaults to `UTC` if not set).
+
+---
+
+### `map_tool`
+
+Geocodes locations and measures straight-line distances using [Nominatim](https://nominatim.openstreetmap.org/) (OpenStreetMap) — free, no API key required. Results are displayed as an interactive map widget in the chat (MapLibre GL JS + [OpenFreeMap](https://openfreemap.org/) tiles, also free). Clicking the widget opens a full-resolution OpenStreetMap view in a new tab.
+
+**Operations:**
+
+| Operation | Description | Example trigger |
+| --- | --- | --- |
+| `locate` | Geocode a city, country, region, or continent; auto-zoom from bounding box | "Where is Berlin?", "Show me the map of Europe" |
+| `distance` | Haversine straight-line distance between two places; two-pin map with dashed line | "How far is London from Madrid?" |
+| `multi` | Multiple pins on one map with `fitBounds` | "Show me Berlin, Paris, and Rome" |
+
+**Auto-zoom logic:** Zoom level is derived from the Nominatim bounding box — city → 12, metro area → 10, country → 6, continent → 4. A marker pin is omitted for zoom ≤ 5 (continent and world views have no meaningful single point).
+
+**Returns:** A JSON string with structured fields (`type`, `lat`, `lon`, `zoom`, `osm_url`, `summary`, and operation-specific extras). The `summary` field contains a human-readable sentence for the LLM; coordinates are consumed by the `MapWidget` frontend component.
+
+**Intent boost triggers:** "where is", "where are", "map of", "show me the map", "how far", "distance from", "distance between", "locate", "wo ist", "wo liegt", "karte von", "wie weit", "entfernung".
+
+**No configuration required** — Nominatim is a public endpoint (rate-limit: 1 req/s; acceptable for AI chat). No API keys, no Docker service.
 
 ---
 

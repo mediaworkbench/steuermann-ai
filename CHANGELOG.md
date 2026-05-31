@@ -2,6 +2,16 @@
 
 ## [0.3.6] — docs-tools-frontend
 
+### Map Tool
+
+- **feat** `map_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/map/`; three operations: `locate` (geocode a city, country, region, or continent), `distance` (straight-line Haversine distance between two places), `multi` (multiple pins on one map); Nominatim (OpenStreetMap) geocoder — free, no API key, `User-Agent: steuermann-ai/1.0` required per OSM policy; auto-zoom derived from Nominatim bounding box (city→12, country→6, continent→4); returns structured JSON with a `summary` field for LLM prose and coordinates for the frontend widget
+- **feat** `map_data` field added to both SSE `metadata` event payloads in `server.py`; extracted from `tool_execution_results["map_tool"].data` so the full structured map payload reaches the frontend alongside the text stream
+- **feat** `MapWidget` React component (`frontend/src/components/MapWidget.tsx`) renders inline in the chat below the assistant's text; MapLibre GL JS + OpenFreeMap tiles (free, no key, no account); `locate` shows a single pin (omitted for continent/world zoom ≤ 5), `distance` shows two pins + dashed indigo line + distance badge overlay, `multi` shows all pins with `fitBounds`; clicking "Open full map ↗" opens OpenStreetMap in a new tab
+- **feat** `mentions_map` intent flag added to `detect_tool_routing_intents()` with intent boost (+0.2) for "where is", "where are", "map of", "show me the map", "how far", "distance from/between", "locate", and German equivalents; all trigger `map_tool` routing without requiring an explicit "show on map" phrase
+- **feat** `MapData` / `MapLocation` TypeScript interfaces added to `frontend/src/lib/types.ts`; `map_data` field added to `MessageMetrics` and `ChatResponse["metadata"]`; `buildMetadataFromSSE` in `useStreamingChat.ts` extracts `map_data` from the SSE metadata event
+- **feat** `map_tool` added to `FALLBACK_TOOLS` in `ChatInterface.tsx` and `SettingsPanel.tsx`, and to the fallback `available_tools` list in `backend/routers/settings.py`; per-session toggle and settings-page enable/disable work without additional UI code
+- **deps** `maplibre-gl ^4.7.1` added to frontend dependencies; pinned to v4 — v5 introduced stricter null-checking in expression evaluation that is incompatible with OpenFreeMap's current `liberty` style format
+
 ### CLI & Docs
 
 - **fix** `steuermann config validate` (no `--profile`) always exited 1 because `"base"` was included in the default profile list; `get_active_profile_id` rejects `"base"` as a runtime profile, which was surfaced as a validation error — removed `"base"` from the list; passing `--profile base` explicitly now returns a clean error message

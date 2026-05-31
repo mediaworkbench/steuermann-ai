@@ -1,0 +1,18 @@
+name: "map_tool"
+version: "1.0.0"
+category: "utilities"
+description: "Geocode locations and measure distances using OpenStreetMap"
+
+descriptions:
+  en: "Show a location, region, or country on an interactive map, or measure the straight-line distance between two places. Use when the user asks: where is [city/place/country], show me [location], show me the map of [region/continent], map of Europe, where is Berlin, locate [place], how far is [A] from [B], distance between [A] and [B], how many kilometers from [A] to [B], show me Berlin and Paris and Rome. Geocodes cities, countries, continents, landmarks using OpenStreetMap and displays them with an interactive map. Always use this tool when the user wants to see a location visually."
+  de: "Einen Ort, eine Region oder ein Land auf einer interaktiven Karte anzeigen oder die Luftlinien-Entfernung zwischen zwei Orten berechnen. Verwenden wenn der Nutzer fragt: wo ist [Stadt/Ort/Land], zeig mir [Ort] auf der Karte, Karte von Europa, wo liegt Berlin, wie weit ist [A] von [B], Entfernung zwischen [A] und [B], wie viele Kilometer von [A] nach [B], zeig mir Berlin und Paris und Rom auf der Karte."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.map.tool:MapTool"
+
+dependencies: []
+
+permissions:
+  - "network:outbound"
+
+cost_per_call: 0.0

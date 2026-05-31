@@ -456,6 +456,8 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                     intents.get("image_in_query") or image_attachment_present
                 ) and intents.get("mentions_barcode"):
                     similarity += intent_boost
+                elif tool_name == "map_tool" and intents.get("mentions_map"):
+                    similarity += intent_boost
 
                 # Hard intent override: when user explicitly asks for web search,
                 # keep web_search_mcp above both threshold gates so Layer 2 can decide.
@@ -469,6 +471,27 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                             "Applying web-search intent override",
                             original_similarity=round(similarity, 4),
                             forced_similarity=round(forced_floor, 4),
+                        )
+                        similarity = forced_floor
+
+                # Hard intent override for map_tool: location queries are often
+                # phrased naturally ("show me Berlin", "Zeig mir Berlin") without
+                # explicit trigger words, so also apply the floor when the raw
+                # semantic similarity is high enough to indicate a clear match.
+                if tool_name == "map_tool" and (
+                    intents.get("mentions_map") or similarity >= 0.60
+                ):
+                    min_top_score_cfg = getattr(
+                        getattr(config, "tool_routing", None), "min_top_score", 0.7
+                    )
+                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
+                    if similarity < forced_floor:
+                        logger.info(
+                            "Applying map intent override",
+                            original_similarity=round(similarity, 4),
+                            forced_similarity=round(forced_floor, 4),
+                            via_intent=bool(intents.get("mentions_map")),
+                            via_similarity=similarity >= 0.60,
                         )
                         similarity = forced_floor
 

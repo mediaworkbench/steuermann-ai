@@ -110,17 +110,13 @@ describe("useStreamingChat", () => {
 
     const { result } = renderHook(() => useStreamingChat());
 
-    let capturedNodeStatus: string | null = null;
-
     await act(async () => {
       const promise = result.current.sendMessage(defaultParams);
-      // Allow a tick for the node event to be processed
       await new Promise((r) => setTimeout(r, 0));
-      capturedNodeStatus = result.current.nodeStatus;
       await promise;
     });
 
-    // After completion, nodeStatus is cleared
+    // nodeStatus is cleared after the metadata event
     expect(result.current.nodeStatus).toBeNull();
   });
 
@@ -191,12 +187,9 @@ describe("useStreamingChat", () => {
 
   it("sets wasCancelled=true when cancel() is called", async () => {
     // Slow stream — the AbortController is triggered before it finishes
-    const encoder = new TextEncoder();
-    let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
-      start(c) {
-        controller = c;
-        // Don't close immediately — we'll abort
+      start() {
+        // Don't close immediately — we'll abort via cancel()
       },
     });
     global.fetch = jest.fn().mockResolvedValue({
