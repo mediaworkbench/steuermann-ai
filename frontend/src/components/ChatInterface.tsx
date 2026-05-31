@@ -319,12 +319,14 @@ export function ChatInterface() {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
+  const plopAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const {
     streamingContent,
@@ -499,6 +501,10 @@ export function ChatInterface() {
       }
       resetStream();
 
+      if (soundEnabled) {
+        plopAudioRef.current?.play().catch(() => {});
+      }
+
       // After streaming, fetch the conversation to get DB message IDs so that
       // feedback (thumbs up/down) can be persisted. _run_persistence on the
       // backend completes before [DONE] is emitted, so the rows are ready.
@@ -525,8 +531,7 @@ export function ChatInterface() {
         });
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStreaming]);
+  }, [isStreaming, soundEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update context token count — use high-water mark so the ring never goes backwards.
   // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
@@ -559,7 +564,13 @@ export function ChatInterface() {
   // Cancel any in-flight stream on unmount
   useEffect(() => () => cancelStream(), [cancelStream]);
 
-  // Load user settings on mount: RAG config, tool toggles, chat model
+  // Preload plop audio on mount
+  useEffect(() => {
+    plopAudioRef.current = new Audio("/plop.mp3");
+    plopAudioRef.current.load();
+  }, []);
+
+  // Load user settings on mount: RAG config, tool toggles, chat model, sound
   useEffect(() => {
     fetchUserSettings(CURRENT_USER_ID).then((s) => {
       if (!s) return;
@@ -570,6 +581,8 @@ export function ChatInterface() {
       const model = s.preferred_models?.chat ?? s.preferred_model ?? null;
       setChatModel(model);
       preferredModelsRef.current = s.preferred_models ?? {};
+      const prefs = s.analytics_preferences as Record<string, unknown> | undefined;
+      setSoundEnabled((prefs?.sound_enabled as boolean) ?? true);
     }).catch(() => {});
   }, []);
 

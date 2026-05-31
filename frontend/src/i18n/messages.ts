@@ -164,6 +164,9 @@ export type Messages = {
     capabilityProbeStatus: string;
     capabilityReason: string;
     capabilityProbedAt: string;
+    soundSection: string;
+    soundEnabled: string;
+    soundEnabledDescription: string;
   };
   chat: {
     noMessagesYet: string;
@@ -613,6 +616,9 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe Status",
       capabilityReason: "Reason",
       capabilityProbedAt: "Probed At",
+      soundSection: "Interface Sounds",
+      soundEnabled: "Enable interface sounds",
+      soundEnabledDescription: "Play a sound notification when the assistant replies",
     },
     chat: {
       noMessagesYet: "No messages yet",
@@ -1060,6 +1066,9 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe-Status",
       capabilityReason: "Grund",
       capabilityProbedAt: "Gepruft am",
+      soundSection: "Schnittstellentöne",
+      soundEnabled: "Schnittstellentöne aktivieren",
+      soundEnabledDescription: "Einen Ton abspielen, wenn der Assistent antwortet",
     },
     chat: {
       noMessagesYet: "Noch keine Nachrichten",

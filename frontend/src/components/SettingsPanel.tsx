@@ -52,6 +52,9 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   );
   const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(settings?.preferred_models || {});
   const [language, setLanguage] = useState(settings?.language || "en");
+  const [analyticsPreferences, setAnalyticsPreferences] = useState<Record<string, unknown>>(
+    settings?.analytics_preferences || {}
+  );
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [reingesting, setReingesting] = useState(false);
@@ -76,6 +79,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       setRagConfig(settings.rag_config && settings.rag_config.collection ? settings.rag_config : ragDefault);
       setPreferredModels(settings.preferred_models || {});
       setLanguage(settings.language || "en");
+      setAnalyticsPreferences(settings.analytics_preferences || {});
     }
   }, [settings, systemConfig]);
 
@@ -216,6 +220,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         preferred_model: preferredModels.chat || null,
         preferred_models: preferredModels,
         language,
+        analytics_preferences: analyticsPreferences,
       });
       if (success) {
         setSaveMessage(`✓ ${t("settingsPanel.settingsSaved")}`);
@@ -228,7 +233,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     } finally {
       setSaving(false);
     }
-  }, [toolToggles, ragConfig, preferredModels, language, onSave, t]);
+  }, [toolToggles, ragConfig, preferredModels, language, analyticsPreferences, onSave, t]);
 
   const handleReingestAll = useCallback(async () => {
     setReingesting(true);
@@ -289,6 +294,25 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Sound Section */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.soundSection")}</h3>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
+            onChange={(e) =>
+              setAnalyticsPreferences((prev) => ({ ...prev, sound_enabled: e.target.checked }))
+            }
+            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="flex flex-col">
+            <span className="text-sm font-medium text-gray-700">{t("settingsPanel.soundEnabled")}</span>
+            <span className="text-xs text-gray-500 mt-0.5">{t("settingsPanel.soundEnabledDescription")}</span>
+          </span>
+        </label>
       </div>
 
         {/* Tool Toggles Section */}
