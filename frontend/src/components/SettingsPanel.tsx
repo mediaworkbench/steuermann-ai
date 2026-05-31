@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
@@ -55,6 +56,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [reingesting, setReingesting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [confirmReingest, setConfirmReingest] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<LLMCapabilityItem[]>([]);
@@ -228,11 +231,6 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   }, [toolToggles, ragConfig, preferredModels, language, onSave, t]);
 
   const handleReingestAll = useCallback(async () => {
-    const confirmed = window.confirm(t("settingsPanel.confirmReingestAll"));
-    if (!confirmed) {
-      return;
-    }
-
     setReingesting(true);
     try {
       const result = await triggerReingestAllDocuments();
@@ -251,10 +249,6 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   }, [t]);
 
   const handleResetAllDatabases = useCallback(async () => {
-    const input = window.prompt(t("settingsPanel.confirmReset"));
-    if (input?.trim().toUpperCase() !== "RESET") {
-      return;
-    }
     setResetting(true);
     try {
       const result = await resetAllDatabases();
@@ -389,7 +383,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <p className="text-sm text-gray-600 mb-3">{t("settingsPanel.reingestDescription")}</p>
           <button
             type="button"
-            onClick={handleReingestAll}
+            onClick={() => setConfirmReingest(true)}
             disabled={reingesting}
             className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
           >
@@ -402,7 +396,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <p className="text-sm text-gray-600 mb-3">{t("settingsPanel.resetDescription")}</p>
           <button
             type="button"
-            onClick={handleResetAllDatabases}
+            onClick={() => setConfirmReset(true)}
             disabled={resetting}
             className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
           >
@@ -644,6 +638,33 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <p>{t("settingsPage.lastUpdated", { value: formatDateTime(settings.updated_at) })}</p>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmReingest}
+        title={t("settingsPanel.reingestSectionTitle")}
+        message={t("settingsPanel.confirmReingestAll")}
+        variant="default"
+        onConfirm={() => {
+          setConfirmReingest(false);
+          handleReingestAll();
+        }}
+        onCancel={() => setConfirmReingest(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmReset}
+        title={t("settingsPanel.resetSectionTitle")}
+        message={t("settingsPanel.resetDescription")}
+        variant="danger"
+        requireChecked={true}
+        checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
+        confirmLabel={t("settingsPanel.resetAllDatabases")}
+        onConfirm={() => {
+          setConfirmReset(false);
+          handleResetAllDatabases();
+        }}
+        onCancel={() => setConfirmReset(false)}
+      />
     </div>
   );
 }

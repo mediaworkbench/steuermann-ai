@@ -10,6 +10,13 @@ export type Messages = {
     export: string;
     refresh: string;
     error: string;
+    confirm: string;
+    delete: string;
+  };
+  confirmDialog: {
+    typeToConfirmLabel: string;
+    typeToConfirmPlaceholder: string;
+    resetCheckboxLabel: string;
   };
   header: {
     metrics: string;
@@ -451,6 +458,13 @@ export const messages: Record<Locale, Messages> = {
       export: "Export",
       refresh: "Refresh",
       error: "Error",
+      confirm: "Confirm",
+      delete: "Delete",
+    },
+    confirmDialog: {
+      typeToConfirmLabel: "Type {word} to confirm",
+      typeToConfirmPlaceholder: "Type here...",
+      resetCheckboxLabel: "I understand this will permanently delete all data",
     },
     header: {
       metrics: "Metrics",
@@ -891,6 +905,13 @@ export const messages: Record<Locale, Messages> = {
       export: "Exportieren",
       refresh: "Aktualisieren",
       error: "Fehler",
+      confirm: "Bestätigen",
+      delete: "Löschen",
+    },
+    confirmDialog: {
+      typeToConfirmLabel: "Gib {word} ein um zu bestätigen",
+      typeToConfirmPlaceholder: "Hier eingeben...",
+      resetCheckboxLabel: "Ich verstehe, dass alle Daten dauerhaft gelöscht werden",
     },
     header: {
       metrics: "Metrik",

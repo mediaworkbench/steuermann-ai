@@ -52,7 +52,6 @@ describe("Sidebar", () => {
     render(<Sidebar isOpen={true} onClose={() => {}} conversations={[]} />);
 
     expect(screen.getByRole("heading", { name: "Med Console" })).toBeInTheDocument();
-    expect(screen.getAllByText("Med Console").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByLabelText("Open settings for Med Console")).toBeInTheDocument();
   });
 

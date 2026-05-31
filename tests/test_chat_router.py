@@ -341,6 +341,7 @@ def test_chat_forwards_attachment_context(client) -> None:
         "workspace_document_writeback": None,
         "profile_id": "safety",
         "input_tokens": 5,
+        "output_tokens": 7,
         "sources": [],
         "rag_attempted": False,
         "rag_doc_count": 0,
