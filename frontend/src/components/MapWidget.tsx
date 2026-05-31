@@ -9,6 +9,10 @@ import type { MapData } from "@/lib/types";
 const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SHOW_PIN_THRESHOLD = 5; // skip marker for zoom ≤ this (continent/world view)
 
+// Module-level cache so repeated mounts (multiple map results in history) share
+// one fetch instead of re-requesting the style JSON each time.
+let cachedStyle: Record<string, unknown> | null = null;
+
 // MapLibre v4.x throws when a numeric comparison operator receives null from a
 // tile feature property. Wrap bare `["get", "prop"]` expressions inside ordered
 // comparisons with `["coalesce", ["get", "prop"], 0]` so null falls through as 0.
@@ -64,23 +68,26 @@ export function MapWidget({ data }: Props) {
         //    features whose properties are null don't throw "Expected value to be
         //    of type number, but found null instead" in the tile-parsing worker.
         //    MapLibre v3.x silently coerced nulls; v4.x is strict.
-        const styleResp = await fetch(OPENFREEMAP_STYLE);
-        const styleJson = await styleResp.json();
-        delete styleJson.terrain;
-        if (styleJson.sources) {
-          for (const key of Object.keys(styleJson.sources)) {
-            if (styleJson.sources[key].type === "raster-dem") {
-              delete styleJson.sources[key];
+        if (!cachedStyle) {
+          const styleResp = await fetch(OPENFREEMAP_STYLE);
+          const styleJson = await styleResp.json();
+          delete styleJson.terrain;
+          if (styleJson.sources) {
+            for (const key of Object.keys(styleJson.sources)) {
+              if (styleJson.sources[key].type === "raster-dem") {
+                delete styleJson.sources[key];
+              }
             }
           }
-        }
-        if (styleJson.layers) {
-          styleJson.layers = styleJson.layers.map(
-            (layer: { filter?: unknown }) =>
-              layer.filter
-                ? { ...layer, filter: nullSafeFilter(layer.filter) }
-                : layer
-          );
+          if (styleJson.layers) {
+            styleJson.layers = styleJson.layers.map(
+              (layer: { filter?: unknown }) =>
+                layer.filter
+                  ? { ...layer, filter: nullSafeFilter(layer.filter) }
+                  : layer
+            );
+          }
+          cachedStyle = styleJson;
         }
 
         // Check again — component may have unmounted during the style fetch.
@@ -88,7 +95,7 @@ export function MapWidget({ data }: Props) {
 
         mapInstance = new maplibregl.Map({
           container: containerRef.current,
-          style: styleJson,
+          style: cachedStyle,
           center,
           zoom: data.zoom,
           scrollZoom: false,
@@ -104,6 +111,19 @@ export function MapWidget({ data }: Props) {
           new maplibregl.AttributionControl({ compact: true }),
           "bottom-right"
         );
+
+        // Provide a transparent 1×1 placeholder for any missing sprite image so
+        // the tile pipeline never stalls. Triggered e.g. by "road_" when a road
+        // feature has null ref_length (["concat","road_",["get","ref_length"]]).
+        mapInstance.on("styleimagemissing", (e: { id: string }) => {
+          if (!mapInstance?.hasImage(e.id)) {
+            mapInstance?.addImage(e.id, {
+              width: 1,
+              height: 1,
+              data: new Uint8Array(4),
+            });
+          }
+        });
 
         mapInstance.on("load", () => {
           if (cancelled || !mapInstance) return;
@@ -190,7 +210,8 @@ export function MapWidget({ data }: Props) {
         });
       } catch {
         // Style fetch or MapLibre init failed — container stays blank.
-        // Nothing to clean up since mapInstance was never assigned.
+        mapInstance?.remove();
+        mapInstance = null;
       }
     })();
 
@@ -202,14 +223,14 @@ export function MapWidget({ data }: Props) {
 
   return (
     <div
-      className="relative w-full max-w-sm overflow-hidden rounded-lg border border-border shadow-sm"
+      className="relative w-full max-w-sm rounded-lg border border-border shadow-sm"
       style={{ height: "192px" }}
     >
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <div ref={containerRef} className="rounded-lg overflow-hidden" style={{ width: "100%", height: "100%" }} />
 
       {data.type === "distance" && data.distance_km != null && (
         <div className="absolute bottom-6 left-2 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
-          {data.distance_km} km · {data.distance_miles} mi
+          {data.distance_km} km · {data.distance_miles ?? "?"} mi
         </div>
       )}
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.7] — workspace-attachment-ux
+
+### Workspace Sidebar — Image Lightbox & Document UX
+
+- **feat** Image thumbnails in the workspace sidebar now open a full-screen lightbox on click (previously inserted a text reference); lightbox overlays at `z-50` with a dark backdrop, close button, and filename label; Escape key closes via `document.addEventListener`
+- **feat** Full-size image loaded in the lightbox via the existing `/api/workspace/documents/{id}/download` endpoint; thumbnail in the card continues to use the `/thumbnail` endpoint
+- **remove** "Reference" button removed from all document expanded-action rows (previously removed for images only in v0.3.5; now removed for text documents too); `handleInsertLiveRefCommand` and the `onInsertCommand` prop deleted from `WorkspaceSidebar`
+- **fix** "Attach" button now always visible in expanded document actions regardless of whether an active conversation exists; previously gated on `{conversationId && ...}` making it invisible in blank-state; clicking Attach with no active conversation calls `onEnsureConversation()` (new prop, wired to `ensureConversation()` in `ChatInterface`) to create a conversation on the fly — same pattern as uploading a chat attachment
+
+### Chat Composer — Attachment Pills
+
+- **change** Attachment pills no longer toggle include/exclude state; clicking the pill body inserts `"filename" (id: <id>)` at the textarea cursor instead; insertion reads `el.value` directly (not stale `input` state) and repositions the cursor via `requestAnimationFrame`
+- **remove** `selectedAttachmentIds` state and `toggleAttachmentSelection` removed from `ChatInterface`; all active attachments are always sent in the message payload (`attachments.map(a => a.id)`)
+- **remove** "N attachments selected" count hint below the composer removed
+- **remove** `selectActiveAttachmentIds` import removed (unused after selection state removal)
+- **i18n** `chat.includeInNextMessage` and `chat.excludeFromNextMessage` keys removed (EN + DE + type); `chat.insertReference` added; `workspace.thumbnailClickHint` updated to "Click to preview" / "Klicken zum Vergrößern"
+
+### MapWidget — MapLibre v4.x Compatibility
+
+- **fix** Eliminated "Expected value to be of type number, but found null instead" console errors from the MapLibre web worker; root cause: MapLibre v4.x became strict about null values in ordered comparison operators (`>=`, `<=`, `>`, `<`) where v3.x silently treated null as non-matching; the positron style's `boundary_3` layer and others use expressions like `[">=", ["get", "admin_level"], 3]` — features with `null` `admin_level` caused the worker to throw on every tile load
+- **feat** `nullSafeFilter(expr)` helper added to `MapWidget.tsx`; recursively walks style filter expression trees and rewrites any `[op, ["get", "prop"], number]` pattern to `[op, ["coalesce", ["get", "prop"], 0], number]`; applied to all style layers after fetching the positron style JSON before passing to `new maplibregl.Map()`; map rendering is unchanged, only null feature properties are now handled gracefully
+
+---
+
 ## [0.3.6] — docs-tools-frontend
 
 ### Map Tool
