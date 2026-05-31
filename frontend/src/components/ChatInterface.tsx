@@ -320,6 +320,7 @@ export function ChatInterface() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -504,6 +505,9 @@ export function ChatInterface() {
       if (soundEnabled) {
         plopAudioRef.current?.play().catch(() => {});
       }
+      if (document.hidden || !document.hasFocus()) {
+        setHasNewMessage(true);
+      }
 
       // After streaming, fetch the conversation to get DB message IDs so that
       // feedback (thumbs up/down) can be persisted. _run_persistence on the
@@ -568,6 +572,23 @@ export function ChatInterface() {
   useEffect(() => {
     plopAudioRef.current = new Audio("/plop.mp3");
     plopAudioRef.current.load();
+  }, []);
+
+  // Tab title badge: prefix with • when a new message arrives while the tab is hidden
+  useEffect(() => {
+    const BASE = "Steuermann";
+    document.title = hasNewMessage ? `🔴 ${BASE}` : BASE;
+  }, [hasNewMessage]);
+
+  // Clear the badge whenever the tab becomes visible or regains focus
+  useEffect(() => {
+    const clear = () => { if (!document.hidden) setHasNewMessage(false); };
+    document.addEventListener("visibilitychange", clear);
+    window.addEventListener("focus", clear);
+    return () => {
+      document.removeEventListener("visibilitychange", clear);
+      window.removeEventListener("focus", clear);
+    };
   }, []);
 
   // Load user settings on mount: RAG config, tool toggles, chat model, sound
