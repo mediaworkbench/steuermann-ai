@@ -27,7 +27,6 @@ import {
   uploadConversationAttachment,
 } from "@/lib/api";
 import type { SystemConfig } from "@/lib/api";
-import { selectActiveAttachmentIds } from "@/lib/attachments";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
@@ -304,7 +303,6 @@ export function ChatInterface() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
-  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
@@ -387,7 +385,6 @@ export function ChatInterface() {
     if (!activeId) {
       setMessages([]);
       setAttachments([]);
-      setSelectedAttachmentIds([]);
       setWorkspaceSidebarOpen(false);
       setContextTokens(0);
       return;
@@ -422,7 +419,6 @@ export function ChatInterface() {
   useEffect(() => {
     if (!activeId) {
       setAttachments([]);
-      setSelectedAttachmentIds([]);
       return;
     }
     let cancelled = false;
@@ -430,10 +426,6 @@ export function ChatInterface() {
       const data = await fetchConversationAttachments(activeId);
       if (cancelled) return;
       setAttachments(data);
-      // Auto-select all active attachments for this conversation.
-      // Any previously selected ID no longer in the list (deleted/expired) is
-      // naturally dropped because we derive the new selection from `data`.
-      setSelectedAttachmentIds(selectActiveAttachmentIds(data));
     })();
     return () => {
       cancelled = true;
@@ -709,7 +701,7 @@ export function ChatInterface() {
         message: userMessage,
         userId: CURRENT_USER_ID,
         conversationId: convId,
-        attachmentIds: selectedAttachmentIds,
+        attachmentIds: attachments.map((a) => a.id),
         documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
         ragEnabled,
       });
@@ -733,7 +725,7 @@ export function ChatInterface() {
       refresh,
       rename,
       activeConversation?.title,
-      selectedAttachmentIds,
+      attachments,
       activeWorkspaceDocId,
       ragEnabled,
       startStream,
@@ -757,7 +749,6 @@ export function ChatInterface() {
         if (!uploaded) throw new Error(t("chat.attachmentUploadFailed"));
 
         setAttachments((prev) => [...prev, uploaded]);
-        setSelectedAttachmentIds((prev) => (prev.includes(uploaded.id) ? prev : [...prev, uploaded.id]));
         setWorkspaceSidebarOpen(true);
         fetchWorkspaceDocuments();
         refresh();
@@ -783,18 +774,23 @@ export function ChatInterface() {
       }
 
       setAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
-      setSelectedAttachmentIds((prev) => prev.filter((id) => id !== attachmentId));
       toast.success(t("chat.attachmentRemoved"), { description: target?.original_name || attachmentId });
     },
     [activeId, attachments, t],
   );
 
-  const toggleAttachmentSelection = useCallback((attachmentId: string) => {
-    setSelectedAttachmentIds((prev) =>
-      prev.includes(attachmentId)
-        ? prev.filter((id) => id !== attachmentId)
-        : [...prev, attachmentId],
-    );
+  const handleAttachmentPillClick = useCallback((attachment: ConversationAttachment) => {
+    const ref = `"${attachment.original_name}" (id: ${attachment.id})`;
+    const el = textareaRef.current;
+    if (!el) { setInput((prev) => prev + ref); return; }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + ref + el.value.slice(end);
+    setInput(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + ref.length, start + ref.length);
+    });
   }, []);
 
   async function handleSend() {
@@ -1021,38 +1017,31 @@ export function ChatInterface() {
           {/* Attachment chips */}
           {(attachments.length > 0 || uploadingAttachment) && (
             <div className="flex flex-wrap gap-2 mb-3 px-1">
-              {attachments.map((attachment) => {
-                const selected = selectedAttachmentIds.includes(attachment.id);
-                return (
-                  <div
-                    key={attachment.id}
-                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                      selected
-                        ? "bg-light-cyan/30 border-pacific-blue/30 text-evergreen"
-                        : "bg-white border-gray-300 text-evergreen/55"
-                    }`}
+              {attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors bg-light-cyan/20 border-pacific-blue/25 text-evergreen"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleAttachmentPillClick(attachment)}
+                    className="inline-flex items-center gap-1 cursor-pointer"
+                    title={t("chat.insertReference")}
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleAttachmentSelection(attachment.id)}
-                      className="inline-flex items-center gap-1 cursor-pointer"
-                      title={selected ? t("chat.excludeFromNextMessage") : t("chat.includeInNextMessage")}
-                    >
-                      <Icon name="description" size={14} className={selected ? "text-pacific-blue" : "text-evergreen/40"} />
-                      <span className="font-medium">{attachment.original_name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAttachmentDelete(attachment.id)}
-                      className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
-                      aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
-                      title={t("chat.deleteAttachment")}
-                    >
-                      <Icon name="close" size={14} className="text-evergreen/45" />
-                    </button>
-                  </div>
-                );
-              })}
+                    <Icon name="description" size={14} className="text-pacific-blue" />
+                    <span className="font-medium">{attachment.original_name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAttachmentDelete(attachment.id)}
+                    className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
+                    aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
+                    title={t("chat.deleteAttachment")}
+                  >
+                    <Icon name="close" size={14} className="text-evergreen/45" />
+                  </button>
+                </div>
+              ))}
               {uploadingAttachment && (
                 <div className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs text-evergreen/55">
                   <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
@@ -1253,15 +1242,6 @@ export function ChatInterface() {
             </div>
           </div>
 
-          {/* Attachment count hint */}
-          {selectedAttachmentIds.length > 0 && (
-            <p className="mt-2 px-1 text-xs text-evergreen/45">
-              {selectedAttachmentIds.length === 1
-                ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
-                : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
-            </p>
-          )}
-
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -1289,31 +1269,13 @@ export function ChatInterface() {
         documents={documents}
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
+        onEnsureConversation={() => ensureConversation()}
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
-        onInsertCommand={(command) => {
-          const textarea = textareaRef.current;
-          const start = textarea?.selectionStart ?? input.length;
-          const end = textarea?.selectionEnd ?? input.length;
-          const newValue = input.slice(0, start) + command + input.slice(end);
-          setInput(newValue);
-          requestAnimationFrame(() => {
-            if (textarea) {
-              textarea.focus();
-              const newCursor = start + command.length;
-              textarea.setSelectionRange(newCursor, newCursor);
-            }
-            autoResize();
-          });
-        }}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
             return [...prev, attachment];
-          });
-          setSelectedAttachmentIds((prev) => {
-            if (prev.includes(attachment.id)) return prev;
-            return [...prev, attachment.id];
           });
           setWorkspaceSidebarOpen(true);
         }}

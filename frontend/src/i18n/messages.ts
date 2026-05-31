@@ -173,16 +173,13 @@ export type Messages = {
     startConversationHint: string;
     aiAgent: string;
     aiThinking: string;
-    excludeFromNextMessage: string;
-    includeInNextMessage: string;
+    insertReference: string;
     deleteAttachment: string;
     uploadingAttachment: string;
     message: string;
     typeYourMessage: string;
     sendMessage: string;
     send: string;
-    attachmentCountOne: string;
-    attachmentCountOther: string;
     addFile: string;
     addImage: string;
     addAttachment: string;
@@ -625,16 +622,13 @@ export const messages: Record<Locale, Messages> = {
       startConversationHint: "Start a conversation or pick a template below",
       aiAgent: "AI Agent",
       aiThinking: "AI is thinking",
-      excludeFromNextMessage: "Exclude from next message",
-      includeInNextMessage: "Include in next message",
+      insertReference: "Insert reference into message",
       deleteAttachment: "Delete attachment",
       uploadingAttachment: "Uploading attachment...",
       message: "Message",
       typeYourMessage: "Type your message...",
       sendMessage: "Send message",
       send: "Send",
-      attachmentCountOne: "{count} attachment selected",
-      attachmentCountOther: "{count} attachments selected",
       addFile: "Add file",
       addImage: "Add image",
       addAttachment: "Add attachment",
@@ -721,7 +715,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Delete all?",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
-      thumbnailClickHint: "Click to insert reference",
+      thumbnailClickHint: "Click to preview",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1075,16 +1069,13 @@ export const messages: Record<Locale, Messages> = {
       startConversationHint: "Starte eine Unterhaltung oder wähle unten eine Vorlage",
       aiAgent: "KI-Agent",
       aiThinking: "KI denkt nach",
-      excludeFromNextMessage: "Von der nächsten Nachricht ausschließen",
-      includeInNextMessage: "In nächste Nachricht einbeziehen",
+      insertReference: "Referenz in Nachricht einfügen",
       deleteAttachment: "Anhang löschen",
       uploadingAttachment: "Anhang wird hochgeladen...",
       message: "Nachricht",
       typeYourMessage: "Deine Nachricht eingeben...",
       sendMessage: "Nachricht senden",
       send: "Senden",
-      attachmentCountOne: "{count} Anhang ausgewählt",
-      attachmentCountOther: "{count} Anhänge ausgewählt",
       addFile: "Datei hinzufügen",
       addImage: "Bild hinzufügen",
       addAttachment: "Anhang hinzufügen",
@@ -1171,7 +1162,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Alle löschen?",
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
-      thumbnailClickHint: "Klicken zum Einfügen",
+      thumbnailClickHint: "Klicken zum Vergrößern",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

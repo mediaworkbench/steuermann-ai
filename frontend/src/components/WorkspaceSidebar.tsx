@@ -34,7 +34,7 @@ export interface WorkspaceSidebarProps {
   documents: WorkspaceDocument[];
   isLoading?: boolean;
   onDocumentsRefresh?: () => void;
-  onInsertCommand?: (command: string) => void;
+  onEnsureConversation?: () => Promise<string | null>;
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
   writebackSavedDocId?: string | null;
   onActiveDocumentChange?: (docId: string | null) => void;
@@ -55,7 +55,7 @@ export function WorkspaceSidebar({
   documents,
   isLoading = false,
   onDocumentsRefresh,
-  onInsertCommand,
+  onEnsureConversation,
   onAttachmentUploaded,
   writebackSavedDocId,
   onActiveDocumentChange,
@@ -74,6 +74,7 @@ export function WorkspaceSidebar({
   const [nukePending, setNukePending] = useState(false);
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
   const [historyDocId, setHistoryDocId] = useState<string | null>(null);
   const [historyVersions, setHistoryVersions] = useState<VersionEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -81,6 +82,13 @@ export function WorkspaceSidebar({
   const [previewContent, setPreviewContent] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (!lightboxDoc) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setLightboxDoc(null); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [lightboxDoc]);
 
   // When the LLM has saved a new version via writeback, reload the editor if that doc is open
   useEffect(() => {
@@ -340,22 +348,16 @@ export function WorkspaceSidebar({
     [onDocumentsRefresh, t]
   );
 
-  const handleInsertLiveRefCommand = useCallback(
-    (doc: WorkspaceDocument) => {
-      onInsertCommand?.(
-        t("workspace.commandReferenceTemplate", { filename: doc.filename, id: doc.id })
-      );
-      toast.success(t("workspace.commandAdded"), { description: doc.filename });
-    },
-    [onInsertCommand, t]
-  );
-
   const handleAttachFromWorkspace = useCallback(
     async (doc: WorkspaceDocument) => {
-      if (!conversationId) return;
+      const convId = conversationId ?? (onEnsureConversation ? await onEnsureConversation() : null);
+      if (!convId) {
+        toast.error(t("workspace.attachFailed"));
+        return;
+      }
       setProcessingAction(doc.id);
       try {
-        const attachment = await attachWorkspaceDocumentToConversation(conversationId, doc.id);
+        const attachment = await attachWorkspaceDocumentToConversation(convId, doc.id);
         if (attachment) {
           onAttachmentUploaded?.(attachment);
           toast.success(t("workspace.attachSuccess"), { description: doc.filename });
@@ -366,7 +368,7 @@ export function WorkspaceSidebar({
         setProcessingAction(null);
       }
     },
-    [conversationId, onAttachmentUploaded, t],
+    [conversationId, onEnsureConversation, onAttachmentUploaded, t],
   );
 
   const handleClearAllDocuments = useCallback(async () => {
@@ -565,7 +567,7 @@ export function WorkspaceSidebar({
                         {doc.mime_type?.startsWith("image/") ? (
                           <div
                             className="relative w-16 h-11 shrink-0 rounded overflow-hidden bg-gray-200 cursor-pointer"
-                            onClick={(e) => { e.stopPropagation(); handleInsertLiveRefCommand(doc); }}
+                            onClick={(e) => { e.stopPropagation(); setLightboxDoc(doc); }}
                             title={t("workspace.thumbnailClickHint")}
                           >
                             <img
@@ -597,14 +599,8 @@ export function WorkspaceSidebar({
                             {doc.filename}
                           </p>
                           <p className="text-xs text-evergreen/50">
-                            {doc.mime_type?.startsWith("image/")
-                              ? t("workspace.thumbnailClickHint")
-                              : (
-                                <>
-                                  {formatFileSize(doc.size_bytes)}
-                                  {doc.updated_at && <> • v{doc.version}</>}
-                                </>
-                              )}
+                            {formatFileSize(doc.size_bytes)}
+                            {doc.updated_at && !doc.mime_type?.startsWith("image/") && <> • v{doc.version}</>}
                           </p>
                         </div>
                       </div>
@@ -663,34 +659,18 @@ export function WorkspaceSidebar({
                           {t("workspace.edit")}
                         </button>
                         )}
-                        {!doc.mime_type?.startsWith("image/") && (
-                          <button
-                            onClick={() => handleInsertLiveRefCommand(doc)}
-                            disabled={processingAction === doc.id || isLoading}
-                            className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
-                                       bg-evergreen/5 text-evergreen border border-evergreen/20
-                                       hover:bg-evergreen/10 disabled:opacity-40 disabled:cursor-not-allowed
-                                       transition-colors"
-                            title={t("workspace.reference")}
-                          >
-                            <Icon name="chat" size={14} className="mr-1 inline" />
-                            {t("workspace.reference")}
-                          </button>
-                        )}
-                        {conversationId && (
-                          <button
-                            onClick={() => handleAttachFromWorkspace(doc)}
-                            disabled={processingAction === doc.id || isLoading}
-                            className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
-                                       bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
-                                       hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
-                                       transition-colors"
-                            title={t("workspace.attach")}
-                          >
-                            <Icon name="attach_file" size={14} className="mr-1 inline" />
-                            {t("workspace.attach")}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleAttachFromWorkspace(doc)}
+                          disabled={processingAction === doc.id || isLoading}
+                          className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                                     bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
+                                     hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                     transition-colors"
+                          title={t("workspace.attach")}
+                        >
+                          <Icon name="attach_file" size={14} className="mr-1 inline" />
+                          {t("workspace.attach")}
+                        </button>
                         <button
                           onClick={() => handleDownloadDocument(doc.id)}
                           disabled={processingAction === doc.id || isLoading}
@@ -894,6 +874,36 @@ export function WorkspaceSidebar({
           )}
         </div>
       </div>
+
+      {/* Image lightbox */}
+      {lightboxDoc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setLightboxDoc(null)}
+          role="dialog"
+          aria-modal
+          aria-label={lightboxDoc.filename}
+        >
+          <div
+            className="relative max-w-[90vw] max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={`/api/proxy/api/workspace/documents/${lightboxDoc.id}/download`}
+              alt={lightboxDoc.filename}
+              className="max-w-full max-h-[85vh] rounded-lg shadow-2xl object-contain"
+            />
+            <button
+              onClick={() => setLightboxDoc(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow flex items-center justify-center"
+              aria-label="Close"
+            >
+              <Icon name="close" size={16} className="text-gray-700" />
+            </button>
+            <p className="mt-2 text-center text-white/70 text-xs truncate">{lightboxDoc.filename}</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -9,6 +9,24 @@ import type { MapData } from "@/lib/types";
 const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SHOW_PIN_THRESHOLD = 5; // skip marker for zoom ≤ this (continent/world view)
 
+// MapLibre v4.x throws when a numeric comparison operator receives null from a
+// tile feature property. Wrap bare `["get", "prop"]` expressions inside ordered
+// comparisons with `["coalesce", ["get", "prop"], 0]` so null falls through as 0.
+const NUMERIC_CMP_OPS = new Set([">=", "<=", ">", "<"]);
+function nullSafeFilter(expr: unknown): unknown {
+  if (!Array.isArray(expr)) return expr;
+  const [op, ...args] = expr;
+  if (
+    typeof op === "string" &&
+    NUMERIC_CMP_OPS.has(op) &&
+    Array.isArray(args[0]) &&
+    args[0][0] === "get"
+  ) {
+    return [op, ["coalesce", args[0], 0], ...args.slice(1)];
+  }
+  return [op, ...args.map(nullSafeFilter)];
+}
+
 interface Props {
   data: MapData;
 }
@@ -40,8 +58,12 @@ export function MapWidget({ data }: Props) {
               ]
             : [0, 0];
 
-        // Fetch and sanitize the style: strip terrain + raster-dem sources so
-        // MapLibre doesn't attempt to parse DEM tiles with null numeric properties.
+        // Fetch and sanitize the style for MapLibre v4.x compatibility:
+        // 1. Strip terrain / raster-dem sources (pre-existing guard).
+        // 2. Wrap numeric comparison `get` expressions with `coalesce` so that
+        //    features whose properties are null don't throw "Expected value to be
+        //    of type number, but found null instead" in the tile-parsing worker.
+        //    MapLibre v3.x silently coerced nulls; v4.x is strict.
         const styleResp = await fetch(OPENFREEMAP_STYLE);
         const styleJson = await styleResp.json();
         delete styleJson.terrain;
@@ -51,6 +73,14 @@ export function MapWidget({ data }: Props) {
               delete styleJson.sources[key];
             }
           }
+        }
+        if (styleJson.layers) {
+          styleJson.layers = styleJson.layers.map(
+            (layer: { filter?: unknown }) =>
+              layer.filter
+                ? { ...layer, filter: nullSafeFilter(layer.filter) }
+                : layer
+          );
         }
 
         // Check again — component may have unmounted during the style fetch.
