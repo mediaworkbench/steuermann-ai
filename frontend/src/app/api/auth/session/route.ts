@@ -17,5 +17,6 @@ export async function GET(request: NextRequest) {
     enabled: true,
     authenticated: session != null,
     user: session,
+    role: session?.role ?? "user",
   });
 }

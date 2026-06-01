@@ -20,8 +20,9 @@ export type Messages = {
   };
   header: {
     metrics: string;
-      memory: string;
+    memory: string;
     settings: string;
+    admin: string;
     openNavigation: string;
     activeSession: string;
     exportConversation: string;
@@ -90,6 +91,15 @@ export type Messages = {
     signIn: string;
     platformFallback: string;
     applicationFallback: string;
+  };
+  adminPage: {
+    title: string;
+    subtitle: string;
+    llmSection: string;
+    ragSection: string;
+    modelSection: string;
+    dangerZoneSection: string;
+    accessDenied: string;
   };
   settingsPage: {
     title: string;
@@ -470,6 +480,7 @@ export const messages: Record<Locale, Messages> = {
       metrics: "Metrics",
       memory: "Memory",
       settings: "Settings",
+      admin: "Admin",
       openNavigation: "Open navigation",
       activeSession: "Active session",
       exportConversation: "Export conversation",
@@ -539,6 +550,15 @@ export const messages: Record<Locale, Messages> = {
       signIn: "Sign in",
       platformFallback: "the platform",
       applicationFallback: "application",
+    },
+    adminPage: {
+      title: "Setup & Administration",
+      subtitle: "Diagnostics, operational tuning, and system maintenance",
+      llmSection: "Model Tool-Calling Capabilities",
+      ragSection: "Knowledge Base Configuration",
+      modelSection: "System Model Selection",
+      dangerZoneSection: "Danger Zone",
+      accessDenied: "You do not have permission to view this page.",
     },
     settingsPage: {
       title: "Settings",
@@ -917,6 +937,7 @@ export const messages: Record<Locale, Messages> = {
       metrics: "Metrik",
       memory: "Speicher",
       settings: "Einstellungen",
+      admin: "Admin",
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
       exportConversation: "Unterhaltung exportieren",
@@ -986,6 +1007,15 @@ export const messages: Record<Locale, Messages> = {
       signIn: "Anmelden",
       platformFallback: "der Plattform",
       applicationFallback: "Anwendung",
+    },
+    adminPage: {
+      title: "Setup & Administration",
+      subtitle: "Diagnose, Betriebstuning und Systemwartung",
+      llmSection: "Modell Tool-Calling-Fähigkeiten",
+      ragSection: "Wissensdatenbank-Konfiguration",
+      modelSection: "Systemmodell-Auswahl",
+      dangerZoneSection: "Gefahrenbereich",
+      accessDenied: "Sie haben keine Berechtigung, diese Seite anzuzeigen.",
     },
     settingsPage: {
       title: "Einstellungen",

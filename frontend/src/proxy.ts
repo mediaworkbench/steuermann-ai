@@ -5,6 +5,14 @@ import {
   isAuthEnabled,
 } from "@/lib/auth/session";
 
+const ADMIN_PREFIXES = ["/admin", "/metrics"];
+
+function isAdminRoute(pathname: string): boolean {
+  return ADMIN_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + "/")
+  );
+}
+
 function buildLoginRedirect(request: NextRequest): NextResponse {
   const loginUrl = new URL("/login", request.url);
   const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
@@ -32,6 +40,10 @@ export async function proxy(request: NextRequest) {
 
   if (!session) {
     return buildLoginRedirect(request);
+  }
+
+  if (isAdminRoute(pathname) && session.role !== "administrator") {
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return NextResponse.next();

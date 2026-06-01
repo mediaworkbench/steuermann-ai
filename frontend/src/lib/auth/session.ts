@@ -1,11 +1,14 @@
 import { SignJWT } from "jose/jwt/sign";
 import { jwtVerify } from "jose/jwt/verify";
 
+export type UserRole = "user" | "administrator";
+
 export interface SessionUser {
   userId: string;
   username: string;
   displayName: string;
   email: string;
+  role: UserRole;
 }
 
 const SESSION_COOKIE_NAME = "uaf_session";
@@ -45,6 +48,7 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
     username: user.username,
     displayName: user.displayName,
     email: user.email,
+    role: user.role,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.userId)
@@ -70,6 +74,7 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
     const username = typeof payload.username === "string" ? payload.username : "";
     const displayName = typeof payload.displayName === "string" ? payload.displayName : username;
     const email = typeof payload.email === "string" ? payload.email : "";
+    const role: UserRole = payload.role === "administrator" ? "administrator" : "user";
 
     if (!userId || !username) {
       return null;
@@ -80,6 +85,7 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
       username,
       displayName,
       email,
+      role,
     };
   } catch {
     return null;

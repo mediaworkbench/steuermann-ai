@@ -5,6 +5,7 @@ import {
   getSessionCookieName,
   getSessionCookieOptions,
   isAuthEnabled,
+  type UserRole,
 } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -49,11 +50,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ detail: "Invalid username or password" }, { status: 401 });
   }
 
+  const rawRole = (process.env.AUTH_USER_ROLE || "user").trim().toLowerCase();
+  const role: UserRole = rawRole === "administrator" ? "administrator" : "user";
+
   const token = await createSessionToken({
     userId: (process.env.AUTH_USERNAME || "anonymous").trim() || "anonymous",
     username,
     displayName: process.env.NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME || username,
     email: process.env.NEXT_PUBLIC_SINGLE_USER_EMAIL || "",
+    role,
   });
 
   const response = NextResponse.json({ authenticated: true });

@@ -5,6 +5,7 @@ import { LayoutShell } from "@/components/LayoutShell";
 import { ProfileProvider } from "@/hooks/useProfile";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
+import { RoleProvider } from "@/context/RoleContext";
 
 export const metadata: Metadata = {
   title: "Steuermann",
@@ -37,9 +38,11 @@ export default function RootLayout({
       <body className="bg-white text-evergreen h-screen overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
           <I18nProvider>
-            <ProfileProvider>
-              <LayoutShell>{children}</LayoutShell>
-            </ProfileProvider>
+            <RoleProvider>
+              <ProfileProvider>
+                <LayoutShell>{children}</LayoutShell>
+              </ProfileProvider>
+            </RoleProvider>
           </I18nProvider>
         </ThemeProvider>
       </body>

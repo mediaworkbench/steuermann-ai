@@ -54,7 +54,8 @@ cp .env.example .env
 **Optional but recommended for first run:**
 
 ```bash
-AUTH_ENABLED=false          # Keep disabled for local development
+AUTH_ENABLED=false                      # Keep disabled for local development
+NEXT_PUBLIC_AUTH_USER_ROLE=administrator  # Grants admin UI in dev without login
 REDIS_URL=redis://redis:6379/0  # Already set in .env.example
 ```
 

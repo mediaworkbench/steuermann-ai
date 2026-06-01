@@ -1,34 +1,30 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useI18n } from "@/hooks/useI18n";
-import {
-  fetchAvailableModels,
-  fetchLLMCapabilities,
-  fetchSystemConfig,
-} from "@/lib/api";
+import { fetchSystemConfig } from "@/lib/api";
 
 jest.mock("@/hooks/useI18n");
 jest.mock("@/lib/api", () => ({
-  fetchAvailableModels: jest.fn(),
-  fetchLLMCapabilities: jest.fn(),
   fetchSystemConfig: jest.fn(),
-  triggerReingestAllDocuments: jest.fn(),
 }));
 
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
-const mockFetchAvailableModels = fetchAvailableModels as jest.MockedFunction<typeof fetchAvailableModels>;
-const mockFetchLLMCapabilities = fetchLLMCapabilities as jest.MockedFunction<typeof fetchLLMCapabilities>;
 
-describe("SettingsPanel", () => {
-  const writeTextMock = jest.fn().mockResolvedValue(undefined);
+const BASE_SETTINGS = {
+  user_id: "test-user",
+  tool_toggles: { web_search_mcp: true },
+  rag_config: { collection: "framework", top_k: 5, enabled: true },
+  analytics_preferences: { sound_enabled: true },
+  preferred_model: null,
+  preferred_models: { chat: "" },
+  language: "en",
+  updated_at: null,
+};
 
+describe("SettingsPanel (user controls)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: writeTextMock },
-    });
 
     mockUseI18n.mockReturnValue({
       locale: "en",
@@ -42,17 +38,27 @@ describe("SettingsPanel", () => {
     });
 
     mockFetchSystemConfig.mockResolvedValue({
-      available_tools: [{ id: "web_search_mcp", label: "Web Search" }],
+      available_tools: [
+        { id: "web_search_mcp", label: "Web Search" },
+        { id: "calculator_tool", label: "Calculator" },
+      ],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "openai/test-model",
-      framework_version: "0.2.3",
-      supported_languages: ["en"],
+      framework_version: "0.3.0",
+      supported_languages: ["en", "de"],
       model_roles: [
         {
           role: "chat",
           provider_id: "lmstudio",
           default_model: "openai/test-model",
           available_models: ["openai/test-model", "openai/other-model"],
+          model_load_error: null,
+        },
+        {
+          role: "vision",
+          provider_id: "lmstudio",
+          default_model: "openai/vision-model",
+          available_models: ["openai/vision-model"],
           model_load_error: null,
         },
       ],
@@ -62,206 +68,86 @@ describe("SettingsPanel", () => {
         role_label: "Assistant",
         description: null,
         app_name: "Steuermann",
-        theme: {
-          colors: {},
-          fonts: {},
-          radius: {},
-          custom_css_vars: {},
-        },
+        theme: { colors: {}, fonts: {}, radius: {}, custom_css_vars: {} },
       },
     });
-
-    mockFetchAvailableModels.mockResolvedValue(["openai/test-model"]);
   });
 
-  test("shows model capability rows from backend", async () => {
-    mockFetchLLMCapabilities.mockResolvedValue({
-      status: "ok",
-      profile_id: "starter",
-      probe_ttl_seconds: 3600,
-      items: [
-        {
-          provider_id: "primary",
-          model_name: "openai/test-model",
-          desired_mode: "native",
-          configured_tool_calling_mode: "native",
-          effective_mode: "structured",
-          effective_mode_reason: "probe_stale_forced_structured",
-          probe_status: "success",
-          capability_mismatch: false,
-          supports_bind_tools: true,
-          supports_tool_schema: true,
-          api_base: "http://host.docker.internal:1234/v1",
-          error_message: null,
-          metadata: { probe_kind: "native_bind_tools" },
-          probed_at: "2026-05-11T10:20:30Z",
-          supports_vision: false,
-          supports_reasoning: false,
-          capabilities: {},
-        },
-      ],
-    });
+  test("renders language, sound, tool toggles, RAG and chat model sections", async () => {
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    render(
-      <SettingsPanel
-        settings={{
-          user_id: "test-user",
-          tool_toggles: {},
-          rag_config: { collection: "framework", top_k: 5 },
-          analytics_preferences: {},
-          preferred_model: null,
-          preferred_models: {},
-          language: "en",
-          updated_at: null,
-        }}
-        loading={false}
-        onSave={jest.fn().mockResolvedValue(true)}
-      />
-    );
-
-    expect((await screen.findAllByText("openai/test-model")).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("probe_stale_forced_structured")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.capabilitiesTtl")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.legendNative")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.legendStructured")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.legendReact")).toBeInTheDocument();
-    expect(screen.queryByText("settingsPanel.capabilitiesLoading")).not.toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.language")).toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.soundSection")).toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.toolSettings")).toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.ragConfiguration")).toBeInTheDocument();
+    // Chat model section loads after system config
+    await screen.findByText("settingsPanel.modelSelection");
   });
 
-  test("copies diagnostics payload to clipboard", async () => {
-    mockFetchLLMCapabilities.mockResolvedValue({
-      status: "ok",
-      profile_id: "starter",
-      probe_ttl_seconds: 3600,
-      items: [
-        {
-          provider_id: "primary",
-          model_name: "openai/test-model",
-          desired_mode: "native",
-          configured_tool_calling_mode: "native",
-          effective_mode: "structured",
-          effective_mode_reason: "probe_stale_forced_structured",
-          probe_status: "success",
-          capability_mismatch: false,
-          supports_bind_tools: true,
-          supports_tool_schema: true,
-          api_base: "http://host.docker.internal:1234/v1",
-          error_message: null,
-          metadata: { probe_kind: "native_bind_tools" },
-          probed_at: "2026-05-11T10:20:30Z",
-          supports_vision: false,
-          supports_reasoning: false,
-          capabilities: {},
-        },
-      ],
-    });
+  test("shows only the chat model role, not vision or auxiliary", async () => {
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    render(
-      <SettingsPanel
-        settings={{
-          user_id: "test-user",
-          tool_toggles: {},
-          rag_config: { collection: "framework", top_k: 5 },
-          analytics_preferences: {},
-          preferred_model: null,
-          preferred_models: {},
-          language: "en",
-          updated_at: null,
-        }}
-        loading={false}
-        onSave={jest.fn().mockResolvedValue(true)}
-      />
+    await screen.findByText("settingsPanel.modelSelection");
+    expect(screen.getByText("settingsPanel.roleModelLabel")).toBeInTheDocument();
+    // vision role should not appear — it's admin-only
+    const selects = screen.getAllByRole("combobox");
+    const hasVisionOption = selects.some((el) =>
+      Array.from((el as HTMLSelectElement).options).some((o) => o.value.includes("vision-model"))
     );
+    expect(hasVisionOption).toBe(false);
+  });
 
-    await screen.findByText("probe_stale_forced_structured");
-    fireEvent.click(screen.getByRole("button", { name: "settingsPanel.copyDiagnostics" }));
+  test("does not render LLM capabilities table (admin feature)", async () => {
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+
+    await screen.findByText("settingsPanel.language");
+    expect(screen.queryByText("settingsPanel.capabilitiesTitle")).not.toBeInTheDocument();
+    expect(screen.queryByText("settingsPanel.copyDiagnostics")).not.toBeInTheDocument();
+  });
+
+  test("does not render reingest or reset buttons (admin feature)", async () => {
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+
+    await screen.findByText("settingsPanel.language");
+    expect(screen.queryByText("settingsPanel.reingestAllDocuments")).not.toBeInTheDocument();
+    expect(screen.queryByText("settingsPanel.resetAllDatabases")).not.toBeInTheDocument();
+  });
+
+  test("toggles tool checkbox and calls onSave with updated toggles", async () => {
+    const onSave = jest.fn().mockResolvedValue(true);
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={onSave} />);
+
+    await screen.findByText("Web Search");
+    const checkbox = screen.getByRole("checkbox", { name: /web search/i });
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText("settingsPanel.saveSettings"));
 
     await waitFor(() => {
-      expect(writeTextMock).toHaveBeenCalledTimes(1);
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool_toggles: expect.objectContaining({ web_search_mcp: false }),
+        })
+      );
     });
-    expect(writeTextMock.mock.calls[0][0]).toContain("probe_ttl_seconds\t3600");
-    expect(writeTextMock.mock.calls[0][0]).toContain("openai/test-model");
-    expect(writeTextMock.mock.calls[0][0]).toContain("probe_stale_forced_structured");
-    expect(writeTextMock.mock.calls[0][0]).toContain("http://host.docker.internal:1234/v1");
   });
 
-  test("shows expandable details for each capability row", async () => {
-    mockFetchLLMCapabilities.mockResolvedValue({
-      status: "ok",
-      profile_id: "starter",
-      probe_ttl_seconds: 3600,
-      items: [
-        {
-          provider_id: "primary",
-          model_name: "openai/test-model",
-          desired_mode: "native",
-          configured_tool_calling_mode: "native",
-          effective_mode: "structured",
-          effective_mode_reason: "probe_stale_forced_structured",
-          probe_status: "warning",
-          capability_mismatch: true,
-          supports_bind_tools: false,
-          supports_tool_schema: false,
-          api_base: "http://host.docker.internal:1234/v1",
-          error_message: "bind_tools_failed: test",
-          metadata: { probe_kind: "native_bind_tools" },
-          probed_at: "2026-05-11T10:20:30Z",
-          supports_vision: false,
-          supports_reasoning: false,
-          capabilities: {},
-        },
-      ],
-    });
+  test("save payload includes all settings fields (read-modify-write)", async () => {
+    const onSave = jest.fn().mockResolvedValue(true);
+    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={onSave} />);
 
-    render(
-      <SettingsPanel
-        settings={{
-          user_id: "test-user",
-          tool_toggles: {},
-          rag_config: { collection: "framework", top_k: 5 },
-          analytics_preferences: {},
-          preferred_model: null,
-          preferred_models: {},
-          language: "en",
-          updated_at: null,
-        }}
-        loading={false}
-        onSave={jest.fn().mockResolvedValue(true)}
-      />
-    );
-
-    await screen.findByText("probe_stale_forced_structured");
-    fireEvent.click(screen.getByRole("button", { name: "settingsPanel.showDetails" }));
-
-    expect(screen.getByText((content) => content.includes("settingsPanel.detailConfiguredMode"))).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("settingsPanel.detailApiBase"))).toBeInTheDocument();
-    expect(screen.getByText("http://host.docker.internal:1234/v1")).toBeInTheDocument();
-    expect(screen.getByText("bind_tools_failed: test")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.detailMetadata")).toBeInTheDocument();
-  });
-
-  test("shows capabilities load error if endpoint fails", async () => {
-    mockFetchLLMCapabilities.mockResolvedValue(null);
-
-    render(
-      <SettingsPanel
-        settings={{
-          user_id: "test-user",
-          tool_toggles: {},
-          rag_config: { collection: "framework", top_k: 5 },
-          analytics_preferences: {},
-          preferred_model: null,
-          preferred_models: {},
-          language: "en",
-          updated_at: null,
-        }}
-        loading={false}
-        onSave={jest.fn().mockResolvedValue(true)}
-      />
-    );
+    await screen.findByText("settingsPanel.saveSettings");
+    fireEvent.click(screen.getByText("settingsPanel.saveSettings"));
 
     await waitFor(() => {
-      expect(screen.getByText("settingsPanel.capabilitiesLoadFailed")).toBeInTheDocument();
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool_toggles: expect.any(Object),
+          rag_config: expect.any(Object),
+          preferred_models: expect.any(Object),
+          language: expect.any(String),
+          analytics_preferences: expect.any(Object),
+        })
+      );
     });
   });
 });

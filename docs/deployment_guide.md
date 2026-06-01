@@ -196,7 +196,7 @@ The production stack separates concerns across three containers:
 │  - Chat interface + conversations   │
 │  - User profile & settings          │
 │  - Analytics & metrics dashboards   │
-│  - Admin panel (users, roles)       │
+│  - Role-based admin surface         │
 │  - Toast notifications (sonner)     │
 │  - React 19 + TypeScript + Tailwind v4 │
 └───────────┬─────────────────────────┘
@@ -227,12 +227,13 @@ The frontend provides 5 pages, 17 components, and 5 hooks — all fully wired to
 
 **Pages:**
 
-| Route | Purpose | Backend APIs |
-| --- | --- | --- |
-| `/` | Chat with conversation persistence | `/api/chat`, `/api/conversations/*` |
-| `/profile` | Backward-compatible redirect to `/settings` | - |
-| `/settings` | Unified account + settings panel (tools, RAG, model, theme, saved language) | `/api/settings/*`, `/api/models`, `/api/system-config` |
-| `/metrics` | Real-time system metrics and historical trends | `/api/metrics`, `/api/analytics/*` |
+| Route | Purpose | Minimum role | Backend APIs |
+| --- | --- | --- | --- |
+| `/` | Chat with conversation persistence | user | `/api/chat`, `/api/conversations/*` |
+| `/memories` | Personal memory management | user | `/api/memories/*` |
+| `/settings` | Personal preferences: language, sound, tools, RAG on/off + top-K, chat model | user | `/api/settings/*`, `/api/models`, `/api/system-config` |
+| `/admin` | LLM diagnostics, RAG collection/threshold, system model roles, re-ingest, danger zone | **administrator** | `/api/settings/*`, `/api/llm/*`, `/api/ingestion/*`, `/api/admin/*` |
+| `/metrics` | Real-time system metrics and historical analytics trends | **administrator** | `/api/metrics`, `/api/analytics/*` |
 
 **Key Hooks:**
 
@@ -479,6 +480,8 @@ services:
 **Secrets:** Environment variables (`.env`, not committed). Docker Secrets supported for production.
 
 **Authentication (opt-in):** Next.js login with signed HttpOnly session cookies, trusted proxy forwarding to FastAPI, and rate limiting (slowapi). Disabled by default via `AUTH_ENABLED=false`.
+
+**Role-based access control:** A single `AUTH_USER_ROLE` env var (`user` | `administrator`, default `user`) sets the role embedded in the JWT at login time. The middleware (`proxy.ts`) blocks non-administrator sessions from `/admin` and `/metrics`. When `AUTH_ENABLED=false` (local dev), `NEXT_PUBLIC_AUTH_USER_ROLE` controls the client-side assumed role without requiring a login. For single-operator deployments, set both to `administrator`.
 
 **Chat attachments and workspace documents (current implementation):**
 
