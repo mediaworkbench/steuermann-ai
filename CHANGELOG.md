@@ -18,6 +18,14 @@
 - **i18n** `adminPage.*` keys (title, subtitle, llmSection, ragSection, modelSection, dangerZoneSection, accessDenied) added to type + EN + DE; `header.admin` added to type + EN + DE
 - **test** `AdminOnly.test.tsx` (6 tests), `RoleContext.test.tsx` (9 tests), `AdminPanel.test.tsx` (5 tests), `SettingsPanel.test.tsx` rewritten for user-only surface (5 tests); 47 total passing
 
+### User Data Management
+
+- **feat** `POST /api/user/reset-my-data` — new endpoint in `backend/routers/settings.py`; deletes only the current user's data across three optional categories (`conversations`, `workspace`, `memories`); scoped `DELETE WHERE user_id = $user` (never truncates tables); also deletes user-specific file dirs (`root_dir/<conversation_id>/`, `root_dir/user-workspaces/<user_id>/`) and calls `Mem0._delete_all_memories(user_id=user_id)` for Qdrant; analytics, LLM probes, and the RAG knowledge base are intentionally untouched; `co_occurrence_edges` deleted under the memories flag
+- **feat** Danger zone added to `SettingsPanel` — three labeled checkboxes (Conversations & Messages, Workspace & Documents, Memories) checked by default; "Delete Selected" button disabled when nothing is checked; full `ConfirmDialog` with "I understand" checkbox before commit; deletes only the current user's own data, not other users'
+- **feat** "Clear All Memories" button on `/memories` page beside Refresh; reuses `POST /api/user/reset-my-data` with `memories: true` only; `ConfirmDialog` with requireChecked guard; on success clears local list/stats state, resets search box, and reloads; Refresh disabled while clearing is in progress
+- **fix** `Mem0MemoryBackend._delete_all_memories` was calling `delete_all(filters={"user_id": ...})` which raises `TypeError` in Mem0 v2.x (installed: 2.0.1); now calls `delete_all(user_id=user_id)` first (v2 form) with a `filters=` fallback for v3+; the previous code had been silently broken since initial implementation — the `clear` graph node never actually deleted memories in production
+- **fix** `logger.warning/info` calls with arbitrary keyword args in `reset_my_data` and `reset_all_databases` crashed under stdlib logging (`TypeError: Logger._log() got an unexpected keyword argument`); converted to `%s`-style positional format strings
+
 ### Map Tool
 
 - **feat** `map_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/map/`; three operations: `locate` (geocode a city, country, region, or continent), `distance` (straight-line Haversine distance between two places), `multi` (multiple pins on one map); Nominatim (OpenStreetMap) geocoder — free, no API key, `User-Agent: steuermann-ai/1.0` required per OSM policy; auto-zoom derived from Nominatim bounding box (city→12, country→6, continent→4); returns structured JSON with a `summary` field for LLM prose and coordinates for the frontend widget
@@ -240,7 +248,7 @@
 - **refactor** Removed local tiktoken-based estimated prompt token floor from `node_generate_response` — `estimated_prompt_tokens` computation, `input_tokens = count_tokens_for_model(model_name, user_msg)` pre-call check, and `effective_input_tokens = max(actual, estimated)` floor logic all removed; `actual_input_tokens` from LLM usage metadata used directly for `state["input_tokens"]`; `count_tokens_for_model` is now only called in `node_summarize` for pre-call node_tokens estimation
 - **refactor** Token budget enforcement removed from all graph nodes (`node_generate_response`, `node_summarize`, `node_update_memory`) — `require_tokens`, `TokenBudgetExceeded`, `get_budget_context`, `get_node_budget`, `get_response_reserve_tokens`, `per_node_hard_limit_enabled` no longer imported or called; `tokens_used` / `turn_tokens_used` / `input_tokens` / `output_tokens` state fields retained for observability and metrics; `test_summarization_budget_enforced` removed, budget monkeypatches removed from `test_graph_digest_chain.py`
 
-### Bug Fixes
+### Test Fix
 
 - **fix** `test_system_config_supported_languages_fallback_order` — `role_settings.max_tokens` raised `AttributeError` on mock `SimpleNamespace` objects, caught by the outer `except Exception` and silently returning the hardcoded `["en"]` fallback; changed to `getattr(role_settings, "max_tokens", None)`
 
@@ -271,7 +279,7 @@
 - **improve** Selected model shown in bold (`font-bold`) in the model dropdown for quick orientation
 - **improve** All icons in `ChatInterface` unified to Material Symbols Outlined (`<Icon>` component); Lucide `Database` import removed; RAG toggle now uses `<Icon name="database" />`
 
-### Bug Fixes
+### Model Resolution Fixes
 
 - **fix** `resolve_initial_model_metadata` (`model_resolution.py`): `model_name` no longer pre-seeded with `preferred_model` — a stale or invalid preferred model can no longer leak into `model_used` in the SSE metadata when factory resolution fails; the variable now starts as `"unknown"` and is only overwritten on successful factory resolution
 - **fix** `test_benchmark_1000_embeddings` speedup threshold lowered from `> 3.0` to `>= 2.5` — calibrated to observed hardware performance: NumPy-vectorised in-memory search at n=1000 is fast, and Qdrant carries localhost round-trip overhead that limits its relative advantage at this scale; 2.5× still conclusively proves ANN superiority over O(n) brute-force
