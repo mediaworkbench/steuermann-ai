@@ -191,6 +191,20 @@ export type Messages = {
     soundSection: string;
     soundEnabled: string;
     soundEnabledDescription: string;
+    myDataSection: string;
+    myDataDescription: string;
+    myDataResetConversationsLabel: string;
+    myDataResetConversationsDescription: string;
+    myDataResetWorkspaceLabel: string;
+    myDataResetWorkspaceDescription: string;
+    myDataResetMemoriesLabel: string;
+    myDataResetMemoriesDescription: string;
+    myDataResetButton: string;
+    myDataResetting: string;
+    myDataResetSuccess: string;
+    myDataResetFailed: string;
+    myDataResetNoneSelected: string;
+    myDataResetConfirmMessage: string;
   };
   chat: {
     noMessagesYet: string;
@@ -664,6 +678,20 @@ export const messages: Record<Locale, Messages> = {
       soundSection: "Interface Sounds",
       soundEnabled: "Enable interface sounds",
       soundEnabledDescription: "Play a sound notification when the assistant replies",
+      myDataSection: "My Data",
+      myDataDescription: "Permanently delete your personal data. This cannot be undone.",
+      myDataResetConversationsLabel: "Conversations & Messages",
+      myDataResetConversationsDescription: "All your chat conversations and messages",
+      myDataResetWorkspaceLabel: "Workspace & Documents",
+      myDataResetWorkspaceDescription: "All your workspace files and documents",
+      myDataResetMemoriesLabel: "Memories",
+      myDataResetMemoriesDescription: "All memories the assistant has built about you",
+      myDataResetButton: "Delete Selected",
+      myDataResetting: "Deleting…",
+      myDataResetSuccess: "Your selected data was deleted successfully.",
+      myDataResetFailed: "Failed to delete your data. Please try again.",
+      myDataResetNoneSelected: "Select at least one category to delete.",
+      myDataResetConfirmMessage: "This will permanently delete your selected personal data. This action cannot be undone.",
     },
     chat: {
       noMessagesYet: "No messages yet",
@@ -1135,6 +1163,20 @@ export const messages: Record<Locale, Messages> = {
       soundSection: "Schnittstellentöne",
       soundEnabled: "Schnittstellentöne aktivieren",
       soundEnabledDescription: "Einen Ton abspielen, wenn der Assistent antwortet",
+      myDataSection: "Meine Daten",
+      myDataDescription: "Persönliche Daten dauerhaft löschen. Dies kann nicht rückgängig gemacht werden.",
+      myDataResetConversationsLabel: "Gespräche & Nachrichten",
+      myDataResetConversationsDescription: "Alle deine Chatgespräche und Nachrichten",
+      myDataResetWorkspaceLabel: "Arbeitsbereich & Dokumente",
+      myDataResetWorkspaceDescription: "Alle deine Arbeitsbereich-Dateien und Dokumente",
+      myDataResetMemoriesLabel: "Erinnerungen",
+      myDataResetMemoriesDescription: "Alle Erinnerungen, die der Assistent über dich gesammelt hat",
+      myDataResetButton: "Ausgewähltes löschen",
+      myDataResetting: "Wird gelöscht…",
+      myDataResetSuccess: "Deine ausgewählten Daten wurden erfolgreich gelöscht.",
+      myDataResetFailed: "Deine Daten konnten nicht gelöscht werden. Bitte erneut versuchen.",
+      myDataResetNoneSelected: "Wähle mindestens eine Kategorie aus.",
+      myDataResetConfirmMessage: "Dies löscht dauerhaft deine ausgewählten persönlichen Daten. Diese Aktion kann nicht rückgängig gemacht werden.",
     },
     chat: {
       noMessagesYet: "Noch keine Nachrichten",

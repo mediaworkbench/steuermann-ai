@@ -4,10 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   UserSettings,
+  UserResetOptions,
   fetchSystemConfig,
+  resetMyData,
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export interface SettingsPanelProps {
   settings: UserSettings | null;
@@ -57,6 +60,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   const [saving, setSaving] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
+  const [myDataOptions, setMyDataOptions] = useState<UserResetOptions>({
+    conversations: true,
+    workspace: true,
+    memories: true,
+  });
+  const [myDataConfirmOpen, setMyDataConfirmOpen] = useState(false);
+  const [myDataResetting, setMyDataResetting] = useState(false);
 
   // Read-modify-write: sync all fields from server so saves don't wipe admin-owned keys
   useEffect(() => {
@@ -113,6 +123,24 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       setSaving(false);
     }
   }, [toolToggles, ragConfig, preferredModels, language, analyticsPreferences, onSave, t]);
+
+  const handleMyDataReset = useCallback(async () => {
+    setMyDataConfirmOpen(false);
+    setMyDataResetting(true);
+    try {
+      const result = await resetMyData(myDataOptions);
+      if (result.status === "ok") {
+        toast.success(t("settingsPanel.myDataResetSuccess"));
+      } else {
+        toast.warning(t("settingsPanel.myDataResetFailed"), { description: result.errors.join(", ") });
+      }
+    } catch (err) {
+      console.error("reset_my_data failed", err);
+      toast.error(t("settingsPanel.myDataResetFailed"));
+    } finally {
+      setMyDataResetting(false);
+    }
+  }, [myDataOptions, t]);
 
   if (loading) {
     return <div className="text-center py-8 text-gray-500">{t("common.loading")}</div>;
@@ -290,6 +318,61 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <p>{t("settingsPage.lastUpdated", { value: formatDateTime(settings.updated_at) })}</p>
         </div>
       )}
+
+      {/* My Data — danger zone */}
+      <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+        <h3 className="text-lg font-semibold text-red-700 mb-1">{t("settingsPanel.myDataSection")}</h3>
+        <p className="text-sm text-gray-500 mb-4">{t("settingsPanel.myDataDescription")}</p>
+        <div className="space-y-3 mb-5">
+          {(
+            [
+              ["conversations", "myDataResetConversationsLabel", "myDataResetConversationsDescription"],
+              ["workspace",    "myDataResetWorkspaceLabel",     "myDataResetWorkspaceDescription"],
+              ["memories",     "myDataResetMemoriesLabel",      "myDataResetMemoriesDescription"],
+            ] as const
+          ).map(([key, labelKey, descKey]) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={myDataOptions[key]}
+                onChange={() =>
+                  setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] }))
+                }
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+              />
+              <span className="flex flex-col">
+                <span className="text-sm font-medium text-gray-700">{t(`settingsPanel.${labelKey}`)}</span>
+                <span className="text-xs text-gray-500 mt-0.5">{t(`settingsPanel.${descKey}`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {!Object.values(myDataOptions).some(Boolean) && (
+          <p className="text-xs text-amber-600 mb-3">{t("settingsPanel.myDataResetNoneSelected")}</p>
+        )}
+        <button
+          onClick={() => {
+            if (!Object.values(myDataOptions).some(Boolean)) return;
+            setMyDataConfirmOpen(true);
+          }}
+          disabled={myDataResetting || !Object.values(myDataOptions).some(Boolean)}
+          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+        >
+          {myDataResetting ? t("settingsPanel.myDataResetting") : t("settingsPanel.myDataResetButton")}
+        </button>
+      </div>
+
+      <ConfirmDialog
+        isOpen={myDataConfirmOpen}
+        title={t("settingsPanel.myDataSection")}
+        message={t("settingsPanel.myDataResetConfirmMessage")}
+        confirmLabel={t("settingsPanel.myDataResetButton")}
+        requireChecked
+        checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
+        onConfirm={handleMyDataReset}
+        onCancel={() => setMyDataConfirmOpen(false)}
+        variant="danger"
+      />
     </div>
   );
 }

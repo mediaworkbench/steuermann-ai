@@ -177,6 +177,29 @@ export interface ResetOptions {
   llm_probes: boolean;
 }
 
+export interface UserResetOptions {
+  conversations: boolean;
+  workspace: boolean;
+  memories: boolean;
+}
+
+export async function resetMyData(
+  options: UserResetOptions,
+): Promise<{ status: string; errors: string[] }> {
+  const response = await fetch(`${API_BASE}/api/user/reset-my-data`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  const payload = response.headers.get("content-type")?.includes("application/json")
+    ? await response.json()
+    : null;
+  if (!response.ok) {
+    throw new Error(payload?.detail || `Reset failed: ${response.status}`);
+  }
+  return payload;
+}
+
 export async function resetAllDatabases(options: ResetOptions): Promise<{ status: string; errors: string[] }> {
   const response = await fetch(`${API_BASE}/api/admin/reset-all-databases`, {
     method: "POST",

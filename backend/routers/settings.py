@@ -786,6 +786,13 @@ class ResetOptions(BaseModel):
     llm_probes: bool = True
 
 
+class UserResetOptions(BaseModel):
+    """Selects which personal data categories to purge for the current user only."""
+    conversations: bool = True
+    workspace: bool = True
+    memories: bool = True
+
+
 _CONVERSATION_TABLES = [
     "conversation_attachments",
     "messages",
@@ -907,6 +914,133 @@ def reset_all_databases(
         return {"status": "partial", "errors": errors, **results}
 
     logger.info("reset_all_databases completed successfully", options=options.model_dump())
+    return {"status": "ok", "errors": [], **results}
+
+
+@router.post("/user/reset-my-data")
+def reset_my_data(
+    request: Request,
+    options: Optional[UserResetOptions] = Body(default=None),
+    user_id: str = Depends(get_effective_user_id),
+) -> Dict[str, Any]:
+    """Purge selected personal data for the current authenticated user only.
+
+    Only deletes rows owned by this user — never touches other users' data or
+    system-wide tables (analytics, LLM probes, RAG knowledge base).
+    """
+    if options is None:
+        options = UserResetOptions()
+    import shutil
+
+    errors: list[str] = []
+    results: Dict[str, Any] = {
+        "postgres": {"status": "ok", "deleted": {}},
+        "qdrant": {"status": "ok", "memories_deleted": False},
+        "files": {"status": "ok", "bytes_freed": 0},
+    }
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+
+    # Collect conversation IDs before deletion so we can clean up files afterwards.
+    conversation_ids: list[str] = []
+    if options.conversations and db_pool:
+        try:
+            with db_pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM conversations WHERE user_id = %s;", (user_id,))
+                    conversation_ids = [row[0] for row in cur.fetchall()]
+        except Exception as exc:
+            errors.append(f"postgres: failed to list conversations: {exc}")
+
+    # ── 1. Postgres — user-scoped DELETEs ─────────────────────────────────────
+    if db_pool is None:
+        errors.append("postgres: db_pool unavailable")
+        results["postgres"]["status"] = "error"
+    else:
+        try:
+            with db_pool.connection() as conn:
+                with conn.cursor() as cur:
+                    if options.conversations:
+                        cur.execute(
+                            "DELETE FROM conversations WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                        results["postgres"]["deleted"]["conversations"] = cur.rowcount
+                    if options.workspace:
+                        cur.execute(
+                            "DELETE FROM workspace_documents WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                        results["postgres"]["deleted"]["workspace_documents"] = cur.rowcount
+                conn.commit()
+        except Exception as exc:
+            errors.append(f"postgres: {exc}")
+            results["postgres"]["status"] = "error"
+
+    # ── 2. Memories: Qdrant vectors + co_occurrence_edges for this user ──────
+    if options.memories:
+        # Co-occurrence edges are stored in Postgres and scoped by user_id.
+        if db_pool is not None:
+            try:
+                with db_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "DELETE FROM co_occurrence_edges WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                    conn.commit()
+            except Exception as exc:
+                errors.append(f"postgres co_occurrence_edges: {exc}")
+
+        try:
+            from universal_agentic_framework.memory.factory import build_memory_backend as _build_mb
+
+            cfg = load_core_config()
+            backend = _build_mb(cfg)
+            if hasattr(backend, "_delete_all_memories"):
+                backend._delete_all_memories(user_id=user_id)
+                results["qdrant"]["memories_deleted"] = True
+            else:
+                errors.append("qdrant: memory backend does not support bulk delete")
+                results["qdrant"]["status"] = "error"
+        except Exception as exc:
+            errors.append(f"qdrant: {exc}")
+            results["qdrant"]["status"] = "error"
+
+    # ── 3. Files ───────────────────────────────────────────────────────────────
+    try:
+        from backend.attachments import AttachmentManagerConfig, WorkspaceManagerConfig
+
+        freed = 0
+
+        if options.conversations and conversation_ids:
+            attach_config = AttachmentManagerConfig.from_env()
+            for conv_id in conversation_ids:
+                try:
+                    conv_dir = attach_config.root_dir / conv_id
+                    if conv_dir.exists():
+                        freed += sum(f.stat().st_size for f in conv_dir.rglob("*") if f.is_file())
+                        shutil.rmtree(conv_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+        if options.workspace:
+            ws_config = WorkspaceManagerConfig.from_env()
+            user_ws_dir = ws_config.root_dir / "user-workspaces" / user_id
+            if user_ws_dir.exists():
+                freed += sum(f.stat().st_size for f in user_ws_dir.rglob("*") if f.is_file())
+                shutil.rmtree(user_ws_dir, ignore_errors=True)
+
+        results["files"]["bytes_freed"] = freed
+    except Exception as exc:
+        errors.append(f"files: {exc}")
+        results["files"]["status"] = "error"
+
+    if errors:
+        logger.warning("reset_my_data completed with errors", errors=errors, user_id=user_id, options=options.model_dump())
+        return {"status": "partial", "errors": errors, **results}
+
+    logger.info("reset_my_data completed", user_id=user_id, options=options.model_dump())
     return {"status": "ok", "errors": [], **results}
 
 
