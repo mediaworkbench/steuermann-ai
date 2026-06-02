@@ -2,6 +2,14 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chat — Session Persistence Across Navigation
+
+- **fix** A streaming inference was lost when navigating away from the chat (e.g. to `/memories`) and back — along with the user message that triggered it. `ChatInterface` was rendered only on `/` and owned the entire chat runtime in local `useState`; navigating unmounted it, which aborted the fetch (cancel-on-unmount) and destroyed all state, while backend persistence only happens at `[DONE]` — so nothing was saved.
+- **feat** New persistent `ChatSessionProvider` (`frontend/src/context/ChatSessionContext.tsx`) mounted in `LayoutShell` (inside `ConversationContext`). It owns the live chat runtime — the `messages` array, the `useStreamingChat()` instance, `contextTokens`, `loading`, `sendMessage`/`ensureConversation`, the message-load-on-`activeId` effect, and the durable commit-on-stream-end effect (message append + `persistedId` backfill). Because the shell persists across route changes, the streaming fetch keeps running in the background and returning to chat shows the still-streaming or completed response.
+- **refactor** `ChatInterface` is now a consumer of `useChatSession()` (composer + message list); it keeps only UI-local state (input, attachments, workspace doc, RAG toggle, menus) and the stream-end UX side-effects (sound, unread badge, workspace-writeback toast) which fire only while mounted. The cancel-on-unmount effect was removed; `sendMessage(text, opts)` now takes `{ attachmentIds, documentIds, ragEnabled, replaceFromIndex }`.
+- **fix** Switching conversations mid-stream no longer bleeds the in-flight response into the newly selected conversation: the provider cancels the stream on `activeId` change and gates the commit on the originating conversation (`streamConversationRef`).
+- **note** Frontend-only; backend persistence path unchanged. Out of scope: surviving a hard page refresh / tab close (the live token stream cannot be resumed after a reload).
+
 ### Context Window Indicator — Accurate Per-Inference Token Accounting
 
 - **fix** The composer's context-window ring conflated two token scales. The streaming endpoint returned the real per-inference `input_tokens` when the provider reported `usage_metadata`, but fell back to `state["input_tokens"]` — a **cumulative lifetime sum**: the `respond` node accumulates `state["input_tokens"] += actual_input_tokens` and the value is checkpointed per `thread_id` and never reset, so it grows every turn. When usage capture failed, the ring jumped to that ever-growing total and could not represent actual context-window fill. (`universal_agentic_framework/server.py`, `universal_agentic_framework/orchestration/graph_builder.py`)

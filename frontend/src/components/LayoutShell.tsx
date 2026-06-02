@@ -8,6 +8,7 @@ import { Header } from "./Header";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
+import { ChatSessionProvider } from "@/context/ChatSessionContext";
 import type { Conversation } from "@/lib/types";
 
 // ── Context so any child can access conversation state ───────────────
@@ -118,7 +119,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
           onToggleWorkspaceSidebar={isChat ? () => setWorkspaceSidebarOpen((prev) => !prev) : undefined}
         />
         <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
-          {children}
+          <ChatSessionProvider>{children}</ChatSessionProvider>
         </div>
       </main>
     </ConversationContext.Provider>

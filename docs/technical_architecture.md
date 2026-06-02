@@ -444,6 +444,8 @@ Reasoning tokens are intercepted in `server.py` before they reach the `token` ev
 
 Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `thinkingContent`, `isThinking`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
 
+The `useStreamingChat` hook is instantiated inside a persistent `ChatSessionProvider` (`frontend/src/context/ChatSessionContext.tsx`) mounted in `LayoutShell`, **not** in the route-scoped `ChatInterface`. This is what keeps an in-flight inference alive across in-app navigation: the provider owns `messages`, the stream, `contextTokens`, and the send/commit/load lifecycle, so leaving the chat page (e.g. for `/memories`) no longer unmounts the hook or aborts the fetch. `ChatInterface` is a `useChatSession()` consumer. The completed-message commit is gated on the originating conversation (`streamConversationRef`) so a response can't be appended to a conversation the user switched to.
+
 **Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
 
 ### **4.6 Async Execution Reliability**

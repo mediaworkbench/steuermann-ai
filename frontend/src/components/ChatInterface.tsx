@@ -12,13 +12,12 @@ import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
+import { useChatSession } from "@/context/ChatSessionContext";
 import { useI18n } from "@/hooks/useI18n";
-import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import {
   deleteConversationAttachment,
-  fetchConversation,
   fetchConversationAttachments,
   fetchSystemConfig,
   fetchUserSettings,
@@ -31,7 +30,6 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
   Message,
-  PersistedMessage,
   Source,
 } from "@/lib/types";
 
@@ -239,63 +237,6 @@ function DocumentUsedBadges({
 }
 
 
-/** Generate a concise conversation title from the first user message. */
-function generateTitle(message: string): string {
-  const clean = message.replace(/\s+/g, " ").trim();
-  if (!clean) return "New conversation";
-  if (clean.length <= 50) return clean;
-  const sentenceEnd = clean.substring(0, 60).search(/[.!?]\s/);
-  if (sentenceEnd > 10) return clean.substring(0, sentenceEnd + 1);
-  const truncated = clean.substring(0, 50);
-  const lastSpace = truncated.lastIndexOf(" ");
-  if (lastSpace > 20) return truncated.substring(0, lastSpace) + "\u2026";
-  return truncated + "\u2026";
-}
-
-/** Convert a persisted (DB) message into the local UI Message shape. */
-function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | number) => string): Message {
-  return {
-    role: pm.role === "system" ? "assistant" : pm.role,
-    content: pm.content,
-    thinking: (pm.metadata?.thinking_content as string | undefined) ?? undefined,
-    timestamp: pm.created_at
-      ? formatTime(pm.created_at)
-      : undefined,
-    persistedId: pm.id,
-    feedback: pm.feedback ?? undefined,
-    metrics: {
-      output_tokens: (pm.metadata?.output_tokens as number | undefined) ?? pm.tokens_used ?? undefined,
-      input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
-      response_time_ms: pm.response_time_ms ?? undefined,
-      model: pm.model_name ?? undefined,
-      tools_executed: [
-        ...(pm.tools_used?.map((t) => ({ name: t.name, status: t.status })) ?? []),
-        ...(pm.metadata?.rag_attempted
-          ? [{ name: "knowledge_base" as const, status: "success" as const }]
-          : []),
-      ],
-      sources: pm.metadata?.sources as Source[] | undefined,
-      rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
-      rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,
-      attachments_used: pm.metadata?.attachments_used as
-        | Array<{ id: string; original_name: string }>
-        | undefined,
-      documents_used: pm.metadata?.documents_used as
-        | Array<{ id: string; filename: string; version: number }>
-        | undefined,
-      memories_used: pm.metadata?.memories_used as
-        | Array<{
-            memory_id: string;
-            text?: string;
-            user_rating?: number | null;
-            importance_score?: number | null;
-            is_related?: boolean;
-          }>
-        | undefined,
-      map_data: pm.metadata?.map_data as import("@/lib/types").MapData | undefined,
-    },
-  };
-}
 
 function CtxRow({ label, value }: { label: string; value: number }) {
   return (
@@ -307,10 +248,8 @@ function CtxRow({ label, value }: { label: string; value: number }) {
 }
 
 export function ChatInterface() {
-  const { t, formatTime } = useI18n();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { t } = useI18n();
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
@@ -326,19 +265,20 @@ export function ChatInterface() {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const [contextTokens, setContextTokens] = useState<number>(0);
   const [isCompacting, setIsCompacting] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const startTimeRef = useRef<number>(0);
-  const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
   const plopAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Live chat runtime lives in a persistent provider so it survives in-app
+  // navigation (the stream keeps running while the user is on another page).
   const {
+    messages,
+    setMessages,
     streamingContent,
     isStreaming,
     streamError,
@@ -349,18 +289,16 @@ export function ChatInterface() {
     wasCancelled,
     thinkingContent,
     isThinking,
-    sendMessage: startStream,
-    cancel: cancelStream,
-    reset: resetStream,
-  } = useStreamingChat();
+    contextTokens,
+    setContextTokens,
+    loading,
+    sendMessage,
+    ensureConversation,
+    cancelStream,
+  } = useChatSession();
 
-  const { activeId, create, refresh, rename, activeConversation, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
+  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
-
-
-  // Flag: when true the next activeId change came from create() and the
-  // message-fetch useEffect should skip reloading (no persisted messages yet).
-  const skipNextFetchRef = useRef(false);
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
@@ -390,44 +328,7 @@ export function ChatInterface() {
     fetchWorkspaceDocuments();
   }, [fetchWorkspaceDocuments]);
 
-  // ── Load messages when active conversation changes ─────────────────
-
-  useEffect(() => {
-    if (!activeId) {
-      setMessages([]);
-      setAttachments([]);
-      setWorkspaceSidebarOpen(false);
-      setContextTokens(0);
-      return;
-    }
-    // When a conversation was just created the DB has no messages yet.
-    // Skip the fetch so the optimistic user message is not overwritten.
-    if (skipNextFetchRef.current) {
-      skipNextFetchRef.current = false;
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const detail = await fetchConversation(activeId);
-      if (cancelled || !detail) return;
-      const loadedMessages = detail.messages.map((msg) => toUiMessage(msg, formatTime));
-      // Restore the ring to the most recent inference's prompt size (live context-window fill).
-      const lastAssistantTokens = [...loadedMessages]
-        .reverse()
-        .find((m) => m.role === "assistant" && (m.metrics?.input_tokens ?? 0) > 0)
-        ?.metrics?.input_tokens ?? 0;
-      setContextTokens(lastAssistantTokens);
-      setMessages(loadedMessages);
-      // New chats should start with a collapsed workspace unless explicitly opened.
-      if (detail.messages.length === 0) {
-        setWorkspaceSidebarOpen(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeId, formatTime]);
-
+  // Attachments are conversation-scoped and re-fetched on conversation change.
   useEffect(() => {
     if (!activeId) {
       setAttachments([]);
@@ -461,40 +362,15 @@ export function ChatInterface() {
     }
   }, [messages, loading, isStreaming, streamingContent, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Commit completed streaming message to messages list
+  // Stream-end UX (sound, unread badge, workspace-writeback toast/refresh) —
+  // fires only while the chat view is mounted. The durable message commit, the
+  // persisted-id backfill, and the context-token update all live in
+  // ChatSessionProvider, so they run even when the user is on another page.
+  const uxWasStreamingRef = useRef(false);
   useEffect(() => {
-    const was = wasStreamingRef.current;
-    wasStreamingRef.current = isStreaming;
+    const was = uxWasStreamingRef.current;
+    uxWasStreamingRef.current = isStreaming;
     if (was && !isStreaming && (streamingContent || wasCancelled)) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant" as const,
-          content: wasCancelled
-            ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
-            : streamingContent,
-          thinking: thinkingContent || undefined,
-          timestamp: formatTime(new Date()),
-          metrics: finalMetadata
-            ? {
-                response_time_ms: Date.now() - startTimeRef.current,
-                input_tokens: finalMetadata.input_tokens,
-                output_tokens: finalMetadata.output_tokens,
-                finish_reason: "stop",
-                model: finalMetadata.model_used,
-                tools_executed: finalMetadata.tools_executed?.map((name) => ({
-                  name,
-                  status: "success" as const,
-                })),
-                sources: finalMetadata.sources,
-                memories_used: finalMetadata.memories_used,
-                rag_attempted: finalMetadata.rag_attempted,
-                rag_doc_count: finalMetadata.rag_doc_count,
-                map_data: finalMetadata.map_data,
-              }
-            : undefined,
-        },
-      ]);
       if (finalMetadata?.workspace_document_writeback?.status === "saved") {
         const wb = finalMetadata.workspace_document_writeback;
         fetchWorkspaceDocuments();
@@ -504,59 +380,19 @@ export function ChatInterface() {
           description: `${wb.filename} updated to v${wb.version}`,
         });
       }
-      resetStream();
-
       if (soundEnabled) {
         plopAudioRef.current?.play().catch(() => {});
       }
       if (document.hidden || !document.hasFocus()) {
         setHasNewMessage(true);
       }
-
-      // After streaming, fetch the conversation to get DB message IDs so that
-      // feedback (thumbs up/down) can be persisted. _run_persistence on the
-      // backend completes before [DONE] is emitted, so the rows are ready.
-      if (activeId) {
-        fetchConversation(activeId).then((detail) => {
-          if (!detail) return;
-          setMessages((prev) => {
-            const dbMsgs = detail.messages;
-            let dbIdx = 0;
-            return prev.map((msg) => {
-              if (msg.persistedId != null) {
-                // Already has an ID — advance the DB cursor past the matching row.
-                while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].id !== msg.persistedId) dbIdx++;
-                dbIdx++;
-                return msg;
-              }
-              // Find the next DB message with the same role.
-              while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].role !== msg.role) dbIdx++;
-              const dbMsg = dbMsgs[dbIdx];
-              dbIdx++;
-              return dbMsg ? { ...msg, persistedId: dbMsg.id } : msg;
-            });
-          });
-        });
-      }
     }
   }, [isStreaming, soundEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update context token count to the latest inference's prompt size — live context-window
-  // fill. The backend now reports per-inference input_tokens (not a cumulative lifetime sum),
-  // so this grows naturally as history accumulates and drops after compaction.
-  // contextTokens is already reset to 0 when the active conversation changes.
-  useEffect(() => {
-    const tokens = finalMetadata?.input_tokens;
-    if (!isStreaming && tokens != null && tokens > 0) {
-      setContextTokens(tokens);
-    }
-  }, [isStreaming, finalMetadata]);
-
-  // Surface stream errors as toasts
+  // Surface stream errors as toasts (loading is reset by sendMessage in the provider)
   useEffect(() => {
     if (streamError) {
       toast.error(t("chat.messageFailed"), { description: streamError });
-      setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamError]);
@@ -566,11 +402,8 @@ export function ChatInterface() {
     if (streamWarning) {
       toast.warning(streamWarning);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamWarning]);
 
-  // Cancel any in-flight stream on unmount
-  useEffect(() => () => cancelStream(), [cancelStream]);
 
   // Preload plop audio on mount
   useEffect(() => {
@@ -661,97 +494,16 @@ export function ChatInterface() {
     el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
 
-  const ensureConversation = useCallback(
-    async (seedText: string = t("chat.newConversation")) => {
-      if (activeId) return activeId;
-      const autoTitle = generateTitle(seedText);
-      skipNextFetchRef.current = true;
-      const conv = await create(autoTitle);
-      if (!conv) {
-        skipNextFetchRef.current = false;
-        return null;
-      }
-      return conv.id;
-    },
-    [activeId, create, t],
-  );
-
-  // ── Core send logic (reused by send, regenerate, edit) ─────────────
-
-  const sendMessage = useCallback(
-    async (userMessage: string, replaceFromIndex?: number) => {
-      let convId = activeId;
-      const isFirstMessage = messages.length === 0 || replaceFromIndex === 0;
-      if (!convId) {
-        convId = await ensureConversation(userMessage);
-        if (!convId) return;
-      }
-
-      if (replaceFromIndex != null) {
-        setMessages((prev) => [
-          ...prev.slice(0, replaceFromIndex),
-          {
-            role: "user",
-            content: userMessage,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "user",
-            content: userMessage,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      }
-      setLoading(true);
-      startTimeRef.current = Date.now();
-
-      // Transient preview only: show at least the prior turn's fill (or a rough chars/4
-      // estimate of the new prompt) while the LLM generates. The real per-inference
-      // input_tokens overwrites this via direct set when the metadata SSE arrives.
-      const _estTokens = Math.round(
-        messages.reduce((s, m) => s + m.content.length, 0) / 4 + userMessage.length / 4,
-      );
-      setContextTokens((prev) => Math.max(prev, _estTokens));
-
-      await startStream({
-        message: userMessage,
-        userId: CURRENT_USER_ID,
-        conversationId: convId,
-        attachmentIds: attachments.map((a) => a.id),
-        documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
-        ragEnabled,
-      });
-
-      setLoading(false);
-      refresh();
-      if (
-        isFirstMessage &&
-        convId &&
-        (activeConversation?.title === "New conversation" ||
-          activeConversation?.title === t("chat.newConversation"))
-      ) {
-        const betterTitle = generateTitle(userMessage);
-        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
-      }
-    },
-    [
-      activeId,
-      messages.length,
-      ensureConversation,
-      refresh,
-      rename,
-      activeConversation?.title,
-      attachments,
-      activeWorkspaceDocId,
+  // Build the per-send options from the composer's current UI state. The send
+  // orchestration itself (messages append, stream start, auto-title) lives in
+  // ChatSessionProvider so it survives navigation.
+  const buildSendOptions = useCallback(
+    () => ({
+      attachmentIds: attachments.map((a) => a.id),
+      documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
       ragEnabled,
-      startStream,
-      t,
-      formatTime,
-    ],
+    }),
+    [attachments, activeWorkspaceDocId, ragEnabled],
   );
 
   const handleAttachmentUpload = useCallback(
@@ -818,7 +570,7 @@ export function ChatInterface() {
     const userMessage = input;
     setInput("");
     setTimeout(() => autoResize(), 0);
-    sendMessage(userMessage);
+    sendMessage(userMessage, buildSendOptions());
   }
 
   // ── Regenerate: resend the last user message ───────────────────────
@@ -826,19 +578,19 @@ export function ChatInterface() {
   const handleRegenerate = useCallback(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
-        sendMessage(messages[i].content, i);
+        sendMessage(messages[i].content, { ...buildSendOptions(), replaceFromIndex: i });
         return;
       }
     }
-  }, [messages, sendMessage]);
+  }, [messages, sendMessage, buildSendOptions]);
 
   // ── Edit user message & resend ─────────────────────────────────────
 
   const handleEditAndResend = useCallback(
     (index: number, newContent: string) => {
-      sendMessage(newContent, index);
+      sendMessage(newContent, { ...buildSendOptions(), replaceFromIndex: index });
     },
-    [sendMessage],
+    [sendMessage, buildSendOptions],
   );
 
   // ── Feedback handler ───────────────────────────────────────────────
@@ -866,7 +618,7 @@ export function ChatInterface() {
         toast.success(newFeedback ? t("chat.feedbackSaved") : t("chat.feedbackRemoved"));
       }
     },
-    [messages, activeId, t],
+    [messages, setMessages, activeId, t],
   );
 
   const handleCompactContext = useCallback(async () => {
@@ -894,7 +646,7 @@ export function ChatInterface() {
     } finally {
       setIsCompacting(false);
     }
-  }, [activeId]);
+  }, [activeId, setContextTokens]);
 
   const prevIsStreamingRef = useRef(false);
   useEffect(() => {
