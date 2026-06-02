@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.db import SettingsStore, LLMCapabilityProbeStore
@@ -777,13 +777,56 @@ def trigger_reingest_all_documents() -> Dict[str, Any]:
 
 
 
-@router.post("/admin/reset-all-databases")
-def reset_all_databases(request: Request) -> Dict[str, Any]:
-    """Truncate all application data in Postgres and delete all Qdrant collections.
+class ResetOptions(BaseModel):
+    """Selects which data categories to purge. All default to True."""
+    conversations: bool = True
+    workspace: bool = True
+    memories: bool = True
+    analytics: bool = True
+    llm_probes: bool = True
 
-    This is a destructive, irreversible operation. Workspace files on disk are
-    also removed. The schema is preserved so the service continues running.
+
+_CONVERSATION_TABLES = [
+    "conversation_attachments",
+    "messages",
+    "conversations",
+]
+
+_WORKSPACE_TABLES = [
+    "workspace_document_versions",
+    "workspace_documents",
+    "chat_document_refs",
+    "conversation_workspace_operations",
+    "conversation_workspaces",
+]
+
+_MEMORY_TABLES = [
+    "co_occurrence_edges",
+]
+
+_ANALYTICS_TABLES = [
+    "analytics_events",
+    "daily_analytics_stats",
+]
+
+_LLM_PROBE_TABLES = [
+    "llm_capability_probes",
+]
+
+
+@router.post("/admin/reset-all-databases")
+def reset_all_databases(
+    request: Request,
+    options: Optional[ResetOptions] = Body(default=None),
+) -> Dict[str, Any]:
+    """Purge selected data categories across all users.
+
+    Accepts an optional JSON body with boolean flags per category — all True by
+    default so a no-body call still purges everything. The schema is preserved
+    so the service continues running without a restart.
     """
+    if options is None:
+        options = ResetOptions()
     import shutil
 
     results: Dict[str, Any] = {
@@ -793,77 +836,77 @@ def reset_all_databases(request: Request) -> Dict[str, Any]:
     }
     errors: list[str] = []
 
+    # Build the list of tables to truncate based on selected options
+    tables_to_truncate: list[str] = []
+    if options.conversations:
+        tables_to_truncate.extend(_CONVERSATION_TABLES)
+    if options.workspace:
+        tables_to_truncate.extend(_WORKSPACE_TABLES)
+    if options.memories:
+        tables_to_truncate.extend(_MEMORY_TABLES)
+    if options.analytics:
+        tables_to_truncate.extend(_ANALYTICS_TABLES)
+    if options.llm_probes:
+        tables_to_truncate.extend(_LLM_PROBE_TABLES)
+
     # ── 1. Postgres ───────────────────────────────────────────────────────────
-    # Truncate all user-data tables; CASCADE handles FK dependencies.
-    # user_settings intentionally excluded so the user doesn't need to
-    # reconfigure language/model preferences after a reset.
-    _TABLES_TO_TRUNCATE = [
-        "workspace_document_versions",
-        "workspace_documents",
-        "chat_document_refs",
-        "co_occurrence_edges",
-        "conversation_workspace_operations",
-        "conversation_workspaces",
-        "conversation_attachments",
-        "messages",
-        "conversations",
-        "llm_capability_probes",
-        "analytics_events",
-        "daily_analytics_stats",
-    ]
-    db_pool = getattr(request.app.state, "db_pool", None)
-    if db_pool is None:
-        errors.append("postgres: db_pool unavailable")
-        results["postgres"]["status"] = "error"
-    else:
-        try:
-            with db_pool.connection() as conn:
-                with conn.cursor() as cur:
-                    for table in _TABLES_TO_TRUNCATE:
-                        cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
-                        results["postgres"]["tables_truncated"].append(table)
-                conn.commit()
-        except Exception as exc:
-            errors.append(f"postgres: {exc}")
+    # user_settings intentionally excluded so preferences survive a reset.
+    if tables_to_truncate:
+        db_pool = getattr(request.app.state, "db_pool", None)
+        if db_pool is None:
+            errors.append("postgres: db_pool unavailable")
             results["postgres"]["status"] = "error"
+        else:
+            try:
+                with db_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        for table in tables_to_truncate:
+                            cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
+                            results["postgres"]["tables_truncated"].append(table)
+                    conn.commit()
+            except Exception as exc:
+                errors.append(f"postgres: {exc}")
+                results["postgres"]["status"] = "error"
 
-    # ── 2. Qdrant ─────────────────────────────────────────────────────────────
-    try:
-        from qdrant_client import QdrantClient  # type: ignore[import-untyped]
+    # ── 2. Qdrant (memories + knowledge base) ─────────────────────────────────
+    if options.memories:
+        try:
+            from qdrant_client import QdrantClient  # type: ignore[import-untyped]
 
-        qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        qc = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
-        collections = [c.name for c in qc.get_collections().collections]
-        for name in collections:
-            qc.delete_collection(name)
-            results["qdrant"]["collections_deleted"].append(name)
-    except Exception as exc:
-        errors.append(f"qdrant: {exc}")
-        results["qdrant"]["status"] = "error"
+            qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
+            qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+            qc = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
+            collections = [c.name for c in qc.get_collections().collections]
+            for name in collections:
+                qc.delete_collection(name)
+                results["qdrant"]["collections_deleted"].append(name)
+        except Exception as exc:
+            errors.append(f"qdrant: {exc}")
+            results["qdrant"]["status"] = "error"
 
     # ── 3. Workspace files on disk ────────────────────────────────────────────
-    try:
-        from backend.attachments import WorkspaceManagerConfig, AttachmentManagerConfig
+    if options.workspace:
+        try:
+            from backend.attachments import WorkspaceManagerConfig, AttachmentManagerConfig
 
-        ws_config = WorkspaceManagerConfig.from_env()
-        attach_config = AttachmentManagerConfig.from_env()
-        freed = 0
-        for root in {ws_config.root_dir, attach_config.root_dir}:
-            if root.exists():
-                freed += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
-                shutil.rmtree(root, ignore_errors=True)
-                root.mkdir(parents=True, exist_ok=True)
-        results["workspace_files"]["bytes_freed"] = freed
-    except Exception as exc:
-        errors.append(f"workspace_files: {exc}")
-        results["workspace_files"]["status"] = "error"
+            ws_config = WorkspaceManagerConfig.from_env()
+            attach_config = AttachmentManagerConfig.from_env()
+            freed = 0
+            for root in {ws_config.root_dir, attach_config.root_dir}:
+                if root.exists():
+                    freed += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+                    shutil.rmtree(root, ignore_errors=True)
+                    root.mkdir(parents=True, exist_ok=True)
+            results["workspace_files"]["bytes_freed"] = freed
+        except Exception as exc:
+            errors.append(f"workspace_files: {exc}")
+            results["workspace_files"]["status"] = "error"
 
     if errors:
-        logger.warning("reset_all_databases completed with errors", errors=errors)
+        logger.warning("reset_all_databases completed with errors", errors=errors, options=options.model_dump())
         return {"status": "partial", "errors": errors, **results}
 
-    logger.info("reset_all_databases completed successfully", results=results)
+    logger.info("reset_all_databases completed successfully", options=options.model_dump())
     return {"status": "ok", "errors": [], **results}
 
 

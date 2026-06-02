@@ -99,6 +99,20 @@ export type Messages = {
     ragSection: string;
     modelSection: string;
     dangerZoneSection: string;
+    dangerZoneDescription: string;
+    resetConversationsLabel: string;
+    resetConversationsDescription: string;
+    resetWorkspaceLabel: string;
+    resetWorkspaceDescription: string;
+    resetMemoriesLabel: string;
+    resetMemoriesDescription: string;
+    resetAnalyticsLabel: string;
+    resetAnalyticsDescription: string;
+    resetLlmProbesLabel: string;
+    resetLlmProbesDescription: string;
+    resetSelectedButton: string;
+    resetNoneSelected: string;
+    resetConfirmMessage: string;
     accessDenied: string;
   };
   settingsPage: {
@@ -558,6 +572,20 @@ export const messages: Record<Locale, Messages> = {
       ragSection: "Knowledge Base Configuration",
       modelSection: "System Model Selection",
       dangerZoneSection: "Danger Zone",
+      dangerZoneDescription: "Select the data categories to purge. All users are affected. This cannot be undone.",
+      resetConversationsLabel: "Conversations & Messages",
+      resetConversationsDescription: "All conversations, messages, and file attachments.",
+      resetWorkspaceLabel: "Workspace & Documents",
+      resetWorkspaceDescription: "All workspace documents, versions, and files on disk.",
+      resetMemoriesLabel: "Memories & Knowledge Base",
+      resetMemoriesDescription: "All Qdrant vector collections (long-term memories and RAG knowledge base).",
+      resetAnalyticsLabel: "Analytics",
+      resetAnalyticsDescription: "All analytics events and daily aggregates.",
+      resetLlmProbesLabel: "LLM Capability Probes",
+      resetLlmProbesDescription: "Cached model capability probe results (re-probed automatically on next request).",
+      resetSelectedButton: "Reset Selected",
+      resetNoneSelected: "Select at least one category to reset.",
+      resetConfirmMessage: "Permanently deletes the selected data categories for all users. The schema is preserved. This cannot be undone.",
       accessDenied: "You do not have permission to view this page.",
     },
     settingsPage: {
@@ -600,7 +628,7 @@ export const messages: Record<Locale, Messages> = {
       resetAllDatabases: "Reset All Databases",
       resetting: "Resetting...",
       confirmReset: "Type RESET to confirm permanent deletion of all data",
-      resetSuccess: "All databases reset successfully",
+      resetSuccess: "Selected data reset successfully",
       resetFailed: "Reset failed",
       capabilitiesTitle: "Model Tool-Calling Capabilities",
       capabilitiesSubtitle: "Desired vs effective mode based on probe results. ",
@@ -1015,6 +1043,20 @@ export const messages: Record<Locale, Messages> = {
       ragSection: "Wissensdatenbank-Konfiguration",
       modelSection: "Systemmodell-Auswahl",
       dangerZoneSection: "Gefahrenbereich",
+      dangerZoneDescription: "Wähle die zu löschenden Datenkategorien aus. Alle Benutzer sind betroffen. Dies kann nicht rückgängig gemacht werden.",
+      resetConversationsLabel: "Konversationen & Nachrichten",
+      resetConversationsDescription: "Alle Konversationen, Nachrichten und Dateianhänge.",
+      resetWorkspaceLabel: "Workspace & Dokumente",
+      resetWorkspaceDescription: "Alle Workspace-Dokumente, Versionen und Dateien auf dem Datenträger.",
+      resetMemoriesLabel: "Erinnerungen & Wissensdatenbank",
+      resetMemoriesDescription: "Alle Qdrant-Vektorkollektionen (Langzeiterinnerungen und RAG-Wissensdatenbank).",
+      resetAnalyticsLabel: "Analysen",
+      resetAnalyticsDescription: "Alle Analyseereignisse und tägliche Aggregate.",
+      resetLlmProbesLabel: "LLM-Fähigkeitsprüfungen",
+      resetLlmProbesDescription: "Zwischengespeicherte Modell-Fähigkeitsprüfergebnisse (werden beim nächsten Aufruf automatisch neu abgerufen).",
+      resetSelectedButton: "Auswahl zurücksetzen",
+      resetNoneSelected: "Bitte mindestens eine Kategorie auswählen.",
+      resetConfirmMessage: "Löscht dauerhaft die ausgewählten Datenkategorien aller Benutzer. Das Schema bleibt erhalten. Diese Aktion kann nicht rückgängig gemacht werden.",
       accessDenied: "Sie haben keine Berechtigung, diese Seite anzuzeigen.",
     },
     settingsPage: {
@@ -1057,7 +1099,7 @@ export const messages: Record<Locale, Messages> = {
       resetAllDatabases: "Alle Datenbanken zurücksetzen",
       resetting: "Wird zurückgesetzt...",
       confirmReset: "Gib RESET ein, um die dauerhafte Löschung aller Daten zu bestätigen",
-      resetSuccess: "Alle Datenbanken erfolgreich zurückgesetzt",
+      resetSuccess: "Ausgewählte Daten erfolgreich zurückgesetzt",
       resetFailed: "Zurücksetzen fehlgeschlagen",
       capabilitiesTitle: "Modell Tool-Calling-Fahigkeiten",
       capabilitiesSubtitle: "Gewunschter vs effektiver Modus basierend auf Probe-Ergebnissen. ",

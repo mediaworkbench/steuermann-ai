@@ -169,8 +169,20 @@ export async function triggerReingestAllDocuments(): Promise<ReingestAllResult> 
   return payload as ReingestAllResult;
 }
 
-export async function resetAllDatabases(): Promise<{ status: string; errors: string[] }> {
-  const response = await fetch(`${API_BASE}/api/admin/reset-all-databases`, { method: "POST" });
+export interface ResetOptions {
+  conversations: boolean;
+  workspace: boolean;
+  memories: boolean;
+  analytics: boolean;
+  llm_probes: boolean;
+}
+
+export async function resetAllDatabases(options: ResetOptions): Promise<{ status: string; errors: string[] }> {
+  const response = await fetch(`${API_BASE}/api/admin/reset-all-databases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
   const payload = response.headers.get("content-type")?.includes("application/json")
     ? await response.json()
     : null;

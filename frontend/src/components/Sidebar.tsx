@@ -11,6 +11,7 @@ import {
   CURRENT_USER_ID,
   SINGLE_USER_DISPLAY_NAME,
 } from "@/lib/runtime";
+import { useRole } from "@/context/RoleContext";
 import type { Conversation, SearchResult } from "@/lib/types";
 
 /* ── Props ────────────────────────────────────────────────────────────── */
@@ -52,6 +53,7 @@ export function Sidebar({
 }: SidebarProps) {
   const { t, formatDate } = useI18n();
   const profile = useProfile();
+  const { role } = useRole();
   const profileDisplayName = profile.appName || profile.displayName || "Steuermann";
   const profileAppName = profile.appName || "Steuermann";
   const frameworkVersion = profile.frameworkVersion || "unknown";
@@ -406,10 +408,15 @@ export function Sidebar({
                        text-light-cyan transition-colors"
             aria-label={t("sidebar.settingsForUser", { name: profileDisplayName })}
           >
-            <span className="text-sm font-bold truncate block w-full min-w-0 text-light-cyan">
-              {SINGLE_USER_DISPLAY_NAME}
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-bold truncate text-light-cyan">
+                {SINGLE_USER_DISPLAY_NAME}
+              </span>
+              <span className="text-xs text-light-cyan/60 capitalize">
+                {role}
+              </span>
             </span>
-            <Icon name="settings" className="ml-auto text-light-cyan/70" />
+            <Icon name="settings" className="ml-auto shrink-0 text-light-cyan/70" />
           </Link>
         </div>
       </aside>

@@ -10,6 +10,7 @@ import {
   fetchSystemConfig,
   triggerReingestAllDocuments,
   resetAllDatabases,
+  type ResetOptions,
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
@@ -39,6 +40,13 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   const [resetting, setResetting] = useState(false);
   const [confirmReingest, setConfirmReingest] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [resetOptions, setResetOptions] = useState<ResetOptions>({
+    conversations: true,
+    workspace: true,
+    memories: true,
+    analytics: true,
+    llm_probes: true,
+  });
 
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -193,10 +201,14 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     }
   }, [t]);
 
+  const toggleResetOption = useCallback((key: keyof ResetOptions) => {
+    setResetOptions((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
   const handleResetAllDatabases = useCallback(async () => {
     setResetting(true);
     try {
-      const result = await resetAllDatabases();
+      const result = await resetAllDatabases(resetOptions);
       if (result.errors?.length) {
         toast.warning(`${t("settingsPanel.resetSuccess")} (with warnings)`, {
           description: result.errors.join("; "),
@@ -210,7 +222,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     } finally {
       setResetting(false);
     }
-  }, [t]);
+  }, [resetOptions, t]);
 
   if (loading) {
     return <div className="text-center py-8 text-gray-500">{t("common.loading")}</div>;
@@ -466,19 +478,46 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
       {/* Danger Zone */}
       <div className="bg-white rounded-lg shadow p-6 border border-red-200">
-        <h3 className="text-lg font-semibold text-red-700 mb-4">{t("adminPage.dangerZoneSection")}</h3>
-        <div>
-          <h4 className="text-md font-semibold text-red-700 mb-2">{t("settingsPanel.resetSectionTitle")}</h4>
-          <p className="text-sm text-gray-600 mb-3">{t("settingsPanel.resetDescription")}</p>
-          <button
-            type="button"
-            onClick={() => setConfirmReset(true)}
-            disabled={resetting}
-            className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
-          >
-            {resetting ? t("settingsPanel.resetting") : t("settingsPanel.resetAllDatabases")}
-          </button>
+        <h3 className="text-lg font-semibold text-red-700 mb-1">{t("adminPage.dangerZoneSection")}</h3>
+        <p className="text-sm text-gray-600 mb-5">{t("adminPage.dangerZoneDescription")}</p>
+
+        <div className="space-y-3 mb-5">
+          {(
+            [
+              { key: "conversations", label: t("adminPage.resetConversationsLabel"), description: t("adminPage.resetConversationsDescription") },
+              { key: "workspace",     label: t("adminPage.resetWorkspaceLabel"),     description: t("adminPage.resetWorkspaceDescription") },
+              { key: "memories",      label: t("adminPage.resetMemoriesLabel"),      description: t("adminPage.resetMemoriesDescription") },
+              { key: "analytics",     label: t("adminPage.resetAnalyticsLabel"),     description: t("adminPage.resetAnalyticsDescription") },
+              { key: "llm_probes",    label: t("adminPage.resetLlmProbesLabel"),     description: t("adminPage.resetLlmProbesDescription") },
+            ] as { key: keyof ResetOptions; label: string; description: string }[]
+          ).map(({ key, label, description }) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={resetOptions[key]}
+                onChange={() => toggleResetOption(key)}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+              />
+              <span className="flex flex-col">
+                <span className="text-sm font-medium text-gray-800">{label}</span>
+                <span className="text-xs text-gray-500 mt-0.5">{description}</span>
+              </span>
+            </label>
+          ))}
         </div>
+
+        {!Object.values(resetOptions).some(Boolean) && (
+          <p className="text-xs text-amber-700 mb-3">{t("adminPage.resetNoneSelected")}</p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setConfirmReset(true)}
+          disabled={resetting || !Object.values(resetOptions).some(Boolean)}
+          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+        >
+          {resetting ? t("settingsPanel.resetting") : t("adminPage.resetSelectedButton")}
+        </button>
       </div>
 
       <ConfirmDialog
@@ -495,12 +534,12 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
       <ConfirmDialog
         isOpen={confirmReset}
-        title={t("settingsPanel.resetSectionTitle")}
-        message={t("settingsPanel.resetDescription")}
+        title={t("adminPage.dangerZoneSection")}
+        message={t("adminPage.resetConfirmMessage")}
         variant="danger"
         requireChecked={true}
         checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
-        confirmLabel={t("settingsPanel.resetAllDatabases")}
+        confirmLabel={t("adminPage.resetSelectedButton")}
         onConfirm={() => {
           setConfirmReset(false);
           handleResetAllDatabases();

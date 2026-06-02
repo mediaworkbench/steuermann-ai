@@ -4,6 +4,7 @@ import { useI18n } from "@/hooks/useI18n";
 import {
   fetchLLMCapabilities,
   fetchSystemConfig,
+  resetAllDatabases,
 } from "@/lib/api";
 
 jest.mock("@/hooks/useI18n");
@@ -17,6 +18,7 @@ jest.mock("@/lib/api", () => ({
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
 const mockFetchLLMCapabilities = fetchLLMCapabilities as jest.MockedFunction<typeof fetchLLMCapabilities>;
+const mockResetAllDatabases = resetAllDatabases as jest.MockedFunction<typeof resetAllDatabases>;
 
 const BASE_SETTINGS = {
   user_id: "test-user",
@@ -182,6 +184,68 @@ describe("AdminPanel", () => {
 
     await waitFor(() => {
       expect(screen.getByText("settingsPanel.capabilitiesLoadFailed")).toBeInTheDocument();
+    });
+  });
+
+  test("danger zone renders all five category checkboxes checked by default", async () => {
+    mockFetchLLMCapabilities.mockResolvedValue({ status: "ok", profile_id: "starter", probe_ttl_seconds: 3600, items: [] });
+
+    render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+
+    await screen.findByText("adminPage.dangerZoneSection");
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    // 5 danger-zone checkboxes — all checked by default
+    const dangerCheckboxes = checkboxes.filter((cb) => {
+      const parent = cb.closest("label");
+      return parent?.textContent?.includes("adminPage.reset");
+    });
+    expect(dangerCheckboxes.length).toBe(5);
+    dangerCheckboxes.forEach((cb) => expect(cb).toBeChecked());
+  });
+
+  test("unchecking a category and clicking reset passes only selected options", async () => {
+    mockFetchLLMCapabilities.mockResolvedValue({ status: "ok", profile_id: "starter", probe_ttl_seconds: 3600, items: [] });
+    mockResetAllDatabases.mockResolvedValue({ status: "ok", errors: [] });
+
+    render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+
+    await screen.findByText("adminPage.dangerZoneSection");
+
+    // Uncheck analytics
+    const analyticsLabel = screen.getByText("adminPage.resetAnalyticsLabel").closest("label");
+    const analyticsCheckbox = analyticsLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(analyticsCheckbox);
+    expect(analyticsCheckbox).not.toBeChecked();
+
+    // Uncheck llm_probes
+    const probesLabel = screen.getByText("adminPage.resetLlmProbesLabel").closest("label");
+    const probesCheckbox = probesLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(probesCheckbox);
+    expect(probesCheckbox).not.toBeChecked();
+
+    // Open confirm dialog — click the single trigger button (dialog not yet open)
+    fireEvent.click(screen.getByRole("button", { name: "adminPage.resetSelectedButton" }));
+
+    // ConfirmDialog is now open. Check the "I understand" checkbox inside it.
+    // It's the checkbox associated with confirmDialog.resetCheckboxLabel text.
+    const dialogCheckbox = screen.getByLabelText("confirmDialog.resetCheckboxLabel");
+    fireEvent.click(dialogCheckbox);
+
+    // Now the confirm button inside the dialog is enabled — it's the second button
+    // with this name (trigger button + dialog confirm button)
+    const confirmButtons = screen.getAllByRole("button", { name: "adminPage.resetSelectedButton" });
+    const dialogConfirm = confirmButtons[confirmButtons.length - 1];
+    fireEvent.click(dialogConfirm);
+
+    await waitFor(() => {
+      expect(mockResetAllDatabases).toHaveBeenCalledWith({
+        conversations: true,
+        workspace: true,
+        memories: true,
+        analytics: false,
+        llm_probes: false,
+      });
     });
   });
 
