@@ -13,7 +13,7 @@ class _DummyContext:
 
 def _fake_core_config():
     return SimpleNamespace(
-        fork=SimpleNamespace(name="starter", language="en"),
+        profile=SimpleNamespace(name="starter", language="en"),
         tokens=SimpleNamespace(
             default_budget=10000,
             per_node_budgets={"summarization_node": 2000, "update_memory": 2000},

@@ -51,7 +51,7 @@ def test_system_config_includes_active_profile_object(monkeypatch, tmp_path):
 
     config_dir.joinpath("core.yaml").write_text(
         """
-fork:
+profile:
   name: starter
   language: en
 database:
@@ -195,7 +195,7 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
         return SimpleNamespace(
             rag=SimpleNamespace(collection_name="framework", top_k=5),
             llm=llm,
-            fork=SimpleNamespace(language="en", supported_languages=[]),
+            profile=SimpleNamespace(language="en", supported_languages=[]),
             prompts=SimpleNamespace(languages=prompt_languages),
         )
 
@@ -356,7 +356,7 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
             return "native"
 
     core_config = SimpleNamespace(
-        fork=SimpleNamespace(language="en"),
+        profile=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
         get_role_provider_chain_with_models=lambda role_name, _lang: [
           ("lmstudio", _Provider(), "openai/test-model")

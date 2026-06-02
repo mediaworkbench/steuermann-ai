@@ -40,7 +40,7 @@ class DateTimeTool(BaseTool):
     )
     args_schema: type[BaseModel] = DateTimeInput
 
-    # Injected by registry (from fork config)
+    # Injected by registry (from profile config)
     default_timezone: str = "UTC"
 
     def _run(

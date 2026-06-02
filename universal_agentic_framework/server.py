@@ -20,6 +20,7 @@ from fastapi.responses import Response, StreamingResponse
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
 from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
+from universal_agentic_framework.orchestration.performance_nodes import compress_state
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
     track_graph_request,
@@ -56,7 +57,7 @@ _invocation_count: int = 0
 
 # Initialize system info metrics
 initialize_system_info(version="1.0.0", environment="production")
-logger.info("LangGraph server initialized", fork=CONFIG.fork.name)
+logger.info("LangGraph server initialized", profile=CONFIG.profile.name)
 
 # Pre-load and probe embedding provider — server must not start with a broken stack.
 # Retries with exponential backoff (capped at 16 s per attempt) for ~2 min total.
@@ -105,13 +106,13 @@ async def _startup() -> None:
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
     """Health check endpoint."""
-    return {"status": "ok", "fork": CONFIG.fork.name}
+    return {"status": "ok", "profile": CONFIG.profile.name}
 
 
 @app.get("/health/live")
 async def health_live() -> Dict[str, str]:
     """Liveness endpoint for process/container health."""
-    return {"status": "ok", "check": "liveness", "fork": CONFIG.fork.name}
+    return {"status": "ok", "check": "liveness", "profile": CONFIG.profile.name}
 
 
 @app.get("/health/ready")
@@ -126,7 +127,7 @@ async def health_ready() -> Dict[str, Any]:
     return {
         "status": "ok" if ready else "not_ready",
         "check": "readiness",
-        "fork": CONFIG.fork.name,
+        "profile": CONFIG.profile.name,
         "graph_ready": graph_ready,
         "config_ready": config_ready,
     }
@@ -170,9 +171,9 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Track session
         ACTIVE_SESSIONS.add(user_id)
-        update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
+        update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
         
-        fork_name = CONFIG.fork.name
+        profile_name = CONFIG.profile.name
         profile_id = ACTIVE_PROFILE_ID
         
         logger.info(
@@ -200,7 +201,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "user_id": user_id,
             "session_id": session_id,
             "language": language,
-            "fork_name": fork_name,
+            "profile_name": profile_name,
             "profile_id": profile_id,
             "user_settings": request.get("user_settings", {}),  # Include user settings from request
             # Preserve adapter-provided probe snapshots so Layer 1 can resolve
@@ -211,10 +212,10 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
         }
         
-        logger.debug("Graph state prepared", session_id=session_id, fork_name=fork_name)
+        logger.debug("Graph state prepared", session_id=session_id, profile_name=profile_name)
         
         # Track request with metrics
-        with track_graph_request(fork_name) as ctx:
+        with track_graph_request(profile_name) as ctx:
             try:
                 invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
 
@@ -347,8 +348,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     language = request.get("language", "en")
     bind_context(user_id=user_id)
     ACTIVE_SESSIONS.add(user_id)
-    update_active_sessions(CONFIG.fork.name, len(ACTIVE_SESSIONS))
-    fork_name = CONFIG.fork.name
+    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+    profile_name = CONFIG.profile.name
     profile_id = ACTIVE_PROFILE_ID
 
     # Ephemeral sessions (no session_id) are not checkpointed
@@ -366,7 +367,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "user_id": user_id,
         "session_id": session_id,
         "language": language,
-        "fork_name": fork_name,
+        "profile_name": profile_name,
         "profile_id": profile_id,
         "user_settings": request.get("user_settings", {}),
         "llm_capability_probes": request.get("llm_capability_probes", []),
@@ -388,13 +389,14 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _done_emitted = False
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
+        _captured_map_data = None  # populated from tool-call node output, not respond node
         _in_thinking = False   # currently inside a <think> block
         _close_tag = ""        # matching close tag for the current block
         _pending_buf = ""      # guards against tags split across chunk boundaries
         _full_thinking = ""    # accumulated thinking text for metadata
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
-            with track_graph_request(fork_name) as ctx:
+            with track_graph_request(profile_name) as ctx:
                 async for event in _events_iter:
                     kind: str = event.get("event", "")
                     name: str = event.get("name", "")
@@ -571,6 +573,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     # Emit metadata + [DONE] immediately after the respond
                                     # node so the client can render pills without waiting
                                     # for summarize + update_memory (~43 s).
+                                    _map_data = _captured_map_data
                                     meta_payload = {
                                         "tokens_used": _final_output.get("tokens_used", 0),
                                         "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
@@ -585,6 +588,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "loaded_memory": _final_output.get("loaded_memory", []),
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
+                                        "map_data": _map_data,
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -603,6 +607,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 tool_names = list(tool_results.keys())
                                 t_name = tool_names[0] if tool_names else name
                                 yield f"event: tool_call\ndata: {json.dumps({'name': t_name, 'status': 'end', 'label': _tool_label(t_name)})}\n\n"
+                                _tool_exec = output.get("tool_execution_results") or {}
+                                if "map_tool" in _tool_exec:
+                                    _captured_map_data = _tool_exec["map_tool"].get("data")
 
                 ctx["status"] = "success"
 
@@ -619,6 +626,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                 elif _pending_buf:
                     yield f"event: token\ndata: {json.dumps({'delta': _pending_buf})}\n\n"
                     _pending_buf = ""
+                _map_data = _captured_map_data
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
                     "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
@@ -633,6 +641,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "loaded_memory": _final_output.get("loaded_memory", []),
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
+                    "map_data": _map_data,
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 
@@ -653,6 +662,68 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/compact")
+async def compact_conversation(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Manually compress a conversation's LangGraph checkpoint.
+
+    Loads the checkpoint for ``session_id``, runs force-compression (bypassing the
+    auto-compact token threshold), and saves the compressed messages back.  The
+    ConversationStore (UI message log) is intentionally left unchanged — only the
+    checkpoint (what the LLM sees next turn) is updated.
+
+    Returns ``status: "skipped"`` if the conversation is too short to compress
+    (≤ keep_recent_count messages), or ``status: "ok"`` with ``estimated_tokens``.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    session_id = request.get("session_id")
+    user_id = request.get("user_id", "unknown")
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    config = {"configurable": {"thread_id": session_id}}
+    ct = await GRAPH.checkpointer.aget_tuple(config)
+    if not ct:
+        raise HTTPException(status_code=404, detail="No checkpoint found for this session")
+
+    channel_values = ct.checkpoint.get("channel_values", {})
+    state = {**channel_values, "user_id": user_id}
+
+    compressed = await compress_state(state, force=True)
+
+    if compressed.get("messages") == channel_values.get("messages"):
+        return {"status": "skipped", "estimated_tokens": compressed.get("tokens_used", 0)}
+
+    new_checkpoint_id = str(uuid.uuid4())
+    new_checkpoint = {
+        **ct.checkpoint,
+        "id": new_checkpoint_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "channel_values": {
+            **channel_values,
+            "messages": compressed["messages"],
+            "tokens_used": compressed.get("tokens_used", 0),
+            "digest_chain": compressed.get("digest_chain", []),
+        },
+    }
+    save_config = {
+        "configurable": {
+            "thread_id": session_id,
+            "checkpoint_ns": ct.config["configurable"].get("checkpoint_ns", ""),
+        }
+    }
+    new_versions = ct.checkpoint.get("channel_versions", {})
+    await GRAPH.checkpointer.aput(save_config, new_checkpoint, ct.metadata or {}, new_versions)
+
+    logger.info("Manual compact complete", session_id=session_id, estimated_tokens=compressed.get("tokens_used", 0))
+    return {
+        "status": "ok",
+        "estimated_tokens": compressed.get("tokens_used", 0),
+    }
 
 
 @app.get("/metrics")

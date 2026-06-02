@@ -6,6 +6,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 ## Start Here
 
+- **[quickstart.md](quickstart.md)** - Zero-to-running setup walkthrough: prerequisites, env vars, profile scaffold, first conversation
 - **[README.md](../README.md)** - Project overview, architecture snapshot, feature set, and quick start
 - **[status.md](status.md)** - Current runtime snapshot, notable changes, and documentation sync checklist
 
@@ -15,23 +16,26 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 - **Template**: The shared codebase in this repository.
 - **Profile overlay**: Domain-specific configuration under `config/profiles/<profile_id>/` plus optional plugins.
-- **Protected core**: Domain behavior should be customized through profile overlays, prompt overrides, and plugins rather than direct edits in `universal_agentic_framework/core/`.
+- **Protected core**: Domain behavior should be customized through profile overlays and prompt overrides rather than direct edits in `universal_agentic_framework/orchestration/`.
 
 ---
 
 ## Architecture And Configuration
 
 - **[technical_architecture.md](technical_architecture.md)** - Service boundaries, execution flow, data flow, and extension points
+- **[deployment_guide.md](deployment_guide.md)** - Docker topology, ingestion pipeline, frontend architecture, security, and operational runbooks
 - **[configuration.md](configuration.md)** - Runtime configuration files, prompt layout, environment overrides, and profile-specific settings
 
 ---
 
 ## Feature Guides
 
+- **[tools.md](tools.md)** - Full tool catalog: all built-in tools, trigger patterns, configuration, and vision vs. library split
 - **[cli.md](cli.md)** - Operations CLI reference: all `steuermann` commands, arguments, guardrail behaviour, and workflow examples
 - **[ingestion.md](ingestion.md)** - Document ingestion, watch mode, recursive discovery, and collection alignment
 - **[monitoring.md](monitoring.md)** - Metrics dashboard, Prometheus queries, and operational checks
 - **[performance_optimization.md](performance_optimization.md)** - Short tuning guide for caching, token budgets, and conversation compression
+- **[troubleshooting.md](troubleshooting.md)** - Common failure modes, diagnostic commands, and fix guidance
 - **[crewai_extension_guide.md](crewai_extension_guide.md)** - Advanced and experimental CrewAI extension patterns
 - **[tool_development_guide.md](tool_development_guide.md)** - Tool manifests, routing descriptions, and custom tool implementation
 
@@ -50,10 +54,12 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 | Next.js frontend | 3000 (host-exposed)   | Chat UI, settings, metrics dashboard       |
 | FastAPI adapter  | 8001 (host-exposed)   | Auth, settings, metrics proxy, chat relay  |
 | LangGraph        | 8000 (internal only)  | Orchestration engine                       |
+| Ingestion        | — (internal only)     | Document watcher and RAG embedding service |
 | Prometheus       | 9090 (internal only)  | Metrics collection                         |
 | PostgreSQL       | 5432 (internal only)  | Conversations, checkpoints, users          |
 | Qdrant           | 6333 (internal only)  | RAG vector store and Mem0 internal storage |
 | Redis            | 6379 (internal only)  | Response caching                           |
+| DuckDuckGo MCP   | 8000 (internal only)  | Web search MCP server                      |
 
 Use `docker-compose.override.yml` (copy from `.example`) to expose internal ports for local development.
 

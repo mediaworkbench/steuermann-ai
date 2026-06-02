@@ -45,7 +45,7 @@ class TestAnalyticsSchema:
             "tokens_used",
             "request_duration_seconds",
             "status",
-            "fork_name",
+            "profile_name",
             "created_at",
         ]
         assert all(col in columns for col in expected)
@@ -177,7 +177,7 @@ class TestAnalyticsStoreLogEvent:
             "tokens_used": 250,
             "request_duration_seconds": 2.5,
             "status": "success",
-            "fork_name": "medical-ai",
+            "profile_name": "medical-ai",
         }
 
         success = analytics_store.log_event(**event_data)
@@ -194,7 +194,7 @@ class TestAnalyticsStoreLogEvent:
                 assert stored[3] == "llama-3.1-8b"  # model_name
                 assert stored[4] == 250  # tokens_used
                 assert stored[5] == 2.5  # request_duration_seconds
-                assert stored[7] == "medical-ai"  # fork_name
+                assert stored[7] == "medical-ai"  # profile_name
 
     def test_log_event_with_error(self, setup):
         """Log a failed event."""
@@ -530,7 +530,7 @@ class TestAnalyticsDataIsolation:
                 # Log events for different forks
                 cur.execute("""
                     INSERT INTO analytics_events
-                    (user_id, event_type, fork_name, tokens_used, status, created_at)
+                    (user_id, event_type, profile_name, tokens_used, status, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s);
                 """,
                     ("isolation-test-user", "chat_request", "medical-ai", 100, "success", today)
@@ -538,7 +538,7 @@ class TestAnalyticsDataIsolation:
                 
                 cur.execute("""
                     INSERT INTO analytics_events
-                    (user_id, event_type, fork_name, tokens_used, status, created_at)
+                    (user_id, event_type, profile_name, tokens_used, status, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s);
                 """,
                     ("isolation-test-user", "chat_request", "operational-ai", 200, "success", today)
@@ -547,11 +547,11 @@ class TestAnalyticsDataIsolation:
                 
                 # Verify both events are stored
                 cur.execute(
-                    "SELECT fork_name FROM analytics_events WHERE user_id = %s;",
+                    "SELECT profile_name FROM analytics_events WHERE user_id = %s;",
                     ("isolation-test-user",)
                 )
-                fork_names = {row[0] for row in cur.fetchall()}
-                assert "medical-ai" in fork_names
-                assert "operational-ai" in fork_names
+                profile_names = {row[0] for row in cur.fetchall()}
+                assert "medical-ai" in profile_names
+                assert "operational-ai" in profile_names
 
 

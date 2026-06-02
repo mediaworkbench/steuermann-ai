@@ -74,7 +74,7 @@ class TestQdrantCacheVectorBackend:
             embedding_model="text-embedding-granite-embedding-278m-multilingual",
             dimension=768,
             similarity_threshold=0.85,
-            fork_name="test",
+            profile_name="test",
             embedding_provider_type="remote",
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
@@ -576,7 +576,7 @@ class TestQdrantCacheVectorBackendIntegration:
         from universal_agentic_framework.caching.manager import CacheManager
 
         manager = CacheManager(
-            fork_name="test",
+            profile_name="test",
             use_vector_db=True,
             qdrant_host="localhost",
             qdrant_port=6333,

@@ -346,13 +346,20 @@ class Mem0MemoryBackend(MemoryBackend):
             ) from exc
 
     def _delete_all_memories(self, user_id: str) -> None:
-        """Delete all memories using Mem0 filters API (v3+)."""
+        """Delete all memories for a user.
+
+        Mem0 v2.x uses positional user_id= arg; v3+ uses filters={"user_id": ...}.
+        Try the v2.x form first (installed version is 2.x).
+        """
         try:
-            self._memory.delete_all(filters={"user_id": user_id})
-        except TypeError as exc:
-            raise RuntimeError(
-                "Mem0 delete_all signature mismatch: expected filters-based API (v3+)."
-            ) from exc
+            self._memory.delete_all(user_id=user_id)
+        except TypeError:
+            try:
+                self._memory.delete_all(filters={"user_id": user_id})
+            except TypeError as exc:
+                raise RuntimeError(
+                    "Mem0 delete_all signature mismatch: neither user_id= nor filters= accepted."
+                ) from exc
 
     def load(
         self,

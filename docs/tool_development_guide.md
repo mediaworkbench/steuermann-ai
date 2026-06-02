@@ -16,7 +16,7 @@ The framework supports two types of tools:
 **Discovery flow:**
 
 1. `ToolRegistry` scans `tools/` subdirectories for `tool.yaml` manifests
-2. Merges with `config/tools.yaml` overrides (profile can enable/disable)
+2. Merges with `config/profiles/<id>/tools.yaml` overrides (profile can enable/disable)
 3. Loads enabled tools into `BaseTool` instances
 4. Graph node `node_load_tools` populates `GraphState.loaded_tools`
 5. `node_prefilter_tools` scores queries against tool descriptions and selects candidates for model-driven calling
@@ -97,7 +97,7 @@ class MyTool(BaseTool):
     )
     args_schema: type[BaseModel] = MyToolInput
 
-    # Config params injected by registry from tool.yaml / config/tools.yaml
+    # Config params injected by registry from tool.yaml / config/profiles/<id>/tools.yaml
     my_param: str = "default_value"
 
     def _run(self, operation: str = "do_thing", input_text: Optional[str] = None, **kwargs) -> str:
@@ -130,7 +130,7 @@ from universal_agentic_framework.tools.my_tool.tool import MyTool
 __all__ = ["MyTool"]
 ```
 
-### Step 5: Register in `config/tools.yaml`
+### Step 5: Register in `config/profiles/<id>/tools.yaml`
 
 ```yaml
 tools:
@@ -325,7 +325,7 @@ poetry run pytest
 
 Standard tools are deployment-oriented integrations provided by the template for all profiles. They follow five design principles:
 
-1. **Configuration-driven** — all settings via `config/tools.yaml`
+1. **Configuration-driven** — all settings via `config/profiles/<id>/tools.yaml`
 2. **Profile-optional** — profiles enable/disable any standard tool
 3. **Operationally robust** — uses established, maintained services
 4. **Secure** — API keys via environment variables, never in code
@@ -390,7 +390,7 @@ SEARXNG_ENDPOINT=http://searxng:8080  # If self-hosted
 
 1. Update the repository or release revision you deploy.
 2. Add API keys to `.env` for the providers you enable.
-3. Enable or tune tools in `config/tools.yaml` or the active profile overlay.
+3. Enable or tune tools in `config/profiles/<id>/tools.yaml` or the active profile overlay.
 4. Rebuild services and validate routing behavior.
 
 ---
@@ -458,7 +458,7 @@ Add any new vision-LLM tools to this set. Library-based tools (`image_metadata_t
 
 | File | Purpose |
 | ------ | --------- |
-| `config/tools.yaml` | Enable/disable tools, override config |
+| `config/profiles/<id>/tools.yaml` | Enable/disable tools, override config |
 | `tools/<name>/tool.yaml` | Tool manifest (description, entry_point, schema) |
 | `config/core.yaml` | Tool routing settings (threshold, embedding model) |
 | `config/features.yaml` | Feature flags |

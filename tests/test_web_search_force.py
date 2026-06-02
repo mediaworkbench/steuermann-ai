@@ -29,7 +29,7 @@ def _set_mock_config(mock_config):
         get_tool_calling_mode=lambda _m: "structured",
     )
     config = SimpleNamespace(
-        fork=SimpleNamespace(name="test-fork", language="en"),
+        profile=SimpleNamespace(name="test-fork", language="en"),
         tool_routing=SimpleNamespace(
             similarity_threshold=0.3,
             top_k=5,

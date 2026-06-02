@@ -60,15 +60,15 @@ async def get_metrics() -> Dict[str, Any]:
         if value is not None:
             metrics["requests"][status] = value
 
-    # Total tokens used by fork and model
-    tokens_results = await client.query('sum by (fork_name, model) (langgraph_tokens_used_total)')
+    # Total tokens used by profile and model
+    tokens_results = await client.query('sum by (profile_name, model) (langgraph_tokens_used_total)')
     for result in tokens_results:
         labels = result.get("metric", {})
-        fork = labels.get("fork_name", "unknown")
+        profile = labels.get("profile_name", "unknown")
         model = labels.get("model", "unknown")
         value = extract_value(result)
         if value is not None:
-            key = f"{fork}/{model}"
+            key = f"{profile}/{model}"
             metrics["tokens"][key] = value
 
     # Request latency (average). Histogram metrics must use _sum/_count.
@@ -80,13 +80,13 @@ async def get_metrics() -> Dict[str, Any]:
         if value is not None:
             metrics["latency"]["avg_request_duration_seconds"] = value
 
-    # Active sessions by fork
+    # Active sessions by profile
     sessions_results = await client.query('langgraph_active_sessions')
     for result in sessions_results:
-        fork = result.get("metric", {}).get("fork_name", "unknown")
+        profile = result.get("metric", {}).get("profile_name", "unknown")
         value = extract_value(result)
         if value is not None:
-            metrics["sessions"][fork] = value
+            metrics["sessions"][profile] = value
 
     # Memory operations by type
     mem_ops_results = await client.query('sum by (operation) (langgraph_memory_operations_total)')

@@ -8,6 +8,8 @@ import { Icon } from "./Icon";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { ReasoningBox } from "./ReasoningBox";
+import dynamic from "next/dynamic";
+const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
 import { useI18n } from "@/hooks/useI18n";
@@ -25,7 +27,6 @@ import {
   uploadConversationAttachment,
 } from "@/lib/api";
 import type { SystemConfig } from "@/lib/api";
-import { selectActiveAttachmentIds } from "@/lib/attachments";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
@@ -49,6 +50,7 @@ const FALLBACK_TOOLS = [
   { id: "read_barcodes_tool", label: "Read Barcodes" },
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
+  { id: "map_tool", label: "Map" },
   { id: "file_ops_tool", label: "File Ops" },
 ] as const;
 
@@ -262,7 +264,7 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
     persistedId: pm.id,
     feedback: pm.feedback ?? undefined,
     metrics: {
-      output_tokens: pm.tokens_used ?? undefined,
+      output_tokens: (pm.metadata?.output_tokens as number | undefined) ?? pm.tokens_used ?? undefined,
       input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
       response_time_ms: pm.response_time_ms ?? undefined,
       model: pm.model_name ?? undefined,
@@ -290,8 +292,18 @@ function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | n
             is_related?: boolean;
           }>
         | undefined,
+      map_data: pm.metadata?.map_data as import("@/lib/types").MapData | undefined,
     },
   };
+}
+
+function CtxRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-evergreen/60">{label}</span>
+      <span className="text-evergreen tabular-nums">{value}</span>
+    </div>
+  );
 }
 
 export function ChatInterface() {
@@ -300,7 +312,6 @@ export function ChatInterface() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
-  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
@@ -314,13 +325,18 @@ export function ChatInterface() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<number>(0);
   const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
+  const plopAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const {
     streamingContent,
@@ -380,7 +396,6 @@ export function ChatInterface() {
     if (!activeId) {
       setMessages([]);
       setAttachments([]);
-      setSelectedAttachmentIds([]);
       setWorkspaceSidebarOpen(false);
       setContextTokens(0);
       return;
@@ -415,7 +430,6 @@ export function ChatInterface() {
   useEffect(() => {
     if (!activeId) {
       setAttachments([]);
-      setSelectedAttachmentIds([]);
       return;
     }
     let cancelled = false;
@@ -423,10 +437,6 @@ export function ChatInterface() {
       const data = await fetchConversationAttachments(activeId);
       if (cancelled) return;
       setAttachments(data);
-      // Auto-select all active attachments for this conversation.
-      // Any previously selected ID no longer in the list (deleted/expired) is
-      // naturally dropped because we derive the new selection from `data`.
-      setSelectedAttachmentIds(selectActiveAttachmentIds(data));
     })();
     return () => {
       cancelled = true;
@@ -479,6 +489,7 @@ export function ChatInterface() {
                 memories_used: finalMetadata.memories_used,
                 rag_attempted: finalMetadata.rag_attempted,
                 rag_doc_count: finalMetadata.rag_doc_count,
+                map_data: finalMetadata.map_data,
               }
             : undefined,
         },
@@ -493,6 +504,13 @@ export function ChatInterface() {
         });
       }
       resetStream();
+
+      if (soundEnabled) {
+        plopAudioRef.current?.play().catch(() => {});
+      }
+      if (document.hidden || !document.hasFocus()) {
+        setHasNewMessage(true);
+      }
 
       // After streaming, fetch the conversation to get DB message IDs so that
       // feedback (thumbs up/down) can be persisted. _run_persistence on the
@@ -520,8 +538,7 @@ export function ChatInterface() {
         });
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStreaming]);
+  }, [isStreaming, soundEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update context token count — use high-water mark so the ring never goes backwards.
   // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
@@ -529,7 +546,7 @@ export function ChatInterface() {
   // contextTokens is already reset to 0 when the active conversation changes.
   useEffect(() => {
     const tokens = finalMetadata?.input_tokens;
-    if (!isStreaming && tokens) {
+    if (!isStreaming && tokens != null && tokens > 0) {
       setContextTokens((prev) => Math.max(prev, tokens));
     }
   }, [isStreaming, finalMetadata]);
@@ -554,7 +571,30 @@ export function ChatInterface() {
   // Cancel any in-flight stream on unmount
   useEffect(() => () => cancelStream(), [cancelStream]);
 
-  // Load user settings on mount: RAG config, tool toggles, chat model
+  // Preload plop audio on mount
+  useEffect(() => {
+    plopAudioRef.current = new Audio("/plop.mp3");
+    plopAudioRef.current.load();
+  }, []);
+
+  // Tab title badge: prefix with • when a new message arrives while the tab is hidden
+  useEffect(() => {
+    const BASE = "Steuermann";
+    document.title = hasNewMessage ? `🔴 ${BASE}` : BASE;
+  }, [hasNewMessage]);
+
+  // Clear the badge whenever the tab becomes visible or regains focus
+  useEffect(() => {
+    const clear = () => { if (!document.hidden) setHasNewMessage(false); };
+    document.addEventListener("visibilitychange", clear);
+    window.addEventListener("focus", clear);
+    return () => {
+      document.removeEventListener("visibilitychange", clear);
+      window.removeEventListener("focus", clear);
+    };
+  }, []);
+
+  // Load user settings on mount: RAG config, tool toggles, chat model, sound
   useEffect(() => {
     fetchUserSettings(CURRENT_USER_ID).then((s) => {
       if (!s) return;
@@ -565,6 +605,8 @@ export function ChatInterface() {
       const model = s.preferred_models?.chat ?? s.preferred_model ?? null;
       setChatModel(model);
       preferredModelsRef.current = s.preferred_models ?? {};
+      const prefs = s.analytics_preferences as Record<string, unknown> | undefined;
+      setSoundEnabled((prefs?.sound_enabled as boolean) ?? true);
     }).catch(() => {});
   }, []);
 
@@ -666,11 +708,18 @@ export function ChatInterface() {
       setLoading(true);
       startTimeRef.current = Date.now();
 
+      // Estimate context size immediately so the ring updates while the LLM generates.
+      // chars / 4 ≈ tokens; the real input_tokens replaces this when the metadata SSE arrives.
+      const _estTokens = Math.round(
+        messages.reduce((s, m) => s + m.content.length, 0) / 4 + userMessage.length / 4,
+      );
+      setContextTokens((prev) => Math.max(prev, _estTokens));
+
       await startStream({
         message: userMessage,
         userId: CURRENT_USER_ID,
         conversationId: convId,
-        attachmentIds: selectedAttachmentIds,
+        attachmentIds: attachments.map((a) => a.id),
         documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
         ragEnabled,
       });
@@ -694,7 +743,7 @@ export function ChatInterface() {
       refresh,
       rename,
       activeConversation?.title,
-      selectedAttachmentIds,
+      attachments,
       activeWorkspaceDocId,
       ragEnabled,
       startStream,
@@ -718,7 +767,6 @@ export function ChatInterface() {
         if (!uploaded) throw new Error(t("chat.attachmentUploadFailed"));
 
         setAttachments((prev) => [...prev, uploaded]);
-        setSelectedAttachmentIds((prev) => (prev.includes(uploaded.id) ? prev : [...prev, uploaded.id]));
         setWorkspaceSidebarOpen(true);
         fetchWorkspaceDocuments();
         refresh();
@@ -744,18 +792,23 @@ export function ChatInterface() {
       }
 
       setAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
-      setSelectedAttachmentIds((prev) => prev.filter((id) => id !== attachmentId));
       toast.success(t("chat.attachmentRemoved"), { description: target?.original_name || attachmentId });
     },
     [activeId, attachments, t],
   );
 
-  const toggleAttachmentSelection = useCallback((attachmentId: string) => {
-    setSelectedAttachmentIds((prev) =>
-      prev.includes(attachmentId)
-        ? prev.filter((id) => id !== attachmentId)
-        : [...prev, attachmentId],
-    );
+  const handleAttachmentPillClick = useCallback((attachment: ConversationAttachment) => {
+    const ref = `"${attachment.original_name}" (id: ${attachment.id})`;
+    const el = textareaRef.current;
+    if (!el) { setInput((prev) => prev + ref); return; }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + ref + el.value.slice(end);
+    setInput(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + ref.length, start + ref.length);
+    });
   }, []);
 
   async function handleSend() {
@@ -814,6 +867,33 @@ export function ChatInterface() {
     [messages, activeId, t],
   );
 
+  const handleCompactContext = useCallback(async () => {
+    if (!activeId) return;
+    setIsCompacting(true);
+    try {
+      const res = await fetch(`/api/proxy/api/conversations/${activeId}/compact`, {
+        method: "POST",
+        headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
+      });
+      if (res.ok) {
+        const data = await res.json() as { status: string; estimated_tokens?: number };
+        if (data.status === "ok" && (data.estimated_tokens ?? 0) > 0) {
+          setContextTokens(data.estimated_tokens!);
+          setContextMenuOpen(false);
+          toast.success("Context compacted");
+        } else if (data.status === "skipped") {
+          toast.info("Nothing to compact — context is already small");
+        } else {
+          setContextMenuOpen(false);
+        }
+      } else {
+        toast.error("Compact failed");
+      }
+    } finally {
+      setIsCompacting(false);
+    }
+  }, [activeId]);
+
   const prevIsStreamingRef = useRef(false);
   useEffect(() => {
     if (prevIsStreamingRef.current && !isStreaming) {
@@ -846,6 +926,14 @@ export function ChatInterface() {
 
   const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
   const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
+
+  const userMessageCount = messages.filter((m) => m.role === "user").length;
+  const assistantMessageCount = messages.filter((m) => m.role === "assistant").length;
+  const _ctxPct = maxContextTokens ? Math.min(100, Math.round((contextTokens / maxContextTokens) * 100)) : 0;
+  const _ctxBarColor =
+    _ctxPct >= 85 ? "bg-red-500"
+    : _ctxPct >= 60 ? "bg-amber-500"
+    : "bg-evergreen/60";
 
   return (
     <>
@@ -982,38 +1070,31 @@ export function ChatInterface() {
           {/* Attachment chips */}
           {(attachments.length > 0 || uploadingAttachment) && (
             <div className="flex flex-wrap gap-2 mb-3 px-1">
-              {attachments.map((attachment) => {
-                const selected = selectedAttachmentIds.includes(attachment.id);
-                return (
-                  <div
-                    key={attachment.id}
-                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                      selected
-                        ? "bg-light-cyan/30 border-pacific-blue/30 text-evergreen"
-                        : "bg-white border-gray-300 text-evergreen/55"
-                    }`}
+              {attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors bg-light-cyan/20 border-pacific-blue/25 text-evergreen"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleAttachmentPillClick(attachment)}
+                    className="inline-flex items-center gap-1 cursor-pointer"
+                    title={t("chat.insertReference")}
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleAttachmentSelection(attachment.id)}
-                      className="inline-flex items-center gap-1 cursor-pointer"
-                      title={selected ? t("chat.excludeFromNextMessage") : t("chat.includeInNextMessage")}
-                    >
-                      <Icon name="description" size={14} className={selected ? "text-pacific-blue" : "text-evergreen/40"} />
-                      <span className="font-medium">{attachment.original_name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAttachmentDelete(attachment.id)}
-                      className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
-                      aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
-                      title={t("chat.deleteAttachment")}
-                    >
-                      <Icon name="close" size={14} className="text-evergreen/45" />
-                    </button>
-                  </div>
-                );
-              })}
+                    <Icon name="description" size={14} className="text-pacific-blue" />
+                    <span className="font-medium">{attachment.original_name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAttachmentDelete(attachment.id)}
+                    className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
+                    aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
+                    title={t("chat.deleteAttachment")}
+                  >
+                    <Icon name="close" size={14} className="text-evergreen/45" />
+                  </button>
+                </div>
+              ))}
               {uploadingAttachment && (
                 <div className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs text-evergreen/55">
                   <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
@@ -1141,11 +1222,70 @@ export function ChatInterface() {
               {/* Right group: model, mic, send */}
               <div className="flex items-center gap-1.5">
 
-                {/* Context usage ring */}
-                <ContextRingIndicator
-                  contextTokens={contextTokens}
-                  maxContextTokens={maxContextTokens}
-                />
+                {/* Context usage ring + overlay */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setContextMenuOpen((v) => !v)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                    aria-label="Context window details"
+                  >
+                    <ContextRingIndicator
+                      contextTokens={contextTokens}
+                      maxContextTokens={maxContextTokens}
+                    />
+                  </button>
+
+                  {contextMenuOpen && maxContextTokens && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
+                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-60 z-20">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">
+                          Context Window
+                        </p>
+
+                        {/* Usage bar + numbers */}
+                        <div className="px-3 pb-2">
+                          <div className="flex items-center justify-between text-xs text-evergreen mb-1">
+                            <span>{contextTokens.toLocaleString()} tokens</span>
+                            <span className="text-evergreen/50">{_ctxPct}%</span>
+                          </div>
+                          <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${_ctxBarColor}`}
+                              style={{ width: `${_ctxPct}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                        </div>
+
+                        <div className="border-t border-gray-100 my-1" />
+
+                        {/* Message counts */}
+                        <div className="px-3 py-1 space-y-0.5">
+                          <p className="text-[10px] font-semibold text-evergreen/40 uppercase tracking-wide mb-1">Messages</p>
+                          <CtxRow label="User" value={userMessageCount} />
+                          <CtxRow label="Assistant" value={assistantMessageCount} />
+                        </div>
+
+                        <div className="border-t border-gray-100 my-1" />
+
+                        {/* Compact button */}
+                        <div className="px-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isStreaming || isCompacting || !activeId || contextTokens === 0}
+                            onClick={handleCompactContext}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-evergreen rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Icon name="compress" size={16} className="text-evergreen/60" />
+                            {isCompacting ? "Compacting…" : "Compact Context"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Model selector */}
                 <div className="relative">
@@ -1214,15 +1354,6 @@ export function ChatInterface() {
             </div>
           </div>
 
-          {/* Attachment count hint */}
-          {selectedAttachmentIds.length > 0 && (
-            <p className="mt-2 px-1 text-xs text-evergreen/45">
-              {selectedAttachmentIds.length === 1
-                ? t("chat.attachmentCountOne", { count: selectedAttachmentIds.length })
-                : t("chat.attachmentCountOther", { count: selectedAttachmentIds.length })}
-            </p>
-          )}
-
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -1250,31 +1381,13 @@ export function ChatInterface() {
         documents={documents}
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
+        onEnsureConversation={() => ensureConversation()}
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
-        onInsertCommand={(command) => {
-          const textarea = textareaRef.current;
-          const start = textarea?.selectionStart ?? input.length;
-          const end = textarea?.selectionEnd ?? input.length;
-          const newValue = input.slice(0, start) + command + input.slice(end);
-          setInput(newValue);
-          requestAnimationFrame(() => {
-            if (textarea) {
-              textarea.focus();
-              const newCursor = start + command.length;
-              textarea.setSelectionRange(newCursor, newCursor);
-            }
-            autoResize();
-          });
-        }}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
             return [...prev, attachment];
-          });
-          setSelectedAttachmentIds((prev) => {
-            if (prev.includes(attachment.id)) return prev;
-            return [...prev, attachment.id];
           });
           setWorkspaceSidebarOpen(true);
         }}
@@ -1330,6 +1443,13 @@ function AssistantMessage({
         <div className="text-evergreen text-base leading-relaxed px-1">
           <MarkdownMessage content={message.content} sources={message.metrics?.sources} />
         </div>
+
+        {/* Map widget — rendered when map_tool was used */}
+        {message.metrics?.map_data && (
+          <div className="mt-2 px-1 w-full">
+            <MapWidget data={message.metrics.map_data} />
+          </div>
+        )}
 
         {/* Source badges — only show RAG sources when docs were actually injected */}
         <SourceBadges

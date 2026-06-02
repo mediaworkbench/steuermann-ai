@@ -122,6 +122,30 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 
 ---
 
+## Built-in Tool Catalog
+
+Steuermann ships a curated set of tools that route automatically — no explicit invocation needed. Each tool is enabled per profile and responds to natural language triggers in any supported language.
+
+| Tool | What it does | Example trigger |
+| --- | --- | --- |
+| `calculator_tool` | Evaluates math expressions, unit conversions, statistics | "What is sqrt(144) / 3?" |
+| `datetime_tool` | Current date/time, timezone conversion | "What time is it in Tokyo?" |
+| `map_tool` | Geocode cities/regions/continents, measure distances, interactive map widget | "Where is Kyoto?", "How far is London from Madrid?" |
+| `file_ops_tool` | Read and write files in a sandboxed workspace | "Save this summary to notes.md" |
+| `web_search_mcp` | DuckDuckGo web search + webpage content extraction (MCP server) | "Search for the latest LangGraph release" |
+| `analyze_image_tool` | Describe and analyze images via a vision LLM | "What's in this photo?" |
+| `ocr_tool` | Extract text from screenshots and document images | "Read the text in this screenshot" |
+| `analyze_document_tool` | Structured extraction from invoices, receipts, and forms | "Parse this invoice and list the line items" |
+| `analyze_chart_tool` | Structured extraction from charts and graphs | "What does this bar chart show?" |
+| `image_metadata_tool` | EXIF/GPS/file metadata — no vision LLM required | "When and where was this photo taken?" |
+| `read_barcodes_tool` | Barcode and QR code decoding — no vision LLM required | "Scan this QR code" |
+
+The four vision tools (`analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, `analyze_chart_tool`) require a multimodal model configured under `llm.roles.vision` in the active profile. All other tools work with any text model.
+
+See [docs/tools.md](docs/tools.md) for the full catalog with input schemas, configuration keys, intent triggers, and instructions for adding your own tools.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -259,35 +283,39 @@ See [docs/cli.md](docs/cli.md) for the full command reference.
 | Document | Description |
 | --- | --- |
 | [docs/index.md](docs/index.md) | Complete documentation index |
+| [docs/quickstart.md](docs/quickstart.md) | Zero-to-running setup walkthrough |
 | [docs/cli.md](docs/cli.md) | Operations CLI reference (`steuermann`) |
 | [docs/technical_architecture.md](docs/technical_architecture.md) | System design, service boundaries, data flow |
+| [docs/deployment_guide.md](docs/deployment_guide.md) | Docker topology, ingestion, frontend, security, and upgrade paths |
 | [docs/configuration.md](docs/configuration.md) | Configuration schema and reference |
+| [docs/tools.md](docs/tools.md) | Built-in tool catalog: 11 tools across utility, vision, and image library categories |
 | [docs/profile_creation.md](docs/profile_creation.md) | Step-by-step guide to creating domain profiles |
 | [docs/tool_development_guide.md](docs/tool_development_guide.md) | Building custom tools and MCP integrations |
 | [docs/crewai_extension_guide.md](docs/crewai_extension_guide.md) | Adding new CrewAI crews |
 | [docs/ingestion.md](docs/ingestion.md) | RAG ingestion pipeline reference |
 | [docs/monitoring.md](docs/monitoring.md) | Prometheus metrics and dashboard guide |
-| [docs/performance_optimization.md](docs/performance_optimization.md) | Caching, load testing, benchmarking |
+| [docs/performance_optimization.md](docs/performance_optimization.md) | Caching, token budgets, and conversation compression |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Common failure modes and diagnostic commands |
 
 ---
 
 ## Technology Stack
 
-| Layer           | Technology                                                  | Purpose                                          |
-| --------------- | ----------------------------------------------------------- | ------------------------------------------------ |
-| Orchestration   | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
-| Multi-Agent     | [CrewAI](https://github.com/joaomdmoura/crewAI) ≥1.14       | Role-based collaborative agent reasoning         |
-| LLM Integration | LangChain ≥1.2 + LiteLLM router                             | Unified LLM interface via LiteLLM router         |
-| Backend         | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135             | REST API, auth, metrics proxy                    |
-| Frontend        | [Next.js](https://nextjs.org/) ≥16 + React 19               | Production UI with App Router                    |
-| Vector Store    | [Qdrant](https://qdrant.tech/) ≥1.7                         | RAG embeddings and Mem0 internal vector store    |
-| Database        | [PostgreSQL](https://www.postgresql.org/) ≥15               | Conversations, checkpoints, users, audit logs    |
-| Memory          | [Mem0 OSS](https://github.com/mem0ai/mem0) ≥2.0             | Memory abstraction with embedded Qdrant backend  |
-| Embeddings      | Multilingual embedding models                               | OpenAI-compatible API                            |
-| Cache           | [Redis](https://redis.io/) ≥5                               | Response caching, session data                   |
-| Monitoring      | [Prometheus](https://prometheus.io/)                        | Metrics collection and alerting                  |
-| LLM Providers   | [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), [OpenRouter](https://openrouter.ai/) | External provider endpoints configured per profile |
-| Tools           | [MCP SDK](https://modelcontextprotocol.io/)                 | Model Context Protocol integration               |
+| Layer | Technology | Purpose |
+| --- | --- | --- |
+| Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
+| Multi-Agent | [CrewAI](https://github.com/joaomdmoura/crewAI) ≥1.14 | Role-based collaborative agent reasoning |
+| LLM Integration | LangChain ≥1.2 + LiteLLM router | Unified LLM interface via LiteLLM router |
+| Backend | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135 | REST API, auth, metrics proxy |
+| Frontend | [Next.js](https://nextjs.org/) ≥16 + React 19 | Production UI with App Router |
+| Vector Store | [Qdrant](https://qdrant.tech/) ≥1.7 | RAG embeddings and Mem0 internal vector store |
+| Database | [PostgreSQL](https://www.postgresql.org/) ≥15 | Conversations, checkpoints, users, audit logs |
+| Memory | [Mem0 OSS](https://github.com/mem0ai/mem0) ≥2.0 | Memory abstraction with embedded Qdrant backend |
+| Embeddings | Multilingual embedding models | OpenAI-compatible API |
+| Cache | [Redis](https://redis.io/) ≥5 | Response caching, session data |
+| Monitoring | [Prometheus](https://prometheus.io/) | Metrics collection and alerting |
+| LLM Providers | [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), [OpenRouter](https://openrouter.ai/) | External provider endpoints configured per profile |
+| Tools | [MCP SDK](https://modelcontextprotocol.io/) | Model Context Protocol integration |
 
 ---
 

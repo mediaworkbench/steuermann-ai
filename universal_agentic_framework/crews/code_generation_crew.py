@@ -31,7 +31,7 @@ class CodeGenerationCrew(BaseCrew):
     - Developer: Implements code following specifications and best practices
     - QA Engineer: Reviews code quality and writes comprehensive tests
 
-    Configured via ``config/agents.yaml`` → ``crews.code_generation``.
+    Configured via ``config/profiles/<profile_id>/agents.yaml`` → ``crews.code_generation``.
     """
 
     crew_name = "code_generation"
@@ -43,7 +43,7 @@ class CodeGenerationCrew(BaseCrew):
     def _build_agents(self) -> None:
         crew_config = self.agents_config.crews.get(self.crew_name)
         if not crew_config:
-            raise ValueError(f"'{self.crew_name}' crew not configured in config/agents.yaml")
+            raise ValueError(f"'{self.crew_name}' crew not configured in config/profiles/<profile_id>/agents.yaml")
 
         llm = self._get_llm()
 

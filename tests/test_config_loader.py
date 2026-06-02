@@ -45,7 +45,7 @@ def test_load_core_config_env_substitution() -> None:
 
     core = load_core_config(env=env)
 
-    assert core.fork.name == "starter"
+    assert core.profile.name == "starter"
     assert core.database.url == "postgresql://app:pw@localhost:5432/framework"
     assert core.rag is not None
     assert core.rag.collection_name == "framework"
@@ -88,7 +88,7 @@ def test_load_core_config_applies_profile_overlay_for_allowed_fields(tmp_path: P
 
     config_dir.joinpath("core.yaml").write_text(
         """
-fork:
+profile:
   name: $PROFILE_ID
 database:
   url: sqlite:///base.db
@@ -107,7 +107,7 @@ memory:
     _write_profile_metadata(profile_dir, "medical")
     profile_dir.joinpath("core.yaml").write_text(
         """
-fork:
+profile:
   language: de
   locale: de_DE
 llm:
@@ -147,7 +147,7 @@ prompts:
         env={"PROFILE_ID": "medical"},
     )
 
-    assert core.fork.language == "de"
+    assert core.profile.language == "de"
     assert core.tokens.default_budget == 20000
     assert core.rag is not None
     assert core.rag.collection_name == "medical-rag"
@@ -163,7 +163,7 @@ def test_load_core_config_rejects_disallowed_profile_override(tmp_path: Path) ->
 
     config_dir.joinpath("core.yaml").write_text(
         """
-fork:
+profile:
   name: $PROFILE_ID
 database:
   url: sqlite:///base.db

@@ -29,7 +29,7 @@ class AnalyticsCrew(BaseCrew):
     - Statistician: Validates findings with rigorous statistical methods
     - Report Writer: Transforms analysis into actionable business reports
 
-    Configured via ``config/agents.yaml`` → ``crews.analytics``.
+    Configured via ``config/profiles/<profile_id>/agents.yaml`` → ``crews.analytics``.
     """
 
     crew_name = "analytics"
@@ -41,7 +41,7 @@ class AnalyticsCrew(BaseCrew):
     def _build_agents(self) -> None:
         crew_config = self.agents_config.crews.get(self.crew_name)
         if not crew_config:
-            raise ValueError(f"'{self.crew_name}' crew not configured in config/agents.yaml")
+            raise ValueError(f"'{self.crew_name}' crew not configured in config/profiles/<profile_id>/agents.yaml")
 
         llm = self._get_llm()
 

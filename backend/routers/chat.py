@@ -134,7 +134,7 @@ def _resolve_provider_endpoint(provider_prefix: str) -> str:
 
         for role_name in ("chat", "vision", "auxiliary", "embedding"):
             try:
-                role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.fork.language)
+                role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.profile.language)
             except Exception:
                 continue
             for _provider_id, provider, model_name in role_chain:
@@ -1400,11 +1400,11 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
             extra={
                 "active_profile_id": ACTIVE_PROFILE_ID,
                 "reported_profile_id": raw_profile_id,
-                "fork_name": PROFILE_ID,
+                "profile_name": PROFILE_ID,
             },
         )
         track_profile_id_mismatch(
-            fork_name=PROFILE_ID,
+            profile_name=PROFILE_ID,
             active_profile_id=ACTIVE_PROFILE_ID,
             reported_profile_id=str(raw_profile_id),
         )
@@ -1517,9 +1517,11 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
                     "workspace_document_writeback": workspace_document_writeback,
                     "profile_id": profile_id,
                     "input_tokens": input_tokens or None,
+                    "output_tokens": output_tokens or None,
                     "sources": sources or [],
                     "rag_attempted": rag_attempted,
                     "rag_doc_count": rag_doc_count,
+                    **({"map_data": result.get("map_data")} if result.get("map_data") else {}),
                 },
             )
             # Auto-title on first exchange (2 messages = 1 user + 1 assistant)
@@ -1548,7 +1550,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
                 tokens_used=tokens_used,
                 request_duration_seconds=request_duration_seconds,
                 status="success",
-                fork_name=PROFILE_ID,
+                profile_name=PROFILE_ID,
             )
     except Exception as exc:
         # Don't fail the request if analytics logging fails
@@ -1774,12 +1776,16 @@ async def chat_stream(
                         "workspace_document_writeback": writeback,
                         "profile_id": _metadata.get("profile_id", ACTIVE_PROFILE_ID),
                         "input_tokens": int(_metadata.get("input_tokens", 0)) or None,
+                        "output_tokens": int(_metadata.get("output_tokens", 0)) or None,
                         "sources": _metadata.get("sources") or [],
                         "rag_attempted": bool(_metadata.get("rag_attempted", False)),
                         "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),
+                        **({
+                            "map_data": _metadata["map_data"]
+                        } if _metadata.get("map_data") else {}),
                     },
                 )
             except Exception as exc:
@@ -1797,7 +1803,7 @@ async def chat_stream(
             if raw_profile_id and raw_profile_id != ACTIVE_PROFILE_ID:
                 try:
                     track_profile_id_mismatch(
-                        fork_name=PROFILE_ID,
+                        profile_name=PROFILE_ID,
                         active_profile_id=ACTIVE_PROFILE_ID,
                         reported_profile_id=str(raw_profile_id),
                     )
@@ -1814,7 +1820,7 @@ async def chat_stream(
                         tokens_used=int(_metadata.get("tokens_used", 0)),
                         request_duration_seconds=time.time() - start_time,
                         status="success",
-                        fork_name=PROFILE_ID,
+                        profile_name=PROFILE_ID,
                     )
             except Exception as exc:
                 logger.warning("Failed to log stream analytics event: %s", exc)

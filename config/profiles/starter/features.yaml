@@ -1,20 +1,31 @@
-# Starter profile overlay template.
-# Deployment-global flags are intentionally excluded.
+# Starter profile — authoritative feature flags.
+# Deployment-global flags (authentication, ingestion_service, monitoring) are managed
+# in config/features.yaml and cannot be overridden here.
+# All flags listed here are fully owned by this profile.
 
 multi_agent_crews: false
 long_term_memory: true
 rag_retrieval: true
 
+# Memory retrieval behaviour
 memory_importance_scoring: true
 memory_include_related: true
 memory_top_k: 5
 
+# Memory layer emergency rollback switches (set to false to skip a node during debugging)
+memory_load_enabled: true
+memory_update_enabled: true
+memory_co_occurrence_enabled: true
+memory_digest_chain_enabled: true
+
+# UI features
 ui_tool_visualization: true
 ui_token_counter: true
 ui_export_chat: true
+
+# Crew deep integration
 crew_result_caching: true
 crew_cache_ttl_seconds: 3600
-
 crew_chaining: false
 crew_parallel_execution: false
 crew_result_validation: true

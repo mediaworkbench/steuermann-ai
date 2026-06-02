@@ -405,7 +405,7 @@ class TestToolRegistryNewTools:
         from universal_agentic_framework.config import load_tools_config
 
         config = load_tools_config()
-        registry = ToolRegistry(config=config, fork_language="en")
+        registry = ToolRegistry(config=config, profile_language="en")
         tools = registry.discover_and_load()
         tool_names = [t.name for t in tools]
         assert "calculator_tool" in tool_names
@@ -416,7 +416,7 @@ class TestToolRegistryNewTools:
         from universal_agentic_framework.config import load_tools_config
 
         config = load_tools_config()
-        registry = ToolRegistry(config=config, fork_language="en")
+        registry = ToolRegistry(config=config, profile_language="en")
         tools = registry.discover_and_load()
         tool_names = [t.name for t in tools]
         assert "file_ops_tool" in tool_names
@@ -427,7 +427,7 @@ class TestToolRegistryNewTools:
         from universal_agentic_framework.config import load_tools_config
 
         config = load_tools_config()
-        registry = ToolRegistry(config=config, fork_language="en")
+        registry = ToolRegistry(config=config, profile_language="en")
         tools = registry.discover_and_load()
         calc = next(t for t in tools if t.name == "calculator_tool")
         result = calc._run(operation="evaluate", expression="1 + 1")
@@ -439,7 +439,7 @@ class TestToolRegistryNewTools:
         from universal_agentic_framework.config import load_tools_config
 
         config = load_tools_config()
-        registry = ToolRegistry(config=config, fork_language="en")
+        registry = ToolRegistry(config=config, profile_language="en")
         tools = registry.discover_and_load()
         # datetime + calculator + file_ops + web_search_mcp + extract_webpage_mcp = 5
         assert len(tools) >= 5

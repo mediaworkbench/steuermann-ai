@@ -142,8 +142,8 @@ class BaseCrew(ABC):
 
         # Initialise tool registry if not provided
         if self.tool_registry is None:
-            fork_language = getattr(self.core_config.fork, "language", "en")
-            self.tool_registry = ToolRegistry(config=self.tools_config, fork_language=fork_language)
+            profile_language = getattr(self.core_config.profile, "language", "en")
+            self.tool_registry = ToolRegistry(config=self.tools_config, profile_language=profile_language)
             self.tool_registry.discover_and_load()
 
         # Load crew-specific config for retry / timeout

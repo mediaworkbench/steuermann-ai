@@ -223,7 +223,7 @@ class TestImageMetadataToolRegistration:
         assert yaml_path.is_file()
 
     def test_tool_in_tools_config(self):
-        config_path = Path(__file__).parent.parent / "config" / "tools.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "profiles" / "starter" / "tools.yaml"
         assert "image_metadata_tool" in config_path.read_text()
 
     def test_default_max_image_bytes(self):

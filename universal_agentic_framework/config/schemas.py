@@ -11,12 +11,16 @@ from universal_agentic_framework.llm.provider_registry import normalize_model_id
 PROFILE_ID_PATTERN = r"^[a-z0-9_-]+$"
 
 
-class ForkSettings(BaseModel):
+class ProfileSettings(BaseModel):
     name: str
     language: str = Field(..., min_length=2, max_length=5)
     locale: Optional[str] = None
     timezone: Optional[str] = None
     supported_languages: List[str] = Field(default_factory=list)
+
+
+# Legacy alias — kept for any external references; use ProfileSettings going forward.
+ForkSettings = ProfileSettings
 
 
 class ProviderModelMap(BaseModel):
@@ -94,23 +98,6 @@ class LLMProviders(BaseModel):
                 if isinstance(provider, ProviderSettings):
                     registry[str(provider_id)] = provider
         return registry
-
-
-class RoleProviderRef(BaseModel):
-    provider_id: str
-    model: Optional[str] = None
-    models: Optional[ProviderModelMap] = None
-
-    @model_validator(mode="after")
-    def _normalize_models(self) -> "RoleProviderRef":
-        if self.model:
-            self.model = normalize_model_id(str(self.model))
-        if self.models:
-            for language, model_name in self.models.model_dump().items():
-                if not model_name:
-                    continue
-                setattr(self.models, language, normalize_model_id(str(model_name)))
-        return self
 
 
 class LLMRoleSettings(BaseModel):
@@ -366,7 +353,7 @@ class LanguagePrompts(BaseModel):
 
 
 class PromptsSettings(BaseModel):
-    """Optional prompt templates for fork customization.
+    """Optional prompt templates for profile customization.
 
     Supports both legacy inline format (response_system as str/dict) and
     the new per-language prompt file format (languages dict).
@@ -393,7 +380,7 @@ class PromptsSettings(BaseModel):
 
 
 class CoreConfig(BaseModel):
-    fork: ForkSettings
+    profile: ProfileSettings
     llm: LLMSettings
     database: DatabaseSettings
     memory: MemorySettings

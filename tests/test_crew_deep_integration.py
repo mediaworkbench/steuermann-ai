@@ -109,8 +109,8 @@ def _mock_configs(monkeypatch):
     from universal_agentic_framework.config import schemas as sch
 
     fake_core = MagicMock()
-    fake_core.fork.name = "test-fork"
-    fake_core.fork.language = "en"
+    fake_core.profile.name = "test-fork"
+    fake_core.profile.language = "en"
     chat_provider = MagicMock()
     chat_provider.type = "mock"
     chat_provider.models.en = "mock-model"
@@ -389,11 +389,11 @@ class TestCrewMetrics:
         )
 
         before = CREW_EXECUTIONS_TOTAL.labels(
-            fork_name="test", crew_name="research", status="success"
+            profile_name="test", crew_name="research", status="success"
         )._value.get()
         track_crew_execution("test", "research", 1.5, "success")
         after = CREW_EXECUTIONS_TOTAL.labels(
-            fork_name="test", crew_name="research", status="success"
+            profile_name="test", crew_name="research", status="success"
         )._value.get()
         assert after == before + 1
 
@@ -403,9 +403,9 @@ class TestCrewMetrics:
             CREW_RETRIES_TOTAL,
         )
 
-        before = CREW_RETRIES_TOTAL.labels(fork_name="test", crew_name="analytics")._value.get()
+        before = CREW_RETRIES_TOTAL.labels(profile_name="test", crew_name="analytics")._value.get()
         track_crew_retry("test", "analytics")
-        after = CREW_RETRIES_TOTAL.labels(fork_name="test", crew_name="analytics")._value.get()
+        after = CREW_RETRIES_TOTAL.labels(profile_name="test", crew_name="analytics")._value.get()
         assert after == before + 1
 
     def test_crew_timeout_metric(self):
@@ -414,9 +414,9 @@ class TestCrewMetrics:
             CREW_TIMEOUTS_TOTAL,
         )
 
-        before = CREW_TIMEOUTS_TOTAL.labels(fork_name="test", crew_name="slow")._value.get()
+        before = CREW_TIMEOUTS_TOTAL.labels(profile_name="test", crew_name="slow")._value.get()
         track_crew_timeout("test", "slow")
-        after = CREW_TIMEOUTS_TOTAL.labels(fork_name="test", crew_name="slow")._value.get()
+        after = CREW_TIMEOUTS_TOTAL.labels(profile_name="test", crew_name="slow")._value.get()
         assert after == before + 1
 
 
@@ -494,7 +494,7 @@ class TestCacheBugFix:
 
         monkeypatch.setattr(crew_nodes, "_get_cached_crew_result", mock_get_cached)
         monkeypatch.setattr(crew_nodes, "_crew_cache_enabled", lambda: True)
-        monkeypatch.setattr(crew_nodes, "load_core_config", lambda **kw: MagicMock(fork=MagicMock(name="test")))
+        monkeypatch.setattr(crew_nodes, "load_core_config", lambda **kw: MagicMock(profile=MagicMock(name="test")))
 
         # Mock the crew import to avoid real initialization
         mock_crew = MagicMock()

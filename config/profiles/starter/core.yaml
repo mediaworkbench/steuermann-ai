@@ -1,7 +1,8 @@
-# Starter profile overlay template.
-# Only profile-safe core keys are allowed here.
+# Starter profile — authoritative configuration.
+# This file is the single source of truth for all profile-specific settings.
+# Scaffold new profiles with: steuermann profile scaffold --from starter --profile <id>
 
-fork:
+profile:
   language: "de"
   locale: "de_DE"
   timezone: "Europe/Berlin"
@@ -49,12 +50,22 @@ llm:
 
 memory:
   embeddings:
+    model: "text-embedding-granite-embedding-278m-multilingual"
     dimension: 768
-  mem0:
-    infer_enabled: true
+    provider: "remote"
+    remote_endpoint: $EMBEDDING_SERVER
+    batch_size: 32
   retention:
     session_memory_days: 90
     user_memory_days: 365
+  mem0:
+    search_limit: 10
+    custom_instructions: null
+    llm_provider: "lmstudio"
+    co_occurrence_fanout_cap: 5
+    co_occurrence_prune_interval_seconds: 300
+    co_occurrence_related_top_k_per_memory: 5
+    infer_enabled: true
 
 rag:
   enabled: true

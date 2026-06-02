@@ -141,7 +141,7 @@ def set_mock_config(
     top_k: int | None = 10,
     embedding_model: str | None = None,
     language: str = "en",
-    fork_name: str = "test-fork",
+    profile_name: str = "test-fork",
 ):
     """Helper to configure core settings for tool routing tests."""
 
@@ -157,7 +157,7 @@ def set_mock_config(
     )
 
     config = SimpleNamespace(
-        fork=SimpleNamespace(name=fork_name, timezone=timezone, language=language),
+        profile=SimpleNamespace(name=profile_name, timezone=timezone, language=language),
         memory=SimpleNamespace(
             embeddings=SimpleNamespace(
                 dimension=768,
@@ -197,7 +197,7 @@ class TestToolResultInjection:
     def test_response_injects_tool_results_and_knowledge(self, mock_config, mock_model_factory):
         """Response node should inject both tool results and knowledge context."""
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
+            profile=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
             tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
             llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
         )
@@ -226,7 +226,7 @@ class TestToolResultInjection:
     def test_response_skips_tool_section_when_empty(self, mock_config, mock_model_factory):
         """Response node should not add tool section if no tool results are present."""
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
+            profile=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
             tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
             llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
         )
@@ -253,7 +253,7 @@ class TestToolResultInjection:
     def test_response_keeps_low_priority_memory_when_web_tool_results_present(self, mock_config, mock_model_factory):
         """Past memory should be retained as background while tool results remain primary."""
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
+            profile=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
             tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
             llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
         )
@@ -283,7 +283,7 @@ class TestToolResultInjection:
     def test_response_retries_when_extract_succeeded_but_model_claims_access_error(self, mock_config, mock_model_factory):
         """Response node should correct contradictory access-error claims after successful extraction."""
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
+            profile=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
             tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
             llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
         )
@@ -319,7 +319,7 @@ class TestToolResultInjection:
     def test_response_retries_for_german_access_refusal_after_successful_extract(self, mock_config, mock_model_factory):
         """German refusal wording should trigger correction retry when extraction succeeded."""
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="de", name="test-fork", timezone="UTC"),
+            profile=SimpleNamespace(language="de", name="test-fork", timezone="UTC"),
             tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
             llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"de": "llama"}))),
         )

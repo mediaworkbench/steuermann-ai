@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon } from "./Icon";
 import { ExportDialog } from "./ExportDialog";
 import { AUTH_ENABLED } from "@/lib/runtime";
+import { useRole } from "@/context/RoleContext";
 import type { Conversation } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -18,12 +19,15 @@ interface HeaderProps {
 
 export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
+  const { isAdmin } = useRole();
   const [showExport, setShowExport] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
   const navLinks = [
-    { href: "/metrics", label: t("header.metrics"), icon: "bar_chart" },
+    ...(isAdmin ? [{ href: "/metrics", label: t("header.metrics"), icon: "bar_chart" }] : []),
     { href: "/memories", label: t("header.memory"), icon: "psychology" },
     { href: "/settings", label: t("header.settings"), icon: "settings" },
+    ...(isAdmin ? [{ href: "/admin", label: t("header.admin"), icon: "admin_panel_settings" }] : []),
   ];
   const hasMeta = activeConversation != null;
   const msgCount = activeConversation?.message_count;

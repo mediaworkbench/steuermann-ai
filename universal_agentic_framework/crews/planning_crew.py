@@ -29,7 +29,7 @@ class PlanningCrew(BaseCrew):
     - Planner: Creates structured execution plans with task breakdown
     - Reviewer: Validates plans and identifies risks
 
-    Configured via ``config/agents.yaml`` → ``crews.planning``.
+    Configured via ``config/profiles/<profile_id>/agents.yaml`` → ``crews.planning``.
     """
 
     crew_name = "planning"
@@ -41,7 +41,7 @@ class PlanningCrew(BaseCrew):
     def _build_agents(self) -> None:
         crew_config = self.agents_config.crews.get(self.crew_name)
         if not crew_config:
-            raise ValueError(f"'{self.crew_name}' crew not configured in config/agents.yaml")
+            raise ValueError(f"'{self.crew_name}' crew not configured in config/profiles/<profile_id>/agents.yaml")
 
         llm = self._get_llm()
 

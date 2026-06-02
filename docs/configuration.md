@@ -14,7 +14,7 @@ The runtime configuration model is:
 
 **Loading order:** repository defaults → profile overlay → environment variables
 
-The docs use **profile** as the product term. The current schema still uses the top-level config key `fork` for compatibility, so examples keep that literal key where required.
+The docs use **profile** as the product term. The schema uses the top-level config key `profile` throughout.
 
 `PROFILE_ID` is required at runtime. `base` is no longer a runnable profile id; it only refers to repository-level defaults.
 
@@ -27,7 +27,7 @@ Configuration files remain directly editable. The `steuermann` CLI is a validati
 ### Profile Identification
 
 ```yaml
-fork:
+profile:
   name: "medical-ai-de" # Unique profile identifier
   language: "de" # Primary language (ISO 639-1: en, de, fr, es, etc.)
   supported_languages: ["de", "en"] # Languages exposed to the settings UI for this profile
@@ -39,16 +39,16 @@ fork:
 
 **Language behavior:**
 
-- `fork.language` is the profile's primary/default language.
-- `fork.supported_languages` is optional and controls which languages the settings UI offers.
-- If `supported_languages` is not set, the backend falls back to prompt file languages, then to `fork.language`.
+- `profile.language` is the profile's primary/default language.
+- `profile.supported_languages` is optional and controls which languages the settings UI offers.
+- If `supported_languages` is not set, the backend falls back to prompt file languages, then to `profile.language`.
 - Chat requests use the saved user setting as the source of truth for language selection.
 
 ### Prompt Configuration
 
 Prompt text is stored in per-language files rather than inline inside `core.yaml`.
 
-**Base prompts:** `config/prompts/<language>.yaml`
+**Base prompts:** `config/profiles/<id>/prompts/<language>.yaml`
 
 **Profile overrides:** `config/profiles/<profile_id>/prompts/<language>.yaml`
 
@@ -133,7 +133,7 @@ llm:
 
 - `chat` — primary conversational LLM *(required)*
 - `embedding` — vector embeddings for tool routing and memory retrieval *(required)*
-- `vision` — multimodal/image processing requests *(optional; not yet used in the graph)*
+- `vision` — multimodal/image processing requests *(optional; actively used by `analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, and `analyze_chart_tool`; library tools `image_metadata_tool` and `read_barcodes_tool` do not require it; falls back to `chat` role if omitted)*
 - `auxiliary` — Mem0 memory extraction, conversation summarization, RAG query rewriting/expansion, workspace intent classification, structured tool retry re-prompts, and conversation auto-titling; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
 
 **Model strings use LiteLLM's `provider/model-name` format:**
@@ -212,7 +212,7 @@ memory:
     type: "mem0" # Mem0 OSS embedded mode (hard cutover)
     host: "qdrant" # Docker service name or hostname for Mem0 vector storage
     port: 6333 # Qdrant port
-    collection_prefix: "${fork.name}" # Mem0 collection name uses this prefix
+    collection_prefix: "${PROFILE_ID}" # Mem0 collection name uses this prefix (set via env var)
 
   embeddings:
     model: "text-embedding-granite-embedding-278m-multilingual" # embedding model
@@ -278,7 +278,7 @@ rag:
   enabled: true
   collection_name: "framework" # Must match ingestion collection
   top_k: 5 # Max results per query
-  score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
+  pill_score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
   query_rewriting:
     enabled: true       # Rewrite/expand queries via auxiliary model before Qdrant search
     num_variants: 2     # 1 = single rewritten query; 2-3 = multi-query expansion (union results)
@@ -294,7 +294,7 @@ rag:
 **Notes:**
 
 - `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
-- `score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
+- `pill_score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 - `query_rewriting.num_variants` controls how many semantically varied search queries are generated. `1` rewrites the query once; `2` or `3` produces multiple variants whose Qdrant results are unioned before deduplication, improving recall for ambiguous or short queries. Uses `llm.roles.auxiliary`.
 
@@ -359,33 +359,24 @@ tokens:
 
 ### Checkpointing Configuration
 
-LangGraph checkpointing is configurable and can be enabled in local/dev and production.
+LangGraph checkpointing uses PostgreSQL and is always on. The only configurable field is the DSN:
 
 ```yaml
 checkpointing:
-  enabled: true # Base config default — overridden by CHECKPOINTER_ENABLED env var
-  backend: "sqlite" # Options: sqlite, postgres
-  sqlite_path: "./data/checkpoints/langgraph_checkpoints.sqlite"
   postgres_dsn: "${CHECKPOINTER_POSTGRES_DSN}"
 ```
 
-**Note:** `config/core.yaml` defaults `enabled: true`, but the docker-compose environment sets `CHECKPOINTER_ENABLED=false`. Because environment variables take precedence over config files, **checkpointing is effectively disabled by default** in the Docker stack. Set `CHECKPOINTER_ENABLED=true` in `.env` to enable it.
-
-**Runtime env overrides:**
+Set `CHECKPOINTER_POSTGRES_DSN` in `.env` or pass it directly:
 
 ```bash
-CHECKPOINTER_ENABLED=true
-CHECKPOINTER_BACKEND=sqlite
-CHECKPOINTER_DB_PATH=/data/checkpoints/langgraph_checkpoints.sqlite
 CHECKPOINTER_POSTGRES_DSN=postgresql://user:pass@postgres:5432/framework
 ```
 
 **Behavior notes:**
 
-- If checkpointing is disabled, graph compile falls back to standard non-checkpointed mode.
-- If sqlite or postgres checkpointer initialization fails, runtime falls back safely and logs a warning.
-- The FastAPI `/invoke` path passes `configurable.thread_id` from `session_id` to support per-session checkpoint continuity.
-- In docker-compose, the `langgraph` service mounts `./data/checkpoints:/data/checkpoints` for local sqlite persistence.
+- `PostgresSaver` is the sole checkpointing backend — there is no SQLite fallback and no `enabled` flag.
+- Per-session continuity is maintained via `configurable.thread_id = session_id`. Ephemeral requests that omit `conversation_id` skip checkpointing entirely.
+- Startup pruning and periodic pruning (every 100 invocations) keep the checkpoints table flat.
 
 ### Tool Routing Configuration (Three-Tier Architecture)
 
@@ -516,11 +507,11 @@ backstory: "" # Missing context
 ```yaml
 tools:
   - name: "patient_database"                    # Unique tool identifier
-    path: "plugins/patient_database"             # Path relative to repository root
+    path: "universal_agentic_framework/tools/patient_database"  # Path relative to repository root
     enabled: true
 
   - name: "medical_calculator"
-    path: "plugins/medical_calculator"
+    path: "universal_agentic_framework/tools/medical_calculator"
     enabled: true
 
   - name: "datetime_tool"                        # Built-in framework tool
@@ -530,9 +521,10 @@ tools:
 
 **Tool discovery:**
 
-- Built-in tools live in `universal_agentic_framework/tools/<name>/` (not `plugins/`)
+- All tools (built-in and custom) live in `universal_agentic_framework/tools/<name>/`
 - Each tool directory requires `__init__.py`, `tool.py`, and `tool.yaml`
-- All tools (built-in and custom) must be explicitly listed here to be loaded
+- All tools must be explicitly listed here to be loaded (`loading_mode: explicit`)
+- A `plugins/` directory for profile-specific tools is planned but does not exist yet
 
 ---
 
@@ -654,7 +646,6 @@ custom_components:
 ```bash
 # Profile identification
 PROFILE_ID=starter
-FORK_LANGUAGE=de
 
 # Database
 POSTGRES_HOST=postgres
@@ -762,7 +753,7 @@ All configurations are validated using Pydantic at startup:
 ```python
 from universal_agentic_framework.config.loader import load_core_config
 
-config = load_core_config(fork_config_dir=Path("config"))
+config = load_core_config(config_dir=Path("config"))
 # Raises ValidationError if invalid
 ```
 
@@ -814,13 +805,15 @@ The same payload includes `drift_report.by_domain` counters for quick filtering 
 
 ```yaml
 llm:
-  temperature: 3.0 # ❌ Must be 0.0-2.0
+  roles:
+    chat:
+      temperature: 3.0 # ❌ Must be 0.0-2.0
 ```
 
 **Missing required field:**
 
 ```yaml
-fork:
+profile:
   name: "my-profile"
   # ❌ Missing required 'language' field
 ```
@@ -870,7 +863,7 @@ memory:
 
 ```yaml
 # config/profiles/simple-assistant/core.yaml (profile overlay)
-fork:
+profile:
   name: "simple-assistant"
   language: "en"
 
@@ -915,14 +908,14 @@ rag:
   enabled: true
   collection_name: "simple-assistant"
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.6
 ```
 
 ### Production Configuration (German Medical AI)
 
 ```yaml
 # config/profiles/medical-ai-de/core.yaml
-fork:
+profile:
   name: "medical-ai-de"
   language: "de"
   locale: "de_DE"
@@ -978,7 +971,7 @@ rag:
   enabled: true
   collection_name: "medical-ai-de"
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.6
 
 tokens:
   default_budget: 15000
@@ -989,38 +982,7 @@ tokens:
 
 ## Troubleshooting
 
-### Config not loading
-
-**Symptom:** `FileNotFoundError: config/core.yaml`
-
-**Solution:** Ensure profile config files exist:
-
-```bash
-ls -la config/
-# Should show: core.yaml, agents.yaml, tools.yaml, features.yaml
-```
-
-### LLM connection failed
-
-**Symptom:** `ConnectionError: Could not connect to http://host.docker.internal:11434`
-
-**Solution:** Check Ollama is running on host:
-
-```bash
-curl http://localhost:11434/api/tags
-# Should return list of models
-```
-
-### Qdrant connection failed
-
-**Symptom:** `ConnectionRefusedError: [Errno 111] Connection refused`
-
-**Solution:** Ensure Qdrant is running:
-
-```bash
-docker ps | grep qdrant
-curl http://localhost:6333/collections
-```
+See [troubleshooting.md](troubleshooting.md) for common failure modes and diagnostic commands.
 
 ---
 
@@ -1048,8 +1010,8 @@ curl http://localhost:6333/collections
 
 ### Multi-Language
 
-- ✅ Keep one primary profile language via `fork.language`
-- ✅ Optionally expose multiple UI languages via `fork.supported_languages`
+- ✅ Keep one primary profile language via `profile.language`
+- ✅ Optionally expose multiple UI languages via `profile.supported_languages`
 - ✅ Use language-specific chat models where helpful
 - ✅ Prefer multilingual embeddings for mixed-language retrieval
 - ✅ Accept ingested documents in any language and tag detected language metadata

@@ -18,6 +18,26 @@ export interface Source {
   index?: number;
 }
 
+export interface MapLocation {
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export interface MapData {
+  type: "location" | "distance" | "multi";
+  label?: string;
+  lat?: number;
+  lon?: number;
+  zoom: number;
+  osm_url: string;
+  summary?: string;
+  distance_km?: number;
+  distance_miles?: number;
+  locations?: MapLocation[];
+  midpoint?: { lat: number; lon: number };
+}
+
 export interface MessageMetrics {
   response_time_ms?: number;
   input_tokens?: number;
@@ -32,6 +52,7 @@ export interface MessageMetrics {
   memories_used?: MemoryReference[];
   rag_attempted?: boolean;
   rag_doc_count?: number;
+  map_data?: MapData;
 }
 
 export interface Message {
@@ -100,6 +121,7 @@ export interface ChatResponse {
     model_warning?: string;
     rag_attempted?: boolean;
     rag_doc_count?: number;
+    map_data?: MapData;
   };
 }
 
@@ -130,7 +152,7 @@ export interface Conversation {
   user_id: string;
   title: string;
   language: string;
-  fork_name?: string | null;
+  profile_name?: string | null;
   archived: boolean;
   pinned: boolean;
   metadata: Record<string, unknown>;

@@ -15,13 +15,13 @@ The framework includes 4 specialized crews:
 - **Code Generation Crew**: Code implementation and scaffolding
 - **Planning Crew**: Project planning and task breakdown
 
-All crews are configured in `config/agents.yaml` and integrated into the LangGraph orchestration pipeline.
+All crews are configured in `config/profiles/<id>/agents.yaml` and integrated into the LangGraph orchestration pipeline.
 
 ---
 
 ## Quick Start: Three-Step Process
 
-### Step 1: Add Configuration to `config/agents.yaml`
+### Step 1: Add Configuration to `config/profiles/<id>/agents.yaml`
 
 ```yaml
 crews:
@@ -219,9 +219,26 @@ def build_graph(...):
     # Add your crew node
     graph.add_node("my_crew", node_my_crew)
 
-    # Change from single route to multi-level routing
+    # Option A — direct dispatch from START (bypasses tool nodes entirely).
+    # Extend the existing _route_start conditional edge:
     graph.add_conditional_edges(
-        "route_tools",
+        START,
+        lambda state: (
+            "my_crew" if route_to_my_crew(state) else
+            "research_crew" if route_to_research_crew(state) else
+            "load_tools"
+        ),
+        {
+            "my_crew": "my_crew",
+            "research_crew": "research_crew",
+            "load_tools": "load_tools",
+        }
+    )
+
+    # Option B — dispatch after tool execution (post-tool crew routing).
+    # Extend the existing route_to_crew conditional from after_tool_call:
+    graph.add_conditional_edges(
+        "after_tool_call",
         lambda state: (
             "research_crew" if route_to_research_crew(state) else
             "my_crew" if route_to_my_crew(state) else
@@ -234,7 +251,7 @@ def build_graph(...):
         }
     )
 
-    # Add edges from your crew to standard flow
+    # Add edges from your crew back to the standard post-tool flow
     graph.add_edge("research_crew", "memory_query_cache")
     graph.add_edge("my_crew", "memory_query_cache")
 
@@ -245,7 +262,7 @@ def build_graph(...):
 
 ## Configuration Templates
 
-See the existing crew definitions in `config/agents.yaml` for complete examples. The essential structure:
+See the existing crew definitions in `config/profiles/<id>/agents.yaml` for complete examples. The essential structure:
 
 ```yaml
 crews:

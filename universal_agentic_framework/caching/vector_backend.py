@@ -47,7 +47,7 @@ class QdrantCacheVectorBackend:
         embedding_model: str = "",
         dimension: int = 768,
         similarity_threshold: float = 0.85,
-        fork_name: str = "default",
+        profile_name: str = "default",
         embedding_provider_type: str = "remote",
         embedding_remote_endpoint: Optional[str] = None,
     ) -> None:
@@ -60,7 +60,7 @@ class QdrantCacheVectorBackend:
             embedding_model: Embedding model name
             dimension: Vector dimension (must match model output)
             similarity_threshold: Minimum cosine similarity for matches
-            fork_name: Fork name for metrics/logging
+            profile_name: Fork name for metrics/logging
             embedding_provider_type: Embedding provider type (remote-only)
             embedding_remote_endpoint: Required remote endpoint for embedding requests
         """
@@ -72,7 +72,7 @@ class QdrantCacheVectorBackend:
         self.port = port
         self.dimension = dimension
         self.similarity_threshold = similarity_threshold
-        self.fork_name = fork_name
+        self.profile_name = profile_name
         
         # Initialize client
         self._client = QdrantClient(
@@ -101,7 +101,7 @@ class QdrantCacheVectorBackend:
         self._ensure_collection()
         
         logger.info(
-            f"Initialized QdrantCacheVectorBackend for {fork_name} "
+            f"Initialized QdrantCacheVectorBackend for {profile_name} "
             f"(collection={self.collection_name}, threshold={similarity_threshold})"
         )
     
@@ -277,9 +277,9 @@ class QdrantCacheVectorBackend:
             # Update collection size metric
             try:
                 collection_size = self.get_collection_size()
-                fork_name = "default"  # Will be overridden by caller if available
+                profile_name = "default"  # Will be overridden by caller if available
                 metrics.update_vector_db_collection_size(
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     collection_name=self.collection_name,
                     size=collection_size
                 )
@@ -375,8 +375,8 @@ class QdrantCacheVectorBackend:
             search_duration = time.time() - search_start
             
             # Track search duration metric
-            fork_name = "default"  # Will be overridden by caller if available
-            metrics.track_vector_db_search(fork_name, search_duration)
+            profile_name = "default"  # Will be overridden by caller if available
+            metrics.track_vector_db_search(profile_name, search_duration)
             
             # Extract results
             matches = []
@@ -463,8 +463,8 @@ class QdrantCacheVectorBackend:
                 logger.info(f"Cleaned up {deleted_count} expired embeddings from {self.collection_name}")
                 
                 # Track cleanup metrics
-                fork_name = "default"  # Will be overridden by caller if available
-                metrics.track_vector_db_cleanup(fork_name, deleted_count)
+                profile_name = "default"  # Will be overridden by caller if available
+                metrics.track_vector_db_cleanup(profile_name, deleted_count)
             
             return deleted_count
         except Exception as e:

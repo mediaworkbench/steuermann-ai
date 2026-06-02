@@ -62,7 +62,7 @@ class _InaccessibleThenAnswerModel:
 
 def _fake_config() -> SimpleNamespace:
     return SimpleNamespace(
-        fork=SimpleNamespace(language="en", name="test-fork"),
+        profile=SimpleNamespace(language="en", name="test-fork"),
         llm=SimpleNamespace(
             providers=SimpleNamespace(
                 primary=SimpleNamespace(

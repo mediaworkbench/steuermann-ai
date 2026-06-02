@@ -18,8 +18,10 @@ import yaml
 
 from universal_agentic_framework.cli.ingest import add_ingest_subcommands
 from universal_agentic_framework.config.loader import (
+    ENV_PLACEHOLDER_RE,
     _DISALLOWED_PROFILE_FEATURE_FLAGS,
     _PROFILE_CORE_ALLOWED_PREFIXES,
+    _deep_merge,
 )
 from universal_agentic_framework.config import (
     get_active_profile_id,
@@ -40,7 +42,6 @@ PROFILE_REQUIRED_FILES = [
     "tools.yaml",
     "ui.yaml",
 ]
-ENV_PLACEHOLDER_RE = re.compile(r"\$(\{?[A-Z0-9_]+\}?)")
 CONFIG_SECTION_FILES = {
     "core": "core.yaml",
     "features": "features.yaml",
@@ -63,8 +64,8 @@ REQUIRED_CONTRACT_POLICIES = {
 EXPECTED_SECTION_MUTABILITY = {
     "core": "partial",
     "features": "partial",
-    "tools": "partial",
-    "agents": "partial",
+    "tools": "full",
+    "agents": "full",
 }
 EXPECTED_SEVERITY_POLICY = {
     "blocking": "error",
@@ -333,16 +334,6 @@ def _is_profile_safe_core_key(key: str) -> bool:
     )
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
 def _section_paths(section: str, active_profile: str) -> tuple[Path | None, Path | None]:
     if section in CONFIG_SECTION_FILES:
         filename = CONFIG_SECTION_FILES[section]
@@ -400,23 +391,26 @@ def _contract_parity_report(contract: dict[str, Any]) -> list[dict[str, Any]]:
 
     for section, filename in CONFIG_SECTION_FILES.items():
         section_data = (contract.get("sections") or {}).get(section, {})
-        expected_source = f"config/{filename}"
-        actual_source = section_data.get("source_file")
-        expected_overlay = f"config/profiles/<profile_id>/{filename}"
-        actual_overlay = section_data.get("profile_overlay_file")
         expected_mutability = EXPECTED_SECTION_MUTABILITY[section]
         actual_mutability = section_data.get("profile_mutability")
-        checks.append(
-            {
-                "path": str(CONTRACT_PATH),
-                "status": "ok" if actual_source == expected_source else "fail",
-                "details": (
-                    f"{section}.source_file matches {expected_source}"
-                    if actual_source == expected_source
-                    else f"{section}.source_file mismatch: expected {expected_source}, got {actual_source}"
-                ),
-            }
-        )
+        # source_file is only expected for "partial" sections (profile is an overlay on a base file).
+        # "full" sections are profile-primary — no base file exists, so source_file should be absent.
+        if expected_mutability == "partial":
+            expected_source = f"config/{filename}"
+            actual_source = section_data.get("source_file")
+            checks.append(
+                {
+                    "path": str(CONTRACT_PATH),
+                    "status": "ok" if actual_source == expected_source else "fail",
+                    "details": (
+                        f"{section}.source_file matches {expected_source}"
+                        if actual_source == expected_source
+                        else f"{section}.source_file mismatch: expected {expected_source}, got {actual_source}"
+                    ),
+                }
+            )
+        expected_overlay = f"config/profiles/<profile_id>/{filename}"
+        actual_overlay = section_data.get("profile_overlay_file")
         checks.append(
             {
                 "path": str(CONTRACT_PATH),
@@ -768,7 +762,17 @@ def _validate_one_profile(profile_id: str) -> dict[str, Any]:
 
 
 def cmd_config_validate(args: argparse.Namespace) -> int:
-    profiles = [args.profile] if args.profile else ["base"] + _iter_profiles()
+    if args.profile:
+        if args.profile == "base":
+            payload = {
+                "status": "error",
+                "error": "base is not a runnable profile; specify a named profile with --profile",
+            }
+            _print_payload(payload, args.format)
+            return 1
+        profiles = [args.profile]
+    else:
+        profiles = _iter_profiles()
     results = [_validate_one_profile(profile) for profile in profiles]
     has_error = any(item["status"] == "error" for item in results)
     has_warning = any(item.get("warnings") for item in results)
@@ -855,7 +859,7 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
     original_text = core_path.read_text(encoding="utf-8")
     core_path.write_text(
-        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        yaml.safe_dump(updated_data, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -937,7 +941,7 @@ def cmd_config_unset(args: argparse.Namespace) -> int:
 
     original_text = core_path.read_text(encoding="utf-8")
     core_path.write_text(
-        yaml.safe_dump(updated_data, sort_keys=True, allow_unicode=False),
+        yaml.safe_dump(updated_data, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -1037,12 +1041,12 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
 
     try:
         core = load_core_config(env=env)
-        rag_collection = core.rag.collection_name
+        rag_collection = core.rag.collection_name if core.rag else None
         add_check(
             "RAG collection",
             bool(rag_collection),
             False,
-            f"Configured collection: {rag_collection}",
+            f"Configured collection: {rag_collection}" if rag_collection else "rag.collection_name not set",
         )
     except Exception as exc:
         add_check("Core config load", False, True, f"Failed to load core config: {exc}")
@@ -1073,6 +1077,88 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
     }
     _print_payload(payload, args.format)
     return 1 if has_blocking_fail else 0
+
+
+def cmd_setup_check(args: argparse.Namespace) -> int:
+    """Consolidated pre-flight check: doctor + config validate + contract-check."""
+    env = _load_env_file()
+    all_sections: list[dict[str, Any]] = []
+    has_error = False
+
+    # 1. Doctor checks
+    doctor_ns = argparse.Namespace(format=args.format, probe_endpoints=False)
+    doctor_payload = _run_doctor_payload(doctor_ns, env)
+    all_sections.append({"section": "setup_doctor", **doctor_payload})
+    if doctor_payload["status"] == "error":
+        has_error = True
+
+    # 2. Config validate for active profile
+    try:
+        profile_id = get_active_profile_id(env)
+        validate_result = _validate_one_profile(profile_id)
+        all_sections.append({"section": "config_validate", **validate_result})
+        if validate_result["status"] == "error":
+            has_error = True
+    except Exception as exc:
+        all_sections.append({"section": "config_validate", "status": "error", "errors": [str(exc)]})
+        has_error = True
+
+    # 3. Contract check
+    contract_payload = _contract_check_payload()
+    all_sections.append({"section": "contract_check", **contract_payload})
+    if contract_payload["status"] == "error":
+        has_error = True
+
+    payload = {"status": "error" if has_error else "ok", "sections": all_sections}
+    _print_payload(payload, args.format)
+    return 1 if has_error else 0
+
+
+def _run_doctor_payload(args: argparse.Namespace, env: dict[str, str]) -> dict[str, Any]:
+    """Run doctor checks and return payload dict (without printing)."""
+    checks: list[dict[str, Any]] = []
+
+    def add_check(name: str, ok: bool, blocking: bool, details: str) -> None:
+        checks.append({"name": name, "status": "ok" if ok else "fail", "blocking": blocking, "details": details})
+
+    env_file = Path(".env")
+    add_check(".env presence", env_file.exists(), False,
+              "Found local .env file" if env_file.exists() else "No .env file; relying on process environment")
+    postgres_password = env.get("POSTGRES_PASSWORD")
+    add_check("POSTGRES_PASSWORD", bool(postgres_password), True,
+              "Set POSTGRES_PASSWORD in .env" if not postgres_password else "Present")
+    llm_vars = {k: env.get(k) for k in (
+        "LLM_PROVIDERS_LMSTUDIO_API_BASE", "LLM_PROVIDERS_OLLAMA_API_BASE", "LLM_PROVIDERS_OPENROUTER_API_BASE"
+    )}
+    has_llm = any(llm_vars.values())
+    add_check("LLM provider", has_llm, False,
+              "At least one LLM provider endpoint set" if has_llm else "No LLM provider endpoint configured")
+    embedding_server = env.get("EMBEDDING_SERVER")
+    add_check("EMBEDDING_SERVER", bool(embedding_server), False,
+              "Set EMBEDDING_SERVER in .env" if not embedding_server else "Present")
+    try:
+        profile_id = get_active_profile_id(env)
+        profile_dir = get_profile_dir(profile_id=profile_id, env=env, require_exists=True)
+        add_check("PROFILE_ID", True, True, f"Active profile: {profile_id}")
+        add_check("profile directory", profile_dir is not None and profile_dir.exists(), True,
+                  f"Profile directory found: {profile_dir}")
+    except Exception as exc:
+        add_check("PROFILE_ID", False, True, str(exc))
+
+    try:
+        core = load_core_config(env=env)
+        rag_collection = core.rag.collection_name if core.rag else None
+        add_check(
+            "RAG collection",
+            bool(rag_collection),
+            False,
+            f"Configured collection: {rag_collection}" if rag_collection else "rag.collection_name not set",
+        )
+    except Exception as exc:
+        add_check("Core config load", False, True, f"Failed to load core config: {exc}")
+
+    has_blocking_fail = any(c["status"] == "fail" and c["blocking"] for c in checks)
+    return {"status": "error" if has_blocking_fail else "ok", "checks": checks}
 
 
 def _copytree(src: Path, dst: Path) -> None:
@@ -1421,7 +1507,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Set a profile-safe key in profile core overlay (dry-run by default)",
     )
     set_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
-    set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    set_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.roles.chat.temperature")
     set_parser.add_argument("--value", required=True, help="New value parsed as YAML scalar/object")
     set_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
     set_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
@@ -1433,7 +1519,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Unset a profile-safe key in profile core overlay (dry-run by default)",
     )
     unset_parser.add_argument("--profile", required=True, help="Target profile id (base is not allowed)")
-    unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.temperature")
+    unset_parser.add_argument("--key", required=True, help="Dot path key, for example core.llm.roles.chat.temperature")
     unset_parser.add_argument("--apply", action="store_true", help="Persist the change (default: dry-run)")
     unset_parser.add_argument("--confirm", default="", help="Required for --apply: must be APPLY")
     _add_common_format_arg(unset_parser)
@@ -1450,6 +1536,12 @@ def create_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--probe-endpoints", action="store_true", help="Probe configured endpoints")
     _add_common_format_arg(doctor_parser)
     doctor_parser.set_defaults(func=cmd_setup_doctor)
+
+    check_setup_parser = setup_subparsers.add_parser(
+        "check", help="Consolidated pre-flight: doctor + config validate + contract-check"
+    )
+    _add_common_format_arg(check_setup_parser)
+    check_setup_parser.set_defaults(func=cmd_setup_check)
 
     docs_parser = subparsers.add_parser("docs", help="Docs conformance checks")
     docs_subparsers = docs_parser.add_subparsers(dest="docs_command")

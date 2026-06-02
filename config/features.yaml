@@ -1,32 +1,11 @@
-# Feature flags
-multi_agent_crews: false
-long_term_memory: true
-ingestion_service: true
-rag_retrieval: true
+# Deployment-global feature flags.
+# These are intentionally NOT overridable by profiles (enforced by _DISALLOWED_PROFILE_FEATURE_FLAGS).
+# Note: these flags are documentary — they record deployment intent but do not gate runtime code directly.
+#   authentication: controlled by AUTH_ENABLED env var (read by FastAPI and Next.js)
+#   ingestion_service: controlled by whether the ingestion container is running (docker-compose)
+#   monitoring: Prometheus scraping is always active; this flag is informational
+# All other feature flags belong in config/profiles/<id>/features.yaml.
 
-# Memory features
-memory_importance_scoring: true  # Enable importance-based reranking
-memory_include_related: true     # Fetch related memories via co-occurrence
-memory_top_k: 5                  # Number of primary memories to retrieve
-
-# Memory layer emergency rollback switches (set to false to disable during development/debugging)
-memory_load_enabled: true        # Enable load_memory_node() operation; disable to skip retrieval
-memory_update_enabled: true      # Enable update_memory_node() operation; disable to skip persistence
-memory_co_occurrence_enabled: true  # Enable co-occurrence tracking; disable to bypass knowledge graph
-memory_digest_chain_enabled: true   # Enable digest chain propagation to memory; disable for baseline behavior
-
-# Optional features
 authentication: false
-monitoring: false  # enable in production
-
-# UI features
-ui_tool_visualization: true
-ui_token_counter: true
-ui_export_chat: true
-crew_result_caching: true
-crew_cache_ttl_seconds: 3600
-
-# Crew deep integration
-crew_chaining: false          # Enable multi-crew pipelines
-crew_parallel_execution: false # Enable concurrent crew execution
-crew_result_validation: true   # Validate crew outputs via Pydantic
+ingestion_service: true
+monitoring: false

@@ -2,7 +2,7 @@ from universal_agentic_framework.config.schemas import (
     CoreConfig,
     DatabaseSettings,
     EmbeddingSettings,
-    ForkSettings,
+    ProfileSettings,
     IngestionSettings,
     LLMRoleSettings,
     LLMRoles,
@@ -29,7 +29,7 @@ class DummyModel:
 
 def _core_config(primary_model: str = "local-model") -> CoreConfig:
     return CoreConfig(
-        fork=ForkSettings(name="starter", language="en"),
+        profile=ProfileSettings(name="starter", language="en"),
         llm=LLMSettings(
             providers=LLMProviders(),
             roles=LLMRoles(

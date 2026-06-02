@@ -137,7 +137,6 @@ steuermann-ai/
 │           ├── tools.yaml
 │           ├── ui.yaml
 │           └── prompts/
-├── plugins/
 ├── frontend/
 ├── backend/
 ├── monitoring/
@@ -147,7 +146,7 @@ steuermann-ai/
 
 **Key principles:**
 
-- Prefer profile overlays and plugins over direct edits to `universal_agentic_framework/core/`.
+- Prefer profile overlays over direct edits to `universal_agentic_framework/orchestration/`.
 - Keep tool descriptions and `tool_routing` configuration aligned.
 - Keep prompt overrides close to the active profile instead of branching framework code.
 - Validate profile behavior against the current repository revision after upgrades.
@@ -170,30 +169,64 @@ steuermann-ai/
 
 ### **4.2 Graph State Management**
 
-**GraphState Schema:**
+**GraphState Schema** (defined in `universal_agentic_framework/orchestration/graph_builder.py`):
 
 ```python
-from typing import Any, Dict, List, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from langgraph.checkpoint.base import UntrackedValue
 
 class GraphState(TypedDict, total=False):
-  """Core state for current graph executions."""
-  messages: List[Dict[str, Any]]
-  user_id: str
-  language: str
 
-  # Memory and knowledge
-  loaded_memory: List[Dict[str, Any]]
-  knowledge_context: List[Dict[str, Any]]
-  rag_attempted: bool   # True only when Qdrant was actually queried this turn
-  rag_doc_count: int    # Docs above score_threshold injected (0 when none passed)
+    # Conversation / input
+    messages: List[Dict[str, Any]]
+    attachments: List[Dict[str, Any]]               # Uploaded conversation attachments from adapter
+    attachment_context: List[Dict[str, Any]]         # Prompt-ready normalized attachment snippets
+    workspace_documents: List[Dict[str, Any]]        # User workspace documents resolved by adapter
+    workspace_document_context: List[Dict[str, Any]] # Prompt-ready normalized workspace snippets
+    workspace_writeback_requested: bool
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document for writeback (bypasses 600-token truncation)
 
-  # Tools
-  loaded_tools: List[Any]
-  tool_results: Dict[str, str]
+    # Session identity
+    user_id: str
+    session_id: str          # Session identifier for co-occurrence tracking
+    language: str
+    profile_name: str        # Profile identifier for Prometheus metrics label
+    profile_id: str          # Active deployment profile identifier
+    user_settings: Dict[str, Any]           # tool_toggles, rag_config, preferred_model, theme, language
+    llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
 
-  # Execution tracking
-  tokens_used: int
-  summary_text: str
+    # Memory / RAG
+    loaded_memory: List[Dict[str, Any]]
+    digest_context: List[Dict[str, Any]]     # Digest subset from loaded memory retrieval
+    memory_analytics: Dict[str, Any]         # Importance scores, related count
+    knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
+    rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
+    rag_doc_count: int   # Docs above score_threshold injected into prompt
+
+    # Tools
+    loaded_tools: Annotated[List[Any], UntrackedValue(list)]              # BaseTool instances — not checkpointed
+    candidate_tools: Annotated[List[Dict[str, Any]], UntrackedValue(list)]  # Layer 1 output — not checkpointed
+    tool_calling_mode: str          # "native" | "structured" | "react"
+    tool_calling_mode_reason: str   # Why the mode was selected or downgraded
+    prefilter_intents: Dict[str, Any]           # Intent detection results from Layer 1
+    tool_results: Dict[str, str]                # Tool name → execution result
+    tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name → structured execution envelope
+    routing_metadata: Dict[str, str]            # Tool name → reason for selection
+
+    # Crews
+    crew_results: Dict[str, Any]  # Multi-agent crew execution results
+
+    # Tokens / metrics
+    tokens_used: int
+    turn_tokens_used: int    # Current invocation token usage for per-turn budgeting
+    input_tokens: int        # Input token count (separate tracking)
+    output_tokens: int       # Output token count (separate tracking)
+    provider_used: str       # Actual provider used for response generation
+    model_used: str          # Actual model used for response generation
+    summary_text: str
+    digest_chain: List[Dict[str, Any]]  # Rolling conversation digest metadata
+    sources: List[Dict[str, Any]]       # [{type: "web"|"rag", label: str, url: str|None}]
+    query_embedding: List[float]        # Precomputed user-message embedding (reused by RAG)
 ```
 
 ### **4.3 Persistence Layer**
@@ -219,45 +252,63 @@ User Request (Next.js)
   ├──> Load checkpoint (if exists)
   ├──> Initialize GraphState
   ├──> Execute graph nodes
-  │    ├──> load_tools_node
+  │    │
+  │    ├──> [_route_start] START conditional edge
+  │    │    ├──> crews (direct dispatch — bypass tool nodes entirely)
+  │    │    └──> load_tools (normal path)
+  │    │
+  │    ├──> load_tools
   │    │    └──> Load all available tools from registry
   │    │
-  │    ├──> prefilter_tools_node (LAYER 1 — Semantic Pre-filter)
-  │    │    ├──> Embed user query
+  │    ├──> prefilter_tools (LAYER 1 — Semantic Pre-filter)
+  │    │    ├──> Embed user query (result stored as query_embedding — reused by RAG)
   │    │    ├──> Score query against tool descriptions (cosine similarity)
-  │    │    ├──> Apply intent boosting (datetime, calc, URL intents)
+  │    │    ├──> Apply intent boosting (+0.2 for datetime, calc, URL, analyze_image,
+  │    │    │     ocr, analyze_document, analyze_chart, read_barcodes patterns)
   │    │    ├──> Apply gates: min_top_score (0.7), min_spread (0.10)
   │    │    ├──> Filter by similarity_threshold (0.55), top-K (5)
   │    │    └──> Store candidate_tools in state (NO execution)
   │    │
   │    ├──> [route_tool_strategy] (conditional edge)
-  │    │    ├──> call_tools_native   (LAYER 2 — bind_tools, LLM decides)
+  │    │    ├──> call_tools_native     (LAYER 2 — bind_tools, LLM decides)
   │    │    ├──> call_tools_structured (LAYER 2 — JSON schema in prompt)
-  │    │    ├──> call_tools_react    (LAYER 2 — ReAct loop)
-  │    │    └──> no_tools            (0 candidates → skip Layer 2)
+  │    │    ├──> call_tools_react      (LAYER 2 — ReAct loop)
+  │    │    └──> no_tools              (0 candidates → skip Layer 2)
   │    │    Each Layer 2 node includes LAYER 3 — schema validation + retry
   │    │
-  │    ├──> load_memory_node
-  │    ├──> retrieve_knowledge_node (RAG, score_threshold: 0.6)
+  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here)
+  │    │
+  │    ├──> [route_to_crew] (conditional edge)
+  │    │    ├──> research_crew / analytics_crew / code_generation_crew / planning_crew
+  │    │    ├──> crew_chain / crew_parallel
+  │    │    └──> memory_query_cache (no crew → continue normal flow)
+  │    │
+  │    ├──> memory_query_cache  (Redis cache probe for memory)
+  │    ├──> load_memory
+  │    ├──> retrieve_knowledge  (RAG, score_threshold: 0.6)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
   │    │      3. Intent: skip_rag heuristic (greeting/math/datetime/tool-meta)
   │    │    rag_attempted=True / rag_doc_count=N set only when Qdrant is queried
   │    │
-  │    ├──> respond_node
+  │    ├──> memory_cache_store
+  │    │
+  │    ├──> respond
   │    │    ├──> Inject tool_results into context
   │    │    ├──> Inject knowledge_context from RAG
-  │    │    └──> Invoke LLM
+  │    │    └──> Invoke LLM (chat role)
   │    │
-  │    ├──> summarization_node
-  │    └──> update_memory_node
+  │    ├──> compress_conversation  (rolling digest, bounded history)
+  │    ├──> summarize
+  │    ├──> update_memory
+  │    └──> cache_stats
   │
-    └──> Return response
-      │
-      └──> FastAPI Adapter
-          │
-          └──> Next.js (render to user)
+  └──> Return response
+        │
+        └──> FastAPI Adapter
+              │
+              └──> Next.js (render to user)
 ```
 
 #### Key Design: Three-Tier Tool Selection
@@ -309,7 +360,7 @@ def _validate_and_log_tool_calling_mode(
     state: GraphState, 
     expected_mode: str, 
     node_name: str,
-    fork_name: str
+    profile_name: str
 ) -> Tuple[bool, str]:
     """Validate tool-calling mode matches expectations at invocation.
     
@@ -377,17 +428,17 @@ Reason field propagates through entire pipeline:
 
 **Streaming path (primary):** `POST /api/chat/stream` returns `text/event-stream`. LangGraph exposes a matching `POST /stream` endpoint using `GRAPH.astream_events(version="v2")`. SSE event types:
 
-|Event|Payload|Description|
-|-----|-------|-----------|
-|`token`|`{"delta": "..."}`|LLM output chunk|
-|`thinking_start`|`{}`|Reasoning chain begins (model emitting chain-of-thought)|
-|`thinking`|`{"delta": "..."}`|Reasoning token chunk|
-|`thinking_end`|`{}`|Reasoning chain complete|
-|`tool_call`|`{"name": "...", "status": "start"/"end"}`|Tool invocation boundary|
-|`node`|`{"node": "...", "label": "..."}`|Graph node status (RAG, memory)|
-|`metadata`|`{tokens_used, model_used, sources, thinking_content, ...}`|Final response metadata|
-|`error`|`{"message": "..."}`|Error during generation|
-|`[DONE]`|_(final data line)_|Stream complete|
+| Event | Payload | Description |
+| --- | --- | --- |
+| `token` | `{"delta": "..."}` | LLM output chunk |
+| `thinking_start` | `{}` | Reasoning chain begins (model emitting chain-of-thought) |
+| `thinking` | `{"delta": "..."}` | Reasoning token chunk |
+| `thinking_end` | `{}` | Reasoning chain complete |
+| `tool_call` | `{"name": "...", "status": "start"/"end"}` | Tool invocation boundary |
+| `node` | `{"node": "...", "label": "..."}` | Graph node status (RAG, memory) |
+| `metadata` | `{tokens_used, model_used, sources, thinking_content, ...}` | Final response metadata |
+| `error` | `{"message": "..."}` | Error during generation |
+| `[DONE]` | _(final data line)_ | Stream complete |
 
 Reasoning tokens are intercepted in `server.py` before they reach the `token` event via two complementary paths: (1) a tag-parser state machine strips `<think>`, `<thinking>`, and `<reflection>` blocks from `chunk.content` and emits them as `thinking_*` events; (2) when `chunk.additional_kwargs["reasoning_content"]` is present (LM Studio / LiteLLM native reasoning field), tokens are emitted directly without tag parsing. Accumulated thinking text is included in the `metadata` event as `thinking_content` and persisted to the message's JSONB metadata column.
 
@@ -413,7 +464,7 @@ CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by gra
 
 **Process types:** Sequential (default, predictable), Hierarchical (manager delegates), Consensus (multi-agent voting).
 
-**Configuration:** `config/agents.yaml` defines crew agents, roles, tools, and process types.
+**Configuration:** `config/profiles/<id>/agents.yaml` defines crew agents, roles, tools, and process types.
 
 → **Full guide:** [CrewAI Extension Guide](crewai_extension_guide.md)
 
@@ -658,14 +709,14 @@ The framework uses a **three-tier tool selection architecture** that combines se
 
 ### **8.2 Design Decisions**
 
-| Decision                                              | Rationale                                                                                      |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Default `structured` not `native`                     | Safe for all models; native is opt-in per provider                                             |
-| Semantic pre-filter always runs                       | Reduces token context even for capable models; prevents bloated tool lists                     |
-| Intent detection → score boost (not forced execution) | Let the model decide; heuristics inform but don't override                                     |
-| Top-K default 5 (not 10)                              | Fewer tools = better model accuracy and less token cost                                        |
-| `react` mode as third tier                            | Covers weaker on-premise models that can't follow JSON schemas reliably                        |
-| Three state fields preserved                          | `candidate_tools`, `tool_results`, `tool_execution_results` — downstream nodes stay compatible |
+| Decision | Rationale |
+| --- | --- |
+| Default `structured` not `native` | Safe for all models; native is opt-in per provider |
+| Semantic pre-filter always runs | Reduces token context even for capable models; prevents bloated tool lists |
+| Intent detection → score boost (not forced execution) | Let the model decide; heuristics inform but don't override |
+| Top-K default 5 (not 10) | Fewer tools = better model accuracy and less token cost |
+| `react` mode as third tier | Covers weaker on-premise models that can't follow JSON schemas reliably |
+| Three state fields preserved | `candidate_tools`, `tool_results`, `tool_execution_results` — downstream nodes stay compatible |
 
 ### **8.3 Model-Specific Notes**
 
@@ -683,7 +734,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - "Default" parser: All other models (including LFM2) — LM Studio injects a system prompt and parses generically
 - If a model's default parsing is unreliable, switch that model to `model_tool_calling: structured` in config
 
-### **8.4 LiteLLM Integration** *(completed 2026-04-30)*
+### **8.4 LiteLLM Integration**
 
 `LLMFactory` uses `langchain-litellm` as the sole provider abstraction. `langchain-openai` and `langchain-ollama` have been removed from the dependency tree.
 
@@ -705,7 +756,7 @@ The framework uses a **three-tier tool selection architecture** that combines se
 Tools are discovered via a hybrid approach:
 
 - **Core tools** are auto-discovered from `universal_agentic_framework/tools/` subdirectories with `tool.yaml` manifests
-- **Profile tools** are explicitly registered in `config/tools.yaml`
+- **Profile tools** are explicitly registered in `config/profiles/<id>/tools.yaml`
 - **MCP tools** are HTTP services wrapped with `MCPServerTool`
 
 Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, permissions, and cost estimates in its `tool.yaml` manifest.
@@ -714,743 +765,32 @@ Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, pe
 
 ---
 
-## **10. Ingestion Pipeline Architecture**
-
-### **10.1 Service Design**
-
-**Ingestion Service** (optional module, default enabled):
-
-- Runs in watch mode by default: on startup it performs an initial sweep of the mounted source path and ingests any existing documents before watching for new files.
-- Periodic fallback check every 30 seconds catches files missed by watchdog.
-- Auto-deletes chunks when source files are removed from watched folder.
-- Target language is read from `config/profiles/<profile_id>/core.yaml` via `core.ingestion.language` (default `de` in this repo).
-- All languages accepted; chunks tagged with detected language metadata.
-
-```text
-┌──────────────────────────────────────────────────────┐
-│  Ingestion Service (Separate Docker Container)       │
-│                                                       │
-│  ┌────────────────┐      ┌──────────────────┐       │
-│  │  File Watcher  │─────►│  Processing      │       │
-│  │  /data/ingest/ │      │  Pipeline        │       │
-│  └────────────────┘      └────────┬─────────┘       │
-│                                   │                  │
-│                          ┌────────▼─────────┐       │
-│                          │  Document Parser │       │
-│                          │  - PDF           │       │
-│                          │  - DOCX          │       │
-│                          │  - CSV/Excel     │       │
-│                          │  - Markdown      │       │
-│                          │  - Text (.txt)   │       │
-│                          └────────┬─────────┘       │
-│                                   │                  │
-│                          ┌────────▼─────────┐       │
-│                          │  Chunker         │       │
-│                          │  (Language-aware)│       │
-│                          └────────┬─────────┘       │
-│                                   │                  │
-│                          ┌────────▼─────────┐       │
-│                          │  Language        │       │
-│                          │  Detection       │       │
-│                          │  (Tag metadata)  │       │
-│                          └────────┬─────────┘       │
-│                                   │                  │
-│                          ┌────────▼─────────┐       │
-│                          │  Embedder        │       │
-│                          │  sentence-       │       │
-│                          │  transformers    │       │
-│                          └────────┬─────────┘       │
-│                                   │                  │
-│                          ┌────────▼─────────┐       │
-│                          │  Qdrant Writer   │       │
-│                          │  (Collection:    │       │
-│                          │ {profile}_{type})│       │
-│                          └──────────────────┘       │
-└──────────────────────────────────────────────────────┘
-
-Supported formats: PDF, DOCX, Markdown (.md, .markdown), and Text (.txt).
-Recursive subdirectory discovery with **/*.ext patterns.
-```
-
-### **10.2 Ingestion Configuration**
-
-Ingestion settings live under the `ingestion:` key in the active profile overlay (`config/profiles/<profile_id>/core.yaml`). There is no separate `ingestion.yaml` file.
-
-```yaml
-# config/profiles/starter/core.yaml
-ingestion:
-  source_path: $RAG_DATA_PATH          # Directory to ingest (env var or --source CLI override)
-  language: "de"                        # Primary language for ingestion
-  language_threshold: 0.8              # Minimum language detection confidence
-  embedding_batch_size: 32             # Documents embedded per batch
-  upsert_batch_size: 128               # Vectors upserted per Qdrant batch
-  file_concurrency: 1                  # Parallel file processing workers
-  incremental_mode: true               # Skip unchanged files (hash-based)
-  phase_timing: true                   # Emit per-phase timing logs
-  reingest_timeout_seconds: 1800       # Timeout for full reingest via API trigger
-
-rag:
-  collection_name: "framework"         # Must match collection used at ingest AND retrieval time
-```
-
-**Note:** Language validation accepts all documents and tags chunks with `detected_language`, `language_confidence`, and `target_language` metadata fields. All languages are accepted; none are rejected.
-
-### **10.3 Ingestion CLI**
-
-All ingestion commands go through the unified `steuermann` CLI. Source, collection, and language all default to values from the active profile's `core.yaml` and can be overridden per-run.
-
-```bash
-# One-shot ingestion (uses core.yaml defaults for source/collection)
-poetry run steuermann ingest ingest
-
-# Override source and collection for a single run
-poetry run steuermann ingest ingest \
-  --source /data/rag-data \
-  --collection medical-ai-de-procedures \
-  --language de
-
-# Watch mode (auto-ingest new files, checks every 30 seconds)
-poetry run steuermann ingest watch \
-  --source /data/rag-data \
-  --collection medical-ai-de-procedures
-
-# Clear and reindex a collection
-poetry run steuermann ingest reindex \
-  --source /data/rag-data \
-  --collection medical-ai-de-procedures
-
-# Validate documents without ingesting (dry run)
-poetry run steuermann ingest validate \
-  --source /data/rag-data \
-  --verbose
-```
-
-### **10.4 Language Detection & Tagging**
-
-**Note:** All documents are accepted and tagged with detected language metadata.
-
-```python
-from langdetect import detect_langs
-from pathlib import Path
-
-class IngestionValidator:
-    """Detect document language and tag chunks with metadata."""
-
-    def __init__(self, target_language: str, threshold: float):
-        self.target_language = target_language
-        self.threshold = threshold  # Not used for rejection
-
-    def should_accept(self, text: str) -> tuple[bool, str, str, float]:
-        """Detect language and return acceptance decision with metadata.
-
-        Returns:
-            (should_accept, reason, detected_language, confidence)
-        """
-        try:
-            lang_probs = detect_langs(text)
-            detected = lang_probs[0].lang
-            confidence = lang_probs[0].prob
-
-            # Always accept, just tag with detected language
-            return True, f"Accepted with language: {detected}", detected, confidence
-        except Exception as e:
-            # Accept even if detection fails
-            return True, f"Language detection failed, accepting anyway", "unknown", 0.0
-```
-
-Each chunk in Qdrant includes:
-
-```python
-{
-    "text": "chunk content...",
-    "file_path": "/data/ingest/document.pdf",
-    "target_language": "de",        # Expected language from config
-    "detected_language": "en",      # Actually detected language
-    "language_confidence": 0.87,    # Detection confidence (0.0-1.0)
-    "chunk_index": 0,
-    "chunk_count": 5
-}
-```
-
-### **10.5 Collection Metadata Schema**
-
-```python
-{
-    "collection_name": "medical-ai-de-procedures",
-    "metadata": {
-        "profile": "medical-ai-de",
-        "language": "de",
-        "category": "clinical",
-        "version": "2024-01-15",
-        "document_count": 1247,
-        "last_updated": "2024-01-15T10:30:00Z",
-        "source_path": "/mnt/knowledge-sources/procedures/"
-    },
-    "vectors": {...}
-}
-```
+> For deployment, operations, ingestion, frontend, monitoring, Docker topology, security, and upgrade paths, see [Deployment Guide](deployment_guide.md).
 
 ---
 
-## **11. Frontend Architecture: Next.js + FastAPI + LangGraph**
+## **10. Key Design Decisions Summary**
 
-### **11.1 Production Architecture**
-
-The production stack separates concerns across three containers:
-
-```text
-┌─────────────────────────────────────┐
-│  Next.js Frontend (Port 3000)       │
-│  - Chat interface + conversations   │
-│  - User profile & settings          │
-│  - Analytics & metrics dashboards   │
-│  - Admin panel (users, roles)       │
-│  - Toast notifications (sonner)     │
-│  - React 19 + TypeScript + Tailwind v4 │
-└───────────┬─────────────────────────┘
-            ↓ HTTP/WebSocket
-┌───────────┴─────────────────────────┐
-│  FastAPI Adapter (Port 8001)        │
-│  - /api/chat → LangGraph            │
-│  - /api/conversations (CRUD, search, export) │
-│  - /api/settings (CRUD)             │
-│  - /api/metrics                     │
-│  - /api/analytics (trends, tokens, latency) │
-│  - /api/models, /api/system-config │
-│  - Protected via trusted proxy token boundary │
-└───────────┬─────────────────────────┘
-            ↓ HTTP
-┌───────────┴─────────────────────────┐
-│  LangGraph Service (Port 8000)      │
-│  - Graph orchestration              │
-│  - Tool routing                     │
-│  - Memory management                │
-│  - /metrics (Prometheus)            │
-└─────────────────────────────────────┘
-```
-
-### **11.2 Chat Interface**
-
-The frontend provides 5 pages, 17 components, and 5 hooks — all fully wired to backend APIs.
-
-**Pages:**
-
-| Route       | Purpose                                                                     | Backend APIs                                           |
-| ----------- | --------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `/`         | Chat with conversation persistence                                          | `/api/chat`, `/api/conversations/*`                    |
-| `/profile`  | Backward-compatible redirect to `/settings`                                 | -                                                      |
-| `/settings` | Unified account + settings panel (tools, RAG, model, theme, saved language) | `/api/settings/*`, `/api/models`, `/api/system-config` |
-| `/metrics`  | Real-time system metrics and historical trends                              | `/api/metrics`, `/api/analytics/*`                     |
-
-**Key Hooks:**
-
-- `useConversations` — conversation CRUD, archive, bulk ops, export (with toast notifications)
-- `useSettings` — user settings CRUD
-- `useMetrics` — real-time metrics with auto-refresh
-- `useAnalytics` — usage trends, token consumption, latency analysis
-
-**Language flow:**
-
-- The chat view does not maintain an independent language selector.
-- The saved user setting is the source of truth for chat language.
-- `/api/system-config` returns `supported_languages` so the settings UI can render the allowed language list per profile.
-
-**Frontend (Next.js/React):**
-
-```typescript
-// frontend/src/hooks/useChat.ts
-import { useState } from "react";
-
-export function useChat() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const sendMessage = async (content: string) => {
-    setIsLoading(true);
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: content }),
-    });
-
-    const result = await response.json();
-    setMessages((prev) => [...prev, result.message]);
-    setIsLoading(false);
-  };
-
-  return { messages, sendMessage, isLoading };
-}
-```
-
-**Backend Adapter (FastAPI):**
-
-```python
-# backend/routers/chat.py
-from fastapi import APIRouter, HTTPException
-import httpx
-
-router = APIRouter()
-
-@router.post("/chat")
-async def chat(request: ChatRequest):
-    """Proxy chat request to LangGraph service."""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "http://langgraph:8000/invoke",
-            json={
-                "messages": [{"role": "user", "content": request.message}],
-                "user_id": request.user_id,
-                "language": request.language or "en",
-            },
-            timeout=60.0
-        )
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="LangGraph error")
-
-    return response.json()
-```
-
-### **11.3 UI Customization**
-
-**Theming (Tailwind CSS v4):**
-
-Tailwind v4 uses CSS-based configuration via `@import "tailwindcss"` in `globals.css`. The base palette is defined in a `@theme` block:
-
-```css
-/* frontend/src/app/globals.css */
-@import "tailwindcss";
-
-@theme {
-  --color-evergreen: #042a2b;
-  --color-light-cyan: #cdedf6;
-  --color-pacific-blue: #5eb1bf;
-  --color-atomic-tangerine: #ef7b45;
-  --color-burnt-tangerine: #d84727;
-
-  --font-sans: "Open Sans", sans-serif;
-  --font-display: "Open Sans", sans-serif;
-}
-```
-
-**Icon System:**
-
-Icons use Material Symbols Outlined (local woff2 font at `public/fonts/MaterialSymbolsOutlined.woff2`) via a reusable `Icon` component:
-
-```typescript
-// frontend/src/components/Icon.tsx
-import { Icon } from './Icon';
-
-<Icon name="smart_toy" size={18} className="text-white" />
-<Icon name="settings" size={24} />
-```
-
-**Custom Components:**
-
-```typescript
-// frontend/src/components/custom/PatientPanel.tsx
-import { Icon } from '@/components/Icon';
-
-export function PatientPanel({ patientId }: { patientId: string }) {
-  const { data } = usePatient(patientId);
-
-  return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-bold text-evergreen flex items-center gap-2">
-        <Icon name="person" size={20} />
-        Patient Context
-      </h3>
-      <div>Name: {data.name}</div>
-      <div>Diagnoses: {data.diagnoses.join(', ')}</div>
-    </div>
-  );
-}
-```
+| Decision Area | Choice | Rationale |
+| --- | --- | --- |
+| Repository model | Shared template with profile overlays | Keeps domain customization declarative and local to profiles |
+| Orchestration | LangGraph (dedicated internal service) | Clear service boundaries and independent scaling |
+| Persistence | PostgreSQL | Unified storage, ACID guarantees |
+| Vector Store | Qdrant | Purpose-built, self-hosted, performant |
+| LLM Providers | LM Studio / Ollama / OpenRouter (or other compatible APIs) | Provider choice is deployment-owned, not part of app runtime |
+| Embeddings | OpenAI-compatible endpoint | Keeps runtime and ingestion aligned on a single remote interface |
+| Frontend | Next.js + FastAPI | Modern React stack, production-ready |
+| Monitoring | Prometheus | Simple, proven metrics and alerting |
+| Multi-Agent | CrewAI as advanced extension path | Available, but not the baseline deployment requirement |
+| Tool Discovery | Hybrid | Core auto, profile explicit |
+| Ingestion | Optional built-in module | Complete solution, can be disabled |
+| Language | Primary profile language with optional UI language list | Balances quality with multilingual support |
 
 ---
 
-## **12. Monitoring & Observability**
+## **11. Open Questions & Future Considerations**
 
-**Key metrics** (Prometheus):
-
-- `langgraph_requests_total` — Request count by profile/status (label key is legacy `fork_name`)
-- `langgraph_tokens_used_total` — Token consumption by model/node
-- `langgraph_request_duration_seconds` — Request latency
-- `langgraph_active_sessions` — Concurrent sessions
-
-**Logging:** JSON-formatted via `structlog` with trace IDs (`profile_id`, `session_id`, `user_id`).
-
-**Frontend metrics dashboard** ([http://localhost:3000/metrics](http://localhost:3000/metrics)): Requests, tokens, latency, active sessions, memory operations, LLM calls.
-
-**Data sources:** PostgreSQL (conversations, audit), Prometheus (real-time), Qdrant (collection stats via HTTP).
-
-→ **Full details (alerting, architecture, operations checklist):** [Monitoring & Observability](monitoring.md)
-
----
-
-## **13. Configuration Management**
-
-Configuration uses hierarchical loading: **Base → Profile Overlay → Environment Variables**. All configs are validated by Pydantic schemas.
-
-**Key files:**
-
-- `config/core.yaml` — deployment-global defaults (database, memory, checkpointing)
-- `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, router policy, RAG, token budgets, ingestion
-- `config/agents.yaml` — CrewAI crew definitions
-- `config/tools.yaml` — Tool enable/disable and overrides
-- `config/features.yaml` — Feature flags with dependency validation
-
-Profile customization is declarative — profiles override configs and register components, while direct core edits are avoided unless the shared template itself is being improved.
-
-→ **Full schema reference and loading details:** [Configuration](configuration.md)
-
----
-
-## **13. Docker Deployment Architecture**
-
-### **13.1 Service Composition**
-
-**docker-compose.yml (Template):**
-
-```yaml
-version: "3.8"
-
-services:
-  langgraph-server:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.langgraph
-    ports:
-      - "8123:8123"
-    environment:
-      - PROFILE_ID=${PROFILE_ID}
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/framework
-      - QDRANT_HOST=qdrant
-    depends_on:
-      - postgres
-      - qdrant
-    volumes:
-      - ./config:/app/config:ro
-      - ./plugins:/app/plugins:ro
-    restart: unless-stopped
-
-  nextjs:
-    build:
-      context: ./frontend
-      dockerfile: ../docker/Dockerfile.nextjs
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8001
-    volumes:
-      - ./frontend:/app:ro
-
-  fastapi:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.fastapi
-    ports:
-      - "8001:8001"
-    environment:
-      - LANGGRAPH_URL=http://langgraph:8000
-    volumes:
-      - ./backend:/app/backend:ro
-      - ./config:/app/config:ro
-    depends_on:
-      - langgraph-server
-    restart: unless-stopped
-
-  ingestion:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.ingestion
-    environment:
-      - QDRANT_HOST=qdrant
-      - PROFILE_ID=${PROFILE_ID}
-    volumes:
-      - ./config:/app/config:ro
-      - /mnt/knowledge-sources:/data/ingest:ro
-    depends_on:
-      - qdrant
-    restart: unless-stopped
-    profiles:
-      - ingestion # Optional service
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=framework
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=framework
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  qdrant:
-    image: qdrant/qdrant:v1.7.4
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    restart: unless-stopped
-
-volumes:
-  postgres-data:
-  qdrant-data:
-  prometheus-data:
-
-networks:
-  default:
-    name: framework-network
-```
-
-### **13.2 Profile-Specific Overrides**
-
-**docker-compose.override.yml (in profile deployment repo):**
-
-```yaml
-version: "3.8"
-
-services:
-  # Add profile-specific services
-  medical-api:
-    image: medical-api:latest
-    ports:
-      - "9000:9000"
-    environment:
-      - API_KEY=${MEDICAL_API_KEY}
-
-  # Override configurations
-  nextjs:
-    environment:
-      - NEXT_PUBLIC_CUSTOM_MEDICAL_ENDPOINT=http://medical-api:9000
-```
-
-### **13.3 Host Network Configuration**
-
-**Access to local provider endpoints on host (example: LM Studio/Ollama):**
-
-```yaml
-services:
-  langgraph:
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # Linux
-    environment:
-      - LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
-      - LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
-```
-
-**Platform-specific:**
-
-- macOS/Windows: `host.docker.internal` works natively
-- Linux: Requires `--add-host=host.docker.internal:host-gateway`
-
----
-
-## **14. Security & Access Control**
-
-**Service isolation:** LangGraph runs on internal-only network. FastAPI bridges internal/external. Next.js is user-facing only.
-
-**Secrets:** Environment variables (`.env`, not committed). Docker Secrets supported for production.
-
-**Authentication (opt-in):** Next.js login with signed HttpOnly session cookies, trusted proxy forwarding to FastAPI, and rate limiting (slowapi). Disabled by default via `AUTH_ENABLED=false`.
-
-**Chat attachments and workspace documents (current implementation):**
-
-- Conversation uploads are handled by `POST /api/conversations/{conversation_id}/attachments`.
-- Text uploads are validated as UTF-8; accepted text formats: `.txt`, `.md`, `.markdown`, `.json`, `.yaml`, `.yml`, `.csv`, `.html`, `.xml`. Image uploads accepted as MIME types `image/jpeg`, `image/png`, `image/gif`, `image/webp` (extensions `.jpg/.jpeg/.png/.gif/.webp`); `extract_text()` is bypassed for images — `extracted_text` is stored as `""`.
-- Image files are stored on disk under the workspace volume (`${WORKSPACES_PATH:-./data/workspaces}`); the same volume is mounted in both the `fastapi` and `langgraph` containers so the orchestrator can read uploaded files.
-- `stored_path` is forwarded with each attachment from `chat.py` to LangGraph state; `build_attachment_context_block()` renders image attachments as file-path references in the system prompt, and `node_call_tools_structured` includes this block in its isolated `SystemMessage` so the model receives a real path rather than a placeholder.
-- Conversation attachment rows are references to those canonical workspace documents (same document ID is reused).
-- Persistent workspace document APIs: `POST/GET/PUT/PATCH/DELETE /api/workspace/documents`, `GET .../download`, `GET/POST .../versions`, `GET .../versions/{ver}`, `POST .../versions/{ver}/restore`.
-- Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
-- Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
-- LangGraph injects both attachment context and workspace document context into prompt construction. In writeback mode the full document content (not truncated) is injected as a `HumanMessage` via `workspace_writeback_document` state field.
-- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. The classifier uses a direct `httpx` POST to the auxiliary provider (not `ChatLiteLLM.ainvoke()` which drops `api_base` in async context). When intent is confirmed and exactly one document is in context, the model produces a structured `SUMMARY:` / `DOCUMENT:` two-section response — the document content is stored as the new version and the summary is shown in the chat confirmation message (`workspace_document_writeback` in response metadata).
-
-**Legacy workspace editing path (still present, opt-in):**
-
-- Conversation-scoped workspace actions (`copy_to_workspace`, `read_workspace_file`, `write_workspace_file`, `write_revised_copy`) remain available behind `CHAT_WORKSPACE_ENABLED=true` and explicit edit intent.
-- Filesystem operations are confined to configured roots with normalized path checks.
-
-**Audit logging:** All data access logged to PostgreSQL `audit_log` table with user_id, action, resource_id, timestamp.
-
-→ **Full details:** [SECURITY.md](../.github/SECURITY.md)
-
----
-
-## **15. Development Workflow**
-
-**Local setup:** `poetry install`, configure `.env`, `docker compose up -d`, `cd frontend && npm run dev`.
-
-**Testing:** Unit tests (config, LLM factory, memory) + integration tests (full graph with mocked LLMs). Target: 70%+ coverage. Run via `poetry run pytest`.
-
-**CI/CD:** This project does not use GitHub Actions or external CI. Run tests locally and rely on human code review.
-
-→ **Full workflow (commands, PROJECT_LOG, testing strategy):** See [copilot-instructions.md](../.github/copilot-instructions.md)
-
----
-
-## **16. Performance Considerations**
-
-- **Token tracking:** `tokens_used`, `input_tokens`, `output_tokens` accumulated in state for Prometheus metrics and SSE metadata; automatic summarization when context grows beyond `max_tokens * 0.75`
-- **Caching:** LLM response caching (optional), session-scoped memory query caching, Qdrant collection caching
-- **Concurrency:** Container-based — each session gets independent graph execution in LangGraph service, horizontal scaling via additional containers
-
-→ **Full details:** [Performance Optimization](performance_optimization.md)
-
----
-
-## **17. Disaster Recovery & Backup**
-
-### **17.1 Data Persistence**
-
-**What needs backup:**
-
-1. PostgreSQL (checkpoints, artifacts, audit logs)
-2. Qdrant (vector collections)
-3. Configuration files
-4. Knowledge source files (if stored locally)
-
-**What doesn't need backup:**
-
-- Docker images (reproducible)
-- LangGraph code (in git)
-- Temporary caches
-
-### **17.2 Backup Strategy**
-
-**PostgreSQL:**
-
-```bash
-# Daily automated backup
-docker exec postgres pg_dump -U framework framework > backup_$(date +%Y%m%d).sql
-
-# Restore
-docker exec -i postgres psql -U framework framework < backup_20240115.sql
-```
-
-**Qdrant:**
-
-```bash
-# Snapshot API
-curl -X POST 'http://localhost:6333/collections/medical-ai-de-memory/snapshots'
-
-# Download snapshot
-curl 'http://localhost:6333/collections/medical-ai-de-memory/snapshots/snapshot-2024-01-15.snapshot' \
-  --output snapshot.snapshot
-
-# Restore
-curl -X PUT 'http://localhost:6333/collections/medical-ai-de-memory/snapshots/upload' \
-  -H 'Content-Type: application/octet-stream' \
-  --data-binary @snapshot.snapshot
-```
-
-### **17.3 Disaster Recovery Plan**
-
-1. **Data Loss**: Restore from latest backup (< 24h old)
-2. **Service Failure**: Docker restart policies handle transient failures
-3. **Full System Recovery**:
-
-```bash
-# Restore configuration
-git clone <https://github.com/mediaworkbench/medical-ai-de.git>
-docker compose up -d postgres qdrant
-# ... restore backups
-
-# Start services
-docker compose up -d
-```
-
----
-
-## **18. Migration & Upgrade Path**
-
-### **18.1 Repository Upgrade Process**
-
-Use a repository-first upgrade flow:
-
-1. Review [README.md](../README.md) and this architecture document for architecture or runtime changes.
-2. Pull the target repository revision.
-3. Compare profile overlays against updated defaults in `config/*.yaml` and `config/profiles/starter/`.
-4. Rebuild the stack with `docker compose up -d --build`.
-5. Run the relevant regression slice before promoting the revision.
-
-### **18.2 Typical Compatibility Checks**
-
-Focus on these surfaces after an upgrade:
-
-- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, `config/tools.yaml`, and `config/agents.yaml`
-- Prompt override file layout under `config/prompts/` and `config/profiles/<profile_id>/prompts/`
-- Profile metadata surfaced through the FastAPI and chat metadata contracts
-- Monitoring dashboards and metrics label expectations
-- Ingestion and retrieval alignment for `rag.collection_name`, embeddings, and chunking settings
-
-### **18.3 Breaking-Change Discipline**
-
-When a revision changes a compatibility surface:
-
-- update the starter profile if it is the new baseline
-- update the affected docs pages in the same change
-- rerun the targeted regression tests for the touched subsystem
-- document the change in the relevant docs page and README release notes section
-
-### **18.4 Minimum Validation**
-
-```bash
-poetry run pytest -q
-docker compose up -d --build
-```
-
-### **18.5 Example Breaking Changes**
-
-```markdown
-# Example: profile compatibility review
-
-1. Configuration key renamed or removed
-2. Prompt file structure changed
-3. Metrics label or dashboard assumptions changed
-4. Chat metadata contract changed
-```
-
-### **18.6 Example Node Compatibility Change**
-
-- `load_memory()` → `load_memory_node(state)`
-- Action: update custom nodes or wrappers that still depend on the old call shape
-
----
-
-## **19. Key Design Decisions Summary**
-
-| Decision Area    | Choice                                                  | Rationale                                                        |
-| ---------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
-| Repository model | Shared template with profile overlays                   | Keeps domain customization declarative and local to profiles     |
-| Orchestration    | LangGraph (dedicated internal service)                  | Clear service boundaries and independent scaling                 |
-| Persistence      | PostgreSQL                                              | Unified storage, ACID guarantees                                 |
-| Vector Store     | Qdrant                                                  | Purpose-built, self-hosted, performant                           |
-| LLM Providers    | LM Studio / Ollama / OpenRouter (or other compatible APIs) | Provider choice is deployment-owned, not part of app runtime     |
-| Embeddings       | OpenAI-compatible endpoint                              | Keeps runtime and ingestion aligned on a single remote interface |
-| Frontend         | Next.js + FastAPI                                       | Modern React stack, production-ready                             |
-| Monitoring       | Prometheus                                              | Simple, proven metrics and alerting                              |
-| Multi-Agent      | CrewAI as advanced extension path                       | Available, but not the baseline deployment requirement           |
-| Tool Discovery   | Hybrid                                                  | Core auto, profile explicit                                      |
-| Ingestion        | Optional built-in module                                | Complete solution, can be disabled                               |
-| Language         | Primary profile language with optional UI language list | Balances quality with multilingual support                       |
-
----
-
-## **20. Open Questions & Future Considerations**
-
-### **20.1 Current Scope**
+### **11.1 Current Scope**
 
 This architecture covers:
 
@@ -1460,7 +800,7 @@ This architecture covers:
 - ✅ German and English languages (extensible to others)
 - ✅ Opt-in user-facing authentication (Next.js session cookies + rate limiting)
 
-### **20.2 Potential Future Enhancements**
+### **11.2 Potential Future Enhancements**
 
 **Not in current scope, but architecturally possible:**
 
@@ -1514,19 +854,20 @@ This architecture covers:
 
 ## **Appendix B: Glossary**
 
-| Term       | Definition                                                       |
-| ---------- | ---------------------------------------------------------------- |
-| Profile    | Domain-specific deployment of the template (e.g., medical-ai-de) |
-| Template   | Base universal framework maintained in this repository           |
-| Graph      | LangGraph workflow definition                                    |
-| Node       | Single step in a graph execution                                 |
-| Crew       | Multi-agent CrewAI team for collaborative reasoning              |
-| Checkpoint | Saved graph state for resumability                               |
-| Collection | Qdrant vector store namespace                                    |
-| Plugin     | Tool or MCP server registered with the framework                 |
-| Ingestion  | Process of loading documents into vector store                   |
+| Term | Definition |
+| --- | --- |
+| Profile | Domain-specific deployment of the template (e.g., medical-ai-de) |
+| Template | Base universal framework maintained in this repository |
+| Graph | LangGraph workflow definition |
+| Node | Single step in a graph execution |
+| Crew | Multi-agent CrewAI team for collaborative reasoning |
+| Checkpoint | Saved graph state for resumability |
+| Collection | Qdrant vector store namespace |
+| Plugin | Tool or MCP server registered with the framework |
+| Ingestion | Process of loading documents into vector store |
 
 *This document is complemented by:*
 
 - **[README.md](../README.md)** (current runtime snapshot and recent changes)
 - **[Configuration Reference](configuration.md)** (full schema documentation)
+- **[Deployment Guide](deployment_guide.md)** (Docker topology, ingestion, security, operations)

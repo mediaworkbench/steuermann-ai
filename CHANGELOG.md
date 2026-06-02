@@ -1,5 +1,72 @@
 # Changelog
 
+## [0.3.6] — docs-tools-frontend
+
+### Role-Based Frontend Surfaces
+
+- **feat** Two-surface frontend IA: **User** (chat, memories, personal settings) and **Administrator** (diagnostics, operational tuning, destructive maintenance)
+- **feat** `AUTH_USER_ROLE` env var (`user` | `administrator`) embedded in the JWT at login; `NEXT_PUBLIC_AUTH_USER_ROLE` used client-side when `AUTH_ENABLED=false` (dev mode); both wired through `docker-compose.yml` and `Dockerfile.nextjs` following the existing `AUTH_ENABLED` → `NEXT_PUBLIC_AUTH_ENABLED` pattern
+- **feat** `UserRole` type and `role` claim added to `SessionUser` in `lib/auth/session.ts`; encoded in `createSessionToken`, decoded in `getSessionFromCookieValue`
+- **feat** Middleware route guard in `proxy.ts`: `/admin` and `/metrics` require `session.role === "administrator"`; non-admin redirected to `/`; sub-routes protected via `startsWith` pattern
+- **feat** `RoleContext` + `useRole()` hook (`context/RoleContext.tsx`): fetches role from `GET /api/auth/session` on mount; lazy-initializes state so dev mode (auth disabled) resolves synchronously — no nav-link flash; wired into `app/layout.tsx`
+- **feat** `AdminOnly` guard component renders children only when `isAdmin`; suppresses fallback during loading to prevent premature "access denied" flash
+- **feat** `/admin` page — "Setup & Administration" surface powered by new `AdminPanel` component: LLM capability diagnostics table (with copy-to-clipboard export), RAG collection + score threshold configuration, re-ingest documents, vision/auxiliary model selection, danger zone (reset all databases)
+- **refactor** `SettingsPanel` trimmed to user-only controls: language, sound, tool toggles, RAG enabled + top_k, chat model preference; all admin controls extracted to `AdminPanel`
+- **feat** `Header` nav links are role-conditional: Metrics and Setup links visible only to administrators; always-visible: Memories, Settings
+- **fix** Both `SettingsPanel` and `AdminPanel` use read-modify-write on save — full `UserSettings` object hydrated from server on mount, only the page's own subset of controls is exposed and modified, complete merged object sent on save; prevents either page from wiping the other's settings on the backend (which does a full field replacement, not a deep merge)
+- **remove** `/profile` → `/settings` redirect page deleted (no functional value)
+- **i18n** `adminPage.*` keys (title, subtitle, llmSection, ragSection, modelSection, dangerZoneSection, accessDenied) added to type + EN + DE; `header.admin` added to type + EN + DE
+- **test** `AdminOnly.test.tsx` (6 tests), `RoleContext.test.tsx` (9 tests), `AdminPanel.test.tsx` (5 tests), `SettingsPanel.test.tsx` rewritten for user-only surface (5 tests); 47 total passing
+
+### User Data Management
+
+- **feat** `POST /api/user/reset-my-data` — new endpoint in `backend/routers/settings.py`; deletes only the current user's data across three optional categories (`conversations`, `workspace`, `memories`); scoped `DELETE WHERE user_id = $user` (never truncates tables); also deletes user-specific file dirs (`root_dir/<conversation_id>/`, `root_dir/user-workspaces/<user_id>/`) and calls `Mem0._delete_all_memories(user_id=user_id)` for Qdrant; analytics, LLM probes, and the RAG knowledge base are intentionally untouched; `co_occurrence_edges` deleted under the memories flag
+- **feat** Danger zone added to `SettingsPanel` — three labeled checkboxes (Conversations & Messages, Workspace & Documents, Memories) checked by default; "Delete Selected" button disabled when nothing is checked; full `ConfirmDialog` with "I understand" checkbox before commit; deletes only the current user's own data, not other users'
+- **feat** "Clear All Memories" button on `/memories` page beside Refresh; reuses `POST /api/user/reset-my-data` with `memories: true` only; `ConfirmDialog` with requireChecked guard; on success clears local list/stats state, resets search box, and reloads; Refresh disabled while clearing is in progress
+- **fix** `Mem0MemoryBackend._delete_all_memories` was calling `delete_all(filters={"user_id": ...})` which raises `TypeError` in Mem0 v2.x (installed: 2.0.1); now calls `delete_all(user_id=user_id)` first (v2 form) with a `filters=` fallback for v3+; the previous code had been silently broken since initial implementation — the `clear` graph node never actually deleted memories in production
+- **fix** `logger.warning/info` calls with arbitrary keyword args in `reset_my_data` and `reset_all_databases` crashed under stdlib logging (`TypeError: Logger._log() got an unexpected keyword argument`); converted to `%s`-style positional format strings
+
+### Map Tool
+
+- **feat** `map_tool` — new LangChain `BaseTool` in `universal_agentic_framework/tools/map/`; three operations: `locate` (geocode a city, country, region, or continent), `distance` (straight-line Haversine distance between two places), `multi` (multiple pins on one map); Nominatim (OpenStreetMap) geocoder — free, no API key, `User-Agent: steuermann-ai/1.0` required per OSM policy; auto-zoom derived from Nominatim bounding box (city→12, country→6, continent→4); returns structured JSON with a `summary` field for LLM prose and coordinates for the frontend widget
+- **feat** `map_data` field added to both SSE `metadata` event payloads in `server.py`; extracted from `tool_execution_results["map_tool"].data` so the full structured map payload reaches the frontend alongside the text stream
+- **feat** `MapWidget` React component (`frontend/src/components/MapWidget.tsx`) renders inline in the chat below the assistant's text; MapLibre GL JS + OpenFreeMap tiles (free, no key, no account); `locate` shows a single pin (omitted for continent/world zoom ≤ 5), `distance` shows two pins + dashed indigo line + distance badge overlay, `multi` shows all pins with `fitBounds`; clicking "Open full map ↗" opens OpenStreetMap in a new tab
+- **feat** `mentions_map` intent flag added to `detect_tool_routing_intents()` with intent boost (+0.2) for "where is", "where are", "map of", "show me the map", "how far", "distance from/between", "locate", and German equivalents; all trigger `map_tool` routing without requiring an explicit "show on map" phrase
+- **feat** `MapData` / `MapLocation` TypeScript interfaces added to `frontend/src/lib/types.ts`; `map_data` field added to `MessageMetrics` and `ChatResponse["metadata"]`; `buildMetadataFromSSE` in `useStreamingChat.ts` extracts `map_data` from the SSE metadata event
+- **feat** `map_tool` added to `FALLBACK_TOOLS` in `ChatInterface.tsx` and `SettingsPanel.tsx`, and to the fallback `available_tools` list in `backend/routers/settings.py`; per-session toggle and settings-page enable/disable work without additional UI code
+- **deps** `maplibre-gl ^4.7.1` added to frontend dependencies; pinned to v4 — v5 introduced stricter null-checking in expression evaluation that is incompatible with OpenFreeMap's current `liberty` style format
+
+### CLI & Docs
+
+- **fix** `steuermann config validate` (no `--profile`) always exited 1 because `"base"` was included in the default profile list; `get_active_profile_id` rejects `"base"` as a runtime profile, which was surfaced as a validation error — removed `"base"` from the list; passing `--profile base` explicitly now returns a clean error message
+- **fix** `steuermann config set` / `config unset` `--help` showed `core.llm.temperature` as the example key path; corrected to `core.llm.roles.chat.temperature`
+- **fix** `config set --apply` / `config unset --apply` rewrote `core.yaml` with `sort_keys=True, allow_unicode=False`, destroying key order and escaping non-ASCII values; changed to `allow_unicode=True` with natural key order preserved
+- **refactor** Removed unused `RoleProviderRef` class from `universal_agentic_framework/config/schemas.py` (leftover from earlier schema design, never imported or called)
+- **docs** `docs/configuration.md` — replaced phantom checkpointing section (`enabled`, `backend`, `sqlite_path`, `CHECKPOINTER_ENABLED/BACKEND/DB_PATH` env vars) with the actual single-field schema (`postgres_dsn`); corrected all `score_threshold:` config key references to `pill_score_threshold:` (Pydantic field name; the old name was silently ignored at parse time); removed `FORK_LANGUAGE=de` from required env vars (not read anywhere in the runtime)
+- **test** Removed 2 redundant CLI tests (`test_config_unset_apply_requires_confirm_token`, `test_config_unset_apply_accepts_interactive_confirm`) that mirrored their `config set` equivalents while testing the same shared `_resolve_apply_confirmation` function
+
+### Workspace Sidebar — Image Lightbox & Document UX
+
+- **feat** Image thumbnails in the workspace sidebar now open a full-screen lightbox on click (previously inserted a text reference); lightbox overlays at `z-50` with a dark backdrop, close button, and filename label; Escape key closes via `document.addEventListener`
+- **feat** Full-size image loaded in the lightbox via the existing `/api/workspace/documents/{id}/download` endpoint; thumbnail in the card continues to use the `/thumbnail` endpoint
+- **remove** "Reference" button removed from all document expanded-action rows (previously removed for images only in v0.3.5; now removed for text documents too); `handleInsertLiveRefCommand` and the `onInsertCommand` prop deleted from `WorkspaceSidebar`
+- **fix** "Attach" button now always visible in expanded document actions regardless of whether an active conversation exists; previously gated on `{conversationId && ...}` making it invisible in blank-state; clicking Attach with no active conversation calls `onEnsureConversation()` (new prop, wired to `ensureConversation()` in `ChatInterface`) to create a conversation on the fly — same pattern as uploading a chat attachment
+
+### Chat Composer — Attachment Pills
+
+- **change** Attachment pills no longer toggle include/exclude state; clicking the pill body inserts `"filename" (id: <id>)` at the textarea cursor instead; insertion reads `el.value` directly (not stale `input` state) and repositions the cursor via `requestAnimationFrame`
+- **remove** `selectedAttachmentIds` state and `toggleAttachmentSelection` removed from `ChatInterface`; all active attachments are always sent in the message payload (`attachments.map(a => a.id)`)
+- **remove** "N attachments selected" count hint below the composer removed
+- **remove** `selectActiveAttachmentIds` import removed (unused after selection state removal)
+- **i18n** `chat.includeInNextMessage` and `chat.excludeFromNextMessage` keys removed (EN + DE + type); `chat.insertReference` added; `workspace.thumbnailClickHint` updated to "Click to preview" / "Klicken zum Vergrößern"
+
+### MapWidget — MapLibre v4.x Compatibility
+
+- **fix** Eliminated "Expected value to be of type number, but found null instead" console errors from the MapLibre web worker; root cause: MapLibre v4.x became strict about null values in ordered comparison operators (`>=`, `<=`, `>`, `<`) where v3.x silently treated null as non-matching; the positron style's `boundary_3` layer and others use expressions like `[">=", ["get", "admin_level"], 3]` — features with `null` `admin_level` caused the worker to throw on every tile load
+- **feat** `nullSafeFilter(expr)` helper added to `MapWidget.tsx`; recursively walks style filter expression trees and rewrites any `[op, ["get", "prop"], number]` pattern to `[op, ["coalesce", ["get", "prop"], 0], number]`; applied to all style layers after fetching the positron style JSON before passing to `new maplibregl.Map()`; map rendering is unchanged, only null feature properties are now handled gracefully
+
+---
+
 ## [0.3.5] — vision-tools-expansion
 
 ### Workspace — Image & Document UX
@@ -181,7 +248,7 @@
 - **refactor** Removed local tiktoken-based estimated prompt token floor from `node_generate_response` — `estimated_prompt_tokens` computation, `input_tokens = count_tokens_for_model(model_name, user_msg)` pre-call check, and `effective_input_tokens = max(actual, estimated)` floor logic all removed; `actual_input_tokens` from LLM usage metadata used directly for `state["input_tokens"]`; `count_tokens_for_model` is now only called in `node_summarize` for pre-call node_tokens estimation
 - **refactor** Token budget enforcement removed from all graph nodes (`node_generate_response`, `node_summarize`, `node_update_memory`) — `require_tokens`, `TokenBudgetExceeded`, `get_budget_context`, `get_node_budget`, `get_response_reserve_tokens`, `per_node_hard_limit_enabled` no longer imported or called; `tokens_used` / `turn_tokens_used` / `input_tokens` / `output_tokens` state fields retained for observability and metrics; `test_summarization_budget_enforced` removed, budget monkeypatches removed from `test_graph_digest_chain.py`
 
-### Bug Fixes
+### Test Fix
 
 - **fix** `test_system_config_supported_languages_fallback_order` — `role_settings.max_tokens` raised `AttributeError` on mock `SimpleNamespace` objects, caught by the outer `except Exception` and silently returning the hardcoded `["en"]` fallback; changed to `getattr(role_settings, "max_tokens", None)`
 
@@ -212,7 +279,7 @@
 - **improve** Selected model shown in bold (`font-bold`) in the model dropdown for quick orientation
 - **improve** All icons in `ChatInterface` unified to Material Symbols Outlined (`<Icon>` component); Lucide `Database` import removed; RAG toggle now uses `<Icon name="database" />`
 
-### Bug Fixes
+### Model Resolution Fixes
 
 - **fix** `resolve_initial_model_metadata` (`model_resolution.py`): `model_name` no longer pre-seeded with `preferred_model` — a stale or invalid preferred model can no longer leak into `model_used` in the SSE metadata when factory resolution fails; the variable now starts as `"unknown"` and is only overwritten on successful factory resolution
 - **fix** `test_benchmark_1000_embeddings` speedup threshold lowered from `> 3.0` to `>= 2.5` — calibrated to observed hardware performance: NumPy-vectorised in-memory search at n=1000 is fast, and Qdrant carries localhost round-trip overhead that limits its relative advantage at this scale; 2.5× still conclusively proves ANN superiority over O(n) brute-force

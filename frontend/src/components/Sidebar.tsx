@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "./Icon";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { searchConversations } from "@/lib/api";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
@@ -10,6 +11,7 @@ import {
   CURRENT_USER_ID,
   SINGLE_USER_DISPLAY_NAME,
 } from "@/lib/runtime";
+import { useRole } from "@/context/RoleContext";
 import type { Conversation, SearchResult } from "@/lib/types";
 
 /* ── Props ────────────────────────────────────────────────────────────── */
@@ -51,12 +53,14 @@ export function Sidebar({
 }: SidebarProps) {
   const { t, formatDate } = useI18n();
   const profile = useProfile();
+  const { role } = useRole();
   const profileDisplayName = profile.appName || profile.displayName || "Steuermann";
   const profileAppName = profile.appName || "Steuermann";
   const frameworkVersion = profile.frameworkVersion || "unknown";
 
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -291,13 +295,7 @@ export function Sidebar({
               <Icon name="inventory_2" size={16} />
             </button>
             <button
-              onClick={async () => {
-                if (onBulkDelete && window.confirm(t("sidebar.deleteSelectedConfirm", { count: selected.size }))) {
-                  await onBulkDelete(Array.from(selected));
-                  setSelected(new Set());
-                  setBulkMode(false);
-                }
-              }}
+              onClick={() => { if (onBulkDelete) setConfirmBulkDelete(true); }}
               className="p-1 rounded hover:bg-red-500/30 text-red-300/70 hover:text-red-300 transition-colors cursor-pointer"
               title={t("sidebar.deleteSelected")}
             >
@@ -410,13 +408,33 @@ export function Sidebar({
                        text-light-cyan transition-colors"
             aria-label={t("sidebar.settingsForUser", { name: profileDisplayName })}
           >
-            <span className="text-sm font-bold truncate block w-full min-w-0 text-light-cyan">
-              {SINGLE_USER_DISPLAY_NAME}
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-bold truncate text-light-cyan">
+                {SINGLE_USER_DISPLAY_NAME}
+              </span>
+              <span className="text-xs text-light-cyan/60 capitalize">
+                {role}
+              </span>
             </span>
-            <Icon name="settings" className="ml-auto text-light-cyan/70" />
+            <Icon name="settings" className="ml-auto shrink-0 text-light-cyan/70" />
           </Link>
         </div>
       </aside>
+
+      <ConfirmDialog
+        isOpen={confirmBulkDelete}
+        title={t("sidebar.deleteSelected")}
+        message={t("sidebar.deleteSelectedConfirm", { count: selected.size })}
+        variant="danger"
+        confirmLabel={t("common.delete")}
+        onConfirm={async () => {
+          setConfirmBulkDelete(false);
+          await onBulkDelete!(Array.from(selected));
+          setSelected(new Set());
+          setBulkMode(false);
+        }}
+        onCancel={() => setConfirmBulkDelete(false)}
+      />
     </>
   );
 }
@@ -452,6 +470,7 @@ function ConversationRow({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(c.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -601,11 +620,24 @@ function ConversationRow({
             danger
             onClick={() => {
               setMenuOpen(false);
-              if (window.confirm(t("sidebar.deleteConversationConfirm"))) onDelete?.(c.id);
+              setConfirmDelete(true);
             }}
           />
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDelete}
+        title={t("sidebar.delete")}
+        message={t("sidebar.deleteConversationConfirm")}
+        variant="danger"
+        confirmLabel={t("common.delete")}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onDelete?.(c.id);
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

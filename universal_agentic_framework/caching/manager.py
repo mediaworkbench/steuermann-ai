@@ -330,7 +330,7 @@ class CacheManager:
     def __init__(
         self,
         backend: Optional[CacheBackend] = None,
-        fork_name: str = "default",
+        profile_name: str = "default",
         use_vector_db: bool = True,
         qdrant_host: Optional[str] = None,
         qdrant_port: int = 6333,
@@ -346,7 +346,7 @@ class CacheManager:
         
         Args:
             backend: Cache backend (defaults to MemoryCacheBackend)
-            fork_name: Name of the fork for metrics tracking
+            profile_name: Name of the profile for metrics tracking
             use_vector_db: Whether to use Qdrant for semantic search
             qdrant_host: Qdrant server host (default: QDRANT_HOST env var or "localhost")
             qdrant_port: Qdrant server port
@@ -360,7 +360,7 @@ class CacheManager:
         """
         import os
         self.backend = backend or MemoryCacheBackend()
-        self.fork_name = fork_name
+        self.profile_name = profile_name
         self.stats = {"hits": 0, "misses": 0, "errors": 0}
         self.similarity_threshold = similarity_threshold
         # Resolve Qdrant host: explicit arg > QDRANT_HOST env var > localhost
@@ -385,12 +385,12 @@ class CacheManager:
                     port=qdrant_port,
                     embedding_model=embedding_model,
                     dimension=embedding_dimension,
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                     similarity_threshold=similarity_threshold,
                     embedding_provider_type=embedding_provider_type,
                     embedding_remote_endpoint=embedding_remote_endpoint,
                 )
-                logger.info(f"Initialized Qdrant vector backend for cache (fork={fork_name})")
+                logger.info(f"Initialized Qdrant vector backend for cache (profile={profile_name})")
             except Exception as e:
                 logger.warning(f"Failed to initialize Qdrant vector backend: {e}. Falling back to in-memory search.")
                 self.vector_backend = None
@@ -415,7 +415,7 @@ class CacheManager:
                 self.compressor = None
         
         # Update embedding cache size metric
-        update_embedding_cache_size(fork_name, 0)
+        update_embedding_cache_size(profile_name, 0)
     
     def _make_key(self, prefix: str, *args) -> str:
         """Generate cache key from prefix and arguments."""
@@ -457,7 +457,7 @@ class CacheManager:
             
             # Record duration
             duration = time.time() - start_time
-            track_embedding_generation(self.fork_name, duration)
+            track_embedding_generation(self.profile_name, duration)
             
             # Ensure it's a list (remote API returns list, local might return numpy)
             if not isinstance(embedding, list):
@@ -467,7 +467,7 @@ class CacheManager:
             self._embedding_cache[query] = embedding
             
             # Update cache size metric
-            update_embedding_cache_size(self.fork_name, len(self._embedding_cache))
+            update_embedding_cache_size(self.profile_name, len(self._embedding_cache))
             
             # Don't cache more than 1000 embeddings to avoid memory bloat
             if len(self._embedding_cache) > 1000:
@@ -475,7 +475,7 @@ class CacheManager:
                 oldest_key = next(iter(self._embedding_cache))
                 del self._embedding_cache[oldest_key]
                 # Update metric after eviction
-                update_embedding_cache_size(self.fork_name, len(self._embedding_cache))
+                update_embedding_cache_size(self.profile_name, len(self._embedding_cache))
             
             return embedding
         except Exception as e:
@@ -656,7 +656,7 @@ class CacheManager:
                         f"Semantic match found via Qdrant for {crew_name} "
                         f"({user_id}): similarity={best_match['score']:.3f}"
                     )
-                    track_semantic_similarity_match(crew_name, self.fork_name)
+                    track_semantic_similarity_match(crew_name, self.profile_name)
                     
                     # Resolve actual cached result using the original query
                     original_query = best_match.get("query", "")
@@ -684,7 +684,7 @@ class CacheManager:
                 logger.warning(f"Vector database search failed, falling back to memory: {e}")
                 # Track fallback event
                 from universal_agentic_framework.monitoring import metrics
-                metrics.track_vector_db_fallback(self.fork_name, reason="error")
+                metrics.track_vector_db_fallback(self.profile_name, reason="error")
         
         # Fallback: In-memory O(n) iteration
         prefix = f"crew:{crew_name}:{user_id}:{language or ''}:"
@@ -711,7 +711,7 @@ class CacheManager:
                                 f"Semantic match found (in-memory) for {crew_name} "
                                 f"({user_id}): similarity={similarity:.3f}"
                             )
-                            track_semantic_similarity_match(crew_name, self.fork_name)
+                            track_semantic_similarity_match(crew_name, self.profile_name)
                             return value.get("result")
         
         return None
@@ -743,7 +743,7 @@ class CacheManager:
             result = await self.backend.get(key)
             if result:
                 self.stats["hits"] += 1
-                track_cache_hit("crew", self.fork_name)
+                track_cache_hit("crew", self.profile_name)
                 logger.debug(f"Crew cache HIT (exact) for {crew_name} ({user_id})")
                 # Extract actual result if stored with metadata
                 if isinstance(result, dict) and "_embedding" in result:
@@ -760,18 +760,18 @@ class CacheManager:
             )
             if semantic_result:
                 self.stats["hits"] += 1
-                track_cache_hit("semantic", self.fork_name)
+                track_cache_hit("semantic", self.profile_name)
                 logger.debug(f"Crew cache HIT (semantic) for {crew_name} ({user_id})")
                 return semantic_result
             
             # Tier 3: Miss
             self.stats["misses"] += 1
-            track_cache_miss("crew", self.fork_name)
+            track_cache_miss("crew", self.profile_name)
             return None
         except Exception as e:
             logger.warning(f"Crew cache get error: {e}")
             self.stats["errors"] += 1
-            track_cache_error("crew", "get", self.fork_name)
+            track_cache_error("crew", "get", self.profile_name)
             return None
 
     async def set_crew_result(
@@ -836,12 +836,12 @@ class CacheManager:
                     f"and vector_db={'yes' if self.vector_backend else 'no'}"
                 )
             else:
-                track_cache_error("crew", "set", self.fork_name)
+                track_cache_error("crew", "set", self.profile_name)
             return success
         except Exception as e:
             logger.warning(f"Crew cache set error: {e}")
             self.stats["errors"] += 1
-            track_cache_error("crew", "set", self.fork_name)
+            track_cache_error("crew", "set", self.profile_name)
             return False
     
     async def set_conversation_summary(
@@ -871,7 +871,7 @@ class CacheManager:
         hit_rate = (self.stats["hits"] / total * 100) if total > 0 else 0
         
         # Update hit rate metrics
-        update_cache_hit_rate("crew", hit_rate, self.fork_name)
+        update_cache_hit_rate("crew", hit_rate, self.profile_name)
         
         return {
             **self.stats,
@@ -893,7 +893,7 @@ class CacheManager:
         if self.vector_backend:
             try:
                 deleted = self.vector_backend.cleanup_expired(current_time)
-                logger.info(f"Cleaned up {deleted} expired cache entries for fork {self.fork_name}")
+                logger.info(f"Cleaned up {deleted} expired cache entries for profile {self.profile_name}")
                 return deleted
             except Exception as e:
                 logger.error(f"Failed to cleanup expired entries: {e}")

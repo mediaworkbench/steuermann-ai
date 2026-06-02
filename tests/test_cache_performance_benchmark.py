@@ -145,7 +145,7 @@ class TestCachePerformanceBenchmark:
             collection_prefix="bench_100",
             host="localhost",
             port=6333,
-            fork_name="benchmark",
+            profile_name="benchmark",
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
@@ -219,7 +219,7 @@ class TestCachePerformanceBenchmark:
             collection_prefix="bench_1000",
             host="localhost",
             port=6333,
-            fork_name="benchmark",
+            profile_name="benchmark",
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()
@@ -296,7 +296,7 @@ class TestCachePerformanceBenchmark:
             collection_prefix="bench_10000",
             host="localhost",
             port=6333,
-            fork_name="benchmark",
+            profile_name="benchmark",
             embedding_remote_endpoint=_EMBEDDING_ENDPOINT,
         )
         vector_backend.clear_collection()

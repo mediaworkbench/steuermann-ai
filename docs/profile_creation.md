@@ -11,8 +11,8 @@ A profile overlay:
 - Lives under `config/profiles/<profile_id>/`
 - Is activated with `PROFILE_ID`
 - Overrides base configuration, prompts, tools, and UI settings
-- Can add domain-specific plugins in `plugins/`
-- Should avoid direct edits in `universal_agentic_framework/core/`
+- Domain-specific tools live in `universal_agentic_framework/tools/<name>/`; a `plugins/` directory for profile-specific tools is planned but not yet implemented
+- Should avoid direct edits in `universal_agentic_framework/orchestration/`
 
 ---
 
@@ -64,7 +64,7 @@ Add `config/profiles/<profile_id>/prompts/<language>.yaml` when the profile need
 - `agents.yaml`: crew definitions and per-agent tool access
 - `tools.yaml`: enable, disable, or tune tools for the profile
 - `ui.yaml`: profile branding and frontend labels
-- `plugins/`: domain-specific tool implementations
+- New tools → `universal_agentic_framework/tools/<name>/` + entry in `config/profiles/<id>/tools.yaml`
 
 ---
 

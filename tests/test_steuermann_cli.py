@@ -406,34 +406,6 @@ def test_config_set_apply_requires_confirm_token(
     assert "--confirm APPLY" in payload["error"]
 
 
-def test_config_unset_apply_requires_confirm_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    profile_dir = _create_profile_dir(tmp_path)
-    (profile_dir / "core.yaml").write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-
-    code = steuermann.main(
-        [
-            "config",
-            "unset",
-            "--profile",
-            "starter",
-            "--key",
-            "core.llm.temperature",
-            "--apply",
-            "--format",
-            "json",
-        ]
-    )
-    assert code == 1
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "error"
-    assert "--confirm APPLY" in payload["error"]
-
 
 def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "config" / "contracts").mkdir(parents=True)
@@ -441,7 +413,12 @@ def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch:
         "schema_version": 1,
         "contract_name": "test",
         "precedence": ["base", "profile", "environment"],
-        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "sections": {
+            "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
+            "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
+            "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
+            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
+        },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
@@ -468,11 +445,16 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
         "schema_version": 1,
         "contract_name": "test",
         "precedence": ["base", "profile", "environment"],
-        "sections": {s: {"source_file": f"config/{f}", "profile_overlay_file": f"config/profiles/<profile_id>/{f}", "profile_mutability": "partial"} for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()},
+        "sections": {
+            "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
+            "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
+            "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
+            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
+        },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
         "profile_safety": {
-            "allowed_core_prefixes": ["fork.language", "fork.locale", "fork.timezone", "fork.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
+            "allowed_core_prefixes": ["profile.language", "profile.locale", "profile.timezone", "profile.supported_languages", "llm", "prompts", "tool_routing", "rag", "tokens", "memory.embeddings", "memory.retention"],
             "disallowed_feature_flags": ["authentication"],  # missing ingestion_service, monitoring
         },
     }
@@ -680,43 +662,6 @@ def test_config_set_apply_accepts_interactive_confirm(
     assert data["llm"]["temperature"] == 0.2
 
 
-def test_config_unset_apply_accepts_interactive_confirm(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    profile_dir = _create_profile_dir(tmp_path)
-    core_path = profile_dir / "core.yaml"
-    core_path.write_text("llm:\n  temperature: 0.7\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _prompt: "APPLY")
-    monkeypatch.setattr(
-        steuermann,
-        "_validate_one_profile",
-        lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": []},
-    )
-
-    code = steuermann.main(
-        [
-            "config",
-            "unset",
-            "--profile",
-            "starter",
-            "--key",
-            "core.llm.temperature",
-            "--apply",
-            "--format",
-            "json",
-        ]
-    )
-    assert code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "ok"
-    assert payload["confirmation_source"] == "interactive"
-    data = yaml.safe_load(core_path.read_text(encoding="utf-8"))
-    assert "llm" not in data
-
 
 def test_profile_bundle_import_does_not_modify_existing_profiles(
     tmp_path: Path,
@@ -784,7 +729,7 @@ def test_config_validate_strict_fails_on_warning(monkeypatch: pytest.MonkeyPatch
         "_validate_one_profile",
         lambda profile_id: {"profile": profile_id, "status": "ok", "errors": [], "warnings": ["warning"]},
     )
-    monkeypatch.setattr(steuermann, "_iter_profiles", lambda: [])
+    monkeypatch.setattr(steuermann, "_iter_profiles", lambda: ["starter"])
     code = steuermann.main(["config", "validate", "--strict", "--format", "json"])
     assert code == 1
 
@@ -874,14 +819,12 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                         "profile_mutability": "partial",
                     },
                     "tools": {
-                        "source_file": "config/tools.yaml",
                         "profile_overlay_file": "config/profiles/<profile_id>/tools.yaml",
-                        "profile_mutability": "partial",
+                        "profile_mutability": "full",
                     },
                     "agents": {
-                        "source_file": "config/agents.yaml",
                         "profile_overlay_file": "config/profiles/<profile_id>/agents.yaml",
-                        "profile_mutability": "partial",
+                        "profile_mutability": "full",
                     },
                 },
                 "policies": {
@@ -893,10 +836,10 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                 "severity_policy": {"blocking": "error", "advisory": "warning"},
                 "profile_safety": {
                     "allowed_core_prefixes": [
-                        "fork.language",
-                        "fork.locale",
-                        "fork.timezone",
-                        "fork.supported_languages",
+                        "profile.language",
+                        "profile.locale",
+                        "profile.timezone",
+                        "profile.supported_languages",
                         "llm",
                         "prompts",
                         "tool_routing",

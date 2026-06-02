@@ -24,11 +24,13 @@ _PROFILE_ID_RE = re.compile(PROFILE_ID_PATTERN)
 _DEFAULT_PROFILES_DIR = Path("config/profiles")
 _LEGACY_PROFILES_DIR = Path("profiles")
 _DISALLOWED_PROFILE_FEATURE_FLAGS = {"ingestion_service", "authentication", "monitoring"}
+ENV_PLACEHOLDER_RE = re.compile(r"\$(\{?[A-Z0-9_]+\}?)")
+
 _PROFILE_CORE_ALLOWED_PREFIXES = {
-    "fork.language",
-    "fork.locale",
-    "fork.timezone",
-    "fork.supported_languages",
+    "profile.language",
+    "profile.locale",
+    "profile.timezone",
+    "profile.supported_languages",
     "llm",
     "ingestion",
     "prompts",

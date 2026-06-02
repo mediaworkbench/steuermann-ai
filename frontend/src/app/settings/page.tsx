@@ -3,33 +3,29 @@
 import { useState } from "react";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useSettings } from "@/hooks/useSettings";
-import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
+import { useRole } from "@/context/RoleContext";
 import {
   CURRENT_USER_ID,
+  SINGLE_USER_DISPLAY_NAME,
 } from "@/lib/runtime";
 import styles from "./Settings.module.css";
 
 export default function SettingsPage() {
   const [userId] = useState(CURRENT_USER_ID);
-  const profile = useProfile();
-  const profileDisplayName = profile.displayName;
-  const frameworkVersion = profile.frameworkVersion;
   const { t } = useI18n();
+  const { role } = useRole();
   const { settings, loading, error, saveSettings } = useSettings(userId);
 
   return (
     <main className={styles.main}>
       <div className={styles.header}>
         <h1 className={styles.title}>{t("settingsPage.title")}</h1>
+        <p className={styles.subtitle}>
+          {SINGLE_USER_DISPLAY_NAME}
+          <span className="ml-2 text-sm font-normal capitalize opacity-60">· {role}</span>
+        </p>
       </div>
-
-      <section className={styles.accountCard}>
-        <div className={styles.accountInfo}>
-          <h2 className={styles.accountName}>Profile: {profileDisplayName}</h2>
-          <p className={styles.versionText}>Framework version: {frameworkVersion}</p>
-        </div>
-      </section>
 
       {error && (
         <div className={styles.error}>

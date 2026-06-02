@@ -32,12 +32,12 @@ def run_llm_graph(
     """Run a minimal LLM-backed response node with token budgeting.
 
     - Loads core configuration (LLM providers and token budgets).
-    - Selects model via LLMFactory based on `language` (falls back to fork language).
+    - Selects model via LLMFactory based on `language` (falls back to profile language).
     - Enforces token budgeting using a simple estimator.
 
     Parameters:
         message: Input text from user.
-        language: Optional language code (e.g., 'en', 'de'). If not provided, uses fork language.
+        language: Optional language code (e.g., 'en', 'de'). If not provided, uses profile language.
         prefer_local: Try local (primary) provider first.
         model_override: Inject a fake/override model for testing; must implement `.invoke(prompt)` and
                         return an object with a `content` attribute or a string.
@@ -46,8 +46,8 @@ def run_llm_graph(
         A dict containing the response, tokens_used, and budget information.
     """
     config = load_core_config()
-    fork_lang = config.fork.language
-    lang = language or fork_lang
+    profile_lang = config.profile.language
+    lang = language or profile_lang
 
     # Token budgets
     default_budget = config.tokens.default_budget
@@ -110,7 +110,7 @@ def run_graph_with_memory(
     Returns response and lightweight diagnostics.
     """
     config = load_core_config()
-    lang = language or config.fork.language
+    lang = language or config.profile.language
 
     # Build memory backend
     backend = backend_override if backend_override is not None else build_memory_backend(config)

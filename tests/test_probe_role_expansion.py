@@ -42,7 +42,7 @@ def mock_core_config_with_roles():
         }.get(role_name, [])
     )
     config.llm.roles = SimpleNamespace(chat=object(), vision=object(), auxiliary=object())
-    config.fork.language = "en"
+    config.profile.language = "en"
     
     return config
 
@@ -128,7 +128,7 @@ def test_probe_runner_handles_multi_language_models():
         }.get(role_name, [])
     )
     config.llm.roles = SimpleNamespace(chat=object(), vision=object(), auxiliary=object())
-    config.fork.language = "en"
+    config.profile.language = "en"
     
     runner = LLMCapabilityProbeRunner(core_config=config, profile_id="test-profile")
     targets = runner._collect_targets()

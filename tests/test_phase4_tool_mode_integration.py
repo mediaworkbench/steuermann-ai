@@ -303,7 +303,7 @@ class TestModeReasonTracking:
     def test_runtime_native_tool_leak_persists_structured_downgrade_feedback(self):
         provider = SimpleNamespace(api_base="http://localhost:1234/v1")
         config = SimpleNamespace(
-            fork=SimpleNamespace(language="en"),
+            profile=SimpleNamespace(language="en"),
             llm=SimpleNamespace(
                 get_role_provider_chain_with_models=lambda role_name, _lang: [
                     ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")

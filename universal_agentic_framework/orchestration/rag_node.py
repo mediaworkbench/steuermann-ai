@@ -68,27 +68,27 @@ def _rewrite_query_for_rag(user_message: str, config, lang: str, num_variants: i
 def node_retrieve_knowledge(state: GraphState) -> GraphState:
     """Retrieve relevant documents from the knowledge base (RAG)."""
     config = load_core_config()
-    fork_name = getattr(config.fork, "name", "default-fork")
+    profile_name = getattr(config.profile, "name", "default-profile")
     rag_config = getattr(config, "rag", None)
     features_config = load_features_config()
 
     user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
 
-    logger.info("RAG node started", fork_name=fork_name, has_query=bool(user_msg))
+    logger.info("RAG node started", profile_name=profile_name, has_query=bool(user_msg))
 
     # --- Skip conditions (priority order) ---
     if not user_msg:
-        logger.info("No query for knowledge retrieval", fork_name=fork_name)
+        logger.info("No query for knowledge retrieval", profile_name=profile_name)
         state["knowledge_context"] = []
         return state
 
     if not getattr(features_config, "rag_retrieval", True):
-        logger.info("RAG disabled via features flag", fork_name=fork_name)
+        logger.info("RAG disabled via features flag", profile_name=profile_name)
         state["knowledge_context"] = []
         return state
 
     if rag_config is not None and not rag_config.enabled:
-        logger.info("RAG disabled via config", fork_name=fork_name)
+        logger.info("RAG disabled via config", profile_name=profile_name)
         state["knowledge_context"] = []
         return state
 
@@ -96,14 +96,14 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     user_settings = state.get("user_settings", {})
     user_rag_config = user_settings.get("rag_config", {})
     if user_rag_config and not user_rag_config.get("enabled", True):
-        logger.info("RAG disabled by user setting", fork_name=fork_name)
+        logger.info("RAG disabled by user setting", profile_name=profile_name)
         state["knowledge_context"] = []
         return state
 
     # Intent-based short-circuit: skip Qdrant entirely for trivial queries
     intents = state.get("prefilter_intents") or {}
     if intents.get("skip_rag"):
-        logger.info("RAG skipped (trivial intent)", fork_name=fork_name)
+        logger.info("RAG skipped (trivial intent)", profile_name=profile_name)
         state["knowledge_context"] = []
         return state
 
@@ -113,15 +113,15 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     _qr_cfg = getattr(rag_config, "query_rewriting", None)
     queries = [user_msg]  # default: single original query
     if _qr_cfg is not None and _qr_cfg.enabled:
-        lang = state.get("language") or getattr(config.fork, "language", "en")
+        lang = state.get("language") or getattr(config.profile, "language", "en")
         num_variants = getattr(_qr_cfg, "num_variants", 1)
         queries = _rewrite_query_for_rag(user_msg, config, lang, num_variants)
         state.pop("query_embedding", None)  # invalidate prefilter cache; force re-embed of rewritten queries
         logger.info("RAG: query rewritten for retrieval", num_variants=len(queries), first_query_length=len(queries[0]))
 
-    logger.info("Retrieving knowledge", fork_name=fork_name, num_queries=len(queries))
+    logger.info("Retrieving knowledge", profile_name=profile_name, num_queries=len(queries))
 
-    with track_node_execution(fork_name, "retrieve_knowledge"):
+    with track_node_execution(profile_name, "retrieve_knowledge"):
         try:
             # Reuse the module-level cached provider (same instance as node_prefilter_tools).
             embedder, _ = get_routing_embedding_provider(config)
@@ -141,7 +141,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
             if cfg["collection_name"] is None:
                 logger.warning(
                     "RAG: collection_name not set in config, falling back to 'framework'",
-                    fork_name=fork_name,
+                    profile_name=profile_name,
                 )
                 cfg["collection_name"] = "framework"
 
@@ -177,20 +177,20 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
             state["rag_doc_count"] = len(knowledge_docs)
             logger.info(
                 "Knowledge retrieved successfully",
-                fork_name=fork_name,
+                profile_name=profile_name,
                 results_count=len(knowledge_docs),
                 top_score=knowledge_docs[0]["score"] if knowledge_docs else 0.0,
             )
 
         except httpx.TimeoutException as e:
-            logger.error("RAG: Qdrant request timed out", error=str(e), fork_name=fork_name)
+            logger.error("RAG: Qdrant request timed out", error=str(e), profile_name=profile_name)
             state["knowledge_context"] = []
             state["rag_doc_count"] = 0
         except httpx.HTTPStatusError as e:
             logger.error(
                 "RAG: Qdrant returned HTTP error",
                 status=e.response.status_code,
-                fork_name=fork_name,
+                profile_name=profile_name,
             )
             state["knowledge_context"] = []
             state["rag_doc_count"] = 0

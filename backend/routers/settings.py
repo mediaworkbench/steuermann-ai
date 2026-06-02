@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.db import SettingsStore, LLMCapabilityProbeStore
@@ -414,7 +414,7 @@ async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
     try:
         core = load_core_config()
-        models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.fork.language)
+        models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.profile.language)
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
@@ -447,9 +447,9 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
 
         chat_provider = core_config.llm.get_role_provider("chat")
         try:
-            default_model = core_config.llm.get_role_model_name("chat", core_config.fork.language)
+            default_model = core_config.llm.get_role_model_name("chat", core_config.profile.language)
         except Exception:
-            default_model = getattr(chat_provider.models, core_config.fork.language, None) or chat_provider.models.en or ""
+            default_model = getattr(chat_provider.models, core_config.profile.language, None) or chat_provider.models.en or ""
 
         # Load probe results once — used to overlay context_window_tokens (probe fires at
         # startup and on model change, so it captures the value the server is loaded with).
@@ -470,7 +470,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
 
         model_roles: List[Dict[str, Any]] = []
 
-        language = core_config.fork.language
+        language = core_config.profile.language
         for role_name in ("chat", "embedding", "vision", "auxiliary"):
             try:
                 role_chain = core_config.llm.get_role_provider_chain_with_models(role_name, language)
@@ -511,14 +511,14 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
         role_label = profile_ui.branding.role_label or display_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_ROLE_LABEL", "Local Profile")
         app_name = profile_ui.branding.app_name or os.getenv("NEXT_PUBLIC_SINGLE_USER_DISPLAY_NAME", "Single User")
 
-        supported_languages = core_config.fork.supported_languages
+        supported_languages = core_config.profile.supported_languages
         if not supported_languages:
             # Derive from prompt files if not explicitly configured
             prompts_cfg = core_config.prompts
             if prompts_cfg and prompts_cfg.languages:
                 supported_languages = sorted(prompts_cfg.languages.keys())
             else:
-                supported_languages = [core_config.fork.language]
+                supported_languages = [core_config.profile.language]
 
         return {
             "available_tools": available_tools,
@@ -558,6 +558,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                 {"id": "read_barcodes_tool", "label": "Read Barcodes"},
                 {"id": "datetime_tool", "label": "Datetime"},
                 {"id": "calculator_tool", "label": "Calculator"},
+                {"id": "map_tool", "label": "Map"},
                 {"id": "file_ops_tool", "label": "File Operations"},
             ],
             "rag_defaults": {"collection_name": "framework", "top_k": 5},
@@ -644,7 +645,7 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
     # Iterate through roles (chat first for primary visibility, then vision, auxiliary)
     for role_name in ["chat", "vision", "auxiliary"]:
         try:
-            role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.fork.language)
+            role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.profile.language)
         except Exception:
             continue
 
@@ -776,13 +777,63 @@ def trigger_reingest_all_documents() -> Dict[str, Any]:
 
 
 
-@router.post("/admin/reset-all-databases")
-def reset_all_databases(request: Request) -> Dict[str, Any]:
-    """Truncate all application data in Postgres and delete all Qdrant collections.
+class ResetOptions(BaseModel):
+    """Selects which data categories to purge. All default to True."""
+    conversations: bool = True
+    workspace: bool = True
+    memories: bool = True
+    analytics: bool = True
+    llm_probes: bool = True
 
-    This is a destructive, irreversible operation. Workspace files on disk are
-    also removed. The schema is preserved so the service continues running.
+
+class UserResetOptions(BaseModel):
+    """Selects which personal data categories to purge for the current user only."""
+    conversations: bool = True
+    workspace: bool = True
+    memories: bool = True
+
+
+_CONVERSATION_TABLES = [
+    "conversation_attachments",
+    "messages",
+    "conversations",
+]
+
+_WORKSPACE_TABLES = [
+    "workspace_document_versions",
+    "workspace_documents",
+    "chat_document_refs",
+    "conversation_workspace_operations",
+    "conversation_workspaces",
+]
+
+_MEMORY_TABLES = [
+    "co_occurrence_edges",
+]
+
+_ANALYTICS_TABLES = [
+    "analytics_events",
+    "daily_analytics_stats",
+]
+
+_LLM_PROBE_TABLES = [
+    "llm_capability_probes",
+]
+
+
+@router.post("/admin/reset-all-databases")
+def reset_all_databases(
+    request: Request,
+    options: Optional[ResetOptions] = Body(default=None),
+) -> Dict[str, Any]:
+    """Purge selected data categories across all users.
+
+    Accepts an optional JSON body with boolean flags per category — all True by
+    default so a no-body call still purges everything. The schema is preserved
+    so the service continues running without a restart.
     """
+    if options is None:
+        options = ResetOptions()
     import shutil
 
     results: Dict[str, Any] = {
@@ -792,25 +843,116 @@ def reset_all_databases(request: Request) -> Dict[str, Any]:
     }
     errors: list[str] = []
 
+    # Build the list of tables to truncate based on selected options
+    tables_to_truncate: list[str] = []
+    if options.conversations:
+        tables_to_truncate.extend(_CONVERSATION_TABLES)
+    if options.workspace:
+        tables_to_truncate.extend(_WORKSPACE_TABLES)
+    if options.memories:
+        tables_to_truncate.extend(_MEMORY_TABLES)
+    if options.analytics:
+        tables_to_truncate.extend(_ANALYTICS_TABLES)
+    if options.llm_probes:
+        tables_to_truncate.extend(_LLM_PROBE_TABLES)
+
     # ── 1. Postgres ───────────────────────────────────────────────────────────
-    # Truncate all user-data tables; CASCADE handles FK dependencies.
-    # user_settings intentionally excluded so the user doesn't need to
-    # reconfigure language/model preferences after a reset.
-    _TABLES_TO_TRUNCATE = [
-        "workspace_document_versions",
-        "workspace_documents",
-        "chat_document_refs",
-        "co_occurrence_edges",
-        "conversation_workspace_operations",
-        "conversation_workspaces",
-        "conversation_attachments",
-        "messages",
-        "conversations",
-        "llm_capability_probes",
-        "analytics_events",
-        "daily_analytics_stats",
-    ]
+    # user_settings intentionally excluded so preferences survive a reset.
+    if tables_to_truncate:
+        db_pool = getattr(request.app.state, "db_pool", None)
+        if db_pool is None:
+            errors.append("postgres: db_pool unavailable")
+            results["postgres"]["status"] = "error"
+        else:
+            try:
+                with db_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        for table in tables_to_truncate:
+                            cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
+                            results["postgres"]["tables_truncated"].append(table)
+                    conn.commit()
+            except Exception as exc:
+                errors.append(f"postgres: {exc}")
+                results["postgres"]["status"] = "error"
+
+    # ── 2. Qdrant (memories + knowledge base) ─────────────────────────────────
+    if options.memories:
+        try:
+            from qdrant_client import QdrantClient  # type: ignore[import-untyped]
+
+            qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
+            qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+            qc = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
+            collections = [c.name for c in qc.get_collections().collections]
+            for name in collections:
+                qc.delete_collection(name)
+                results["qdrant"]["collections_deleted"].append(name)
+        except Exception as exc:
+            errors.append(f"qdrant: {exc}")
+            results["qdrant"]["status"] = "error"
+
+    # ── 3. Workspace files on disk ────────────────────────────────────────────
+    if options.workspace:
+        try:
+            from backend.attachments import WorkspaceManagerConfig, AttachmentManagerConfig
+
+            ws_config = WorkspaceManagerConfig.from_env()
+            attach_config = AttachmentManagerConfig.from_env()
+            freed = 0
+            for root in {ws_config.root_dir, attach_config.root_dir}:
+                if root.exists():
+                    freed += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+                    shutil.rmtree(root, ignore_errors=True)
+                    root.mkdir(parents=True, exist_ok=True)
+            results["workspace_files"]["bytes_freed"] = freed
+        except Exception as exc:
+            errors.append(f"workspace_files: {exc}")
+            results["workspace_files"]["status"] = "error"
+
+    if errors:
+        logger.warning("reset_all_databases completed with errors: %s", errors)
+        return {"status": "partial", "errors": errors, **results}
+
+    logger.info("reset_all_databases completed successfully")
+    return {"status": "ok", "errors": [], **results}
+
+
+@router.post("/user/reset-my-data")
+def reset_my_data(
+    request: Request,
+    options: Optional[UserResetOptions] = Body(default=None),
+    user_id: str = Depends(get_effective_user_id),
+) -> Dict[str, Any]:
+    """Purge selected personal data for the current authenticated user only.
+
+    Only deletes rows owned by this user — never touches other users' data or
+    system-wide tables (analytics, LLM probes, RAG knowledge base).
+    """
+    if options is None:
+        options = UserResetOptions()
+    import shutil
+
+    errors: list[str] = []
+    results: Dict[str, Any] = {
+        "postgres": {"status": "ok", "deleted": {}},
+        "qdrant": {"status": "ok", "memories_deleted": False},
+        "files": {"status": "ok", "bytes_freed": 0},
+    }
+
     db_pool = getattr(request.app.state, "db_pool", None)
+
+    # Collect conversation IDs before deletion so we can clean up files afterwards.
+    conversation_ids: list[str] = []
+    if options.conversations and db_pool:
+        try:
+            with db_pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM conversations WHERE user_id = %s;", (user_id,))
+                    conversation_ids = [row[0] for row in cur.fetchall()]
+        except Exception as exc:
+            errors.append(f"postgres: failed to list conversations: {exc}")
+
+    # ── 1. Postgres — user-scoped DELETEs ─────────────────────────────────────
     if db_pool is None:
         errors.append("postgres: db_pool unavailable")
         results["postgres"]["status"] = "error"
@@ -818,58 +960,103 @@ def reset_all_databases(request: Request) -> Dict[str, Any]:
         try:
             with db_pool.connection() as conn:
                 with conn.cursor() as cur:
-                    for table in _TABLES_TO_TRUNCATE:
-                        cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
-                        results["postgres"]["tables_truncated"].append(table)
+                    if options.conversations:
+                        cur.execute(
+                            "DELETE FROM conversations WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                        results["postgres"]["deleted"]["conversations"] = cur.rowcount
+                    if options.workspace:
+                        cur.execute(
+                            "DELETE FROM workspace_documents WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                        results["postgres"]["deleted"]["workspace_documents"] = cur.rowcount
                 conn.commit()
         except Exception as exc:
             errors.append(f"postgres: {exc}")
             results["postgres"]["status"] = "error"
 
-    # ── 2. Qdrant ─────────────────────────────────────────────────────────────
+    # ── 2. Memories: Qdrant vectors + co_occurrence_edges for this user ──────
+    if options.memories:
+        # Co-occurrence edges are stored in Postgres and scoped by user_id.
+        if db_pool is not None:
+            try:
+                with db_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "DELETE FROM co_occurrence_edges WHERE user_id = %s;",  # noqa: S608
+                            (user_id,),
+                        )
+                    conn.commit()
+            except Exception as exc:
+                errors.append(f"postgres co_occurrence_edges: {exc}")
+
+        try:
+            from universal_agentic_framework.memory.factory import build_memory_backend as _build_mb
+
+            cfg = load_core_config()
+            backend = _build_mb(cfg)
+            if hasattr(backend, "_delete_all_memories"):
+                backend._delete_all_memories(user_id=user_id)
+                results["qdrant"]["memories_deleted"] = True
+            else:
+                errors.append("qdrant: memory backend does not support bulk delete")
+                results["qdrant"]["status"] = "error"
+        except Exception as exc:
+            errors.append(f"qdrant: {exc}")
+            results["qdrant"]["status"] = "error"
+
+    # ── 3. Files ───────────────────────────────────────────────────────────────
     try:
-        from qdrant_client import QdrantClient  # type: ignore[import-untyped]
+        from backend.attachments import AttachmentManagerConfig, WorkspaceManagerConfig
 
-        qdrant_host = os.getenv("QDRANT_HOST", "qdrant")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        qc = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
-        collections = [c.name for c in qc.get_collections().collections]
-        for name in collections:
-            qc.delete_collection(name)
-            results["qdrant"]["collections_deleted"].append(name)
-    except Exception as exc:
-        errors.append(f"qdrant: {exc}")
-        results["qdrant"]["status"] = "error"
-
-    # ── 3. Workspace files on disk ────────────────────────────────────────────
-    try:
-        from backend.attachments import WorkspaceManagerConfig, AttachmentManagerConfig
-
-        ws_config = WorkspaceManagerConfig.from_env()
-        attach_config = AttachmentManagerConfig.from_env()
         freed = 0
-        for root in {ws_config.root_dir, attach_config.root_dir}:
-            if root.exists():
-                freed += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
-                shutil.rmtree(root, ignore_errors=True)
-                root.mkdir(parents=True, exist_ok=True)
-        results["workspace_files"]["bytes_freed"] = freed
+
+        if options.conversations and conversation_ids:
+            attach_config = AttachmentManagerConfig.from_env()
+            for conv_id in conversation_ids:
+                try:
+                    conv_dir = attach_config.root_dir / conv_id
+                    if conv_dir.exists():
+                        freed += sum(f.stat().st_size for f in conv_dir.rglob("*") if f.is_file())
+                        shutil.rmtree(conv_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+        if options.workspace:
+            ws_config = WorkspaceManagerConfig.from_env()
+            user_ws_dir = ws_config.root_dir / "user-workspaces" / user_id
+            if user_ws_dir.exists():
+                freed += sum(f.stat().st_size for f in user_ws_dir.rglob("*") if f.is_file())
+                shutil.rmtree(user_ws_dir, ignore_errors=True)
+
+        results["files"]["bytes_freed"] = freed
     except Exception as exc:
-        errors.append(f"workspace_files: {exc}")
-        results["workspace_files"]["status"] = "error"
+        errors.append(f"files: {exc}")
+        results["files"]["status"] = "error"
 
     if errors:
-        logger.warning("reset_all_databases completed with errors", errors=errors)
+        logger.warning(
+            "reset_my_data completed with errors: %s (user=%s)",
+            errors,
+            user_id,
+        )
         return {"status": "partial", "errors": errors, **results}
 
-    logger.info("reset_all_databases completed successfully", results=results)
+    logger.info("reset_my_data completed (user=%s, options=%s)", user_id, options.model_dump())
     return {"status": "ok", "errors": [], **results}
 
 
+_ACRONYMS = {"ocr", "mcp", "rag", "ai", "llm"}
+
 def _format_tool_name(name: str) -> str:
-    """Convert tool name from snake_case to Title Case."""
+    """Convert tool name from snake_case to Title Case, preserving known acronyms."""
     pretty = name.replace("_tool", "").replace("_mcp", "").replace("_", " ").strip()
-    return " ".join(word.capitalize() for word in pretty.split())
+    return " ".join(
+        word.upper() if word.lower() in _ACRONYMS else word.capitalize()
+        for word in pretty.split()
+    )
 
 
 def _resolve_env_placeholder(value: Any, default: str) -> str:

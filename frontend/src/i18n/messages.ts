@@ -10,11 +10,19 @@ export type Messages = {
     export: string;
     refresh: string;
     error: string;
+    confirm: string;
+    delete: string;
+  };
+  confirmDialog: {
+    typeToConfirmLabel: string;
+    typeToConfirmPlaceholder: string;
+    resetCheckboxLabel: string;
   };
   header: {
     metrics: string;
-      memory: string;
+    memory: string;
     settings: string;
+    admin: string;
     openNavigation: string;
     activeSession: string;
     exportConversation: string;
@@ -83,6 +91,29 @@ export type Messages = {
     signIn: string;
     platformFallback: string;
     applicationFallback: string;
+  };
+  adminPage: {
+    title: string;
+    subtitle: string;
+    llmSection: string;
+    ragSection: string;
+    modelSection: string;
+    dangerZoneSection: string;
+    dangerZoneDescription: string;
+    resetConversationsLabel: string;
+    resetConversationsDescription: string;
+    resetWorkspaceLabel: string;
+    resetWorkspaceDescription: string;
+    resetMemoriesLabel: string;
+    resetMemoriesDescription: string;
+    resetAnalyticsLabel: string;
+    resetAnalyticsDescription: string;
+    resetLlmProbesLabel: string;
+    resetLlmProbesDescription: string;
+    resetSelectedButton: string;
+    resetNoneSelected: string;
+    resetConfirmMessage: string;
+    accessDenied: string;
   };
   settingsPage: {
     title: string;
@@ -157,22 +188,36 @@ export type Messages = {
     capabilityProbeStatus: string;
     capabilityReason: string;
     capabilityProbedAt: string;
+    soundSection: string;
+    soundEnabled: string;
+    soundEnabledDescription: string;
+    myDataSection: string;
+    myDataDescription: string;
+    myDataResetConversationsLabel: string;
+    myDataResetConversationsDescription: string;
+    myDataResetWorkspaceLabel: string;
+    myDataResetWorkspaceDescription: string;
+    myDataResetMemoriesLabel: string;
+    myDataResetMemoriesDescription: string;
+    myDataResetButton: string;
+    myDataResetting: string;
+    myDataResetSuccess: string;
+    myDataResetFailed: string;
+    myDataResetNoneSelected: string;
+    myDataResetConfirmMessage: string;
   };
   chat: {
     noMessagesYet: string;
     startConversationHint: string;
     aiAgent: string;
     aiThinking: string;
-    excludeFromNextMessage: string;
-    includeInNextMessage: string;
+    insertReference: string;
     deleteAttachment: string;
     uploadingAttachment: string;
     message: string;
     typeYourMessage: string;
     sendMessage: string;
     send: string;
-    attachmentCountOne: string;
-    attachmentCountOther: string;
     addFile: string;
     addImage: string;
     addAttachment: string;
@@ -412,6 +457,10 @@ export type Messages = {
     ratingStatusSaved: string;
     ratingStatusRetry: string;
     emptyHint: string;
+    clearAll: string;
+    clearAllConfirmMessage: string;
+    clearAllSuccess: string;
+    clearAllFailed: string;
   };
   charts: {
     loading: string;
@@ -451,11 +500,19 @@ export const messages: Record<Locale, Messages> = {
       export: "Export",
       refresh: "Refresh",
       error: "Error",
+      confirm: "Confirm",
+      delete: "Delete",
+    },
+    confirmDialog: {
+      typeToConfirmLabel: "Type {word} to confirm",
+      typeToConfirmPlaceholder: "Type here...",
+      resetCheckboxLabel: "I understand this will permanently delete all data",
     },
     header: {
       metrics: "Metrics",
       memory: "Memory",
       settings: "Settings",
+      admin: "Admin",
       openNavigation: "Open navigation",
       activeSession: "Active session",
       exportConversation: "Export conversation",
@@ -526,6 +583,29 @@ export const messages: Record<Locale, Messages> = {
       platformFallback: "the platform",
       applicationFallback: "application",
     },
+    adminPage: {
+      title: "Setup & Administration",
+      subtitle: "Diagnostics, operational tuning, and system maintenance",
+      llmSection: "Model Tool-Calling Capabilities",
+      ragSection: "Knowledge Base Configuration",
+      modelSection: "System Model Selection",
+      dangerZoneSection: "Danger Zone",
+      dangerZoneDescription: "Select the data categories to purge. All users are affected. This cannot be undone.",
+      resetConversationsLabel: "Conversations & Messages",
+      resetConversationsDescription: "All conversations, messages, and file attachments.",
+      resetWorkspaceLabel: "Workspace & Documents",
+      resetWorkspaceDescription: "All workspace documents, versions, and files on disk.",
+      resetMemoriesLabel: "Memories & Knowledge Base",
+      resetMemoriesDescription: "All Qdrant vector collections (long-term memories and RAG knowledge base).",
+      resetAnalyticsLabel: "Analytics",
+      resetAnalyticsDescription: "All analytics events and daily aggregates.",
+      resetLlmProbesLabel: "LLM Capability Probes",
+      resetLlmProbesDescription: "Cached model capability probe results (re-probed automatically on next request).",
+      resetSelectedButton: "Reset Selected",
+      resetNoneSelected: "Select at least one category to reset.",
+      resetConfirmMessage: "Permanently deletes the selected data categories for all users. The schema is preserved. This cannot be undone.",
+      accessDenied: "You do not have permission to view this page.",
+    },
     settingsPage: {
       title: "Settings",
       subtitleFallback: "Account and system preferences in one place",
@@ -566,7 +646,7 @@ export const messages: Record<Locale, Messages> = {
       resetAllDatabases: "Reset All Databases",
       resetting: "Resetting...",
       confirmReset: "Type RESET to confirm permanent deletion of all data",
-      resetSuccess: "All databases reset successfully",
+      resetSuccess: "Selected data reset successfully",
       resetFailed: "Reset failed",
       capabilitiesTitle: "Model Tool-Calling Capabilities",
       capabilitiesSubtitle: "Desired vs effective mode based on probe results. ",
@@ -599,22 +679,36 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe Status",
       capabilityReason: "Reason",
       capabilityProbedAt: "Probed At",
+      soundSection: "Interface Sounds",
+      soundEnabled: "Enable interface sounds",
+      soundEnabledDescription: "Play a sound notification when the assistant replies",
+      myDataSection: "My Data",
+      myDataDescription: "Permanently delete your personal data. This cannot be undone.",
+      myDataResetConversationsLabel: "Conversations & Messages",
+      myDataResetConversationsDescription: "All your chat conversations and messages",
+      myDataResetWorkspaceLabel: "Workspace & Documents",
+      myDataResetWorkspaceDescription: "All your workspace files and documents",
+      myDataResetMemoriesLabel: "Memories",
+      myDataResetMemoriesDescription: "All memories the assistant has built about you",
+      myDataResetButton: "Delete Selected",
+      myDataResetting: "Deleting…",
+      myDataResetSuccess: "Your selected data was deleted successfully.",
+      myDataResetFailed: "Failed to delete your data. Please try again.",
+      myDataResetNoneSelected: "Select at least one category to delete.",
+      myDataResetConfirmMessage: "This will permanently delete your selected personal data. This action cannot be undone.",
     },
     chat: {
       noMessagesYet: "No messages yet",
       startConversationHint: "Start a conversation or pick a template below",
       aiAgent: "AI Agent",
       aiThinking: "AI is thinking",
-      excludeFromNextMessage: "Exclude from next message",
-      includeInNextMessage: "Include in next message",
+      insertReference: "Insert reference into message",
       deleteAttachment: "Delete attachment",
       uploadingAttachment: "Uploading attachment...",
       message: "Message",
       typeYourMessage: "Type your message...",
       sendMessage: "Send message",
       send: "Send",
-      attachmentCountOne: "{count} attachment selected",
-      attachmentCountOther: "{count} attachments selected",
       addFile: "Add file",
       addImage: "Add image",
       addAttachment: "Add attachment",
@@ -701,7 +795,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Delete all?",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
-      thumbnailClickHint: "Click to insert reference",
+      thumbnailClickHint: "Click to preview",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -854,6 +948,10 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaved: "Saved",
       ratingStatusRetry: "Retry",
       emptyHint: "Continue chatting and the agent will learn from your conversations.",
+      clearAll: "Clear All Memories",
+      clearAllConfirmMessage: "This will permanently delete all your memories. The assistant will start fresh with no knowledge about you.",
+      clearAllSuccess: "All memories cleared.",
+      clearAllFailed: "Failed to clear memories. Please try again.",
     },
     charts: {
       loading: "Loading...",
@@ -891,11 +989,19 @@ export const messages: Record<Locale, Messages> = {
       export: "Exportieren",
       refresh: "Aktualisieren",
       error: "Fehler",
+      confirm: "Bestätigen",
+      delete: "Löschen",
+    },
+    confirmDialog: {
+      typeToConfirmLabel: "Gib {word} ein um zu bestätigen",
+      typeToConfirmPlaceholder: "Hier eingeben...",
+      resetCheckboxLabel: "Ich verstehe, dass alle Daten dauerhaft gelöscht werden",
     },
     header: {
       metrics: "Metrik",
       memory: "Speicher",
       settings: "Einstellungen",
+      admin: "Admin",
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
       exportConversation: "Unterhaltung exportieren",
@@ -966,6 +1072,29 @@ export const messages: Record<Locale, Messages> = {
       platformFallback: "der Plattform",
       applicationFallback: "Anwendung",
     },
+    adminPage: {
+      title: "Setup & Administration",
+      subtitle: "Diagnose, Betriebstuning und Systemwartung",
+      llmSection: "Modell Tool-Calling-Fähigkeiten",
+      ragSection: "Wissensdatenbank-Konfiguration",
+      modelSection: "Systemmodell-Auswahl",
+      dangerZoneSection: "Gefahrenbereich",
+      dangerZoneDescription: "Wähle die zu löschenden Datenkategorien aus. Alle Benutzer sind betroffen. Dies kann nicht rückgängig gemacht werden.",
+      resetConversationsLabel: "Konversationen & Nachrichten",
+      resetConversationsDescription: "Alle Konversationen, Nachrichten und Dateianhänge.",
+      resetWorkspaceLabel: "Workspace & Dokumente",
+      resetWorkspaceDescription: "Alle Workspace-Dokumente, Versionen und Dateien auf dem Datenträger.",
+      resetMemoriesLabel: "Erinnerungen & Wissensdatenbank",
+      resetMemoriesDescription: "Alle Qdrant-Vektorkollektionen (Langzeiterinnerungen und RAG-Wissensdatenbank).",
+      resetAnalyticsLabel: "Analysen",
+      resetAnalyticsDescription: "Alle Analyseereignisse und tägliche Aggregate.",
+      resetLlmProbesLabel: "LLM-Fähigkeitsprüfungen",
+      resetLlmProbesDescription: "Zwischengespeicherte Modell-Fähigkeitsprüfergebnisse (werden beim nächsten Aufruf automatisch neu abgerufen).",
+      resetSelectedButton: "Auswahl zurücksetzen",
+      resetNoneSelected: "Bitte mindestens eine Kategorie auswählen.",
+      resetConfirmMessage: "Löscht dauerhaft die ausgewählten Datenkategorien aller Benutzer. Das Schema bleibt erhalten. Diese Aktion kann nicht rückgängig gemacht werden.",
+      accessDenied: "Sie haben keine Berechtigung, diese Seite anzuzeigen.",
+    },
     settingsPage: {
       title: "Einstellungen",
       subtitleFallback: "Konto- und Systemeinstellungen an einem Ort",
@@ -1006,7 +1135,7 @@ export const messages: Record<Locale, Messages> = {
       resetAllDatabases: "Alle Datenbanken zurücksetzen",
       resetting: "Wird zurückgesetzt...",
       confirmReset: "Gib RESET ein, um die dauerhafte Löschung aller Daten zu bestätigen",
-      resetSuccess: "Alle Datenbanken erfolgreich zurückgesetzt",
+      resetSuccess: "Ausgewählte Daten erfolgreich zurückgesetzt",
       resetFailed: "Zurücksetzen fehlgeschlagen",
       capabilitiesTitle: "Modell Tool-Calling-Fahigkeiten",
       capabilitiesSubtitle: "Gewunschter vs effektiver Modus basierend auf Probe-Ergebnissen. ",
@@ -1039,22 +1168,36 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe-Status",
       capabilityReason: "Grund",
       capabilityProbedAt: "Gepruft am",
+      soundSection: "Schnittstellentöne",
+      soundEnabled: "Schnittstellentöne aktivieren",
+      soundEnabledDescription: "Einen Ton abspielen, wenn der Assistent antwortet",
+      myDataSection: "Meine Daten",
+      myDataDescription: "Persönliche Daten dauerhaft löschen. Dies kann nicht rückgängig gemacht werden.",
+      myDataResetConversationsLabel: "Gespräche & Nachrichten",
+      myDataResetConversationsDescription: "Alle deine Chatgespräche und Nachrichten",
+      myDataResetWorkspaceLabel: "Arbeitsbereich & Dokumente",
+      myDataResetWorkspaceDescription: "Alle deine Arbeitsbereich-Dateien und Dokumente",
+      myDataResetMemoriesLabel: "Erinnerungen",
+      myDataResetMemoriesDescription: "Alle Erinnerungen, die der Assistent über dich gesammelt hat",
+      myDataResetButton: "Ausgewähltes löschen",
+      myDataResetting: "Wird gelöscht…",
+      myDataResetSuccess: "Deine ausgewählten Daten wurden erfolgreich gelöscht.",
+      myDataResetFailed: "Deine Daten konnten nicht gelöscht werden. Bitte erneut versuchen.",
+      myDataResetNoneSelected: "Wähle mindestens eine Kategorie aus.",
+      myDataResetConfirmMessage: "Dies löscht dauerhaft deine ausgewählten persönlichen Daten. Diese Aktion kann nicht rückgängig gemacht werden.",
     },
     chat: {
       noMessagesYet: "Noch keine Nachrichten",
       startConversationHint: "Starte eine Unterhaltung oder wähle unten eine Vorlage",
       aiAgent: "KI-Agent",
       aiThinking: "KI denkt nach",
-      excludeFromNextMessage: "Von der nächsten Nachricht ausschließen",
-      includeInNextMessage: "In nächste Nachricht einbeziehen",
+      insertReference: "Referenz in Nachricht einfügen",
       deleteAttachment: "Anhang löschen",
       uploadingAttachment: "Anhang wird hochgeladen...",
       message: "Nachricht",
       typeYourMessage: "Deine Nachricht eingeben...",
       sendMessage: "Nachricht senden",
       send: "Senden",
-      attachmentCountOne: "{count} Anhang ausgewählt",
-      attachmentCountOther: "{count} Anhänge ausgewählt",
       addFile: "Datei hinzufügen",
       addImage: "Bild hinzufügen",
       addAttachment: "Anhang hinzufügen",
@@ -1141,7 +1284,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Alle löschen?",
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
-      thumbnailClickHint: "Klicken zum Einfügen",
+      thumbnailClickHint: "Klicken zum Vergrößern",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",
@@ -1294,6 +1437,10 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaved: "Gespeichert",
       ratingStatusRetry: "Erneut versuchen",
       emptyHint: "Fahre fort zu chatten und der Agent wird aus deinen Gesprächen lernen.",
+      clearAll: "Alle Erinnerungen löschen",
+      clearAllConfirmMessage: "Dies löscht dauerhaft alle deine Erinnerungen. Der Assistent startet ohne jegliches Wissen über dich neu.",
+      clearAllSuccess: "Alle Erinnerungen gelöscht.",
+      clearAllFailed: "Erinnerungen konnten nicht gelöscht werden. Bitte erneut versuchen.",
     },
     charts: {
       loading: "Wird geladen...",

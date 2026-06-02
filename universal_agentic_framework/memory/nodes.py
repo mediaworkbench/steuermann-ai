@@ -133,7 +133,7 @@ def load_memory_node(
     messages = state.get("messages", [])
     query = messages[-1]["content"] if messages else None
     session_id = state.get("session_id", user_id)  # Fallback to user_id for session tracking
-    fork_name = state.get("fork_name", "default")
+    profile_name = state.get("profile_name", "default")
 
     if backend is None:
         cfg = load_core_config()
@@ -192,10 +192,10 @@ def load_memory_node(
             m.get("metadata", {}).get("importance_score", 0.0) 
             for m in loaded_memory
         ) / len(loaded_memory)
-        metrics.track_memory_quality(fork_name, avg_importance)
+        metrics.track_memory_quality(profile_name, avg_importance)
     
     if related_count > 0:
-        metrics.track_related_memories(fork_name, related_count)
+        metrics.track_related_memories(profile_name, related_count)
     
     state["loaded_memory"] = loaded_memory
     state["digest_context"] = digest_context

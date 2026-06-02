@@ -36,7 +36,7 @@ def _make_core_config(provider):
                 ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")
             ] if role_name in {"chat", "vision", "auxiliary"} else [],
         ),
-        fork=SimpleNamespace(language="en"),
+        profile=SimpleNamespace(language="en"),
     )
 
 

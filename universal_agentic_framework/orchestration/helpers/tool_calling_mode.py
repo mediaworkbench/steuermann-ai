@@ -33,7 +33,7 @@ def resolve_effective_tool_calling_mode(config: Any, state: Dict[str, Any]) -> T
     Curated downgrade: if configured mode is native but probe signals mismatch
     (bind_tools/tool schema failure), force structured mode.
     """
-    language = state.get("language") or getattr(config.fork, "language", "en")
+    language = state.get("language") or getattr(config.profile, "language", "en")
     provider_id = ""
     configured_mode = "structured"
     selected_model_name = None
@@ -132,7 +132,7 @@ def validate_and_log_tool_calling_mode(
     state: Dict[str, Any],
     expected_mode: str,
     node_name: str,
-    fork_name: str,
+    profile_name: str,
 ) -> Tuple[bool, str]:
     """Validate that the resolved tool-calling mode matches expectations at invocation."""
     actual_mode = state.get("tool_calling_mode", "structured")
@@ -159,7 +159,7 @@ def validate_and_log_tool_calling_mode(
             "mode_reason": mode_reason,
             "is_valid": is_valid,
             "candidates": len(candidates),
-            "fork_name": fork_name,
+            "profile_name": profile_name,
         },
     )
 
@@ -183,7 +183,7 @@ def record_runtime_native_tool_leak(
         return False
 
     try:
-        language = state.get("language") or getattr(config.fork, "language", "en")
+        language = state.get("language") or getattr(config.profile, "language", "en")
         role_chain = config.llm.get_role_provider_chain_with_models("chat", language)
         if not role_chain:
             raise ValueError("empty chat provider chain")

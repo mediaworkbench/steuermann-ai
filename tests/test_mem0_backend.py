@@ -453,13 +453,15 @@ def test_clear_removes_all_user_memories():
 
     backend.clear("u1")
     assert backend._memory.last_get_all_filters == {"user_id": "u1"}
-    assert backend._memory.last_delete_all_filters == {"user_id": "u1"}
+    # Mem0 v2.x delete_all uses user_id= directly, not filters=
+    assert backend._memory.last_delete_all_user_id == "u1"
 
     assert backend.load("u1", top_k=10) == []
     assert len(backend.load("u2", top_k=10)) == 1
 
 
-def test_get_all_and_delete_all_use_filters_based_api_only():
+def test_get_all_uses_filters_delete_all_uses_user_id():
+    """get_all uses filters= (v2+ API); delete_all uses user_id= (Mem0 v2.x installed)."""
     backend = _make_backend()
     backend.upsert("u1", "to clear")
 
@@ -469,8 +471,8 @@ def test_get_all_and_delete_all_use_filters_based_api_only():
     assert backend._memory.last_get_all_user_id is None
     assert backend._memory.last_get_all_top_k is None
     assert backend._memory.last_get_all_limit == 10000
-    assert backend._memory.last_delete_all_filters == {"user_id": "u1"}
-    assert backend._memory.last_delete_all_user_id is None
+    assert backend._memory.last_delete_all_user_id == "u1"
+    assert backend._memory.last_delete_all_filters == {}
 
 
 def test_clear_removes_rated_memories_without_cache_state():

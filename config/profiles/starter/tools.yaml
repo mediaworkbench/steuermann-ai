@@ -1,5 +1,7 @@
-# Starter profile overlay template.
-# This mirrors current tool defaults and can be customized per profile.
+# Starter profile — authoritative tool catalog.
+# This is the complete tool list for this profile. Enable/disable tools here.
+# Vision tools (analyze_image, ocr, analyze_document, analyze_chart, image_metadata,
+# read_barcodes) require a multimodal model — disable them to reduce VRAM usage.
 
 loading_mode: explicit
 
@@ -10,6 +12,10 @@ tools:
 
   - name: calculator_tool
     path: universal_agentic_framework/tools/calculator
+    enabled: true
+
+  - name: map_tool
+    path: universal_agentic_framework/tools/map
     enabled: true
 
   - name: file_ops_tool
@@ -39,6 +45,30 @@ tools:
       default_tool: fetch_content
       save_to_rag: false
       rag_data_path: ""
+
+  - name: analyze_image_tool
+    path: universal_agentic_framework/tools/analyze_image
+    enabled: true
+
+  - name: ocr_tool
+    path: universal_agentic_framework/tools/ocr
+    enabled: true
+
+  - name: analyze_document_tool
+    path: universal_agentic_framework/tools/analyze_document
+    enabled: true
+
+  - name: analyze_chart_tool
+    path: universal_agentic_framework/tools/analyze_chart
+    enabled: true
+
+  - name: image_metadata_tool
+    path: universal_agentic_framework/tools/image_metadata
+    enabled: true
+
+  - name: read_barcodes_tool
+    path: universal_agentic_framework/tools/read_barcodes
+    enabled: true
 
   - name: mcp_stub
     path: universal_agentic_framework/tools/mcp_stub

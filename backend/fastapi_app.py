@@ -72,7 +72,7 @@ def _run_workspace_startup_cleanup(app: FastAPI) -> None:
     if workspace_store is None or workspace_manager is None:
         return
 
-    fork_name = os.getenv("PROFILE_ID", "starter")
+    profile_name = os.getenv("PROFILE_ID", "starter")
     deleted_items_total = 0
     expired_workspaces = workspace_store.list_expired_workspaces()
 
@@ -110,7 +110,7 @@ def _run_workspace_startup_cleanup(app: FastAPI) -> None:
                 logger.warning("Failed to record cleanup failure for %s", conversation_id)
 
     if deleted_items_total > 0:
-        track_workspace_cleanup_deleted(fork_name, deleted_items_total)
+        track_workspace_cleanup_deleted(profile_name, deleted_items_total)
 
     logger.info(
         "Workspace startup cleanup complete",
