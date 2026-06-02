@@ -495,7 +495,11 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                         probe_ctx = probe_ctx_by_model.get(normalize_model_id(str(role_default_model)))
                     except Exception:
                         pass
-                context_window_tokens = probe_ctx or context_windows.get(str(role_default_model)) or None
+                # Explicit profile override wins over runtime auto-detection (probe / /models),
+                # so the context-window indicator stays correct even when the model isn't loaded
+                # at probe time or the provider doesn't report context length.
+                config_ctx = getattr(role_settings, "context_window_tokens", None)
+                context_window_tokens = config_ctx or probe_ctx or context_windows.get(str(role_default_model)) or None
                 model_roles.append(
                     {
                         "role": role_name,

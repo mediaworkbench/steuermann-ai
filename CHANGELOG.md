@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.7] — context-window-indicator
+
+### Context Window Indicator — Accurate Per-Inference Token Accounting
+
+- **fix** The composer's context-window ring conflated two token scales. The streaming endpoint returned the real per-inference `input_tokens` when the provider reported `usage_metadata`, but fell back to `state["input_tokens"]` — a **cumulative lifetime sum**: the `respond` node accumulates `state["input_tokens"] += actual_input_tokens` and the value is checkpointed per `thread_id` and never reset, so it grows every turn. When usage capture failed, the ring jumped to that ever-growing total and could not represent actual context-window fill. (`universal_agentic_framework/server.py`, `universal_agentic_framework/orchestration/graph_builder.py`)
+- **feat** `GraphState` gains `last_input_tokens` / `last_output_tokens`; the `respond` node writes them by **overwrite** (per-inference snapshot) alongside the existing cumulative fields (retained for analytics/budgets). `server.py` falls back to these in both SSE `metadata` emit paths and the non-streaming `/invoke` response, so the value the frontend receives is always the current inference's prompt size.
+- **fix** Frontend ring now reflects **live context-window fill**: removed the `Math.max` high-water mark in `ChatInterface.tsx` (it could only grow, and locked in transient RAG/tool spikes and the cumulative leak). The ring follows the latest per-inference value, grows with history, and **drops after compaction**. Conversation reload restores from the **last** assistant message's `input_tokens` instead of the max across all messages.
+- **fix** Ring denominator no longer falls back to `max_tokens` (the output cap) — dividing prompt tokens by the output budget produced a meaningless percentage. `maxContextTokens` resolves only to the true `context_window_tokens`; when unknown, `ContextRingIndicator` renders a raw token count (e.g. `12.5k`) with a neutral ring instead of disappearing, and the context-window popover opens regardless (Compact Context stays available).
+- **fix** Per-message `input_tokens` / `output_tokens` persisted to conversation metadata are now per-inference, so `MetricsPanel` per-message token totals are no longer inflated by the cumulative leak.
+
+### Context Window Override
+
+- **feat** Optional `context_window_tokens` field on each LLM role in the profile overlay (`LLMRoleSettings` in `universal_agentic_framework/config/schemas.py`). When set it **wins** over runtime auto-detection (probe metadata / provider `/models`), guaranteeing a correct indicator denominator when the model is loaded with a smaller window than its max, the model is not loaded at probe time, or the provider does not report context length. Resolution order in `GET /api/system-config`: config override → probe metadata → `/models` map → null. Documented (commented) in `config/profiles/starter/core.yaml`.
+- **note** LM Studio auto-detection already populated the denominator: `_fetch_model_metadata()` reads `loaded_context_length` (then `max_context_length`) from the native `/api/v0/models` endpoint into probe metadata. The override is a deterministic fallback for the cases auto-detection cannot cover.
+- **test** `test_system_config_context_window_override_wins` confirms the override flows to `model_roles` and is not masked by `max_tokens` or absent auto-detection.
+
+---
+
 ## [0.3.6] — docs-tools-frontend
 
 ### Role-Based Frontend Surfaces

@@ -107,6 +107,12 @@ class LLMRoleSettings(BaseModel):
     model: str
     temperature: Optional[confloat(ge=0.0, le=2.0)] = None
     max_tokens: Optional[PositiveInt] = None
+    # Optional override for the model's true context window (prompt budget). When set, it wins
+    # over runtime auto-detection from the provider's /models endpoint. Useful when the model is
+    # loaded with a smaller window than its max, or the provider doesn't report context length —
+    # this drives the chat composer's context-window indicator. Do NOT confuse with max_tokens
+    # (the output cap).
+    context_window_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
     model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
 

@@ -17,8 +17,12 @@ llm:
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3
-      max_tokens: 16384
+      max_tokens: 16384            # output cap (NOT the context window)
       timeout: 600
+      # context_window_tokens: 16384  # optional: true prompt budget for the context-window
+      #                               # indicator. Auto-detected from the provider when omitted;
+      #                               # set this to pin it (e.g. model loaded with a smaller
+      #                               # window than its max, or provider doesn't report it).
       # model_tool_calling:
       #   openai/google/gemma-4-e4b: "native"  # enable when capability probe confirms support
     embedding:

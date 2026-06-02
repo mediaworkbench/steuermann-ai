@@ -411,11 +411,12 @@ export function ChatInterface() {
       const detail = await fetchConversation(activeId);
       if (cancelled || !detail) return;
       const loadedMessages = detail.messages.map((msg) => toUiMessage(msg, formatTime));
-      // Restore context ring to the high-water mark from persisted input_tokens.
-      const hwm = loadedMessages
-        .filter((m) => m.role === "assistant")
-        .reduce((max, m) => Math.max(max, m.metrics?.input_tokens ?? 0), 0);
-      setContextTokens(hwm);
+      // Restore the ring to the most recent inference's prompt size (live context-window fill).
+      const lastAssistantTokens = [...loadedMessages]
+        .reverse()
+        .find((m) => m.role === "assistant" && (m.metrics?.input_tokens ?? 0) > 0)
+        ?.metrics?.input_tokens ?? 0;
+      setContextTokens(lastAssistantTokens);
       setMessages(loadedMessages);
       // New chats should start with a collapsed workspace unless explicitly opened.
       if (detail.messages.length === 0) {
@@ -540,14 +541,14 @@ export function ChatInterface() {
     }
   }, [isStreaming, soundEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update context token count — use high-water mark so the ring never goes backwards.
-  // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
-  // history only grows, so the peak value best reflects cumulative context growth.
+  // Update context token count to the latest inference's prompt size — live context-window
+  // fill. The backend now reports per-inference input_tokens (not a cumulative lifetime sum),
+  // so this grows naturally as history accumulates and drops after compaction.
   // contextTokens is already reset to 0 when the active conversation changes.
   useEffect(() => {
     const tokens = finalMetadata?.input_tokens;
     if (!isStreaming && tokens != null && tokens > 0) {
-      setContextTokens((prev) => Math.max(prev, tokens));
+      setContextTokens(tokens);
     }
   }, [isStreaming, finalMetadata]);
 
@@ -708,8 +709,9 @@ export function ChatInterface() {
       setLoading(true);
       startTimeRef.current = Date.now();
 
-      // Estimate context size immediately so the ring updates while the LLM generates.
-      // chars / 4 ≈ tokens; the real input_tokens replaces this when the metadata SSE arrives.
+      // Transient preview only: show at least the prior turn's fill (or a rough chars/4
+      // estimate of the new prompt) while the LLM generates. The real per-inference
+      // input_tokens overwrites this via direct set when the metadata SSE arrives.
       const _estTokens = Math.round(
         messages.reduce((s, m) => s + m.content.length, 0) / 4 + userMessage.length / 4,
       );
@@ -925,7 +927,10 @@ export function ChatInterface() {
   }
 
   const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
-  const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
+  // Only the true context window is a valid denominator. Do NOT fall back to max_tokens
+  // (the output cap) — dividing prompt tokens by the output budget gives a meaningless %.
+  // When unknown, the indicator shows a raw token count instead of a percentage.
+  const maxContextTokens = _chatRole?.context_window_tokens ?? null;
 
   const userMessageCount = messages.filter((m) => m.role === "user").length;
   const assistantMessageCount = messages.filter((m) => m.role === "assistant").length;
@@ -1236,7 +1241,7 @@ export function ChatInterface() {
                     />
                   </button>
 
-                  {contextMenuOpen && maxContextTokens && (
+                  {contextMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
                       <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-60 z-20">
@@ -1248,15 +1253,21 @@ export function ChatInterface() {
                         <div className="px-3 pb-2">
                           <div className="flex items-center justify-between text-xs text-evergreen mb-1">
                             <span>{contextTokens.toLocaleString()} tokens</span>
-                            <span className="text-evergreen/50">{_ctxPct}%</span>
+                            {maxContextTokens && <span className="text-evergreen/50">{_ctxPct}%</span>}
                           </div>
-                          <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${_ctxBarColor}`}
-                              style={{ width: `${_ctxPct}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                          {maxContextTokens ? (
+                            <>
+                              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${_ctxBarColor}`}
+                                  style={{ width: `${_ctxPct}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                            </>
+                          ) : (
+                            <p className="mt-1 text-[10px] text-evergreen/40">context window size unknown</p>
+                          )}
                         </div>
 
                         <div className="border-t border-gray-100 my-1" />

@@ -186,8 +186,10 @@ class GraphState(TypedDict, total=False):
     crew_results: Dict[str, Any]  # Multi-agent crew execution results
     tokens_used: int
     turn_tokens_used: int  # Current invocation token usage for per-turn budgeting
-    input_tokens: int  # Input tokens count (separate tracking)
-    output_tokens: int  # Output tokens count (separate tracking)
+    input_tokens: int  # Input tokens count (cumulative across the conversation)
+    output_tokens: int  # Output tokens count (cumulative across the conversation)
+    last_input_tokens: int  # Prompt tokens of the most recent respond inference (per-turn, overwritten)
+    last_output_tokens: int  # Output tokens of the most recent respond inference (per-turn, overwritten)
     provider_used: str  # Actual provider used for response generation
     model_used: str  # Actual model used for response generation
     summary_text: str
@@ -1991,6 +1993,10 @@ def node_generate_response(state: GraphState) -> GraphState:
         state["turn_tokens_used"] = (state.get("turn_tokens_used") or 0) + node_tokens
         state["input_tokens"] = (state.get("input_tokens") or 0) + actual_input_tokens
         state["output_tokens"] = (state.get("output_tokens") or 0) + output_tokens
+        # Per-inference snapshot (overwritten each turn) — the context-window indicator
+        # reads this so it reflects the current prompt size, not the cumulative lifetime sum.
+        state["last_input_tokens"] = actual_input_tokens
+        state["last_output_tokens"] = output_tokens
         state["provider_used"] = provider
         state["model_used"] = model_name
         state["sources"] = collected_sources

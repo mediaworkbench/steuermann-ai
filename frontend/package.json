@@ -1,6 +1,6 @@
 {
   "name": "steuermann-ai-frontend",
-  "version": "0.3.5",
+  "version": "0.3.7",
   "description": "Modern React frontend for Steuermann",
   "private": true,
   "scripts": {

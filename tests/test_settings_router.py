@@ -146,6 +146,99 @@ theme:
     assert body["available_tools"][0]["id"] == "datetime_tool"
 
 
+def test_system_config_context_window_override_wins(monkeypatch, tmp_path):
+    """An explicit llm role context_window_tokens flows to model_roles and is not
+    masked by max_tokens or auto-detection (which is unavailable without a live provider)."""
+    config_dir = tmp_path / "config"
+    profiles_dir = config_dir / "profiles" / "starter"
+    config_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+
+    config_dir.joinpath("core.yaml").write_text(
+        """
+profile:
+  name: starter
+  language: en
+database:
+  url: sqlite:///base.db
+memory:
+  vector_store:
+    host: localhost
+    collection_prefix: base
+  embeddings:
+    dimension: 384
+  retention:
+    session_memory_days: 90
+    user_memory_days: 365
+checkpointing:
+  enabled: false
+        """,
+        encoding="utf-8",
+    )
+    profiles_dir.joinpath("core.yaml").write_text(
+        """
+llm:
+  roles:
+    chat:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
+      max_tokens: 4096
+      context_window_tokens: 16384
+    embedding:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-embedding
+    vision:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
+    auxiliary:
+      provider_id: lmstudio
+      api_base: http://localhost:1234/v1
+      model: openai/base-model
+rag:
+  collection_name: framework
+  top_k: 5
+tokens:
+  default_budget: 10000
+ingestion:
+  collection_name: framework
+        """,
+        encoding="utf-8",
+    )
+    config_dir.joinpath("tools.yaml").write_text(
+        "tools:\n  - name: datetime_tool\n    path: universal_agentic_framework/tools/datetime\n    enabled: true\n",
+        encoding="utf-8",
+    )
+    profiles_dir.joinpath("profile.yaml").write_text(
+        "profile_id: starter\ndisplay_name: Starter\ndescription: Starter profile\n",
+        encoding="utf-8",
+    )
+    profiles_dir.joinpath("ui.yaml").write_text(
+        "branding:\n  role_label: Assistant\n  app_name: Starter\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PROFILE_ID", "starter")
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.get("/api/system-config")
+    assert response.status_code == 200
+    roles = {r["role"]: r for r in response.json()["model_roles"]}
+    # Override wins over max_tokens (4096) and over absent auto-detection.
+    assert roles["chat"]["context_window_tokens"] == 16384
+    assert roles["chat"]["max_tokens"] == 4096
+    # Roles without the override and without a reachable provider resolve to null.
+    assert roles["embedding"]["context_window_tokens"] is None
+
+
 def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AUTH_USERNAME", "u1")

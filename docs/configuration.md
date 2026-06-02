@@ -93,8 +93,12 @@ llm:
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3          # 0.0-2.0; higher = more creative
-      max_tokens: 16384
+      max_tokens: 16384         # output cap (NOT the context window)
       timeout: 600
+      # context_window_tokens: 16384   # optional: true prompt budget for the context-window
+      #                                # indicator. Auto-detected from the provider when omitted;
+      #                                # set this to override (model loaded with a smaller window
+      #                                # than its max, or provider does not report context length).
 
     embedding:
       provider_id: "lmstudio"
@@ -135,6 +139,8 @@ llm:
 - `embedding` — vector embeddings for tool routing and memory retrieval *(required)*
 - `vision` — multimodal/image processing requests *(optional; actively used by `analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, and `analyze_chart_tool`; library tools `image_metadata_tool` and `read_barcodes_tool` do not require it; falls back to `chat` role if omitted)*
 - `auxiliary` — Mem0 memory extraction, conversation summarization, RAG query rewriting/expansion, workspace intent classification, structured tool retry re-prompts, and conversation auto-titling; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
+
+**`max_tokens` vs `context_window_tokens`:** `max_tokens` is the per-response **output** cap. `context_window_tokens` is the optional **prompt budget** that drives the chat composer's context-window indicator. When omitted, the window is auto-detected at runtime (capability probe / provider `/models`); set `context_window_tokens` to override auto-detection — useful when the model is loaded with a smaller window than its maximum, or the provider does not report a context length. Resolution order: explicit config → probe metadata → `/models` map → unknown (indicator shows a raw token count instead of a percentage).
 
 **Model strings use LiteLLM's `provider/model-name` format:**
 
