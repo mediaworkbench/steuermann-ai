@@ -457,6 +457,10 @@ export type Messages = {
     ratingStatusSaved: string;
     ratingStatusRetry: string;
     emptyHint: string;
+    clearAll: string;
+    clearAllConfirmMessage: string;
+    clearAllSuccess: string;
+    clearAllFailed: string;
   };
   charts: {
     loading: string;
@@ -944,6 +948,10 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaved: "Saved",
       ratingStatusRetry: "Retry",
       emptyHint: "Continue chatting and the agent will learn from your conversations.",
+      clearAll: "Clear All Memories",
+      clearAllConfirmMessage: "This will permanently delete all your memories. The assistant will start fresh with no knowledge about you.",
+      clearAllSuccess: "All memories cleared.",
+      clearAllFailed: "Failed to clear memories. Please try again.",
     },
     charts: {
       loading: "Loading...",
@@ -1429,6 +1437,10 @@ export const messages: Record<Locale, Messages> = {
       ratingStatusSaved: "Gespeichert",
       ratingStatusRetry: "Erneut versuchen",
       emptyHint: "Fahre fort zu chatten und der Agent wird aus deinen Gesprächen lernen.",
+      clearAll: "Alle Erinnerungen löschen",
+      clearAllConfirmMessage: "Dies löscht dauerhaft alle deine Erinnerungen. Der Assistent startet ohne jegliches Wissen über dich neu.",
+      clearAllSuccess: "Alle Erinnerungen gelöscht.",
+      clearAllFailed: "Erinnerungen konnten nicht gelöscht werden. Bitte erneut versuchen.",
     },
     charts: {
       loading: "Wird geladen...",

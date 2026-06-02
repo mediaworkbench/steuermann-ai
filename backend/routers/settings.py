@@ -910,10 +910,10 @@ def reset_all_databases(
             results["workspace_files"]["status"] = "error"
 
     if errors:
-        logger.warning("reset_all_databases completed with errors", errors=errors, options=options.model_dump())
+        logger.warning("reset_all_databases completed with errors: %s", errors)
         return {"status": "partial", "errors": errors, **results}
 
-    logger.info("reset_all_databases completed successfully", options=options.model_dump())
+    logger.info("reset_all_databases completed successfully")
     return {"status": "ok", "errors": [], **results}
 
 
@@ -1037,10 +1037,14 @@ def reset_my_data(
         results["files"]["status"] = "error"
 
     if errors:
-        logger.warning("reset_my_data completed with errors", errors=errors, user_id=user_id, options=options.model_dump())
+        logger.warning(
+            "reset_my_data completed with errors: %s (user=%s)",
+            errors,
+            user_id,
+        )
         return {"status": "partial", "errors": errors, **results}
 
-    logger.info("reset_my_data completed", user_id=user_id, options=options.model_dump())
+    logger.info("reset_my_data completed (user=%s, options=%s)", user_id, options.model_dump())
     return {"status": "ok", "errors": [], **results}
 
 

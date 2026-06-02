@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, RefreshCw, Brain } from "lucide-react";
-import { fetchMemories, fetchMemoryStats, deleteMemory } from "@/lib/api";
+import { fetchMemories, fetchMemoryStats, deleteMemory, resetMyData } from "@/lib/api";
 import { MemoryRating } from "@/components/MemoryRating";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
+import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 
 const PAGE_SIZE = 50;
@@ -56,6 +58,8 @@ export default function MemoriesPage() {
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(
     async (off: number) => {
@@ -104,6 +108,29 @@ export default function MemoriesPage() {
     );
   }, []);
 
+  const handleClearAll = useCallback(async () => {
+    setClearConfirmOpen(false);
+    setClearing(true);
+    try {
+      const result = await resetMyData({ conversations: false, workspace: false, memories: true });
+      if (result.status === "ok") {
+        toast.success(t("memories.clearAllSuccess"));
+        setItems([]);
+        setTotal(0);
+        setStats(null);
+        setSearch("");
+        await Promise.all([load(0), refreshStats()]);
+      } else {
+        toast.warning(t("memories.clearAllFailed"), { description: result.errors.join(", ") });
+      }
+    } catch (err) {
+      console.error("clear all memories failed", err);
+      toast.error(t("memories.clearAllFailed"));
+    } finally {
+      setClearing(false);
+    }
+  }, [t, load, refreshStats]);
+
   const filtered = search.trim()
     ? items.filter((m) => m.text.toLowerCase().includes(search.toLowerCase()))
     : items;
@@ -126,14 +153,28 @@ export default function MemoriesPage() {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => load(offset)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
-                       bg-evergreen text-light-cyan hover:bg-evergreen/80 transition-colors cursor-pointer"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            {t("memories.refresh")}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setClearConfirmOpen(true)}
+              disabled={clearing || total === 0}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                         border border-red-300 text-red-600 hover:bg-red-50
+                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >
+              <Trash2 size={14} className={clearing ? "animate-pulse" : ""} />
+              {t("memories.clearAll")}
+            </button>
+            <button
+              onClick={() => load(offset)}
+              disabled={clearing}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                         bg-evergreen text-light-cyan hover:bg-evergreen/80
+                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              {t("memories.refresh")}
+            </button>
+          </div>
         </div>
 
         {/* Stats strip */}
@@ -317,6 +358,18 @@ export default function MemoriesPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={clearConfirmOpen}
+        title={t("memories.clearAll")}
+        message={t("memories.clearAllConfirmMessage")}
+        confirmLabel={t("memories.clearAll")}
+        requireChecked
+        checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
+        onConfirm={handleClearAll}
+        onCancel={() => setClearConfirmOpen(false)}
+        variant="danger"
+      />
     </main>
   );
 }
