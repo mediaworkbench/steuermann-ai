@@ -217,6 +217,14 @@ export type Messages = {
     message: string;
     typeYourMessage: string;
     sendMessage: string;
+    stopGenerating: string;
+    queueMessage: string;
+    queued: string;
+    queuedHint: string;
+    queuedSlotFull: string;
+    sendQueuedNow: string;
+    cancelQueued: string;
+    editQueued: string;
     send: string;
     addFile: string;
     addImage: string;
@@ -708,6 +716,14 @@ export const messages: Record<Locale, Messages> = {
       message: "Message",
       typeYourMessage: "Type your message...",
       sendMessage: "Send message",
+      stopGenerating: "Stop generating",
+      queueMessage: "Queue message",
+      queued: "Queued",
+      queuedHint: "Type a follow-up…",
+      queuedSlotFull: "Message queued — send or remove it first",
+      sendQueuedNow: "Send now",
+      cancelQueued: "Remove queued message",
+      editQueued: "Edit queued message",
       send: "Send",
       addFile: "Add file",
       addImage: "Add image",
@@ -1197,6 +1213,14 @@ export const messages: Record<Locale, Messages> = {
       message: "Nachricht",
       typeYourMessage: "Deine Nachricht eingeben...",
       sendMessage: "Nachricht senden",
+      stopGenerating: "Generierung stoppen",
+      queueMessage: "Nachricht einreihen",
+      queued: "In Warteschlange",
+      queuedHint: "Folgenachricht eingeben…",
+      queuedSlotFull: "Nachricht in Warteschlange — zuerst senden oder entfernen",
+      sendQueuedNow: "Jetzt senden",
+      cancelQueued: "Wartende Nachricht entfernen",
+      editQueued: "Wartende Nachricht bearbeiten",
       send: "Senden",
       addFile: "Datei hinzufügen",
       addImage: "Bild hinzufügen",

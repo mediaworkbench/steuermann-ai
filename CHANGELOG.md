@@ -2,6 +2,16 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chat — Queued Follow-up Messages
+
+- **feat** The composer is no longer locked while the assistant streams. The user can type a follow-up and **queue** it; when the current inference finishes normally it **auto-starts** the next one — no extra click. (`frontend/src/components/ChatInterface.tsx`, `frontend/src/context/ChatSessionContext.tsx`)
+- **feat** Exactly **one** queued slot. While it is occupied the composer is **locked** (textarea disabled with a "Message queued — send or remove it first" hint) so a second send can't silently replace ("swallow") the queued message. The queued message renders as a dimmed "pending" user bubble at the bottom of the thread (ChatGPT-style) with a ⏳ tag; clicking it reclaims the text into the composer for editing (which also frees the slot).
+- **feat** While streaming with the slot empty, the **Stop** button stays reachable; once the user has typed a follow-up an additional blue **Send (queue)** button appears beside it (Enter also queues). The textarea is enabled during streaming (placeholder "Type a follow-up…") until a message is queued.
+- **feat** Auto-fire happens **only on a normal completion.** A manual **Stop** or a stream **error** keeps the message queued (the pending bubble stays put with explicit *Send now* / discard controls) so the user can read the error and decide.
+- **feat** The queue is provider-owned session state (`ChatSessionContext`), so a queued follow-up survives in-app navigation just like the live stream, and is **cleared on conversation switch** so it never bleeds into another conversation (auto-fire is additionally gated on `streamConversationRef === activeId`).
+- **note** Two runtime-timing subtleties drove the design: (1) `useStreamingChat`'s `wasCancelled` is set asynchronously (in `catch`/`finally`), *after* `setIsStreaming(false)`, so it is not yet true at the commit-effect render — a provider-owned `manualStopRef` set *before* the hook's cancel is used instead (`streamError`, by contrast, is reliable there); (2) the finishing turn's trailing `setLoading(false)` races the auto-fired turn's `setLoading(true)`, so auto-fire is deferred with `setTimeout(0)` to let prior state flush first. The pending bubble is intentionally kept **out** of the `messages` array (like the live streaming indicator) so it can't disturb message ordering, the persisted-id backfill, or the `replaceFromIndex` edit/regenerate logic.
+- **note** Frontend-only; no backend/SSE/hook API changes. 49 frontend tests passing.
+
 ### Chat — Session Persistence Across Navigation
 
 - **fix** A streaming inference was lost when navigating away from the chat (e.g. to `/memories`) and back — along with the user message that triggered it. `ChatInterface` was rendered only on `/` and owned the entire chat runtime in local `useState`; navigating unmounted it, which aborted the fetch (cancel-on-unmount) and destroyed all state, while backend persistence only happens at `[DONE]` — so nothing was saved.

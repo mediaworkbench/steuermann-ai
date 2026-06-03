@@ -292,7 +292,10 @@ export function ChatInterface() {
     contextTokens,
     setContextTokens,
     loading,
+    queuedMessage,
     sendMessage,
+    enqueueMessage,
+    clearQueue,
     ensureConversation,
     cancelStream,
   } = useChatSession();
@@ -360,7 +363,7 @@ export function ChatInterface() {
     if (shouldAutoScroll) {
       scrollToBottom("smooth");
     }
-  }, [messages, loading, isStreaming, streamingContent, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, loading, isStreaming, streamingContent, queuedMessage, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stream-end UX (sound, unread badge, workspace-writeback toast/refresh) —
   // fires only while the chat view is mounted. The durable message commit, the
@@ -565,12 +568,18 @@ export function ChatInterface() {
     });
   }, []);
 
-  async function handleSend() {
-    if (!input.trim() || loading || isStreaming) return;
+  function handleSend() {
+    if (!input.trim()) return;
     const userMessage = input;
     setInput("");
     setTimeout(() => autoResize(), 0);
-    sendMessage(userMessage, buildSendOptions());
+    // Busy → queue the follow-up (replaces any existing slot); the provider
+    // auto-fires it when the current inference completes normally.
+    if (isStreaming || loading) {
+      enqueueMessage(userMessage, buildSendOptions());
+    } else {
+      sendMessage(userMessage, buildSendOptions());
+    }
   }
 
   // ── Regenerate: resend the last user message ───────────────────────
@@ -672,11 +681,17 @@ export function ChatInterface() {
       cancelStream();
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey && !loading && !isStreaming) {
+    // Enter sends, or queues a follow-up while a stream is in flight.
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   }
+
+  // Only one follow-up may be queued. While a message occupies the slot the
+  // composer is locked so a second send can't silently replace ("swallow") it —
+  // the user must send-now, remove, or edit the queued message first.
+  const queueFull = queuedMessage != null;
 
   const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
   // Only the true context window is a valid denominator. Do NOT fall back to max_tokens
@@ -806,6 +821,31 @@ export function ChatInterface() {
           </div>
         )}
 
+        {/* ─── Queued follow-up (pending bubble) ─── */}
+        {queuedMessage && (
+          <QueuedMessageBubble
+            text={queuedMessage.text}
+            idle={!isStreaming && !loading}
+            onDiscard={clearQueue}
+            onSendNow={() => {
+              const q = queuedMessage;
+              clearQueue();
+              sendMessage(q.text, q.opts);
+            }}
+            onEdit={() => {
+              // Only reclaim into the composer when it's empty, so an
+              // in-progress follow-up is never clobbered.
+              if (input.trim()) return;
+              setInput(queuedMessage.text);
+              clearQueue();
+              setTimeout(() => {
+                textareaRef.current?.focus();
+                autoResize();
+              }, 0);
+            }}
+          />
+        )}
+
         {/* Scroll-to-bottom floating button — sticks to visible bottom when user scrolls up */}
         <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none">
           <div className="pointer-events-auto">
@@ -872,9 +912,9 @@ export function ChatInterface() {
               value={input}
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
-              disabled={isStreaming}
+              disabled={queueFull}
               className="w-full bg-transparent border-0 outline-none focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
-              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
+              placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
             />
@@ -1092,21 +1132,35 @@ export function ChatInterface() {
                   <Icon name="mic" size={20} />
                 </button>
 
-                {/* Send / Cancel */}
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={cancelStream}
-                    aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
-                  >
-                    <Icon name="stop_circle" size={20} />
-                  </button>
+                {/* Send / Cancel — while busy, Stop stays reachable and a Send
+                    (queue) button appears once the user has typed a follow-up. */}
+                {isStreaming || loading ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={cancelStream}
+                      aria-label={t("chat.stopGenerating") ?? "Stop generating"}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                    >
+                      <Icon name="stop_circle" size={20} />
+                    </button>
+                    {input.trim() && (
+                      <button
+                        type="button"
+                        onClick={handleSend}
+                        aria-label={t("chat.queueMessage")}
+                        title={t("chat.queueMessage")}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-pacific-blue hover:bg-pacific-blue/85 text-white transition-colors"
+                      >
+                        <Icon name="arrow_upward" size={20} />
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSend}
-                    disabled={loading || !input.trim()}
+                    disabled={!input.trim()}
                     aria-label={t("chat.sendMessage")}
                     className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
                   >
@@ -1421,6 +1475,87 @@ function UserMessage({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Queued Message — dimmed pending user bubble for a follow-up typed while the
+   model is still streaming. Not part of the `messages` array (like the live
+   streaming indicator), so it can't disturb message ordering or the
+   persisted-id backfill. Auto-fires on normal completion; on a manual Stop /
+   error it stays put (idle) with explicit Send-now / discard controls.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function QueuedMessageBubble({
+  text,
+  idle,
+  onDiscard,
+  onSendNow,
+  onEdit,
+}: {
+  text: string;
+  idle: boolean;
+  onDiscard: () => void;
+  onSendNow: () => void;
+  onEdit: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse opacity-60">
+      <div
+        className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
+                    flex items-center justify-center shrink-0"
+        aria-hidden="true"
+      >
+        <Icon name="person" size={18} className="text-white" />
+      </div>
+      <div className="flex flex-col gap-1 items-end max-w-[85%]">
+        {/* Queued tag */}
+        <div className="flex items-center gap-1.5 mr-1 text-xs text-evergreen/45">
+          <Icon name="schedule" size={13} className="animate-pulse" />
+          <span className="font-medium">{t("chat.queued")}</span>
+        </div>
+
+        {/* Bubble — click to reclaim into the composer for editing */}
+        <button
+          type="button"
+          onClick={onEdit}
+          title={t("chat.editQueued")}
+          aria-label={t("chat.editQueued")}
+          className="text-left bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen
+                     text-base leading-relaxed border border-dashed border-pacific-blue/30
+                     hover:border-pacific-blue/50 transition-colors cursor-text"
+        >
+          <p className="whitespace-pre-wrap m-0">{text}</p>
+        </button>
+
+        {/* Controls */}
+        <div className="flex items-center gap-0.5 mr-1 mt-0.5">
+          {idle && (
+            <button
+              type="button"
+              onClick={onSendNow}
+              className="p-1 rounded text-evergreen/35 hover:text-pacific-blue hover:bg-pacific-blue/10
+                         transition-colors cursor-pointer"
+              aria-label={t("chat.sendQueuedNow")}
+              title={t("chat.sendQueuedNow")}
+            >
+              <Icon name="send" size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="p-1 rounded text-evergreen/35 hover:text-burnt-tangerine hover:bg-burnt-tangerine/10
+                       transition-colors cursor-pointer"
+            aria-label={t("chat.cancelQueued")}
+            title={t("chat.cancelQueued")}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

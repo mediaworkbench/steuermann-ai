@@ -84,6 +84,12 @@ export interface SendMessageOptions {
   replaceFromIndex?: number;
 }
 
+/** A follow-up message queued by the user while an inference is still streaming. */
+export interface QueuedMessage {
+  text: string;
+  opts: SendMessageOptions;
+}
+
 interface ChatSessionValue {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -100,7 +106,10 @@ interface ChatSessionValue {
   contextTokens: number;
   setContextTokens: React.Dispatch<React.SetStateAction<number>>;
   loading: boolean;
+  queuedMessage: QueuedMessage | null;
   sendMessage: (userMessage: string, opts?: SendMessageOptions) => Promise<void>;
+  enqueueMessage: (text: string, opts?: SendMessageOptions) => void;
+  clearQueue: () => void;
   ensureConversation: (seedText?: string) => Promise<string | null>;
   cancelStream: () => void;
   resetStream: () => void;
@@ -128,6 +137,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
+  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
 
   const {
     streamingContent,
@@ -141,7 +151,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     thinkingContent,
     isThinking,
     sendMessage: startStream,
-    cancel: cancelStream,
+    cancel: rawCancel,
     reset: resetStream,
   } = useStreamingChat();
 
@@ -153,6 +163,42 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // Conversation a running stream belongs to — guards against committing a
   // response into a conversation the user has switched to.
   const streamConversationRef = useRef<string | null>(null);
+  // Live activeId, so the deferred queue auto-fire can bail if the user
+  // switched conversations during the setTimeout(0) window.
+  const activeIdRef = useRef<string | null>(activeId);
+  activeIdRef.current = activeId;
+
+  // ── Follow-up queue ────────────────────────────────────────────────────
+  // One queued message the user typed while a stream was in flight. Read from
+  // a ref inside the commit effect (latest value, no stale closure / extra dep).
+  const queuedMessageRef = useRef<QueuedMessage | null>(null);
+  // True when the just-finished stream ended via an explicit user cancel.
+  // Set synchronously *before* the hook's cancel because the hook's own
+  // `wasCancelled` is only set later (in catch/finally), too late for the
+  // commit effect to read on the isStreaming true→false transition.
+  const manualStopRef = useRef(false);
+  // Always points at the latest sendMessage so the commit effect can fire the
+  // queue without taking sendMessage as a dependency (correctness relies on the
+  // setMessages(prev => …) updater form, not on this closure being fresh).
+  const sendMessageRef = useRef<((text: string, opts?: SendMessageOptions) => Promise<void>) | undefined>(undefined);
+
+  const enqueueMessage = useCallback((text: string, opts: SendMessageOptions = {}) => {
+    const q: QueuedMessage = { text, opts };
+    queuedMessageRef.current = q;
+    setQueuedMessage(q);
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    queuedMessageRef.current = null;
+    setQueuedMessage(null);
+  }, []);
+
+  // Wrap the hook's cancel so an explicit user stop is recorded before the
+  // stream tears down (see manualStopRef rationale above).
+  const cancelStream = useCallback(() => {
+    manualStopRef.current = true;
+    rawCancel();
+  }, [rawCancel]);
 
   // ── Load messages when the active conversation changes ─────────────────
   useEffect(() => {
@@ -161,6 +207,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       setWorkspaceSidebarOpen(false);
       setContextTokens(0);
       cancelStream();
+      clearQueue();
       return;
     }
     // When a conversation was just created the DB has no messages yet.
@@ -170,8 +217,10 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       return;
     }
     // Switching to a different existing conversation: abandon any in-flight
-    // stream from the previous one so it can't bleed into this view.
+    // stream from the previous one so it can't bleed into this view, and drop
+    // any follow-up queued against the previous conversation.
     cancelStream();
+    clearQueue();
     let cancelled = false;
     (async () => {
       const detail = await fetchConversation(activeId);
@@ -256,6 +305,33 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
         }
       }
       resetStream();
+
+      // ── Auto-fire a queued follow-up ───────────────────────────────────
+      // Only on a normal completion: an explicit Stop (manualStopRef) or a
+      // stream error keeps the queued message pending so the user can decide.
+      // streamError is reliable here (set in catch, batched with the finally's
+      // setIsStreaming(false)); wasCancelled is NOT — hence manualStopRef.
+      const completedNormally = !manualStopRef.current && !streamError;
+      manualStopRef.current = false;
+      if (
+        completedNormally &&
+        queuedMessageRef.current &&
+        streamConversationRef.current === activeId
+      ) {
+        const q = queuedMessageRef.current;
+        const convAtSchedule = activeId;
+        queuedMessageRef.current = null;
+        setQueuedMessage(null);
+        // Defer to a macrotask so the assistant-bubble commit above and the
+        // finishing turn's setLoading(false) flush first, then the queued turn
+        // starts cleanly (avoids a loading-race where the new stream's
+        // loading=true is clobbered by the prior turn's trailing setLoading).
+        // Bail if the user switched conversations during the window.
+        setTimeout(() => {
+          if (activeIdRef.current !== convAtSchedule) return;
+          sendMessageRef.current?.(q.text, q.opts);
+        }, 0);
+      }
     }
   }, [isStreaming, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -306,6 +382,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       }
       setLoading(true);
       startTimeRef.current = Date.now();
+      // Every new inference starts clean: a prior manual stop must not bleed
+      // into this turn's completion check.
+      manualStopRef.current = false;
 
       // Transient preview only: show at least the prior turn's fill (or a rough
       // chars/4 estimate) while the LLM generates. The real per-inference
@@ -349,6 +428,10 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     ],
   );
 
+  // Keep the ref pointing at the latest sendMessage for the commit effect's
+  // deferred queue auto-fire.
+  sendMessageRef.current = sendMessage;
+
   const value: ChatSessionValue = {
     messages,
     setMessages,
@@ -365,7 +448,10 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     contextTokens,
     setContextTokens,
     loading,
+    queuedMessage,
     sendMessage,
+    enqueueMessage,
+    clearQueue,
     ensureConversation,
     cancelStream,
     resetStream,
