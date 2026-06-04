@@ -223,13 +223,14 @@ The production stack separates concerns across three containers:
 
 ### **2.2 Chat Interface**
 
-The frontend provides 5 pages, 17 components, and 5 hooks — all fully wired to backend APIs.
+The frontend provides 6 pages, 17 components, and 5 hooks — all fully wired to backend APIs.
 
 **Pages:**
 
 | Route | Purpose | Minimum role | Backend APIs |
 | --- | --- | --- | --- |
 | `/` | Chat with conversation persistence | user | `/api/chat`, `/api/conversations/*` |
+| `/chats` | Browse/search all chats; multi-select delete & pin, rename | user | `/api/conversations/*` |
 | `/memories` | Personal memory management | user | `/api/memories/*` |
 | `/settings` | Personal preferences: language, sound, tools, RAG on/off + top-K, chat model | user | `/api/settings/*`, `/api/models`, `/api/system-config` |
 | `/admin` | LLM diagnostics, RAG collection/threshold, system model roles, re-ingest, danger zone | **administrator** | `/api/settings/*`, `/api/llm/*`, `/api/ingestion/*`, `/api/admin/*` |
@@ -237,7 +238,7 @@ The frontend provides 5 pages, 17 components, and 5 hooks — all fully wired to
 
 **Key Hooks:**
 
-- `useConversations` — conversation CRUD, archive, bulk ops, export (with toast notifications)
+- `useConversations` — conversation CRUD, pin, bulk delete/pin, export (with toast notifications)
 - `useSettings` — user settings CRUD
 - `useMetrics` — real-time metrics with auto-refresh
 - `useAnalytics` — usage trends, token consumption, latency analysis

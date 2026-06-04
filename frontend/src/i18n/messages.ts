@@ -20,6 +20,7 @@ export type Messages = {
   };
   header: {
     metrics: string;
+    chats: string;
     memory: string;
     settings: string;
     admin: string;
@@ -40,39 +41,45 @@ export type Messages = {
     closeNavigation: string;
     startNewChat: string;
     newChat: string;
-    exitBulkMode: string;
-    selectMultiple: string;
-    showArchived: string;
-    hideArchived: string;
-    archived: string;
-    searchConversations: string;
-    clearSearch: string;
-    searching: string;
-    results: string;
-    noResultsFor: string;
-    selectedCount: string;
-    selectAll: string;
-    archiveSelected: string;
-    deleteSelected: string;
-    deleteSelectedConfirm: string;
     chatHistory: string;
     pinned: string;
     recentChats: string;
     noConversations: string;
+    seeAllChats: string;
     settingsForUser: string;
-    settings: string;
     moreOptions: string;
     rename: string;
     pin: string;
     unpin: string;
-    archive: string;
-    unarchive: string;
     exportJson: string;
     exportMarkdown: string;
     delete: string;
     deleteConversationConfirm: string;
-    cancelSelection: string;
-    select: string;
+  };
+  chats: {
+    title: string;
+    subtitle: string;
+    searchPlaceholder: string;
+    searching: string;
+    loading: string;
+    colTitle: string;
+    colMessages: string;
+    colUpdated: string;
+    noChatsYet: string;
+    noMatch: string;
+    selectRow: string;
+    selectAllVisible: string;
+    clearSelection: string;
+    selectedCount: string;
+    pinSelected: string;
+    unpinSelected: string;
+    deleteSelected: string;
+    deleteSelectedConfirm: string;
+    openChat: string;
+    refresh: string;
+    pageOfTotal: string;
+    previous: string;
+    next: string;
   };
   login: {
     loginFailed: string;
@@ -518,6 +525,7 @@ export const messages: Record<Locale, Messages> = {
     },
     header: {
       metrics: "Metrics",
+      chats: "Chats",
       memory: "Memory",
       settings: "Settings",
       admin: "Admin",
@@ -538,39 +546,45 @@ export const messages: Record<Locale, Messages> = {
       closeNavigation: "Close navigation",
       startNewChat: "Start a new chat",
       newChat: "New Chat",
-      exitBulkMode: "Exit bulk mode",
-      selectMultiple: "Select multiple",
-      showArchived: "Show archived",
-      hideArchived: "Hide archived",
-      archived: "Archived",
-      searchConversations: "Search conversations...",
-      clearSearch: "Clear search",
-      searching: "Searching...",
-      results: "Results ({count})",
-      noResultsFor: "No results for \"{query}\"",
-      selectedCount: "{count} selected",
-      selectAll: "All",
-      archiveSelected: "Archive selected",
-      deleteSelected: "Delete selected",
-      deleteSelectedConfirm: "Delete {count} conversation(s)?",
       chatHistory: "Chat history",
       pinned: "Pinned",
       recentChats: "Recent Chats",
       noConversations: "No conversations yet",
+      seeAllChats: "See all chats",
       settingsForUser: "Open settings for {name}",
-      settings: "Settings",
       moreOptions: "More options",
       rename: "Rename",
       pin: "Pin",
       unpin: "Unpin",
-      archive: "Archive",
-      unarchive: "Unarchive",
       exportJson: "Export JSON",
       exportMarkdown: "Export Markdown",
       delete: "Delete",
       deleteConversationConfirm: "Delete this conversation?",
-      cancelSelection: "Cancel",
-      select: "Select",
+    },
+    chats: {
+      title: "Chats",
+      subtitle: "Browse, search and manage all your conversations",
+      searchPlaceholder: "Search message content...",
+      searching: "Searching...",
+      loading: "Loading chats...",
+      colTitle: "Title",
+      colMessages: "Messages",
+      colUpdated: "Updated",
+      noChatsYet: "No conversations yet",
+      noMatch: "No chats match your search",
+      selectRow: "Select conversation",
+      selectAllVisible: "Select all",
+      clearSelection: "Clear",
+      selectedCount: "{count} selected",
+      pinSelected: "Pin",
+      unpinSelected: "Unpin",
+      deleteSelected: "Delete",
+      deleteSelectedConfirm: "Delete {count} conversation(s)? This cannot be undone.",
+      openChat: "Open chat",
+      refresh: "Refresh",
+      pageOfTotal: "Page {page} of {pages} · {total} chats",
+      previous: "Previous",
+      next: "Next",
     },
     login: {
       loginFailed: "Login failed",
@@ -1015,6 +1029,7 @@ export const messages: Record<Locale, Messages> = {
     },
     header: {
       metrics: "Metrik",
+      chats: "Chats",
       memory: "Speicher",
       settings: "Einstellungen",
       admin: "Admin",
@@ -1035,39 +1050,45 @@ export const messages: Record<Locale, Messages> = {
       closeNavigation: "Navigation schließen",
       startNewChat: "Neuen Chat starten",
       newChat: "Neuer Chat",
-      exitBulkMode: "Mehrfachauswahl beenden",
-      selectMultiple: "Mehrfach auswählen",
-      showArchived: "Archivierte anzeigen",
-      hideArchived: "Archivierte ausblenden",
-      archived: "Archiviert",
-      searchConversations: "Unterhaltungen durchsuchen...",
-      clearSearch: "Suche löschen",
-      searching: "Suche läuft...",
-      results: "Ergebnisse ({count})",
-      noResultsFor: "Keine Treffer für \"{query}\"",
-      selectedCount: "{count} ausgewählt",
-      selectAll: "Alle",
-      archiveSelected: "Ausgewählte archivieren",
-      deleteSelected: "Ausgewählte löschen",
-      deleteSelectedConfirm: "{count} Unterhaltung(en) löschen?",
       chatHistory: "Chat-Verlauf",
       pinned: "Angeheftet",
       recentChats: "Letzte Chats",
       noConversations: "Noch keine Unterhaltungen",
+      seeAllChats: "Alle Chats anzeigen",
       settingsForUser: "Einstellungen für {name} öffnen",
-      settings: "Einstellungen",
       moreOptions: "Weitere Optionen",
       rename: "Umbenennen",
       pin: "Anheften",
       unpin: "Lösen",
-      archive: "Archivieren",
-      unarchive: "Wiederherstellen",
       exportJson: "JSON exportieren",
       exportMarkdown: "Markdown exportieren",
       delete: "Löschen",
       deleteConversationConfirm: "Diese Unterhaltung löschen?",
-      cancelSelection: "Abbrechen",
-      select: "Auswählen",
+    },
+    chats: {
+      title: "Chats",
+      subtitle: "Alle Unterhaltungen durchsuchen und verwalten",
+      searchPlaceholder: "Nachrichteninhalt durchsuchen...",
+      searching: "Suche läuft...",
+      loading: "Chats werden geladen...",
+      colTitle: "Titel",
+      colMessages: "Nachrichten",
+      colUpdated: "Aktualisiert",
+      noChatsYet: "Noch keine Unterhaltungen",
+      noMatch: "Keine Chats entsprechen der Suche",
+      selectRow: "Unterhaltung auswählen",
+      selectAllVisible: "Alle auswählen",
+      clearSelection: "Aufheben",
+      selectedCount: "{count} ausgewählt",
+      pinSelected: "Anheften",
+      unpinSelected: "Lösen",
+      deleteSelected: "Löschen",
+      deleteSelectedConfirm: "{count} Unterhaltung(en) löschen? Dies kann nicht rückgängig gemacht werden.",
+      openChat: "Chat öffnen",
+      refresh: "Aktualisieren",
+      pageOfTotal: "Seite {page} von {pages} · {total} Chats",
+      previous: "Zurück",
+      next: "Weiter",
     },
     login: {
       loginFailed: "Anmeldung fehlgeschlagen",

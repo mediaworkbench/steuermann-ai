@@ -19,15 +19,16 @@ export function useConversations() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
   const initialLoadDone = useRef(false);
 
   // ── Load conversations ─────────────────────────────────────────────
+  // Fetch up to the backend max (200); the sidebar shows pinned + 5 recent,
+  // the /chats page paginates over the full loaded set.
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchConversations(USER_ID, showArchived, 100, 0);
+      const data = await fetchConversations(USER_ID, 200, 0);
       if (data) {
         setConversations(data.conversations);
         setTotal(data.total);
@@ -35,7 +36,7 @@ export function useConversations() {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, []);
 
   useEffect(() => {
     if (!initialLoadDone.current) {
@@ -43,11 +44,6 @@ export function useConversations() {
       refresh();
     }
   }, [refresh]);
-
-  // Re-fetch when showArchived changes (after initial load)
-  useEffect(() => {
-    if (initialLoadDone.current) refresh();
-  }, [showArchived, refresh]);
 
   // ── Create ─────────────────────────────────────────────────────────
 
@@ -64,26 +60,22 @@ export function useConversations() {
     [],
   );
 
-  // ── Update (rename, pin, archive, language) ────────────────────────
+  // ── Update (rename, pin, language) ─────────────────────────────────
 
   const update = useCallback(
     async (
       id: string,
-      updates: { title?: string; archived?: boolean; pinned?: boolean; language?: string },
+      updates: { title?: string; pinned?: boolean; language?: string },
     ) => {
       const conv = await updateConversation(id, updates);
       if (conv) {
         setConversations((prev) =>
           prev.map((c) => (c.id === id ? conv : c)),
         );
-        // If archiving the active conversation, deselect it
-        if (updates.archived && id === activeId) {
-          setActiveId(null);
-        }
       }
       return conv;
     },
-    [activeId],
+    [],
   );
 
   // ── Delete ─────────────────────────────────────────────────────────
@@ -113,16 +105,6 @@ export function useConversations() {
     [update],
   );
 
-  // ── Archive / Unarchive ───────────────────────────────────────────
-
-  const archive = useCallback(
-    async (id: string, archived: boolean) => {
-      await update(id, { archived });
-      toast.success(archived ? "Conversation archived" : "Conversation unarchived");
-    },
-    [update],
-  );
-
   // ── Bulk delete ───────────────────────────────────────────────────
 
   const bulkDelete = useCallback(
@@ -136,18 +118,19 @@ export function useConversations() {
     [activeId],
   );
 
-  // ── Bulk archive ──────────────────────────────────────────────────
+  // ── Bulk pin / unpin ──────────────────────────────────────────────
 
-  const bulkArchive = useCallback(
-    async (ids: string[]) => {
-      await Promise.all(ids.map((id) => updateConversation(id, { archived: true })));
+  const bulkPin = useCallback(
+    async (ids: string[], pinned: boolean) => {
+      await Promise.all(ids.map((id) => updateConversation(id, { pinned })));
       setConversations((prev) =>
-        prev.map((c) => (ids.includes(c.id) ? { ...c, archived: true } : c)),
+        prev.map((c) => (ids.includes(c.id) ? { ...c, pinned } : c)),
       );
-      if (activeId && ids.includes(activeId)) setActiveId(null);
-      toast.success(`Archived ${ids.length} conversation${ids.length > 1 ? "s" : ""}`);
+      toast.success(
+        `${pinned ? "Pinned" : "Unpinned"} ${ids.length} conversation${ids.length > 1 ? "s" : ""}`,
+      );
     },
-    [activeId],
+    [],
   );
 
   // ── Export ────────────────────────────────────────────────────────
@@ -172,12 +155,6 @@ export function useConversations() {
     [],
   );
 
-  // ── Toggle archived view ──────────────────────────────────────────
-
-  const toggleArchived = useCallback(() => {
-    setShowArchived((v) => !v);
-  }, []);
-
   // ── Derived ────────────────────────────────────────────────────────
 
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
@@ -188,17 +165,14 @@ export function useConversations() {
     loading,
     activeId,
     activeConversation,
-    showArchived,
     setActiveId,
     create,
     update,
     remove,
     rename,
-    archive,
     bulkDelete,
-    bulkArchive,
+    bulkPin,
     doExport,
-    toggleArchived,
     refresh,
   };
 }

@@ -490,14 +490,12 @@ export async function createConversation(
 
 export async function fetchConversations(
   userId: string = CURRENT_USER_ID,
-  includeArchived: boolean = false,
   limit: number = 50,
   offset: number = 0,
 ): Promise<ConversationListResponse | null> {
   try {
     const params = new URLSearchParams({
       user_id: userId,
-      include_archived: String(includeArchived),
       limit: String(limit),
       offset: String(offset),
     });
@@ -531,7 +529,7 @@ export async function fetchConversation(
 
 export async function updateConversation(
   conversationId: string,
-  updates: { title?: string; archived?: boolean; pinned?: boolean; language?: string },
+  updates: { title?: string; pinned?: boolean; language?: string },
 ): Promise<Conversation | null> {
   try {
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {

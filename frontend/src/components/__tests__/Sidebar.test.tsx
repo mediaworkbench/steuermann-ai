@@ -5,9 +5,6 @@ import { useI18n } from "@/hooks/useI18n";
 
 jest.mock("@/hooks/useProfile");
 jest.mock("@/hooks/useI18n");
-jest.mock("@/lib/api", () => ({
-  searchConversations: jest.fn().mockResolvedValue([]),
-}));
 
 const mockUseProfile = useProfile as jest.MockedFunction<typeof useProfile>;
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;

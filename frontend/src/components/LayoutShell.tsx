@@ -17,17 +17,14 @@ interface ConversationContextValue {
   conversations: Conversation[];
   activeId: string | null;
   activeConversation: Conversation | null;
-  showArchived: boolean;
   setActiveId: (id: string | null) => void;
   create: (title?: string, language?: string) => Promise<Conversation | null>;
-  update: (id: string, updates: { title?: string; archived?: boolean; pinned?: boolean; language?: string }) => Promise<Conversation | null>;
+  update: (id: string, updates: { title?: string; pinned?: boolean; language?: string }) => Promise<Conversation | null>;
   remove: (id: string) => Promise<boolean>;
   rename: (id: string, title: string) => Promise<Conversation | null>;
-  archive: (id: string, archived: boolean) => Promise<void>;
   bulkDelete: (ids: string[]) => Promise<void>;
-  bulkArchive: (ids: string[]) => Promise<void>;
+  bulkPin: (ids: string[], pinned: boolean) => Promise<void>;
   doExport: (id: string, format: "json" | "markdown") => Promise<void>;
-  toggleArchived: () => void;
   refresh: () => Promise<void>;
   loading: boolean;
   workspaceSidebarOpen: boolean;
@@ -103,12 +100,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
         onDelete={convState.remove}
         onPin={async (id, pinned) => { await convState.update(id, { pinned }); }}
         onRename={convState.rename}
-        onArchive={async (id, archived) => { await convState.archive(id, archived); }}
         onExport={convState.doExport}
-        onBulkDelete={convState.bulkDelete}
-        onBulkArchive={convState.bulkArchive}
-        showArchived={convState.showArchived}
-        onToggleArchived={convState.toggleArchived}
       />
       <main className="flex-1 flex flex-col h-full min-h-0 bg-white relative isolate min-w-0 overflow-hidden">
         <Header

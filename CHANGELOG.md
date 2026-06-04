@@ -2,6 +2,14 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chats — Session Management Refactor + Archive Removal
+
+- **feat** New **`/chats`** page (`frontend/src/app/chats/page.tsx`, linked from the header nav and a "See all chats" link in the sidebar) listing **all** conversations in a table. It is driven by the shared `ConversationContext` (single source of truth, so edits reflect live in the sidebar), sorted pinned-first then most-recently-updated client-side. Features: full-text search (`/api/conversations/search`) that narrows the list to matching chats with a message snippet; **multi-select** with bulk **Delete** and **Pin/Unpin**; inline rename; a per-row overflow menu (rename / pin / export JSON+Markdown / delete); and client-side pagination (50/page, hidden while searching).
+- **feat** New `useConversations.bulkPin(ids, pinned)` (replaces the removed `bulkArchive`) and a corresponding `bulkPin` on `ConversationContext`.
+- **refactor** The **sidebar** (`frontend/src/components/Sidebar.tsx`) is now a lean quick-access list — all pinned chats plus the **5** most-recent unpinned ones — and nothing else. Removed from it: the debounced full-text search, the multi-select bulk mode, and the archive view/toggle. The per-row action menu is kept (rename / pin / export / delete). The shared conversation fetch was bumped `100 → 200` so `/chats` effectively shows all chats; true server-side pagination on `/chats` (and search across >200 chats) is future work.
+- **removed** The **archive** feature, end-to-end (it was unused): frontend UI/hook/types, the FastAPI `UpdateConversationRequest.archived` / `ConversationResponse.archived` fields and the `include_archived` list query param, and the `conversations.archived` Postgres column with all its SELECT/RETURNING/WHERE/normalize references (`backend/db.py`, `backend/routers/conversations.py`). `useConversations` also dropped `archive`/`bulkArchive`/`toggleArchived`/`showArchived` and a now-dead `showArchived` re-fetch effect. No migration needed (pre-production).
+- **note** Frontend: 49 tests passing, lint clean, production build green (`/chats` route generated). Backend: full non-integration suite 1068 passing (archive-specific `test_conversations` cases removed). Pre-existing English-only default conversation title (`"New conversation"`/`"en"`) was left as-is (flagged, not in scope).
+
 ### Chat — Queued Follow-up Messages
 
 - **feat** The composer is no longer locked while the assistant streams. The user can type a follow-up and **queue** it; when the current inference finishes normally it **auto-starts** the next one — no extra click. (`frontend/src/components/ChatInterface.tsx`, `frontend/src/context/ChatSessionContext.tsx`)

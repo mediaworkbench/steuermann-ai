@@ -713,7 +713,6 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             title TEXT NOT NULL DEFAULT 'New conversation',
             language TEXT NOT NULL DEFAULT 'en',
             profile_name TEXT,
-            archived BOOLEAN NOT NULL DEFAULT false,
             pinned BOOLEAN NOT NULL DEFAULT false,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1031,7 +1030,7 @@ class ConversationStore:
             INSERT INTO conversations (id, user_id, title, language, profile_name)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id, user_id, title, language, profile_name,
-                      archived, pinned, metadata, created_at, updated_at;
+                      pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -1043,15 +1042,12 @@ class ConversationStore:
     def list_conversations(
         self,
         user_id: str,
-        include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Dict[str, Any]], int]:
         """List conversations for a user, ordered by pinned first then updated_at desc."""
         where = "WHERE user_id = %s"
         params: list[Any] = [user_id]
-        if not include_archived:
-            where += " AND archived = false"
 
         count_stmt = f"SELECT COUNT(*) as count FROM conversations {where};"
         with self._db_pool.connection() as conn:
@@ -1062,7 +1058,7 @@ class ConversationStore:
 
         list_stmt = f"""
             SELECT c.id, c.user_id, c.title, c.language, c.profile_name,
-                   c.archived, c.pinned, c.metadata, c.created_at, c.updated_at,
+                   c.pinned, c.metadata, c.created_at, c.updated_at,
                    (SELECT content FROM messages WHERE conversation_id = c.id
                     ORDER BY created_at DESC LIMIT 1) AS last_message,
                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count
@@ -1082,7 +1078,7 @@ class ConversationStore:
         """Get a single conversation (without messages)."""
         statement = """
             SELECT id, user_id, title, language, profile_name,
-                   archived, pinned, metadata, created_at, updated_at
+                   pinned, metadata, created_at, updated_at
             FROM conversations WHERE id = %s;
         """
         with self._db_pool.connection() as conn:
@@ -1094,8 +1090,8 @@ class ConversationStore:
     def update_conversation(
         self, conversation_id: str, **fields: Any
     ) -> Optional[Dict[str, Any]]:
-        """Update mutable conversation fields (title, archived, pinned, language, metadata)."""
-        allowed = {"title", "archived", "pinned", "language", "metadata"}
+        """Update mutable conversation fields (title, pinned, language, metadata)."""
+        allowed = {"title", "pinned", "language", "metadata"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return self.get_conversation(conversation_id)
@@ -1116,7 +1112,7 @@ class ConversationStore:
             UPDATE conversations SET {', '.join(set_clauses)}
             WHERE id = %s
             RETURNING id, user_id, title, language, profile_name,
-                      archived, pinned, metadata, created_at, updated_at;
+                      pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -1919,7 +1915,6 @@ def _normalize_conversation_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "title": row.get("title"),
         "language": row.get("language"),
         "profile_name": row.get("profile_name"),
-        "archived": row.get("archived", False),
         "pinned": row.get("pinned", False),
         "metadata": md,
         "last_message": row.get("last_message"),

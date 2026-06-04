@@ -41,7 +41,6 @@ class CreateConversationRequest(BaseModel):
 
 class UpdateConversationRequest(BaseModel):
     title: Optional[str] = None
-    archived: Optional[bool] = None
     pinned: Optional[bool] = None
     language: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -67,7 +66,6 @@ class ConversationResponse(BaseModel):
     title: str
     language: str
     profile_name: Optional[str] = None
-    archived: bool
     pinned: bool
     metadata: Dict[str, Any] = {}
     last_message: Optional[str] = None
@@ -218,7 +216,6 @@ async def create_conversation(body: CreateConversationRequest, request: Request)
 async def list_conversations(
     request: Request,
     user_id: str = Query(default="anonymous"),
-    include_archived: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -227,7 +224,6 @@ async def list_conversations(
     effective_user_id = get_effective_user_id(user_id)
     conversations, total = store.list_conversations(
         user_id=effective_user_id,
-        include_archived=include_archived,
         limit=limit,
         offset=offset,
     )
@@ -267,7 +263,7 @@ async def get_conversation(conversation_id: str, request: Request):
 async def update_conversation(
     conversation_id: str, body: UpdateConversationRequest, request: Request
 ):
-    """Update conversation fields (title, archived, pinned, language, metadata)."""
+    """Update conversation fields (title, pinned, language, metadata)."""
     store = _get_store(request)
     updates = body.model_dump(exclude_unset=True)
     if not updates:

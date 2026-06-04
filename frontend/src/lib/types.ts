@@ -153,7 +153,6 @@ export interface Conversation {
   title: string;
   language: string;
   profile_name?: string | null;
-  archived: boolean;
   pinned: boolean;
   metadata: Record<string, unknown>;
   last_message?: string | null;

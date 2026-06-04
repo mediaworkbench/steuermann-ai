@@ -48,7 +48,6 @@ class FakeConversationStore:
             "title": title,
             "language": language,
             "profile_name": profile_name,
-            "archived": False,
             "pinned": False,
             "metadata": {},
             "last_message": None,
@@ -62,13 +61,12 @@ class FakeConversationStore:
     def list_conversations(
         self,
         user_id: str,
-        include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[List[Dict[str, Any]], int]:
         result = [
             c for c in self._conversations.values()
-            if c["user_id"] == user_id and (include_archived or not c["archived"])
+            if c["user_id"] == user_id
         ]
         result.sort(key=lambda c: (not c["pinned"], c["updated_at"]), reverse=False)
         total = len(result)
@@ -84,7 +82,7 @@ class FakeConversationStore:
         if not conv:
             return None
         for k, v in fields.items():
-            if k in {"title", "archived", "pinned", "language", "metadata"}:
+            if k in {"title", "pinned", "language", "metadata"}:
                 conv[k] = v
         conv["updated_at"] = datetime.now(timezone.utc).isoformat()
         return conv
@@ -441,7 +439,6 @@ class TestCreateConversation:
         body = resp.json()
         assert body["title"] == "Test conv"
         assert body["user_id"] == "u1"
-        assert body["archived"] is False
         assert body["pinned"] is False
 
     def test_create_default_values(self, client):
@@ -468,20 +465,6 @@ class TestListConversations:
         body = resp.json()
         assert body["total"] == 2
         assert len(body["conversations"]) == 2
-
-    def test_list_excludes_archived(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Live")
-        fake_store.create_conversation("c2", "u1", "Old")
-        fake_store.update_conversation("c2", archived=True)
-        resp = client.get("/api/conversations?user_id=u1")
-        assert resp.json()["total"] == 1
-
-    def test_list_includes_archived(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Live")
-        fake_store.create_conversation("c2", "u1", "Old")
-        fake_store.update_conversation("c2", archived=True)
-        resp = client.get("/api/conversations?user_id=u1&include_archived=true")
-        assert resp.json()["total"] == 2
 
 
 class TestGetConversation:
@@ -510,11 +493,6 @@ class TestUpdateConversation:
         fake_store.create_conversation("c1", "u1", "Test")
         resp = client.patch("/api/conversations/c1", json={"pinned": True})
         assert resp.json()["pinned"] is True
-
-    def test_archive(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Test")
-        resp = client.patch("/api/conversations/c1", json={"archived": True})
-        assert resp.json()["archived"] is True
 
     def test_update_nonexistent_404(self, client):
         resp = client.patch("/api/conversations/nope", json={"title": "X"})
