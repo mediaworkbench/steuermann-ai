@@ -2,6 +2,32 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Admin — RAG Knowledge Explorer (`/admin/rag`)
+
+- **feat** New admin-only page to search the RAG knowledge base by keyword and review the
+  matching chunks (text + source file + similarity score) for evaluation — there was previously
+  no way to inspect retrieval outside of a live chat turn. Reachable from the Header nav (admin
+  only) and nested under `/admin/`, so it is automatically covered by the existing `proxy.ts`
+  middleware gate + `AdminOnly` guard.
+- **feat** Two search modes via a toggle. **Raw** (default): a single semantic search returning
+  **all** hits sorted by score with no threshold cut, drawing the production cutoff
+  (`pill_score_threshold`, ≈0.72) as a visible divider so borderline chunks stay inspectable.
+  **Production**: replicates the chat's deterministic retrieval — dual keyword search +
+  dedupe-by-file + the threshold cut — to show exactly what the chat would inject. (LLM query
+  *rewriting* is intentionally excluded for determinism.)
+- **feat** New backend router `backend/routers/rag_search.py` (sync `def`, threadpool):
+  `GET /api/rag/search` (`q`, `mode`, `top_k`, `collection`, `score_threshold`) and
+  `GET /api/rag/collections` (names + `points_count`, so the admin can pick a target and confirm
+  it is populated). Reuses the same pure helpers and embedding provider as
+  `node_retrieve_knowledge` (`search_qdrant`, `extract_rag_keyword`, `filter_and_deduplicate`,
+  `resolve_rag_config`, `get_routing_embedding_provider`) so results faithfully reflect production
+  retrieval. Explorer reads **system/profile** RAG config, not a user's session overrides.
+- **note** Auth posture matches the existing `/api/admin/*` endpoints: protected by the shared
+  `require_api_access` token, with admin gating enforced at the Next.js page layer (no per-request
+  role check on the API). Frontend: `useRagSearch` hook, `/admin/rag` page + `RagResultCard`
+  (keyword highlighting, copy, expand), `searchRag`/`fetchRagCollections` in `lib/api.ts`, EN+DE
+  i18n. 9 backend tests (`tests/test_rag_search_router.py`); `tsc`/lint clean.
+
 ### Chat — Tokens/sec Metric, Block Cursor & Full-Width Reasoning Bar
 
 - **feat** The expandable per-message metrics panel (`MetricsPanel`) now shows a **Tokens/sec** cell

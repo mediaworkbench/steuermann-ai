@@ -795,3 +795,78 @@ export async function runWorkspaceAction(
     return null;
   }
 }
+
+// ── RAG knowledge explorer (admin) ─────────────────────────────────────────
+
+export type RagSearchMode = "raw" | "production";
+
+export interface RagSearchHit {
+  id: string | number | null;
+  score: number;
+  text: string;
+  file_name: string;
+  file_path: string;
+  chunk_index: number | null;
+  chunk_count: number | null;
+  detected_language: string | null;
+  language_confidence: number | null;
+  above_cutoff: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface RagSearchResponse {
+  items: RagSearchHit[];
+  count: number;
+  query: string;
+  collection: string;
+  mode: RagSearchMode;
+  top_k: number;
+  production_threshold: number;
+}
+
+export interface RagCollection {
+  name: string;
+  points_count: number | null;
+}
+
+export interface RagCollectionsResponse {
+  collections: RagCollection[];
+  default_collection: string;
+}
+
+export interface RagSearchParams {
+  q: string;
+  mode?: RagSearchMode;
+  topK?: number;
+  collection?: string;
+}
+
+/** Search the RAG knowledge base. Throws with the backend detail on failure. */
+export async function searchRag(params: RagSearchParams): Promise<RagSearchResponse> {
+  const search = new URLSearchParams({ q: params.q });
+  if (params.mode) search.set("mode", params.mode);
+  if (params.topK != null) search.set("top_k", String(params.topK));
+  if (params.collection) search.set("collection", params.collection);
+
+  const response = await fetch(`${API_BASE}/api/rag/search?${search}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `Knowledge base search failed: ${response.status}`);
+  }
+  return (await response.json()) as RagSearchResponse;
+}
+
+/** List Qdrant collections with point counts. Returns null on failure. */
+export async function fetchRagCollections(): Promise<RagCollectionsResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/rag/collections`);
+    if (!response.ok) {
+      console.error(`Failed to fetch RAG collections: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RagCollectionsResponse;
+  } catch (error) {
+    console.error("Error fetching RAG collections:", error);
+    return null;
+  }
+}

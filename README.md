@@ -96,7 +96,7 @@ See [docs/tool_development_guide.md](docs/tool_development_guide.md) for buildin
 
 ### Operational Interface
 
-A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
+A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, an admin-only RAG knowledge explorer for searching the knowledge base by keyword and reviewing retrieved documents, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
 
 ### Performance & Reliability
 

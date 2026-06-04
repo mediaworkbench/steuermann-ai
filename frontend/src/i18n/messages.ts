@@ -24,6 +24,7 @@ export type Messages = {
     memory: string;
     settings: string;
     admin: string;
+    ragExplorer: string;
     openNavigation: string;
     activeSession: string;
     exportConversation: string;
@@ -35,6 +36,31 @@ export type Messages = {
     daysAgo: string;
     messageCountOne: string;
     messageCountOther: string;
+  };
+  ragExplorer: {
+    title: string;
+    subtitle: string;
+    searchPlaceholder: string;
+    search: string;
+    searching: string;
+    mode: string;
+    modeRaw: string;
+    modeProduction: string;
+    modeRawHint: string;
+    modeProductionHint: string;
+    collection: string;
+    topK: string;
+    resultsSummary: string;
+    noResults: string;
+    emptyState: string;
+    cutoffDivider: string;
+    aboveCutoff: string;
+    belowCutoff: string;
+    chunk: string;
+    copy: string;
+    copied: string;
+    showMore: string;
+    showLess: string;
   };
   sidebar: {
     platformSubtitle: string;
@@ -530,6 +556,7 @@ export const messages: Record<Locale, Messages> = {
       memory: "Memory",
       settings: "Settings",
       admin: "Admin",
+      ragExplorer: "RAG Explorer",
       openNavigation: "Open navigation",
       activeSession: "Active session",
       exportConversation: "Export conversation",
@@ -541,6 +568,32 @@ export const messages: Record<Locale, Messages> = {
       daysAgo: "{count}d ago",
       messageCountOne: "{count} msg",
       messageCountOther: "{count} msgs",
+    },
+    ragExplorer: {
+      title: "RAG Knowledge Explorer",
+      subtitle:
+        "Search the knowledge base by keyword and review the matching documents for evaluation.",
+      searchPlaceholder: "Search the knowledge base…",
+      search: "Search",
+      searching: "Searching…",
+      mode: "Mode",
+      modeRaw: "Raw",
+      modeProduction: "Production",
+      modeRawHint: "All hits, sorted by score — inspect index and chunk quality.",
+      modeProductionHint: "What the chat actually retrieves (deduplicated, thresholded).",
+      collection: "Collection",
+      topK: "Results",
+      resultsSummary: "{count} result(s) in \"{collection}\"",
+      noResults: "No matching documents.",
+      emptyState: "Enter a keyword and search to explore the knowledge base.",
+      cutoffDivider: "Production cutoff · {threshold}",
+      aboveCutoff: "above cutoff",
+      belowCutoff: "below cutoff",
+      chunk: "chunk {index}/{count}",
+      copy: "Copy chunk text",
+      copied: "Copied",
+      showMore: "Show more",
+      showLess: "Show less",
     },
     sidebar: {
       platformSubtitle: "Universal Agentic Orchestration Platform",
@@ -1035,6 +1088,7 @@ export const messages: Record<Locale, Messages> = {
       memory: "Speicher",
       settings: "Einstellungen",
       admin: "Admin",
+      ragExplorer: "RAG-Explorer",
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
       exportConversation: "Unterhaltung exportieren",
@@ -1046,6 +1100,32 @@ export const messages: Record<Locale, Messages> = {
       daysAgo: "vor {count} T.",
       messageCountOne: "{count} Nachricht",
       messageCountOther: "{count} Nachrichten",
+    },
+    ragExplorer: {
+      title: "RAG-Wissensexplorer",
+      subtitle:
+        "Durchsuche die Wissensbasis nach Stichwörtern und prüfe die passenden Dokumente zur Evaluierung.",
+      searchPlaceholder: "Wissensbasis durchsuchen…",
+      search: "Suchen",
+      searching: "Suche läuft…",
+      mode: "Modus",
+      modeRaw: "Roh",
+      modeProduction: "Produktiv",
+      modeRawHint: "Alle Treffer, nach Score sortiert — Index- und Chunk-Qualität prüfen.",
+      modeProductionHint: "Was der Chat tatsächlich abruft (dedupliziert, mit Schwellenwert).",
+      collection: "Sammlung",
+      topK: "Treffer",
+      resultsSummary: "{count} Treffer in \"{collection}\"",
+      noResults: "Keine passenden Dokumente.",
+      emptyState: "Gib ein Stichwort ein und suche, um die Wissensbasis zu erkunden.",
+      cutoffDivider: "Produktions-Schwellenwert · {threshold}",
+      aboveCutoff: "über Schwelle",
+      belowCutoff: "unter Schwelle",
+      chunk: "Chunk {index}/{count}",
+      copy: "Chunk-Text kopieren",
+      copied: "Kopiert",
+      showMore: "Mehr anzeigen",
+      showLess: "Weniger anzeigen",
     },
     sidebar: {
       platformSubtitle: "Universelle Agenten-Orchestrierungsplattform",
