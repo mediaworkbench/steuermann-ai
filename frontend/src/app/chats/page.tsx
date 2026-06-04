@@ -1,110 +1,44 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useConversationContext } from "@/components/LayoutShell";
+import { useConversationBrowser } from "@/hooks/useConversationBrowser";
 import { useI18n } from "@/hooks/useI18n";
-import { searchConversations } from "@/lib/api";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { Conversation } from "@/lib/types";
-
-const PAGE_SIZE = 50;
-
-/** Pinned first, then most-recently updated — mirrors the backend list order so a
- *  local pin/rename reflects immediately without a refetch. */
-function sortConversations(list: Conversation[]): Conversation[] {
-  return [...list].sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    const ta = a.updated_at ? Date.parse(a.updated_at) : 0;
-    const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
-    return tb - ta;
-  });
-}
 
 export default function ChatsPage() {
   const { t, formatDate } = useI18n();
   const router = useRouter();
-  const {
-    conversations,
-    loading,
-    remove,
-    rename,
-    update,
-    bulkDelete,
-    bulkPin,
-    doExport,
-    setActiveId,
-    refresh,
-  } = useConversationContext();
+  const { revision, remove, rename, update, bulkDelete, bulkPin, doExport, setActiveId } =
+    useConversationContext();
+  const browser = useConversationBrowser(revision);
+  const { items, total, offset, query, loading, pageSize } = browser;
 
-  const [search, setSearch] = useState("");
-  const [searching, setSearching] = useState(false);
-  // Deduped set of conversation ids that matched the full-text search + best snippet per id.
-  const [match, setMatch] = useState<{ ids: Set<string>; snippets: Map<string, string> } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [offset, setOffset] = useState(0);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchSeqRef = useRef(0);
 
-  // ── Full-text search (debounced) — narrows the list to matching chats ──
-  useEffect(() => {
-    const q = search.trim();
-    // Bump the sequence so any in-flight request for a previous (or cleared)
-    // query is ignored when it finally resolves.
-    const seq = ++searchSeqRef.current;
-    if (!q) {
-      setMatch(null);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(async () => {
-      const results = await searchConversations(CURRENT_USER_ID, q, 200);
-      if (seq !== searchSeqRef.current) return; // superseded by a newer query
-      const ids = new Set<string>();
-      const snippets = new Map<string, string>();
-      for (const r of results) {
-        ids.add(r.conversation_id);
-        if (!snippets.has(r.conversation_id)) snippets.set(r.conversation_id, r.content);
-      }
-      setMatch({ ids, snippets });
-      setSearching(false);
-    }, 350);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    };
-  }, [search]);
-
-  // Reset pagination whenever the active filter changes.
-  useEffect(() => {
-    setOffset(0);
-  }, [search]);
-
-  // Drop selections that no longer exist (e.g. after a delete).
+  // Drop selections that no longer exist on the current page (after a delete/refetch).
   useEffect(() => {
     setSelected((prev) => {
-      const ids = new Set(conversations.map((c) => c.id));
+      const ids = new Set(items.map((c) => c.id));
       const next = new Set([...prev].filter((id) => ids.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [conversations]);
+  }, [items]);
 
-  const isSearching = search.trim().length > 0;
+  const totalPages = Math.ceil(total / pageSize);
+  const currentPage = Math.floor(offset / pageSize) + 1;
 
-  const filtered = useMemo(() => {
-    const base = match ? conversations.filter((c) => match.ids.has(c.id)) : conversations;
-    return sortConversations(base);
-  }, [conversations, match]);
-
-  const pageItems = isSearching ? filtered : filtered.slice(offset, offset + PAGE_SIZE);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+  // ── Search ─────────────────────────────────────────────────────────
+  const onSearchChange = useCallback((v: string) => {
+    browser.setQuery(v);
+    setSelected(new Set()); // a new result set invalidates the old selection
+  }, [browser]);
 
   // ── Selection ──────────────────────────────────────────────────────
   const toggleSelect = useCallback((id: string) => {
@@ -115,34 +49,59 @@ export default function ChatsPage() {
     });
   }, []);
 
-  const allVisibleSelected = pageItems.length > 0 && pageItems.every((c) => selected.has(c.id));
+  const allVisibleSelected = items.length > 0 && items.every((c) => selected.has(c.id));
   const toggleSelectAllVisible = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      const everySelected = pageItems.length > 0 && pageItems.every((c) => next.has(c.id));
-      if (everySelected) pageItems.forEach((c) => next.delete(c.id));
-      else pageItems.forEach((c) => next.add(c.id));
+      const everySelected = items.length > 0 && items.every((c) => next.has(c.id));
+      if (everySelected) items.forEach((c) => next.delete(c.id));
+      else items.forEach((c) => next.add(c.id));
       return next;
     });
-  }, [pageItems]);
+  }, [items]);
 
   const clearSelection = useCallback(() => setSelected(new Set()), []);
 
+  // ── Actions (context mutators bump revision → browser refetches; optimistic
+  //    patches keep single-row edits instant in the meantime) ───────────
   const openChat = useCallback((id: string) => {
-    setActiveId(id);
+    setActiveId(id, items.find((c) => c.id === id) ?? null);
     router.push("/");
-  }, [setActiveId, router]);
+  }, [setActiveId, items, router]);
+
+  const handleRename = useCallback(async (id: string, title: string) => {
+    browser.patchItem(id, { title });
+    return rename(id, title);
+  }, [browser, rename]);
+
+  const handlePin = useCallback((id: string, pinned: boolean) => {
+    browser.patchItem(id, { pinned });
+    update(id, { pinned });
+  }, [browser, update]);
 
   const handleBulkDelete = useCallback(async () => {
     setConfirmBulkDelete(false);
-    await bulkDelete(Array.from(selected));
+    const ids = Array.from(selected);
+    browser.removeItems(ids);
     clearSelection();
-  }, [bulkDelete, selected, clearSelection]);
+    await bulkDelete(ids);
+  }, [browser, bulkDelete, selected, clearSelection]);
 
   const handleBulkPin = useCallback(async (pinned: boolean) => {
-    await bulkPin(Array.from(selected), pinned);
+    const ids = Array.from(selected);
+    ids.forEach((id) => browser.patchItem(id, { pinned }));
     clearSelection();
-  }, [bulkPin, selected, clearSelection]);
+    await bulkPin(ids, pinned);
+  }, [browser, bulkPin, selected, clearSelection]);
+
+  const handleConfirmedDelete = useCallback(() => {
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    if (id) {
+      browser.removeItems([id]);
+      remove(id);
+    }
+  }, [confirmDeleteId, browser, remove]);
 
   return (
     <main className="flex-1 overflow-y-auto bg-white">
@@ -158,7 +117,7 @@ export default function ChatsPage() {
             </div>
           </div>
           <button
-            onClick={() => refresh()}
+            onClick={() => browser.refresh()}
             disabled={loading}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
                        bg-evergreen text-light-cyan hover:bg-evergreen/80
@@ -179,8 +138,8 @@ export default function ChatsPage() {
           <input
             type="search"
             placeholder={t("chats.searchPlaceholder")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={query}
+            onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-evergreen/20
                        text-evergreen placeholder-evergreen/30 text-sm
                        focus:outline-none focus:ring-2 focus:ring-evergreen/30"
@@ -249,35 +208,35 @@ export default function ChatsPage() {
               </tr>
             </thead>
             <tbody>
-              {(loading || searching) && pageItems.length === 0 && (
+              {loading && items.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-evergreen/40">
-                    {searching ? t("chats.searching") : t("chats.loading")}
+                    {query ? t("chats.searching") : t("chats.loading")}
                   </td>
                 </tr>
               )}
-              {!loading && !searching && pageItems.length === 0 && (
+              {!loading && items.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-evergreen/40">
                       <Icon name="forum" size={28} className="opacity-30" />
                       <span className="text-sm">
-                        {isSearching ? t("chats.noMatch") : t("chats.noChatsYet")}
+                        {query ? t("chats.noMatch") : t("chats.noChatsYet")}
                       </span>
                     </div>
                   </td>
                 </tr>
               )}
-              {pageItems.map((c) => (
+              {items.map((c) => (
                 <ChatRow
                   key={c.id}
                   conversation={c}
-                  snippet={match?.snippets.get(c.id) ?? null}
+                  snippet={c.match_snippet ?? null}
                   selected={selected.has(c.id)}
                   onToggleSelect={toggleSelect}
                   onOpen={openChat}
-                  onRename={rename}
-                  onPin={(id, pinned) => update(id, { pinned })}
+                  onRename={handleRename}
+                  onPin={handlePin}
                   onRequestDelete={setConfirmDeleteId}
                   onExport={doExport}
                   formatDate={formatDate}
@@ -287,22 +246,22 @@ export default function ChatsPage() {
           </table>
         </div>
 
-        {/* Pagination (hidden while searching) */}
-        {!isSearching && totalPages > 1 && (
+        {/* Pagination — applies to search results too */}
+        {total > pageSize && (
           <div className="flex items-center justify-between text-sm text-evergreen/50">
-            <span>{t("chats.pageOfTotal", { page: currentPage, pages: totalPages, total: filtered.length })}</span>
+            <span>{t("chats.pageOfTotal", { page: currentPage, pages: totalPages, total })}</span>
             <div className="flex gap-2">
               <button
-                onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-                disabled={offset === 0}
+                onClick={browser.prevPage}
+                disabled={offset === 0 || loading}
                 className="px-3 py-1.5 rounded border border-evergreen/20 hover:bg-evergreen/5
                            disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
                 {t("chats.previous")}
               </button>
               <button
-                onClick={() => setOffset((o) => o + PAGE_SIZE)}
-                disabled={offset + PAGE_SIZE >= filtered.length}
+                onClick={browser.nextPage}
+                disabled={offset + pageSize >= total || loading}
                 className="px-3 py-1.5 rounded border border-evergreen/20 hover:bg-evergreen/5
                            disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
@@ -331,11 +290,7 @@ export default function ChatsPage() {
         message={t("sidebar.deleteConversationConfirm")}
         variant="danger"
         confirmLabel={t("common.delete")}
-        onConfirm={() => {
-          const id = confirmDeleteId;
-          setConfirmDeleteId(null);
-          if (id) remove(id);
-        }}
+        onConfirm={handleConfirmedDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
     </main>
@@ -383,7 +338,6 @@ function ChatRow({
     }
   }, [editing]);
 
-  // Position the portal menu under the trigger; close on outside click / scroll / resize.
   useEffect(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(false);

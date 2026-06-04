@@ -17,7 +17,8 @@ interface ConversationContextValue {
   conversations: Conversation[];
   activeId: string | null;
   activeConversation: Conversation | null;
-  setActiveId: (id: string | null) => void;
+  revision: number;
+  setActiveId: (id: string | null, conv?: Conversation | null) => void;
   create: (title?: string, language?: string) => Promise<Conversation | null>;
   update: (id: string, updates: { title?: string; pinned?: boolean; language?: string }) => Promise<Conversation | null>;
   remove: (id: string) => Promise<boolean>;

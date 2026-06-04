@@ -462,7 +462,6 @@ import type {
   ConversationListResponse,
   ConversationDetailResponse,
   PersistedMessage,
-  SearchResult,
   WorkspaceActionRequest,
 } from "@/lib/types";
 
@@ -492,6 +491,7 @@ export async function fetchConversations(
   userId: string = CURRENT_USER_ID,
   limit: number = 50,
   offset: number = 0,
+  q?: string,
 ): Promise<ConversationListResponse | null> {
   try {
     const params = new URLSearchParams({
@@ -499,6 +499,7 @@ export async function fetchConversations(
       limit: String(limit),
       offset: String(offset),
     });
+    if (q && q.trim()) params.set("q", q.trim());
     const response = await fetch(`${API_BASE}/api/conversations?${params}`);
     if (!response.ok) {
       console.error(`Failed to fetch conversations: ${response.status}`);
@@ -647,26 +648,6 @@ export async function deleteMemory(memoryId: string): Promise<boolean> {
   }
 }
 
-
-export async function searchConversations(
-  userId: string,
-  query: string,
-  limit: number = 50,
-): Promise<SearchResult[]> {
-  try {
-    const params = new URLSearchParams({
-      user_id: userId,
-      q: query,
-      limit: String(limit),
-    });
-    const response = await fetch(`${API_BASE}/api/conversations/search?${params}`);
-    if (!response.ok) return [];
-    return (await response.json()) as SearchResult[];
-  } catch (error) {
-    console.error("Error searching conversations:", error);
-    return [];
-  }
-}
 
 export async function exportConversation(
   conversationId: string,

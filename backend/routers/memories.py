@@ -31,15 +31,12 @@ def _memory_was_recently_retrieved(request: Request, memory_id: str, user_id: st
     """Return True if *memory_id* appears in any recent conversation message's memories_used."""
     try:
         conversation_store = getattr(request.app.state, "conversation_store", None)
-        if conversation_store is None or not hasattr(conversation_store, "search_messages"):
+        if conversation_store is None or not hasattr(conversation_store, "list_conversations"):
             return False
 
-        # Scan recent messages across user conversations via search_messages with broad query.
-        # We use a lightweight direct DB approach: list recent conversations then scan messages.
-        if not hasattr(conversation_store, "list_conversations"):
-            return False
-
-        conversations = conversation_store.list_conversations(user_id=user_id, limit=20, offset=0)
+        # Scan recent messages across the user's conversations. list_conversations returns
+        # a (rows, total) tuple — unpack it before iterating.
+        conversations, _total = conversation_store.list_conversations(user_id=user_id, limit=20, offset=0)
         for conv in conversations or []:
             conv_id = conv.get("id")
             if not conv_id:

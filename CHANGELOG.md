@@ -2,6 +2,34 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chats — True Server-Side Pagination + Search
+
+- **feat** The `/chats` page now paginates and searches **server-side**, removing the previous
+  200-row cap (it read the shared in-memory list). A new `useConversationBrowser` hook
+  (`frontend/src/hooks/`) queries `GET /api/conversations?q=&limit=&offset=` directly with real
+  paging; search filters across **all** chats, not just the loaded slice. Pagination now applies to
+  search results too.
+- **feat** `GET /api/conversations` gains an optional `q` — case-insensitive **substring** search
+  over conversation title **and** message content (LIKE metacharacters escaped), returning an
+  accurate filtered `total` and a `match_snippet` (the most-recent matching message excerpt; null on
+  a title-only match) via a `LATERAL` subquery. Backed by **`pg_trgm` GIN** indexes on
+  `conversations.title` and `messages.content` (extension/index creation is isolated + best-effort,
+  so a low-privilege DB degrades to sequential ILIKE instead of failing startup).
+- **feat** `activeConversation` is now resolved **by id** (seeded from the clicked row, else fetched
+  once) instead of `list.find(id)`, so opening a chat beyond the sidebar's loaded slice keeps the
+  Header meta + auto-title correct. A `revision` counter on `ConversationContext` (bumped by every
+  mutator) drives cross-surface refetch so `/chats` and the sidebar stay consistent; single-row
+  pin/rename/delete patch optimistically to avoid refetch flicker.
+- **removed** The message-level `GET /api/conversations/search` route, its `SearchResultItem` model,
+  `ConversationStore.search_messages`, and the frontend `searchConversations`/`SearchResult` — search
+  is now unified into the list endpoint.
+- **fix** `_memory_was_recently_retrieved` (`backend/routers/memories.py`) iterated the
+  `(rows, total)` tuple returned by `list_conversations` (so it always raised and returned `False`,
+  silently disabling the retrieval-quality signal) and guarded on the removed `search_messages`
+  attribute — now unpacks the tuple and guards on `list_conversations`.
+- **note** Backend `tests/test_conversations` updated (q filtering, snippet, pagination; `/search`
+  tests removed) — 33 passing. Frontend 49 tests passing, lint clean, build green.
+
 ### Chats — Session Management Refactor + Archive Removal
 
 - **feat** New **`/chats`** page (`frontend/src/app/chats/page.tsx`, linked from the header nav and a "See all chats" link in the sidebar) listing **all** conversations in a table. It is driven by the shared `ConversationContext` (single source of truth, so edits reflect live in the sidebar), sorted pinned-first then most-recently-updated client-side. Features: full-text search (`/api/conversations/search`) that narrows the list to matching chats with a message snippet; **multi-select** with bulk **Delete** and **Pin/Unpin**; inline rename; a per-row overflow menu (rename / pin / export JSON+Markdown / delete); and client-side pagination (50/page, hidden while searching).
