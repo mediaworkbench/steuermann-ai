@@ -2,6 +2,27 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chat — In-Flight Stream Survives Conversation Switching
+
+- **fix** Switching to another chat while a response was still generating, then returning, **cleared
+  the inference** (the assistant answer was lost). Root cause: the `activeId`-change effect in
+  `ChatSessionProvider` unconditionally aborted the stream (`cancelStream()`); since the FastAPI proxy
+  only persists on `[DONE]` (`_run_persistence`, not in `finally`), the client disconnect tore down
+  the upstream LangGraph request and **nothing was persisted**. (Page navigation was never affected —
+  it doesn't change `activeId`.)
+- **feat** A stream now keeps running in the background when you switch chats, bound to its
+  conversation (`streamConversationRef` / reactive `streamConvId`). Returning **resumes the live
+  stream** token-by-token, or shows the completed, now-persisted answer if it finished while away.
+- **feat** Stream-derived UI (bubble, status, toasts, sound, context-ring) is **gated to the active
+  conversation** (`streamOnActive`) so a backgrounded stream can't bleed into the chat on screen; the
+  context-ring setter is guarded so a background completion can't overwrite the viewed chat's token
+  count. The optimistic user bubble is restored via `streamMsgsRef`; the follow-up queue is preserved
+  while its stream is backgrounded.
+- **note** By design: sending a *new* message in another chat still ends the backgrounded stream
+  (single concurrent stream); a background stream that *errors* while you're away is dropped silently.
+  Frontend-only (`frontend/src/context/ChatSessionContext.tsx`); no backend change. Verified live
+  (E2E) + `tsc`/lint clean + 49 frontend tests passing.
+
 ### Chats — True Server-Side Pagination + Search
 
 - **feat** The `/chats` page now paginates and searches **server-side**, removing the previous
