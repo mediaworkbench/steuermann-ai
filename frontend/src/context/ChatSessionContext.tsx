@@ -138,6 +138,10 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
+  // Reactive mirror of which conversation owns the live stream. Drives the
+  // gate that hides a backgrounded stream's UI while the user views another
+  // chat (the ref version below is the synchronous source of truth for guards).
+  const [streamConvId, setStreamConvId] = useState<string | null>(null);
 
   const {
     streamingContent,
@@ -167,6 +171,13 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // switched conversations during the setTimeout(0) window.
   const activeIdRef = useRef<string | null>(activeId);
   activeIdRef.current = activeId;
+  // Latest isStreaming, read inside the activeId-only load effect (which must
+  // not take isStreaming as a dependency).
+  const isStreamingRef = useRef(false);
+  isStreamingRef.current = isStreaming;
+  // Snapshot of the streaming conversation's optimistic messages, restored when
+  // the user navigates back to it mid-stream (messages state is single-slot).
+  const streamMsgsRef = useRef<Message[]>([]);
 
   // ── Follow-up queue ────────────────────────────────────────────────────
   // One queued message the user typed while a stream was in flight. Read from
@@ -206,8 +217,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       setMessages([]);
       setWorkspaceSidebarOpen(false);
       setContextTokens(0);
-      cancelStream();
-      clearQueue();
+      // Navigation never aborts an in-flight stream (only an explicit user Stop
+      // does); keep a queued follow-up while its stream is still running.
+      if (!isStreamingRef.current) clearQueue();
       return;
     }
     // When a conversation was just created the DB has no messages yet.
@@ -216,11 +228,17 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       skipNextFetchRef.current = false;
       return;
     }
-    // Switching to a different existing conversation: abandon any in-flight
-    // stream from the previous one so it can't bleed into this view, and drop
-    // any follow-up queued against the previous conversation.
-    cancelStream();
-    clearQueue();
+    // Returning to a conversation whose stream is still live: restore its
+    // optimistic messages and let the gated stream UI resume. Don't refetch —
+    // the DB has no rows yet (persistence happens on [DONE]).
+    if (activeId === streamConversationRef.current && isStreamingRef.current) {
+      setMessages(streamMsgsRef.current);
+      return;
+    }
+    // Switching to a different conversation: show its messages. Any in-flight
+    // stream keeps running in the background bound to its own conversation (its
+    // UI is gated off here); only drop a queued follow-up when no stream owns it.
+    if (!isStreamingRef.current) clearQueue();
     let cancelled = false;
     (async () => {
       const detail = await fetchConversation(activeId);
@@ -305,6 +323,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
         }
       }
       resetStream();
+      // Stream is done — reopen the gate (raw isStreaming is already false, so
+      // nothing leaks). A queued auto-fire below re-sets this via sendMessage.
+      setStreamConvId(null);
 
       // ── Auto-fire a queued follow-up ───────────────────────────────────
       // Only on a normal completion: an explicit Stop (manualStopRef) or a
@@ -338,7 +359,14 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // ── Live context-window fill: latest inference's prompt size ───────────
   useEffect(() => {
     const tokens = finalMetadata?.input_tokens;
-    if (!isStreaming && tokens != null && tokens > 0) {
+    // Only update the ring for the conversation on screen — a background stream
+    // completing elsewhere must not overwrite the viewed conversation's count.
+    if (
+      !isStreaming &&
+      tokens != null &&
+      tokens > 0 &&
+      streamConversationRef.current === activeIdRef.current
+    ) {
       setContextTokens(tokens);
     }
   }, [isStreaming, finalMetadata]);
@@ -368,18 +396,25 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
         if (!convId) return;
       }
       streamConversationRef.current = convId;
+      setStreamConvId(convId);
 
-      if (replaceFromIndex != null) {
-        setMessages((prev) => [
-          ...prev.slice(0, replaceFromIndex),
-          { role: "user", content: userMessage, timestamp: formatTime(new Date()) },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { role: "user", content: userMessage, timestamp: formatTime(new Date()) },
-        ]);
-      }
+      const optimisticUser: Message = {
+        role: "user",
+        content: userMessage,
+        timestamp: formatTime(new Date()),
+      };
+      // Updater form (preserves the queued auto-fire's correctness) that also
+      // snapshots the optimistic messages so they can be restored if the user
+      // navigates away and back mid-stream. The snapshot is content-identical to
+      // the committed state, so React's StrictMode double-invoke is harmless.
+      setMessages((prev) => {
+        const next =
+          replaceFromIndex != null
+            ? [...prev.slice(0, replaceFromIndex), optimisticUser]
+            : [...prev, optimisticUser];
+        streamMsgsRef.current = next;
+        return next;
+      });
       setLoading(true);
       startTimeRef.current = Date.now();
       // Every new inference starts clean: a prior manual stop must not bleed
@@ -432,23 +467,29 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // deferred queue auto-fire.
   sendMessageRef.current = sendMessage;
 
+  // Gate stream-derived values to the active conversation so a background stream
+  // (running for a conversation the user navigated away from) can't bleed its
+  // bubble, toast, or sound into the chat currently on screen. contextTokens is
+  // not gated — it belongs to the viewed conversation — but its setter effect is.
+  const streamOnActive = streamConvId == null || streamConvId === activeId;
+
   const value: ChatSessionValue = {
     messages,
     setMessages,
-    isStreaming,
-    streamingContent,
-    thinkingContent,
-    isThinking,
-    nodeStatus,
-    toolCallStatus,
-    streamError,
-    streamWarning,
-    finalMetadata,
-    wasCancelled,
+    isStreaming: streamOnActive && isStreaming,
+    streamingContent: streamOnActive ? streamingContent : "",
+    thinkingContent: streamOnActive ? thinkingContent : "",
+    isThinking: streamOnActive && isThinking,
+    nodeStatus: streamOnActive ? nodeStatus : null,
+    toolCallStatus: streamOnActive ? toolCallStatus : null,
+    streamError: streamOnActive ? streamError : null,
+    streamWarning: streamOnActive ? streamWarning : null,
+    finalMetadata: streamOnActive ? finalMetadata : null,
+    wasCancelled: streamOnActive && wasCancelled,
     contextTokens,
     setContextTokens,
-    loading,
-    queuedMessage,
+    loading: streamOnActive && loading,
+    queuedMessage: streamOnActive ? queuedMessage : null,
     sendMessage,
     enqueueMessage,
     clearQueue,
