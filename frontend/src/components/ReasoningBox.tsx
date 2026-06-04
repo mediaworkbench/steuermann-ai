@@ -13,7 +13,7 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
   if (!content && !isStreaming) return null;
 
   return (
-    <div className="mb-3 rounded-xl border border-pacific-blue/20 bg-light-cyan/10 overflow-hidden">
+    <div className="w-full mb-3 rounded-xl border border-pacific-blue/20 bg-light-cyan/10 overflow-hidden">
       <button
         onClick={() => setExpanded((e) => !e)}
         className="w-full flex items-center gap-2 px-3 py-2 text-xs

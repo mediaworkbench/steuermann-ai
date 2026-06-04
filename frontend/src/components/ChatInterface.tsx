@@ -801,7 +801,7 @@ export function ChatInterface() {
                 >
                   <MarkdownMessage content={streamingContent} />
                   <span
-                    className="inline-block w-0.5 h-[1.1em] bg-evergreen/60 ml-0.5 align-middle animate-cursor-blink"
+                    className="inline-block w-[0.55em] h-[1.15em] bg-evergreen/70 ml-0.5 align-middle rounded-[1px] animate-cursor-blink"
                     aria-hidden="true"
                   />
                 </div>
