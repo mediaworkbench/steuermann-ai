@@ -245,6 +245,7 @@ export type Messages = {
     responseTime: string;
     inputTokens: string;
     outputTokens: string;
+    tokensPerSecond: string;
     finishReason: string;
     model: string;
     temperature: string;
@@ -751,6 +752,7 @@ export const messages: Record<Locale, Messages> = {
       responseTime: "Response time",
       inputTokens: "Input tokens",
       outputTokens: "Output tokens",
+      tokensPerSecond: "Tokens/sec",
       finishReason: "Finish reason",
       model: "Model",
       temperature: "Temperature",
@@ -1255,6 +1257,7 @@ export const messages: Record<Locale, Messages> = {
       responseTime: "Antwortzeit",
       inputTokens: "Eingabe-Token",
       outputTokens: "Ausgabe-Token",
+      tokensPerSecond: "Token/Sek.",
       finishReason: "Beendigungsgrund",
       model: "Modell",
       temperature: "Temperatur",

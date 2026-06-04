@@ -2,6 +2,26 @@
 
 ## [0.3.7] — context-window-indicator
 
+### Chat — Tokens/sec Metric, Block Cursor & Full-Width Reasoning Bar
+
+- **feat** The expandable per-message metrics panel (`MetricsPanel`) now shows a **Tokens/sec** cell
+  beside Input/Output Tokens — the exact output throughput of that response, computed as
+  `output_tokens ÷ response_time_ms × 1000` and rendered as `<n>/s` (1 decimal, or rounded ≥ 100).
+  Only shown when both values are present. EN (`Tokens/sec`) + DE (`Token/Sek.`) i18n keys added.
+- **fix** The streaming proxy never persisted `response_time_ms` — `_run_persistence()` in
+  `backend/routers/chat.py` saved tokens/model/tools but not the elapsed time, so the column was
+  `NULL` for every message and the new tok/s cell (and any reloaded timing) couldn't be computed.
+  It now persists `response_time_ms=int((time.time() - start_time) * 1000)`. Pre-fix messages have
+  no recorded timing, so tok/s only appears on responses sent after this change.
+- **feat** The live streaming cursor is now a **block** (`▌`-style, ~1 char wide) instead of the thin
+  blinking pipe — wider span + softened corner in `ChatInterface.tsx`, same blink keyframe.
+- **fix** The streaming **reasoning bar** (`ReasoningBox`) now spans the full message-column width from
+  the first token (added `w-full`) instead of shrink-wrapping and growing as reasoning text streamed
+  in — the parent assistant column is a flex `items-start` column, which sized the box to its content.
+- **note** Frontend-only UI + one-line backend persistence fix. `tsc`/lint clean; verified live (E2E)
+  that the tok/s cell renders (`19.4/s` for a 508-token / 26.1 s response). The composer bar was left
+  unchanged (an interim tok/s chip there was removed in favor of the metrics-panel placement).
+
 ### Chat — In-Flight Stream Survives Conversation Switching
 
 - **fix** Switching to another chat while a response was still generating, then returning, **cleared
