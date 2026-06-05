@@ -1,6 +1,30 @@
 # Changelog
 
-## [0.3.7] — context-window-indicator
+## [0.3.7] — more-frontend-improvements
+
+### Chat — Math & Code Rendering
+
+- **feat** Assistant answers now render **LaTeX math** via KaTeX (`remark-math` + `rehype-katex`,
+  `katex.min.css` loaded globally). Inline `$x^2$`, block `$$…$$`, and the LLM-style `\( … \)` /
+  `\[ … \]` delimiters are all supported — previously they showed up as raw text. `rehype-katex` runs
+  with `strict: false` so imperfect model-generated LaTeX renders leniently instead of erroring.
+- **feat** Fenced **code blocks are syntax-highlighted** with `prism-react-renderer` (synchronous, so
+  no flicker as tokens stream in), gaining a language label and a copy button. The Prism theme follows
+  the app theme (`oneLight` / `oneDark` via `useTheme`). The default language bundle covers
+  js/ts/jsx/tsx, python, json, yaml, go, rust, cpp, markdown, graphql, swift, kotlin, objc; other
+  languages (e.g. bash, sql) render as a clean themed-but-untokenized block — no global-`Prism`
+  mutation or SSR hacks (kept deliberately simple).
+- **feat** A production-safe `normalizeMath` preprocessor makes the above safe for a finance/tax
+  assistant: it **protects code spans** (fenced + inline) from any transformation, **escapes
+  currency dollar amounts** (`$5`, `$1,000.50`, `$5K` → `\$…`) *before* math parsing so they stay
+  literal, then normalizes `\(\)`/`\[\]` to `$`/`$$`. Modeled on LibreChat's battle-tested
+  `preprocessLaTeX`. Single-dollar inline math stays enabled because currency is escaped first.
+- **note** `MarkdownMessage` was extracted from the 1300-line `ChatInterface.tsx` into its own
+  component (`components/MarkdownMessage.tsx`), with the pure string preprocessors moved to
+  `lib/markdown.ts` (kept free of ESM-only deps for direct unit testing). A shared
+  `processOutsideCode` splitter ensures neither math nor footnote rewriting ever corrupts code
+  content. 15 new unit tests (`lib/__tests__/markdown.test.ts`); `tsc`/lint clean; full frontend
+  suite (64 tests) passing; production build verified. Frontend-only; no backend/API changes.
 
 ### Admin — RAG Knowledge Explorer (`/admin/rag`)
 

@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
+import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { ReasoningBox } from "./ReasoningBox";
@@ -33,10 +32,6 @@ import type {
   Source,
 } from "@/lib/types";
 
-/**
- * Replace [N] footnote references with clickable markdown links using the sources array.
- * E.g. "[1]" becomes "[<sup>1</sup>](url)" if source 1 has a URL, or bold "[<sup>1</sup>]" for RAG.
- */
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
   { id: "extract_webpage_mcp", label: "Extract Webpage" },
@@ -56,102 +51,6 @@ function formatModelName(model: string | null | undefined, fallback = "Model"): 
   const m = model || fallback;
   const parts = m.split("/");
   return parts.length > 1 ? parts.slice(1).join("/") : m;
-}
-
-function linkFootnotes(text: string, sources?: Source[]): string {
-  if (!sources || sources.length === 0) return text;
-  // Build a map from index (1-based from backend) to source
-  const indexMap = new Map<number, Source>();
-  sources.forEach((s) => {
-    if (s.index) indexMap.set(s.index, s);
-  });
-  // Also fall back to position-based if no index field
-  if (indexMap.size === 0) {
-    sources.forEach((s, i) => indexMap.set(i + 1, s));
-  }
-
-  const SUPERSCRIPT = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
-  const toSup = (n: number) =>
-    String(n).split("").map((d) => SUPERSCRIPT[parseInt(d)]).join("");
-
-  // Match [N], [N, M], [N, M, O] patterns
-  return text.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, nums: string) => {
-    const numbers = nums.split(",").map((n: string) => parseInt(n.trim(), 10));
-    const parts = numbers.map((n) => {
-      const src = indexMap.get(n);
-      if (!src) return `[${n}]`;
-      if (src.url) return `[${toSup(n)}](${src.url})`;
-      return `**[${toSup(n)}]**`;
-    });
-    return parts.join(" ");
-  });
-}
-
-/** Render markdown content with proper styling and footnote linking */
-function MarkdownMessage({ content, sources }: { content: string; sources?: Source[] }) {
-  const processed = useMemo(() => linkFootnotes(content, sources), [content, sources]);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children, ...props }) => (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-pacific-blue underline hover:text-pacific-blue/80 break-all"
-            {...props}
-          >
-            {children}
-          </a>
-        ),
-        p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-        h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-4 first:mt-0">{children}</h1>,
-        h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-        h3: ({ children }) => <h3 className="text-base font-semibold mb-1.5 mt-3 first:mt-0">{children}</h3>,
-        ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
-        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-        code: ({ children, className }) => {
-          const isBlock = className?.includes("language-");
-          if (isBlock) {
-            return (
-              <code className="block bg-evergreen/5 rounded-lg p-3 text-sm font-mono overflow-x-auto my-2 border border-evergreen/10">
-                {children}
-              </code>
-            );
-          }
-          return (
-            <code className="bg-evergreen/5 rounded px-1.5 py-0.5 text-sm font-mono">{children}</code>
-          );
-        },
-        pre: ({ children }) => <pre className="my-2">{children}</pre>,
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-3 border-pacific-blue/40 pl-3 my-2 text-evergreen/70 italic">
-            {children}
-          </blockquote>
-        ),
-        table: ({ children }) => (
-          <div className="overflow-x-auto my-3">
-            <table className="min-w-full text-sm border border-evergreen/10 rounded">{children}</table>
-          </div>
-        ),
-        th: ({ children }) => (
-          <th className="px-3 py-1.5 text-left font-semibold bg-light-cyan/20 border-b border-evergreen/10">
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="px-3 py-1.5 border-b border-evergreen/5">{children}</td>
-        ),
-        hr: () => <hr className="my-4 border-evergreen/10" />,
-      }}
-    >
-      {processed}
-    </ReactMarkdown>
-  );
 }
 
 /** Render source badges below a message — blue for web (clickable), amber for RAG */
