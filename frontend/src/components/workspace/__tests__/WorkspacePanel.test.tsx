@@ -1,7 +1,9 @@
+import type { ReactElement } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
+import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkspaceDocument } from "../types";
 import type { MessageMetrics } from "@/lib/types";
@@ -24,8 +26,12 @@ const baseProps = {
   documents: [],
 };
 
+// WorkspacePanel/DocumentsTab read internal view state from WorkspacePanelContext.
+const renderWithPanel = (ui: ReactElement) => render(<WorkspacePanelProvider>{ui}</WorkspacePanelProvider>);
+
 beforeEach(() => {
   jest.clearAllMocks();
+  localStorage.clear();
   mockUseI18n.mockReturnValue({
     locale: "en",
     setLocale: jest.fn(),
@@ -41,20 +47,20 @@ beforeEach(() => {
 
 describe("WorkspacePanel", () => {
   test("renders the four workspace tabs with Documents active by default", () => {
-    render(<WorkspacePanel {...baseProps} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} />);
     expect(screen.getAllByRole("tab")).toHaveLength(4);
     // Documents tab is active → its empty state shows.
     expect(screen.getByText("workspace.noDocuments")).toBeInTheDocument();
   });
 
   test("switches to the Knowledge evidence tab", () => {
-    render(<WorkspacePanel {...baseProps} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
     expect(screen.getByText("workspace.knowledgeEmpty")).toBeInTheDocument();
   });
 
   test("switches to the Memory and Outputs evidence tabs", () => {
-    render(<WorkspacePanel {...baseProps} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
     expect(screen.getByText("workspace.memoryEmpty")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabOutputs/ }));
@@ -62,13 +68,13 @@ describe("WorkspacePanel", () => {
   });
 
   test("compat wrapper WorkspaceSidebar renders the modular panel", () => {
-    render(<WorkspaceSidebar {...baseProps} />);
+    renderWithPanel(<WorkspaceSidebar {...baseProps} />);
     expect(screen.getAllByRole("tab")).toHaveLength(4);
     expect(screen.getByText("workspace.noDocuments")).toBeInTheDocument();
   });
 
   test("shows the documents count badge and filters by search", () => {
-    render(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md"), doc("2", "beta.txt")]} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md"), doc("2", "beta.txt")]} />);
     expect(screen.getByRole("tab", { name: /workspace\.tabDocuments/ })).toHaveTextContent("2");
     expect(screen.getByText("alpha.md")).toBeInTheDocument();
     expect(screen.getByText("beta.txt")).toBeInTheDocument();
@@ -81,7 +87,7 @@ describe("WorkspacePanel", () => {
   });
 
   test("shows the no-results state when search matches nothing", () => {
-    render(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md")]} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md")]} />);
     fireEvent.change(screen.getByLabelText("workspace.searchDocuments"), {
       target: { value: "zzz" },
     });
@@ -89,13 +95,13 @@ describe("WorkspacePanel", () => {
   });
 
   test("renders the loading state while documents are fetching", () => {
-    render(<WorkspacePanel {...baseProps} documents={[]} documentsLoading />);
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={[]} documentsLoading />);
     expect(screen.getByText("workspace.loadingDocuments")).toBeInTheDocument();
   });
 
   test("renders the error state with a working retry action", () => {
     const onRetryDocuments = jest.fn();
-    render(
+    renderWithPanel(
       <WorkspacePanel
         {...baseProps}
         documents={[]}
@@ -110,7 +116,7 @@ describe("WorkspacePanel", () => {
 
   test("Memory tab shows recalled memories with a count badge", () => {
     const answerMetrics: MessageMetrics = { memories_used: [{ memory_id: "m1", text: "likes tea" }] };
-    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
     expect(screen.getByRole("tab", { name: /workspace\.tabMemory/ })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
     expect(screen.getByText("likes tea")).toBeInTheDocument();
@@ -123,7 +129,7 @@ describe("WorkspacePanel", () => {
         { name: "knowledge_base", status: "success" },
       ],
     };
-    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabOutputs/ }));
     expect(screen.getByText("web_search_mcp")).toBeInTheDocument();
     expect(screen.queryByText("knowledge_base")).not.toBeInTheDocument();
@@ -131,9 +137,21 @@ describe("WorkspacePanel", () => {
 
   test("Knowledge tab shows the RAG retrieval summary", () => {
     const answerMetrics: MessageMetrics = { rag_attempted: true, rag_doc_count: 3 };
-    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
     expect(screen.getByText("workspace.knowledgeRetrieved")).toBeInTheDocument();
+  });
+
+  test("persists the active tab across remounts", () => {
+    const { unmount } = renderWithPanel(<WorkspacePanel {...baseProps} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
+    unmount();
+
+    renderWithPanel(<WorkspacePanel {...baseProps} />);
+    expect(screen.getByRole("tab", { name: /workspace\.tabMemory/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });
 
@@ -154,5 +172,12 @@ describe("EvidenceChips", () => {
     );
     expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
     expect(screen.getByTitle("workspace.evidenceTools")).toBeInTheDocument();
+  });
+
+  test("chips invoke onSelect with the mapped workspace tab", () => {
+    const onSelect = jest.fn();
+    render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} onSelect={onSelect} />);
+    fireEvent.click(screen.getByTitle("workspace.evidenceMemory"));
+    expect(onSelect).toHaveBeenCalledWith("memory");
   });
 });

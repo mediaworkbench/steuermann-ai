@@ -11,7 +11,9 @@ import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
+import type { WorkspaceTabId } from "./workspace/types";
 import { useConversationContext } from "./LayoutShell";
+import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import { useChatSession } from "@/context/ChatSessionContext";
 import { useI18n } from "@/hooks/useI18n";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
@@ -222,6 +224,16 @@ export function ChatInterface() {
     }
     return null;
   }, [messages]);
+
+  // Clicking an evidence chip opens the workspace panel on the matching tab.
+  const { setActiveTab: setWorkspaceTab } = useWorkspacePanel();
+  const handleSelectEvidence = useCallback(
+    (tab: WorkspaceTabId) => {
+      setWorkspaceTab(tab);
+      setWorkspaceSidebarOpen(true);
+    },
+    [setWorkspaceTab, setWorkspaceSidebarOpen],
+  );
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
@@ -668,6 +680,7 @@ export function ChatInterface() {
                   message={msg}
                   index={i}
                   isLatest={i === lastAssistantIndex}
+                  onSelectEvidence={handleSelectEvidence}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
                   loading={loading}
@@ -1152,6 +1165,7 @@ function AssistantMessage({
   message,
   index,
   isLatest = false,
+  onSelectEvidence,
   onRegenerate,
   onFeedback,
   loading,
@@ -1159,6 +1173,7 @@ function AssistantMessage({
   message: Message;
   index: number;
   isLatest?: boolean;
+  onSelectEvidence?: (tab: WorkspaceTabId) => void;
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
@@ -1214,7 +1229,7 @@ function AssistantMessage({
         <DocumentUsedBadges documents={message.metrics?.documents_used} />
 
         {/* Latest-answer evidence summary — glanceable bridge to the workspace tabs */}
-        {isLatest && <EvidenceChips metrics={message.metrics} />}
+        {isLatest && <EvidenceChips metrics={message.metrics} onSelect={onSelectEvidence} />}
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">

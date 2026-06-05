@@ -4,6 +4,13 @@ import { Icon } from "../Icon";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import type { MessageMetrics } from "@/lib/types";
+import type { WorkspaceTabId } from "./types";
+
+interface EvidenceChipsProps {
+  metrics?: MessageMetrics;
+  /** When provided, chips become buttons that open the matching workspace tab. */
+  onSelect?: (tab: WorkspaceTabId) => void;
+}
 
 /**
  * Compact, glanceable evidence summary for a single answer (sources · memory ·
@@ -11,36 +18,52 @@ import type { MessageMetrics } from "@/lib/types";
  * only; the full drill-down lives in the workspace evidence tabs. Returns null
  * when the answer produced no evidence.
  */
-export function EvidenceChips({ metrics }: { metrics?: MessageMetrics }) {
+export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
   const { t } = useI18n();
   const evidence = useAnswerEvidence(metrics);
   if (!evidence.hasEvidence) return null;
 
-  const chips = [
-    { key: "sources", icon: "menu_book", count: evidence.sourceCount, label: t("workspace.evidenceSources") },
-    { key: "memory", icon: "memory", count: evidence.memoryCount, label: t("workspace.evidenceMemory") },
-    { key: "tools", icon: "build", count: evidence.toolCount, label: t("workspace.evidenceTools") },
-    { key: "docs", icon: "folder_open", count: evidence.documentCount, label: t("workspace.evidenceDocs") },
-  ].filter((c) => c.count > 0);
+  const allChips: { key: string; icon: string; count: number; label: string; tab: WorkspaceTabId }[] = [
+    { key: "sources", icon: "menu_book", count: evidence.sourceCount, label: t("workspace.evidenceSources"), tab: "knowledge" },
+    { key: "memory", icon: "memory", count: evidence.memoryCount, label: t("workspace.evidenceMemory"), tab: "memory" },
+    { key: "tools", icon: "build", count: evidence.toolCount, label: t("workspace.evidenceTools"), tab: "outputs" },
+    { key: "docs", icon: "folder_open", count: evidence.documentCount, label: t("workspace.evidenceDocs"), tab: "documents" },
+  ];
+  const chips = allChips.filter((c) => c.count > 0);
 
   if (evidence.mapData) {
-    chips.push({ key: "map", icon: "map", count: 1, label: t("workspace.mapGenerated") });
+    chips.push({ key: "map", icon: "map", count: 1, label: t("workspace.mapGenerated"), tab: "outputs" });
   }
   if (chips.length === 0) return null;
 
+  const baseClass =
+    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-50 text-evergreen/55 border border-gray-200";
+
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 mt-2" aria-label={t("workspace.evidenceSummary")}>
-      {chips.map((c) => (
-        <span
-          key={c.key}
-          title={c.label}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium
-                     bg-gray-50 text-evergreen/55 border border-gray-200"
-        >
-          <Icon name={c.icon} size={12} className="text-evergreen/40" />
-          {c.key === "map" ? c.label : c.count}
-        </span>
-      ))}
+      {chips.map((c) => {
+        const body = (
+          <>
+            <Icon name={c.icon} size={12} className="text-evergreen/40" />
+            {c.key === "map" ? c.label : c.count}
+          </>
+        );
+        return onSelect ? (
+          <button
+            key={c.key}
+            type="button"
+            title={c.label}
+            onClick={() => onSelect(c.tab)}
+            className={`${baseClass} hover:bg-pacific-blue/10 hover:text-pacific-blue hover:border-pacific-blue/20 transition-colors`}
+          >
+            {body}
+          </button>
+        ) : (
+          <span key={c.key} title={c.label} className={baseClass}>
+            {body}
+          </span>
+        );
+      })}
     </div>
   );
 }

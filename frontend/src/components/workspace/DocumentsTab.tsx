@@ -15,6 +15,7 @@ import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useDocumentEditor } from "./useDocumentEditor";
 import { useVersionHistory } from "./useVersionHistory";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 
 interface DocumentsTabProps {
   conversationId?: string | null;
@@ -51,9 +52,10 @@ export function DocumentsTab({
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
-  const [query, setQuery] = useState("");
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Filter text lives in the panel context so it survives tab switches.
+  const { documentQuery: query, setDocumentQuery: setQuery } = useWorkspacePanel();
 
   const filteredDocuments = useMemo(() => {
     const q = query.trim().toLowerCase();

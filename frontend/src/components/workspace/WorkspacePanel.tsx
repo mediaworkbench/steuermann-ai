@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { Icon } from "../Icon";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
+import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
@@ -43,7 +43,7 @@ export function WorkspacePanel({
   answerMetrics = null,
 }: WorkspacePanelProps) {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<WorkspaceTabId>("documents");
+  const { activeTab, setActiveTab } = useWorkspacePanel();
   const evidence = useAnswerEvidence(answerMetrics);
 
   const tabCounts: Record<WorkspaceTabId, number> = {
