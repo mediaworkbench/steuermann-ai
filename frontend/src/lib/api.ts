@@ -798,8 +798,6 @@ export async function runWorkspaceAction(
 
 // ── RAG knowledge explorer (admin) ─────────────────────────────────────────
 
-export type RagSearchMode = "raw" | "production";
-
 export interface RagSearchHit {
   id: string | number | null;
   score: number;
@@ -819,7 +817,6 @@ export interface RagSearchResponse {
   count: number;
   query: string;
   collection: string;
-  mode: RagSearchMode;
   top_k: number;
   production_threshold: number;
 }
@@ -836,7 +833,6 @@ export interface RagCollectionsResponse {
 
 export interface RagSearchParams {
   q: string;
-  mode?: RagSearchMode;
   topK?: number;
   collection?: string;
 }
@@ -844,7 +840,6 @@ export interface RagSearchParams {
 /** Search the RAG knowledge base. Throws with the backend detail on failure. */
 export async function searchRag(params: RagSearchParams): Promise<RagSearchResponse> {
   const search = new URLSearchParams({ q: params.q });
-  if (params.mode) search.set("mode", params.mode);
   if (params.topK != null) search.set("top_k", String(params.topK));
   if (params.collection) search.set("collection", params.collection);
 

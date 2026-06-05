@@ -1,17 +1,14 @@
 """Admin RAG knowledge-base explorer.
 
 Lets an administrator search a Qdrant collection by keyword and review the matching
-chunks (text + file + similarity score) for evaluation. Reuses the same pure RAG
-helpers and embedding provider that the LangGraph ``node_retrieve_knowledge`` node uses,
-so results faithfully reflect production retrieval.
+chunks (text + file + similarity score) for evaluation. Reuses the same embedding
+provider and Qdrant search helper that the LangGraph ``node_retrieve_knowledge`` node
+uses, so scores match production.
 
-Two modes:
-  - ``raw`` (default): a single semantic search returning *all* hits sorted by score,
-    with no threshold cut. Each hit is annotated ``above_cutoff`` relative to the
-    production threshold so borderline chunks stay visible for inspection.
-  - ``production``: replicates the chat's deterministic retrieval — dual keyword search,
-    dedupe-by-file, and the production ``pill_score_threshold`` cut — to show what the
-    chat would actually inject.
+A single semantic search returns *all* hits sorted by score, with no threshold cut.
+Each hit is annotated ``above_cutoff`` relative to the production ``pill_score_threshold``
+so the UI can mark exactly which chunks the chat would actually keep, while borderline
+and below-cutoff chunks stay visible for inspection.
 
 Endpoints are sync ``def`` on purpose: ``search_qdrant`` and ``embedder.encode`` use
 blocking ``httpx``, so FastAPI runs them in its threadpool (matching the other admin
@@ -38,8 +35,6 @@ from universal_agentic_framework.orchestration.helpers.embedding_provider import
     get_routing_embedding_provider,
 )
 from universal_agentic_framework.orchestration.helpers.rag_retrieval import (
-    extract_rag_keyword,
-    filter_and_deduplicate,
     resolve_rag_config,
     search_qdrant,
 )
@@ -103,11 +98,10 @@ def _serialize_hit(hit: dict, production_threshold: float) -> Dict[str, Any]:
 @router.get("/search")
 def search_knowledge_base(
     q: str = Query(..., min_length=1, description="Keyword or phrase to search the knowledge base"),
-    mode: str = Query("raw", pattern="^(raw|production)$"),
     top_k: int = Query(10, ge=1, le=50),
     collection: Optional[str] = Query(None, description="Override the configured collection"),
     score_threshold: Optional[float] = Query(
-        None, ge=0.0, le=1.0, description="Raw-mode floor; default shows all hits"
+        None, ge=0.0, le=1.0, description="Optional score floor; default shows all hits"
     ),
 ) -> Dict[str, Any]:
     """Search the RAG knowledge base and return matching chunks for evaluation."""
@@ -124,58 +118,23 @@ def search_knowledge_base(
 
     embedder, _model = get_routing_embedding_provider(config)
 
-    # Embed up front (query + optional production keyword) so embedding-provider
-    # failures are attributed to the embedder, not mis-reported as a Qdrant error.
+    # Embed up front so embedding-provider failures are attributed to the embedder,
+    # not mis-reported as a Qdrant error.
     try:
         query_vector = embedder.encode(q)
-        keyword = extract_rag_keyword(q) if mode == "production" else None
-        keyword_vector = (
-            embedder.encode(keyword) if keyword and keyword != q.lower() else None
-        )
     except (EmbeddingProviderUnavailableError, httpx.HTTPError) as exc:
         logger.error("RAG explorer: embedding failed", error=str(exc))
         raise HTTPException(status_code=502, detail="Embedding provider unavailable") from exc
 
     try:
-        if mode == "production":
-            # Faithful, deterministic replica of node_retrieve_knowledge: dual keyword
-            # search + dedupe-by-file + threshold cut. (Query *rewriting* is intentionally
-            # excluded — it is LLM-nondeterministic and needs the auxiliary provider.)
-            raw_results = search_qdrant(
-                qdrant_url, coll, query_vector, top_k, True, False,
-                production_threshold, timeout, "admin_production",
-            )
-            if keyword_vector is not None:
-                raw_results = raw_results + search_qdrant(
-                    qdrant_url, coll, keyword_vector, top_k, True, False,
-                    production_threshold, timeout, "admin_production_keyword",
-                )
-            docs = filter_and_deduplicate(raw_results, production_threshold, top_k)
-            # filter_and_deduplicate already drops below-threshold hits → all above cutoff.
-            items = [
-                {
-                    "id": None,
-                    "score": d["score"],
-                    "text": d["text"],
-                    "file_name": d["file_name"],
-                    "file_path": d["file_path"],
-                    "chunk_index": None,
-                    "chunk_count": None,
-                    "detected_language": None,
-                    "language_confidence": None,
-                    "above_cutoff": True,
-                    "metadata": {},
-                }
-                for d in docs
-            ]
-        else:
-            # Raw explorer: show everything, no threshold cut (unless the admin sets a floor).
-            raw_results = search_qdrant(
-                qdrant_url, coll, query_vector, top_k, True, False,
-                score_threshold, timeout, "admin_raw",
-            )
-            items = [_serialize_hit(h, production_threshold) for h in raw_results]
-            items.sort(key=lambda i: i["score"], reverse=True)
+        # Show everything, no threshold cut (unless the admin sets a floor). Each hit is
+        # flagged above/below the production cutoff so the UI can mark what the chat keeps.
+        raw_results = search_qdrant(
+            qdrant_url, coll, query_vector, top_k, True, False,
+            score_threshold, timeout, "admin_search",
+        )
+        items = [_serialize_hit(h, production_threshold) for h in raw_results]
+        items.sort(key=lambda i: i["score"], reverse=True)
 
     except httpx.TimeoutException as exc:
         logger.error("RAG explorer: Qdrant timed out", error=str(exc), collection=coll)
@@ -199,7 +158,6 @@ def search_knowledge_base(
         "count": len(items),
         "query": q,
         "collection": coll,
-        "mode": mode,
         "top_k": top_k,
         "production_threshold": production_threshold,
     }

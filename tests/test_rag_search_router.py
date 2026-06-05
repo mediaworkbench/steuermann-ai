@@ -100,12 +100,11 @@ def _recording_search(hits):
 
 # ── Tests ───────────────────────────────────────────────────────────────────
 
-def test_raw_returns_all_hits_with_cutoff_flags_sorted(monkeypatch):
+def test_returns_all_hits_with_cutoff_flags_sorted(monkeypatch):
     client = _client(monkeypatch, search=_recording_search(_HITS))
-    resp = client.get("/api/rag/search", params={"q": "taxes", "mode": "raw"})
+    resp = client.get("/api/rag/search", params={"q": "taxes"})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["mode"] == "raw"
     assert body["count"] == 3
     scores = [i["score"] for i in body["items"]]
     assert scores == sorted(scores, reverse=True)  # sorted desc
@@ -116,24 +115,18 @@ def test_raw_returns_all_hits_with_cutoff_flags_sorted(monkeypatch):
     assert body["production_threshold"] == 0.72
 
 
-def test_raw_passes_no_threshold_to_qdrant_by_default(monkeypatch):
+def test_passes_no_threshold_to_qdrant_by_default(monkeypatch):
     search = _recording_search(_HITS)
     client = _client(monkeypatch, search=search)
     client.get("/api/rag/search", params={"q": "taxes"})
-    assert search.calls[0]["threshold"] is None  # raw mode shows everything by default
+    assert search.calls[0]["threshold"] is None  # shows everything by default
 
 
-def test_production_dedupes_and_drops_below_cutoff(monkeypatch):
+def test_score_threshold_param_is_forwarded(monkeypatch):
     search = _recording_search(_HITS)
     client = _client(monkeypatch, search=search)
-    resp = client.get("/api/rag/search", params={"q": "taxes", "mode": "production"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["mode"] == "production"
-    # 0.60 hit dropped by the threshold; all remaining are above cutoff.
-    assert body["count"] == 2
-    assert all(i["above_cutoff"] for i in body["items"])
-    assert search.calls[0]["threshold"] == 0.72  # production applies threshold server-side
+    client.get("/api/rag/search", params={"q": "taxes", "score_threshold": "0.5"})
+    assert search.calls[0]["threshold"] == 0.5
 
 
 def test_collection_fallback_to_framework_when_unset(monkeypatch):

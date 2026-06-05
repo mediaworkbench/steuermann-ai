@@ -4,7 +4,6 @@ import { AdminOnly } from "@/components/AdminOnly";
 import { Icon } from "@/components/Icon";
 import { useI18n } from "@/hooks/useI18n";
 import { useRagSearch } from "@/hooks/useRagSearch";
-import type { RagSearchMode } from "@/lib/api";
 import styles from "../../settings/Settings.module.css";
 import { RagResultCard } from "./RagResultCard";
 
@@ -13,8 +12,6 @@ export default function RagExplorerPage() {
   const {
     query,
     setQuery,
-    mode,
-    setMode,
     topK,
     setTopK,
     collection,
@@ -27,10 +24,9 @@ export default function RagExplorerPage() {
   } = useRagSearch();
 
   const items = result?.items ?? [];
-  // Results are sorted desc by score, so above-cutoff hits come first. In raw mode we
-  // draw a divider before the first below-cutoff hit to mark the production threshold.
-  const firstBelowIdx =
-    result?.mode === "raw" ? items.findIndex((h) => !h.above_cutoff) : -1;
+  // Results are sorted desc by score, so above-cutoff hits come first. Draw a divider
+  // before the first below-cutoff hit to mark the production threshold.
+  const firstBelowIdx = items.findIndex((h) => !h.above_cutoff);
 
   return (
     <main className={styles.main}>
@@ -84,34 +80,6 @@ export default function RagExplorerPage() {
           </div>
 
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3 text-sm">
-            {/* Mode toggle */}
-            <div>
-              <span className="block text-xs font-medium text-evergreen/60 mb-1">
-                {t("ragExplorer.mode")}
-              </span>
-              <div className="inline-flex rounded-lg border border-evergreen/20 overflow-hidden">
-                {(["raw", "production"] as RagSearchMode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMode(m)}
-                    title={
-                      m === "raw"
-                        ? t("ragExplorer.modeRawHint")
-                        : t("ragExplorer.modeProductionHint")
-                    }
-                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                      mode === m
-                        ? "bg-evergreen text-light-cyan"
-                        : "bg-white text-evergreen/70 hover:bg-evergreen/5"
-                    }`}
-                  >
-                    {m === "raw" ? t("ragExplorer.modeRaw") : t("ragExplorer.modeProduction")}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Collection */}
             <label className="flex flex-col">
               <span className="text-xs font-medium text-evergreen/60 mb-1">

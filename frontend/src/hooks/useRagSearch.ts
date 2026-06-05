@@ -5,7 +5,6 @@ import {
   fetchRagCollections,
   searchRag,
   type RagCollection,
-  type RagSearchMode,
   type RagSearchResponse,
 } from "@/lib/api";
 
@@ -22,7 +21,6 @@ const DEFAULT_TOP_K = 10;
  */
 export function useRagSearch() {
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<RagSearchMode>("raw");
   const [topK, setTopK] = useState(DEFAULT_TOP_K);
   const [collection, setCollection] = useState<string>("");
 
@@ -53,12 +51,7 @@ export function useRagSearch() {
     setLoading(true);
     setError(null);
     try {
-      const data = await searchRag({
-        q,
-        mode,
-        topK,
-        collection: collection || undefined,
-      });
+      const data = await searchRag({ q, topK, collection: collection || undefined });
       if (seq !== seqRef.current) return; // superseded by a newer search
       setResult(data);
     } catch (err) {
@@ -68,14 +61,12 @@ export function useRagSearch() {
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
-  }, [query, mode, topK, collection]);
+  }, [query, topK, collection]);
 
   return {
     // inputs
     query,
     setQuery,
-    mode,
-    setMode,
     topK,
     setTopK,
     collection,

@@ -43,11 +43,6 @@ export type Messages = {
     searchPlaceholder: string;
     search: string;
     searching: string;
-    mode: string;
-    modeRaw: string;
-    modeProduction: string;
-    modeRawHint: string;
-    modeProductionHint: string;
     collection: string;
     topK: string;
     resultsSummary: string;
@@ -576,11 +571,6 @@ export const messages: Record<Locale, Messages> = {
       searchPlaceholder: "Search the knowledge base…",
       search: "Search",
       searching: "Searching…",
-      mode: "Mode",
-      modeRaw: "Raw",
-      modeProduction: "Production",
-      modeRawHint: "All hits, sorted by score — inspect index and chunk quality.",
-      modeProductionHint: "What the chat actually retrieves (deduplicated, thresholded).",
       collection: "Collection",
       topK: "Results",
       resultsSummary: "{count} result(s) in \"{collection}\"",
@@ -1108,11 +1098,6 @@ export const messages: Record<Locale, Messages> = {
       searchPlaceholder: "Wissensbasis durchsuchen…",
       search: "Suchen",
       searching: "Suche läuft…",
-      mode: "Modus",
-      modeRaw: "Roh",
-      modeProduction: "Produktiv",
-      modeRawHint: "Alle Treffer, nach Score sortiert — Index- und Chunk-Qualität prüfen.",
-      modeProductionHint: "Was der Chat tatsächlich abruft (dedupliziert, mit Schwellenwert).",
       collection: "Sammlung",
       topK: "Treffer",
       resultsSummary: "{count} Treffer in \"{collection}\"",
