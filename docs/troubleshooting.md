@@ -128,6 +128,12 @@ docker compose logs langgraph | grep -i "retrieve_knowledge\|rag\|qdrant\|score_
 docker compose logs qdrant
 ```
 
+As an admin, the fastest interactive check is the **RAG knowledge explorer** at `/admin/rag`:
+search your keyword and see whether the expected chunks come back, at what score, and whether they
+fall above or below the production cutoff line. No matches points to a collection mismatch or
+missing ingestion; matches that all sit *below* the cutoff points to a `score_threshold` that is
+too high (or a since-changed embedding model).
+
 **Common causes:**
 
 | Cause | Fix |

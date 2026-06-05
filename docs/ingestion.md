@@ -706,6 +706,12 @@ curl http://localhost:6333/collections/my-knowledge
 }
 ```
 
+To inspect a collection's **content** (not just its size), administrators can use the RAG
+knowledge explorer in the frontend at `/admin/rag`: search by keyword and review the matching
+chunks with their similarity scores, against a marker for the production retrieval cutoff. This is
+the quickest way to confirm that documents were chunked and embedded as expected and that relevant
+content scores above the threshold the chat actually uses.
+
 ### Deleting Collection
 
 ```bash

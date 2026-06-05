@@ -86,6 +86,8 @@ See [docs/technical_architecture.md](docs/technical_architecture.md) for memory 
 
 Drop documents into a watched directory and they are automatically chunked, embedded, and indexed into Qdrant. The ingestion service handles incremental updates, file deletions, and startup sweeps — no manual re-indexing needed. RAG retrieval is skipped automatically for queries where it adds no value.
 
+Administrators can inspect what was indexed from the **RAG knowledge explorer** at `/admin/rag`: search a collection by keyword and review the matching chunks with their similarity scores, against a visible marker for the production retrieval cutoff — useful for evaluating chunking, embedding, and threshold tuning.
+
 See [docs/ingestion.md](docs/ingestion.md) for ingestion configuration and CLI reference.
 
 ### Tool Runtime & MCP Integration
