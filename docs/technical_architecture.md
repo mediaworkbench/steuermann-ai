@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.3.0` in `pyproject.toml`.
+- The package metadata currently reports version `0.3.7` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
@@ -201,7 +201,7 @@ class GraphState(TypedDict, total=False):
     memory_analytics: Dict[str, Any]         # Importance scores, related count
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
     rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
-    rag_doc_count: int   # Docs above score_threshold injected into prompt
+    rag_doc_count: int   # Docs above pill_score_threshold injected into prompt
 
     # Tools
     loaded_tools: Annotated[List[Any], UntrackedValue(list)]              # BaseTool instances — not checkpointed
@@ -285,7 +285,7 @@ User Request (Next.js)
   │    │
   │    ├──> memory_query_cache  (Redis cache probe for memory)
   │    ├──> load_memory
-  │    ├──> retrieve_knowledge  (RAG, score_threshold: 0.6)
+  │    ├──> retrieve_knowledge  (RAG, pill_score_threshold: 0.72)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
@@ -525,7 +525,10 @@ If prior memory conflicts with current-turn tool outputs, tool outputs take prec
 
 ### 6.4 Qdrant Collection Strategy
 
-**Naming convention:** `{profile_id}_{type}_{language}` (e.g., `medical-ai-de_memory_de`)
+**Naming convention:** Memory and RAG use separate collections, named independently — there is no `_{language}` suffix.
+
+- **Memory collection:** `{collection_prefix}_memory`, where `collection_prefix` defaults to `$PROFILE_ID` (`config/core.yaml` → `memory.vector_store.collection_prefix`). For profile `starter` this is `starter_memory` (built in `memory/mem0_backend.py`).
+- **RAG collection:** named explicitly via `rag.collection_name` in the profile overlay (starter uses `framework`); it must match the collection used during ingestion.
 
 Advanced memory behavior is integrated into this architecture: semantic similarity retrieval, recency-aware ranking, frequency-aware prioritization, and cross-session linking through metadata and retrieval patterns.
 

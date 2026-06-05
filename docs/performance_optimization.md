@@ -57,7 +57,7 @@ Review these settings first when the system feels slow:
 # config/profiles/<profile_id>/core.yaml
 rag:
   top_k: 5
-  score_threshold: 0.6
+  pill_score_threshold: 0.72
 
 tokens:
   default_budget: 10000    # tracked for observability, not enforced
@@ -81,7 +81,7 @@ REDIS_URL=redis://redis:6379/0
 
 1. Confirm Redis, Qdrant, and the LLM endpoint are healthy.
 2. Check `/metrics` before changing config so you know whether latency comes from LLM calls, retrieval, or cache misses.
-3. Tune retrieval breadth (`rag.top_k`, `score_threshold`) and compression thresholds.
+3. Tune retrieval breadth (`rag.top_k`, `rag.pill_score_threshold`) and compression thresholds.
 4. Tune cache TTLs and eviction behavior.
 5. Re-test with the same workload slice.
 

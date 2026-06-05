@@ -31,7 +31,6 @@ For core execution architecture (LangGraph graph, memory, LLM integration, tool 
 │                          │  Document Parser │       │
 │                          │  - PDF           │       │
 │                          │  - DOCX          │       │
-│                          │  - CSV/Excel     │       │
 │                          │  - Markdown      │       │
 │                          │  - Text (.txt)   │       │
 │                          └────────┬─────────┘       │
@@ -49,8 +48,8 @@ For core execution architecture (LangGraph graph, memory, LLM integration, tool 
 │                                   │                  │
 │                          ┌────────▼─────────┐       │
 │                          │  Embedder        │       │
-│                          │  sentence-       │       │
-│                          │  transformers    │       │
+│                          │  Remote OpenAI-  │       │
+│                          │  compat endpoint │       │
 │                          └────────┬─────────┘       │
 │                                   │                  │
 │                          ┌────────▼─────────┐       │
@@ -223,7 +222,7 @@ The production stack separates concerns across three containers:
 
 ### **2.2 Chat Interface**
 
-The frontend provides 6 pages, 17 components, and 5 hooks — all fully wired to backend APIs.
+The frontend's pages, reusable components, and data hooks are all wired to backend APIs.
 
 **Pages:**
 
@@ -234,6 +233,7 @@ The frontend provides 6 pages, 17 components, and 5 hooks — all fully wired to
 | `/memories` | Personal memory management | user | `/api/memories/*` |
 | `/settings` | Personal preferences: language, sound, tools, RAG on/off + top-K, chat model | user | `/api/settings/*`, `/api/models`, `/api/system-config` |
 | `/admin` | LLM diagnostics, RAG collection/threshold, system model roles, re-ingest, danger zone | **administrator** | `/api/settings/*`, `/api/llm/*`, `/api/ingestion/*`, `/api/admin/*` |
+| `/admin/rag` | RAG knowledge explorer — keyword search over the knowledge base with a production-cutoff marker | **administrator** | `/api/rag/search`, `/api/rag/collections` |
 | `/metrics` | Real-time system metrics and historical analytics trends | **administrator** | `/api/metrics`, `/api/analytics/*` |
 
 **Key Hooks:**
@@ -367,7 +367,7 @@ export function PatientPanel({ patientId }: { patientId: string }) {
 
 **Key metrics** (Prometheus):
 
-- `langgraph_requests_total` — Request count by profile/status (label key is legacy `fork_name`)
+- `langgraph_requests_total` — Request count by profile/status (label key is `profile_name`, value = active `PROFILE_ID`)
 - `langgraph_tokens_used_total` — Token consumption by model/node
 - `langgraph_request_duration_seconds` — Request latency
 - `langgraph_active_sessions` — Concurrent sessions
