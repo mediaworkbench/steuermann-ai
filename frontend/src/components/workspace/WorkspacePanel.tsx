@@ -36,6 +36,9 @@ export function WorkspacePanel({
   onAttachmentUploaded,
   writebackSavedDocId,
   onActiveDocumentChange,
+  documentsLoading = false,
+  documentsError = null,
+  onRetryDocuments,
 }: WorkspacePanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>("documents");
@@ -71,41 +74,59 @@ export function WorkspacePanel({
                      ${isOpen ? "translate-x-0" : "translate-x-full md:translate-x-0 md:border-l-0"}`}
       >
         {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <Icon name="folder_open" size={20} className="text-pacific-blue" />
-            <h3 className="font-semibold text-sm text-evergreen">{t("chat.workspace")}</h3>
+        <div className="px-3 py-2.5 border-b border-gray-200/80 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="grid place-items-center w-7 h-7 rounded-lg bg-pacific-blue/10 text-pacific-blue shrink-0">
+              <Icon name="folder_open" size={16} />
+            </span>
+            <h3 className="font-semibold text-sm text-evergreen tracking-tight truncate">
+              {t("chat.workspace")}
+            </h3>
           </div>
           <button
             onClick={onToggle}
-            className="md:hidden p-1 hover:bg-gray-100 rounded text-evergreen/60"
+            className="md:hidden p-1.5 hover:bg-gray-100 rounded-lg text-evergreen/60"
             aria-label={t("workspace.closeSidebar")}
           >
             <Icon name="close" size={18} />
           </button>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — icon-forward segmented control; the active tab reveals its
+            label so even long localized labels fit the narrow panel. */}
         <div
           role="tablist"
           aria-label={t("chat.workspace")}
-          className="flex items-stretch gap-0.5 px-1.5 border-b border-gray-200 shrink-0 overflow-x-auto"
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200/80 shrink-0"
         >
           {TABS.map((tab) => {
             const active = activeTab === tab.id;
+            const label = t(tab.labelKey);
+            const showCount = tab.id === "documents" && documents.length > 0;
             return (
               <button
                 key={tab.id}
                 role="tab"
                 aria-selected={active}
+                aria-label={label}
+                title={label}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors -mb-px
+                className={`group flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
                   ${active
-                    ? "border-pacific-blue text-pacific-blue"
-                    : "border-transparent text-evergreen/50 hover:text-evergreen hover:border-gray-200"}`}
+                    ? "bg-pacific-blue/10 text-pacific-blue px-2.5 py-1.5"
+                    : "text-evergreen/45 hover:text-evergreen hover:bg-gray-100 p-1.5"}`}
               >
-                <Icon name={tab.icon} size={15} />
-                <span>{t(tab.labelKey)}</span>
+                <Icon name={tab.icon} size={16} />
+                {active && <span className="whitespace-nowrap">{label}</span>}
+                {showCount && (
+                  <span
+                    className={`rounded-full px-1.5 text-[10px] leading-4 ${
+                      active ? "bg-pacific-blue/15" : "bg-gray-200 text-evergreen/50"
+                    }`}
+                  >
+                    {documents.length}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -124,6 +145,9 @@ export function WorkspacePanel({
               onAttachmentUploaded={onAttachmentUploaded}
               writebackSavedDocId={writebackSavedDocId}
               onActiveDocumentChange={onActiveDocumentChange}
+              documentsLoading={documentsLoading}
+              documentsError={documentsError}
+              onRetryDocuments={onRetryDocuments}
             />
           </div>
           {activeTab === "knowledge" && <KnowledgeTab />}

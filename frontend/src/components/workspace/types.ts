@@ -36,4 +36,10 @@ export interface WorkspacePanelProps {
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
   writebackSavedDocId?: string | null;
   onActiveDocumentChange?: (docId: string | null) => void;
+  /** True while the document list is being (re)fetched by the parent. */
+  documentsLoading?: boolean;
+  /** Non-null when the last document-list fetch failed (message for display). */
+  documentsError?: string | null;
+  /** Retry handler for a failed document-list fetch. */
+  onRetryDocuments?: () => void;
 }

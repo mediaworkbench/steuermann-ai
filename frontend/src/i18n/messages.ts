@@ -349,6 +349,13 @@ export type Messages = {
     knowledgeEmpty: string;
     memoryEmpty: string;
     outputsEmpty: string;
+    searchDocuments: string;
+    clearSearch: string;
+    noResults: string;
+    noResultsHint: string;
+    loadingDocuments: string;
+    documentsLoadError: string;
+    retry: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -885,6 +892,13 @@ export const messages: Record<Locale, Messages> = {
       knowledgeEmpty: "Knowledge sources used in answers will appear here.",
       memoryEmpty: "Memories recalled for answers will appear here.",
       outputsEmpty: "Tool and generation outputs will appear here.",
+      searchDocuments: "Search documents",
+      clearSearch: "Clear search",
+      noResults: "No matching documents",
+      noResultsHint: "Try a different search term.",
+      loadingDocuments: "Loading documents…",
+      documentsLoadError: "Couldn't load documents",
+      retry: "Retry",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1419,6 +1433,13 @@ export const messages: Record<Locale, Messages> = {
       knowledgeEmpty: "Hier erscheinen die in Antworten genutzten Wissensquellen.",
       memoryEmpty: "Hier erscheinen die für Antworten abgerufenen Erinnerungen.",
       outputsEmpty: "Hier erscheinen Tool- und Generierungsausgaben.",
+      searchDocuments: "Dokumente suchen",
+      clearSearch: "Suche löschen",
+      noResults: "Keine passenden Dokumente",
+      noResultsHint: "Versuche einen anderen Suchbegriff.",
+      loadingDocuments: "Dokumente werden geladen…",
+      documentsLoadError: "Dokumente konnten nicht geladen werden",
+      retry: "Erneut versuchen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

@@ -152,6 +152,8 @@ export function ChatInterface() {
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
@@ -204,6 +206,8 @@ export function ChatInterface() {
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
+    setDocumentsLoading(true);
+    setDocumentsError(null);
     try {
       const response = await fetch("/api/proxy/api/workspace/documents", {
         method: "GET",
@@ -220,8 +224,11 @@ export function ChatInterface() {
       const data = await response.json();
       setDocuments(data.documents || []);
     } catch (err) {
-      // Silently fail - documents are optional
+      // Documents are optional; surface the failure in the panel rather than crash.
       console.warn("Failed to load workspace documents:", err);
+      setDocumentsError(err instanceof Error ? err.message : "Failed to load documents");
+    } finally {
+      setDocumentsLoading(false);
     }
   }, []);
 
@@ -1097,6 +1104,9 @@ export function ChatInterface() {
         documents={documents}
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
+        onRetryDocuments={fetchWorkspaceDocuments}
+        documentsLoading={documentsLoading}
+        documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Icon } from "../Icon";
@@ -14,6 +14,7 @@ import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useDocumentEditor } from "./useDocumentEditor";
 import { useVersionHistory } from "./useVersionHistory";
+import { WorkspaceTabState } from "./WorkspaceTabState";
 
 interface DocumentsTabProps {
   conversationId?: string | null;
@@ -24,6 +25,9 @@ interface DocumentsTabProps {
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
   writebackSavedDocId?: string | null;
   onActiveDocumentChange?: (docId: string | null) => void;
+  documentsLoading?: boolean;
+  documentsError?: string | null;
+  onRetryDocuments?: () => void;
 }
 
 export function DocumentsTab({
@@ -35,6 +39,9 @@ export function DocumentsTab({
   onAttachmentUploaded,
   writebackSavedDocId,
   onActiveDocumentChange,
+  documentsLoading = false,
+  documentsError = null,
+  onRetryDocuments,
 }: DocumentsTabProps) {
   const { t } = useI18n();
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
@@ -44,8 +51,15 @@ export function DocumentsTab({
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
+  const [query, setQuery] = useState("");
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredDocuments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return documents;
+    return documents.filter((d) => d.filename.toLowerCase().includes(q));
+  }, [documents, query]);
 
   const {
     editorDocId,
@@ -294,14 +308,52 @@ export function DocumentsTab({
         </div>
       </div>
 
+      {/* Search / filter */}
+      {documents.length > 0 && (
+        <div className="px-3 pt-3">
+          <div className="relative">
+            <Icon
+              name="search"
+              size={15}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-evergreen/40 pointer-events-none"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("workspace.searchDocuments")}
+              aria-label={t("workspace.searchDocuments")}
+              className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 bg-gray-50 text-evergreen placeholder:text-evergreen/40 focus:bg-white focus:border-pacific-blue focus:outline-none transition-colors"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-evergreen/40 hover:text-evergreen"
+                aria-label={t("workspace.clearSearch")}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Documents section */}
       {documents.length > 0 && (
         <div className="px-3 py-3 border-b border-gray-100">
           <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide mb-2 px-1">
             {t("workspace.myDocuments", { count: documents.length })}
           </p>
+          {filteredDocuments.length === 0 ? (
+            <WorkspaceTabState
+              icon="search_off"
+              title={t("workspace.noResults")}
+              hint={t("workspace.noResultsHint")}
+            />
+          ) : (
           <div className="space-y-1.5">
-            {documents.map((doc) => (
+            {filteredDocuments.map((doc) => (
               <div
                 key={doc.id}
                 className="rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
@@ -481,6 +533,7 @@ export function DocumentsTab({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
@@ -604,14 +657,31 @@ export function DocumentsTab({
         </div>
       )}
 
-      {/* Empty state */}
-      {documents.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
-          <Icon name="folder_open" size={32} className="text-evergreen/20 mb-2" />
-          <p className="text-xs font-medium text-evergreen/50 mb-1">{t("workspace.noDocuments")}</p>
-          <p className="text-xs text-evergreen/40">{t("workspace.uploadToGetStarted")}</p>
-        </div>
-      )}
+      {/* Empty / loading / error state (only when there is nothing to list) */}
+      {documents.length === 0 &&
+        (documentsError ? (
+          <WorkspaceTabState
+            tone="error"
+            icon="error"
+            title={t("workspace.documentsLoadError")}
+            hint={documentsError}
+            action={
+              onRetryDocuments ? { label: t("workspace.retry"), onClick: onRetryDocuments } : undefined
+            }
+          />
+        ) : documentsLoading ? (
+          <WorkspaceTabState
+            tone="loading"
+            icon="folder_open"
+            title={t("workspace.loadingDocuments")}
+          />
+        ) : (
+          <WorkspaceTabState
+            icon="folder_open"
+            title={t("workspace.noDocuments")}
+            hint={t("workspace.uploadToGetStarted")}
+          />
+        ))}
 
       {/* Image lightbox — portaled to body so it is not confined by the panel's
           translate transform (which would clip a position: fixed overlay). */}
