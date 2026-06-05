@@ -342,6 +342,13 @@ export type Messages = {
     nukeSuccess: string;
     nukeFailed: string;
     thumbnailClickHint: string;
+    tabDocuments: string;
+    tabKnowledge: string;
+    tabMemory: string;
+    tabOutputs: string;
+    knowledgeEmpty: string;
+    memoryEmpty: string;
+    outputsEmpty: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -871,6 +878,13 @@ export const messages: Record<Locale, Messages> = {
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
       thumbnailClickHint: "Click to preview",
+      tabDocuments: "Documents",
+      tabKnowledge: "Knowledge",
+      tabMemory: "Memory",
+      tabOutputs: "Outputs",
+      knowledgeEmpty: "Knowledge sources used in answers will appear here.",
+      memoryEmpty: "Memories recalled for answers will appear here.",
+      outputsEmpty: "Tool and generation outputs will appear here.",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1398,6 +1412,13 @@ export const messages: Record<Locale, Messages> = {
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
       thumbnailClickHint: "Klicken zum Vergrößern",
+      tabDocuments: "Dokumente",
+      tabKnowledge: "Wissen",
+      tabMemory: "Erinnerungen",
+      tabOutputs: "Ausgaben",
+      knowledgeEmpty: "Hier erscheinen die in Antworten genutzten Wissensquellen.",
+      memoryEmpty: "Hier erscheinen die für Antworten abgerufenen Erinnerungen.",
+      outputsEmpty: "Hier erscheinen Tool- und Generierungsausgaben.",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",
