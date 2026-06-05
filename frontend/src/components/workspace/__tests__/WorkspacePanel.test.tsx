@@ -1,8 +1,10 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
+import { EvidenceChips } from "../EvidenceChips";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkspaceDocument } from "../types";
+import type { MessageMetrics } from "@/lib/types";
 
 jest.mock("@/hooks/useI18n");
 
@@ -104,5 +106,53 @@ describe("WorkspacePanel", () => {
     expect(screen.getByText("workspace.documentsLoadError")).toBeInTheDocument();
     fireEvent.click(screen.getByText("workspace.retry"));
     expect(onRetryDocuments).toHaveBeenCalledTimes(1);
+  });
+
+  test("Memory tab shows recalled memories with a count badge", () => {
+    const answerMetrics: MessageMetrics = { memories_used: [{ memory_id: "m1", text: "likes tea" }] };
+    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    expect(screen.getByRole("tab", { name: /workspace\.tabMemory/ })).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
+    expect(screen.getByText("likes tea")).toBeInTheDocument();
+  });
+
+  test("Outputs tab lists executed tools, excluding the knowledge_base pseudo-tool", () => {
+    const answerMetrics: MessageMetrics = {
+      tools_executed: [
+        { name: "web_search_mcp", status: "success" },
+        { name: "knowledge_base", status: "success" },
+      ],
+    };
+    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabOutputs/ }));
+    expect(screen.getByText("web_search_mcp")).toBeInTheDocument();
+    expect(screen.queryByText("knowledge_base")).not.toBeInTheDocument();
+  });
+
+  test("Knowledge tab shows the RAG retrieval summary", () => {
+    const answerMetrics: MessageMetrics = { rag_attempted: true, rag_doc_count: 3 };
+    render(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.knowledgeRetrieved")).toBeInTheDocument();
+  });
+});
+
+describe("EvidenceChips", () => {
+  test("renders nothing when the answer produced no evidence", () => {
+    const { container } = render(<EvidenceChips metrics={undefined} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  test("renders a chip per evidence dimension present", () => {
+    render(
+      <EvidenceChips
+        metrics={{
+          memories_used: [{ memory_id: "m1" }],
+          tools_executed: [{ name: "web_search_mcp", status: "success" }],
+        }}
+      />,
+    );
+    expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
+    expect(screen.getByTitle("workspace.evidenceTools")).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "../Icon";
 import { useI18n } from "@/hooks/useI18n";
+import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
@@ -39,9 +40,18 @@ export function WorkspacePanel({
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
+  answerMetrics = null,
 }: WorkspacePanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>("documents");
+  const evidence = useAnswerEvidence(answerMetrics);
+
+  const tabCounts: Record<WorkspaceTabId, number> = {
+    documents: documents.length,
+    knowledge: evidence.sourceCount,
+    memory: evidence.memoryCount,
+    outputs: evidence.toolCount + (evidence.mapData ? 1 : 0),
+  };
 
   return (
     <>
@@ -102,7 +112,8 @@ export function WorkspacePanel({
           {TABS.map((tab) => {
             const active = activeTab === tab.id;
             const label = t(tab.labelKey);
-            const showCount = tab.id === "documents" && documents.length > 0;
+            const count = tabCounts[tab.id];
+            const showCount = count > 0;
             return (
               <button
                 key={tab.id}
@@ -124,7 +135,7 @@ export function WorkspacePanel({
                       active ? "bg-pacific-blue/15" : "bg-gray-200 text-evergreen/50"
                     }`}
                   >
-                    {documents.length}
+                    {count}
                   </span>
                 )}
               </button>
@@ -150,9 +161,9 @@ export function WorkspacePanel({
               onRetryDocuments={onRetryDocuments}
             />
           </div>
-          {activeTab === "knowledge" && <KnowledgeTab />}
-          {activeTab === "memory" && <MemoryTab />}
-          {activeTab === "outputs" && <OutputsTab />}
+          {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}
+          {activeTab === "memory" && <MemoryTab evidence={evidence} />}
+          {activeTab === "outputs" && <OutputsTab evidence={evidence} />}
         </div>
       </div>
     </>

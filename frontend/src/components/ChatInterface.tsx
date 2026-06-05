@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { Icon } from "./Icon";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -10,6 +10,7 @@ import { ReasoningBox } from "./ReasoningBox";
 import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
+import { EvidenceChips } from "./workspace/EvidenceChips";
 import { useConversationContext } from "./LayoutShell";
 import { useChatSession } from "@/context/ChatSessionContext";
 import { useI18n } from "@/hooks/useI18n";
@@ -29,6 +30,7 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
   Message,
+  MessageMetrics,
   Source,
 } from "@/lib/types";
 
@@ -203,6 +205,23 @@ export function ChatInterface() {
 
   const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
+
+  // Latest assistant answer in the active conversation. Sourced from the
+  // messages array (already active-scoped), so the evidence tabs and the
+  // latest-answer chips cannot bleed from a backgrounded stream.
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return i;
+    }
+    return -1;
+  }, [messages]);
+  const latestAnswerMetrics = useMemo<MessageMetrics | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.metrics) return m.metrics;
+    }
+    return null;
+  }, [messages]);
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
@@ -648,6 +667,7 @@ export function ChatInterface() {
                   key={i}
                   message={msg}
                   index={i}
+                  isLatest={i === lastAssistantIndex}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
                   loading={loading}
@@ -1110,6 +1130,7 @@ export function ChatInterface() {
         onEnsureConversation={() => ensureConversation()}
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
+        answerMetrics={latestAnswerMetrics}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
@@ -1130,12 +1151,14 @@ export function ChatInterface() {
 function AssistantMessage({
   message,
   index,
+  isLatest = false,
   onRegenerate,
   onFeedback,
   loading,
 }: {
   message: Message;
   index: number;
+  isLatest?: boolean;
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
@@ -1189,6 +1212,9 @@ function AssistantMessage({
 
         {/* Workspace document context badges */}
         <DocumentUsedBadges documents={message.metrics?.documents_used} />
+
+        {/* Latest-answer evidence summary — glanceable bridge to the workspace tabs */}
+        {isLatest && <EvidenceChips metrics={message.metrics} />}
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">

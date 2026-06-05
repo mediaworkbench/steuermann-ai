@@ -356,6 +356,17 @@ export type Messages = {
     loadingDocuments: string;
     documentsLoadError: string;
     retry: string;
+    evidenceSummary: string;
+    evidenceDocs: string;
+    evidenceMemory: string;
+    evidenceTools: string;
+    evidenceSources: string;
+    knowledgeRetrieved: string;
+    knowledgeNoResults: string;
+    sourcesHeading: string;
+    mapGenerated: string;
+    metaScore: string;
+    metaRated: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -899,6 +910,17 @@ export const messages: Record<Locale, Messages> = {
       loadingDocuments: "Loading documents…",
       documentsLoadError: "Couldn't load documents",
       retry: "Retry",
+      evidenceSummary: "Answer evidence",
+      evidenceDocs: "Documents used",
+      evidenceMemory: "Memories recalled",
+      evidenceTools: "Tools used",
+      evidenceSources: "Sources",
+      knowledgeRetrieved: "{count} document(s) retrieved",
+      knowledgeNoResults: "Searched · no relevant results",
+      sourcesHeading: "Sources",
+      mapGenerated: "Map output",
+      metaScore: "score {score}",
+      metaRated: "rated {rating}/5",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1440,6 +1462,17 @@ export const messages: Record<Locale, Messages> = {
       loadingDocuments: "Dokumente werden geladen…",
       documentsLoadError: "Dokumente konnten nicht geladen werden",
       retry: "Erneut versuchen",
+      evidenceSummary: "Antwort-Belege",
+      evidenceDocs: "Verwendete Dokumente",
+      evidenceMemory: "Abgerufene Erinnerungen",
+      evidenceTools: "Verwendete Tools",
+      evidenceSources: "Quellen",
+      knowledgeRetrieved: "{count} Dokument(e) abgerufen",
+      knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
+      sourcesHeading: "Quellen",
+      mapGenerated: "Kartenausgabe",
+      metaScore: "Score {score}",
+      metaRated: "Bewertung {rating}/5",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

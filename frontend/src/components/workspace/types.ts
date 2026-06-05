@@ -1,4 +1,4 @@
-import type { ConversationAttachment } from "@/lib/types";
+import type { ConversationAttachment, MessageMetrics } from "@/lib/types";
 
 export interface VersionEntry {
   id: string;
@@ -42,4 +42,10 @@ export interface WorkspacePanelProps {
   documentsError?: string | null;
   /** Retry handler for a failed document-list fetch. */
   onRetryDocuments?: () => void;
+  /**
+   * Metrics of the latest assistant answer in the active conversation. Drives
+   * the read-only evidence tabs (Knowledge/Memory/Outputs). Null when there is
+   * no answer yet. Already active-conversation-scoped by the caller.
+   */
+  answerMetrics?: MessageMetrics | null;
 }
