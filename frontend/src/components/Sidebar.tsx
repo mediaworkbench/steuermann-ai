@@ -4,15 +4,11 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "./Icon";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { searchConversations } from "@/lib/api";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
-import {
-  CURRENT_USER_ID,
-  SINGLE_USER_DISPLAY_NAME,
-} from "@/lib/runtime";
+import { SINGLE_USER_DISPLAY_NAME } from "@/lib/runtime";
 import { useRole } from "@/context/RoleContext";
-import type { Conversation, SearchResult } from "@/lib/types";
+import type { Conversation } from "@/lib/types";
 
 /* ── Props ────────────────────────────────────────────────────────────── */
 
@@ -26,13 +22,13 @@ interface SidebarProps {
   onDelete?: (id: string) => Promise<boolean>;
   onPin?: (id: string, pinned: boolean) => void;
   onRename?: (id: string, title: string) => Promise<Conversation | null>;
-  onArchive?: (id: string, archived: boolean) => void;
   onExport?: (id: string, format: "json" | "markdown") => void;
-  onBulkDelete?: (ids: string[]) => Promise<void>;
-  onBulkArchive?: (ids: string[]) => Promise<void>;
-  showArchived?: boolean;
-  onToggleArchived?: () => void;
 }
+
+// The sidebar is a lean quick-access list: all pinned conversations plus the
+// 5 most-recent unpinned ones. Search and multi-select bulk management live on
+// the dedicated /chats page (reachable via the "See all chats" link below).
+const RECENT_LIMIT = 5;
 
 export function Sidebar({
   isOpen,
@@ -44,80 +40,27 @@ export function Sidebar({
   onDelete,
   onPin,
   onRename,
-  onArchive,
   onExport,
-  onBulkDelete,
-  onBulkArchive,
-  showArchived = false,
-  onToggleArchived,
 }: SidebarProps) {
-  const { t, formatDate } = useI18n();
+  const { t } = useI18n();
   const profile = useProfile();
   const { role } = useRole();
   const profileDisplayName = profile.appName || profile.displayName || "Steuermann";
   const profileAppName = profile.appName || "Steuermann";
   const frameworkVersion = profile.frameworkVersion || "unknown";
 
-  const [bulkMode, setBulkMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Close sidebar on Escape key
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (searchQuery) { setSearchQuery(""); setSearchResults(null); }
-        else if (bulkMode) { setBulkMode(false); setSelected(new Set()); }
-        else onClose();
-      }
+      if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, bulkMode, searchQuery]);
+  }, [onClose]);
 
-  // Exit bulk mode when conversations change
-  useEffect(() => {
-    if (bulkMode) setSelected(new Set());
-  }, [conversations, bulkMode]);
-
-  // Debounced deep search (API-backed)
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults(null);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(async () => {
-      const results = await searchConversations(CURRENT_USER_ID, searchQuery.trim(), 20);
-      setSearchResults(results);
-      setSearching(false);
-    }, 350);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    };
-  }, [searchQuery]);
-
-  const toggleSelect = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const selectAll = () => {
-    setSelected(new Set(conversations.map((c) => c.id)));
-  };
-
-  const pinned = conversations.filter((c) => c.pinned && !c.archived);
-  const recent = conversations.filter((c) => !c.pinned && !c.archived);
-  const archived = conversations.filter((c) => c.archived);
+  // Backend returns pinned first, then updated_at desc — so filtering keeps order.
+  const pinned = conversations.filter((c) => c.pinned);
+  const recent = conversations.filter((c) => !c.pinned).slice(0, RECENT_LIMIT);
 
   return (
     <>
@@ -169,7 +112,7 @@ export function Sidebar({
             onClick={() => { onNewChat?.(); }}
             className="w-full flex items-center justify-center gap-2 bg-atomic-tangerine hover:bg-burnt-tangerine
                        text-white transition-colors py-3 px-4 rounded-lg font-bold min-h-11
-                       shadow-lg shadow-atomic-tangerine/20 mb-4 group cursor-pointer"
+                       shadow-lg shadow-atomic-tangerine/20 mb-2 group cursor-pointer"
             aria-label={t("sidebar.startNewChat")}
           >
             <Icon
@@ -179,133 +122,9 @@ export function Sidebar({
             />
             <span>{t("sidebar.newChat")}</span>
           </button>
-
-          {/* Toolbar: bulk mode toggle + show archived */}
-          <div className="flex items-center justify-between mb-2 px-1">
-            <button
-              onClick={() => { setBulkMode((v) => !v); setSelected(new Set()); }}
-              className={`text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors cursor-pointer
-                ${bulkMode ? "bg-pacific-blue/30 text-light-cyan" : "text-light-cyan/50 hover:text-light-cyan/80"}`}
-              title={bulkMode ? t("sidebar.exitBulkMode") : t("sidebar.selectMultiple")}
-            >
-              <Icon name="checklist" size={14} />
-              <span className="hidden lg:inline">{bulkMode ? t("sidebar.cancelSelection") : t("sidebar.select")}</span>
-            </button>
-            <button
-              onClick={onToggleArchived}
-              className={`text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors cursor-pointer
-                ${showArchived ? "bg-pacific-blue/30 text-light-cyan" : "text-light-cyan/50 hover:text-light-cyan/80"}`}
-              title={showArchived ? t("sidebar.hideArchived") : t("sidebar.showArchived")}
-            >
-              <Icon name="inventory_2" size={14} />
-              <span className="hidden lg:inline">{t("sidebar.archived")}</span>
-            </button>
-          </div>
         </div>
 
-        {/* ── Search bar ── */}
-        <div className="px-4 mb-2">
-          <div className="relative">
-            <Icon
-              name="search"
-              size={16}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-light-cyan/40 pointer-events-none"
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t("sidebar.searchConversations")}
-              className="w-full bg-white/10 text-light-cyan text-sm rounded-lg pl-8 pr-8 py-2
-                         border border-transparent placeholder-light-cyan/30
-                         focus:border-pacific-blue/50 focus:outline-none transition-colors"
-              aria-label={t("sidebar.searchConversations")}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => { setSearchQuery(""); setSearchResults(null); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-light-cyan/40 hover:text-light-cyan
-                           transition-colors cursor-pointer"
-                aria-label={t("sidebar.clearSearch")}
-              >
-                <Icon name="close" size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* ── Search results ── */}
-        {searchQuery.trim() && (
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            {searching ? (
-              <p className="text-light-cyan/40 text-xs text-center mt-4">{t("sidebar.searching")}</p>
-            ) : searchResults && searchResults.length > 0 ? (
-              <div className="space-y-1">
-                <h3 className="text-light-cyan text-xs font-bold uppercase tracking-wider mb-2 pl-3">
-                  {t("sidebar.results", { count: searchResults.length })}
-                </h3>
-                {searchResults.map((r) => (
-                  <button
-                    key={r.message_id}
-                    onClick={() => {
-                      onSelect?.(r.conversation_id);
-                      setSearchQuery("");
-                      setSearchResults(null);
-                    }}
-                    className="w-full flex flex-col gap-0.5 px-3 py-2 rounded-lg text-left
-                               text-light-cyan/80 hover:text-white hover:bg-white/10 transition-colors"
-                  >
-                    <span className="text-xs font-bold text-pacific-blue truncate">
-                      {r.conversation_title}
-                    </span>
-                    <span className="text-xs text-light-cyan/60 line-clamp-2">
-                      {r.content}
-                    </span>
-                    <span className="text-[10px] text-light-cyan/30 font-mono">
-                      {r.role} · {formatDate(r.created_at)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : searchResults ? (
-              <p className="text-light-cyan/40 text-xs text-center mt-4">
-                {t("sidebar.noResultsFor", { query: searchQuery })}
-              </p>
-            ) : null}
-          </div>
-        )}
-
-        {/* ── Bulk toolbar ── */}
-        {!searchQuery.trim() && bulkMode && selected.size > 0 && (
-          <div className="mx-4 mb-2 flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-            <span className="text-light-cyan text-xs font-bold flex-1">
-              {t("sidebar.selectedCount", { count: selected.size })}
-            </span>
-            <button
-              onClick={selectAll}
-              className="text-xs text-pacific-blue hover:text-light-cyan transition-colors cursor-pointer"
-            >
-              {t("sidebar.selectAll")}
-            </button>
-            <button
-              onClick={async () => { if (onBulkArchive) { await onBulkArchive(Array.from(selected)); setSelected(new Set()); setBulkMode(false); } }}
-              className="p-1 rounded hover:bg-white/20 text-light-cyan/70 hover:text-light-cyan transition-colors cursor-pointer"
-              title={t("sidebar.archiveSelected")}
-            >
-              <Icon name="inventory_2" size={16} />
-            </button>
-            <button
-              onClick={() => { if (onBulkDelete) setConfirmBulkDelete(true); }}
-              className="p-1 rounded hover:bg-red-500/30 text-red-300/70 hover:text-red-300 transition-colors cursor-pointer"
-              title={t("sidebar.deleteSelected")}
-            >
-              <Icon name="delete_outline" size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* Conversation history (hidden when search is active) */}
-        {!searchQuery.trim() && (
+        {/* Conversation history */}
         <nav
           className="flex-1 overflow-y-auto px-4 pb-4 space-y-4"
           aria-label={t("sidebar.chatHistory")}
@@ -322,14 +141,10 @@ export function Sidebar({
                     key={c.id}
                     conversation={c}
                     isActive={c.id === activeId}
-                    bulkMode={bulkMode}
-                    isSelected={selected.has(c.id)}
-                    onToggleSelect={toggleSelect}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onPin={onPin}
                     onRename={onRename}
-                    onArchive={onArchive}
                     onExport={onExport}
                   />
                 ))}
@@ -349,41 +164,10 @@ export function Sidebar({
                     key={c.id}
                     conversation={c}
                     isActive={c.id === activeId}
-                    bulkMode={bulkMode}
-                    isSelected={selected.has(c.id)}
-                    onToggleSelect={toggleSelect}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onPin={onPin}
                     onRename={onRename}
-                    onArchive={onArchive}
-                    onExport={onExport}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Archived conversations */}
-          {showArchived && archived.length > 0 && (
-            <div>
-              <h3 className="text-light-cyan text-xs font-bold uppercase tracking-wider mb-2 pl-3">
-                {t("sidebar.archived")}
-              </h3>
-              <div className="space-y-0.5">
-                {archived.map((c) => (
-                  <ConversationRow
-                    key={c.id}
-                    conversation={c}
-                    isActive={c.id === activeId}
-                    bulkMode={bulkMode}
-                    isSelected={selected.has(c.id)}
-                    onToggleSelect={toggleSelect}
-                    onSelect={onSelect}
-                    onDelete={onDelete}
-                    onPin={onPin}
-                    onRename={onRename}
-                    onArchive={onArchive}
                     onExport={onExport}
                   />
                 ))}
@@ -396,8 +180,20 @@ export function Sidebar({
               {t("sidebar.noConversations")}
             </p>
           )}
+
+          {/* See all chats → /chats page (always available) */}
+          <Link
+            href="/chats"
+            prefetch={false}
+            onClick={onClose}
+            className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                       text-light-cyan/70 hover:text-light-cyan hover:bg-white/10 transition-colors
+                       border border-white/10"
+          >
+            <Icon name="forum" size={16} />
+            <span>{t("sidebar.seeAllChats")}</span>
+          </Link>
         </nav>
-        )}
 
         {/* User profile */}
         <div className="p-4 border-t border-white/10 bg-evergreen space-y-1">
@@ -420,21 +216,6 @@ export function Sidebar({
           </Link>
         </div>
       </aside>
-
-      <ConfirmDialog
-        isOpen={confirmBulkDelete}
-        title={t("sidebar.deleteSelected")}
-        message={t("sidebar.deleteSelectedConfirm", { count: selected.size })}
-        variant="danger"
-        confirmLabel={t("common.delete")}
-        onConfirm={async () => {
-          setConfirmBulkDelete(false);
-          await onBulkDelete!(Array.from(selected));
-          setSelected(new Set());
-          setBulkMode(false);
-        }}
-        onCancel={() => setConfirmBulkDelete(false)}
-      />
     </>
   );
 }
@@ -444,26 +225,18 @@ export function Sidebar({
 function ConversationRow({
   conversation: c,
   isActive,
-  bulkMode,
-  isSelected,
-  onToggleSelect,
   onSelect,
   onDelete,
   onPin,
   onRename,
-  onArchive,
   onExport,
 }: {
   conversation: Conversation;
   isActive: boolean;
-  bulkMode: boolean;
-  isSelected: boolean;
-  onToggleSelect: (id: string) => void;
   onSelect?: (id: string) => void;
   onDelete?: (id: string) => Promise<boolean>;
   onPin?: (id: string, pinned: boolean) => void;
   onRename?: (id: string, title: string) => Promise<Conversation | null>;
-  onArchive?: (id: string, archived: boolean) => void;
   onExport?: (id: string, format: "json" | "markdown") => void;
 }) {
   const { t } = useI18n();
@@ -504,17 +277,11 @@ function ConversationRow({
     setEditing(false);
   }, [editValue, c.id, c.title, onRename]);
 
-  const handleClick = () => {
-    if (bulkMode) { onToggleSelect(c.id); return; }
-    onSelect?.(c.id);
-  };
-
   return (
     <div className="relative">
       <button
-        onClick={handleClick}
+        onClick={() => onSelect?.(c.id)}
         onDoubleClick={(e) => {
-          if (bulkMode) return;
           e.preventDefault();
           setEditValue(c.title);
           setEditing(true);
@@ -525,20 +292,11 @@ function ConversationRow({
           ${isActive
             ? "bg-white/10 text-white hover:bg-white/20"
             : "text-light-cyan/80 hover:text-white hover:bg-white/10"}
-          ${isSelected ? "ring-1 ring-pacific-blue/60" : ""}
         `}
         aria-current={isActive ? "page" : undefined}
       >
-        {/* Checkbox for bulk mode */}
-        {bulkMode && (
-          <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0
-            ${isSelected ? "bg-pacific-blue border-pacific-blue" : "border-light-cyan/40"}`}>
-            {isSelected && <Icon name="check" size={12} className="text-white" />}
-          </span>
-        )}
-
         <Icon
-          name={c.archived ? "inventory_2" : c.pinned ? "push_pin" : "chat_bubble_outline"}
+          name={c.pinned ? "push_pin" : "chat_bubble_outline"}
           size={18}
           className={isActive ? "text-light-cyan" : "text-light-cyan/60 group-hover:text-light-cyan"}
         />
@@ -564,8 +322,8 @@ function ConversationRow({
           </span>
         )}
 
-        {/* Three-dot context menu trigger (hover only, not in bulk) */}
-        {!bulkMode && !editing && (
+        {/* Three-dot context menu trigger (hover only) */}
+        {!editing && (
           <span
             role="button"
             tabIndex={0}
@@ -596,11 +354,6 @@ function ConversationRow({
             icon={c.pinned ? "push_pin" : "keep"}
             label={c.pinned ? t("sidebar.unpin") : t("sidebar.pin")}
             onClick={() => { setMenuOpen(false); onPin?.(c.id, !c.pinned); }}
-          />
-          <ContextMenuItem
-            icon={c.archived ? "unarchive" : "inventory_2"}
-            label={c.archived ? t("sidebar.unarchive") : t("sidebar.archive")}
-            onClick={() => { setMenuOpen(false); onArchive?.(c.id, !c.archived); }}
           />
           <div className="border-t border-white/10 my-1" />
           <ContextMenuItem

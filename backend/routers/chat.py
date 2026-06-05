@@ -1768,6 +1768,7 @@ async def chat_stream(
                     content=persisted_content,
                     tokens_used=int(_metadata.get("tokens_used", 0)),
                     model_name=_metadata.get("model_used") or None,
+                    response_time_ms=int((time.time() - start_time) * 1000),
                     tools_used=[{"name": t, "status": "success"} for t in tools_executed] if tools_executed else None,
                     metadata={
                         "attachments_used": attachments_used,

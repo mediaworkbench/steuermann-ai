@@ -713,7 +713,6 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             title TEXT NOT NULL DEFAULT 'New conversation',
             language TEXT NOT NULL DEFAULT 'en',
             profile_name TEXT,
-            archived BOOLEAN NOT NULL DEFAULT false,
             pinned BOOLEAN NOT NULL DEFAULT false,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -863,6 +862,28 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
                     cur.execute(sql)
         conn.commit()
 
+    # Optional trigram (pg_trgm) indexes for fast substring search on chat title +
+    # message content. Isolated in its own connection/try so a missing extension or
+    # insufficient privilege degrades to sequential ILIKE rather than failing startup.
+    try:
+        with db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_conversations_title_trgm "
+                    "ON conversations USING gin (title gin_trgm_ops);"
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_messages_content_trgm "
+                    "ON messages USING gin (content gin_trgm_ops);"
+                )
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001 — optional perf index, never fatal
+        logger.warning(
+            "pg_trgm search indexes unavailable (%s); chat search falls back to sequential ILIKE",
+            exc,
+        )
+
 
 def _ensure_co_occurrence_tables(db_pool: DatabasePool) -> None:
     """Create durable co-occurrence edges table for memory linking."""
@@ -1011,6 +1032,15 @@ class CoOccurrenceEdgeStore:
         return int(pruned)
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE/ILIKE metacharacters so a search term is matched literally.
+
+    Used with ``ILIKE ... ESCAPE '\\'`` so a query such as ``50%`` or ``foo_bar``
+    is treated as a substring rather than a wildcard pattern.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class ConversationStore:
     """Manages conversation persistence (conversations + messages)."""
 
@@ -1031,7 +1061,7 @@ class ConversationStore:
             INSERT INTO conversations (id, user_id, title, language, profile_name)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id, user_id, title, language, profile_name,
-                      archived, pinned, metadata, created_at, updated_at;
+                      pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -1043,37 +1073,64 @@ class ConversationStore:
     def list_conversations(
         self,
         user_id: str,
-        include_archived: bool = False,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Dict[str, Any]], int]:
-        """List conversations for a user, ordered by pinned first then updated_at desc."""
-        where = "WHERE user_id = %s"
-        params: list[Any] = [user_id]
-        if not include_archived:
-            where += " AND archived = false"
+        """List conversations for a user, ordered by pinned first then updated_at desc.
 
-        count_stmt = f"SELECT COUNT(*) as count FROM conversations {where};"
+        When ``q`` is provided, the list is filtered to conversations whose title or
+        any message content contains the (case-insensitive) substring, and each row
+        carries a ``match_snippet`` — the most recent matching message excerpt (NULL
+        when only the title matched).
+        """
+        where = "WHERE c.user_id = %s"
+        where_params: list[Any] = [user_id]
+
+        q_clean = (q or "").strip()
+        has_q = bool(q_clean)
+        like = f"%{_escape_like(q_clean)}%" if has_q else None
+        if has_q:
+            where += (
+                " AND (c.title ILIKE %s ESCAPE '\\' "
+                "OR EXISTS (SELECT 1 FROM messages m "
+                "WHERE m.conversation_id = c.id AND m.content ILIKE %s ESCAPE '\\'))"
+            )
+            where_params += [like, like]
+
+        count_stmt = f"SELECT COUNT(*) AS count FROM conversations c {where};"
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(count_stmt, tuple(params))
+                cur.execute(count_stmt, tuple(where_params))
                 count_row = cur.fetchone()
                 total = int(count_row["count"]) if count_row else 0
 
+        # Snippet via LATERAL only when searching. Placeholders appear in SQL order:
+        # the LATERAL (FROM clause) precedes the WHERE clause, so its param comes first.
+        snippet_select = ", snip.content AS match_snippet" if has_q else ""
+        snippet_join = (
+            " LEFT JOIN LATERAL (SELECT content FROM messages m "
+            "WHERE m.conversation_id = c.id AND m.content ILIKE %s ESCAPE '\\' "
+            "ORDER BY m.created_at DESC LIMIT 1) snip ON true"
+            if has_q
+            else ""
+        )
+        list_params: list[Any] = ([like] if has_q else []) + where_params + [limit, offset]
+
         list_stmt = f"""
             SELECT c.id, c.user_id, c.title, c.language, c.profile_name,
-                   c.archived, c.pinned, c.metadata, c.created_at, c.updated_at,
+                   c.pinned, c.metadata, c.created_at, c.updated_at,
                    (SELECT content FROM messages WHERE conversation_id = c.id
                     ORDER BY created_at DESC LIMIT 1) AS last_message,
-                   (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count
-            FROM conversations c
+                   (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count{snippet_select}
+            FROM conversations c{snippet_join}
             {where}
             ORDER BY c.pinned DESC, c.updated_at DESC
             LIMIT %s OFFSET %s;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(list_stmt, (*params, limit, offset))
+                cur.execute(list_stmt, tuple(list_params))
                 rows = cur.fetchall()
 
         return [_normalize_conversation_row(r) for r in rows], total
@@ -1082,7 +1139,7 @@ class ConversationStore:
         """Get a single conversation (without messages)."""
         statement = """
             SELECT id, user_id, title, language, profile_name,
-                   archived, pinned, metadata, created_at, updated_at
+                   pinned, metadata, created_at, updated_at
             FROM conversations WHERE id = %s;
         """
         with self._db_pool.connection() as conn:
@@ -1094,8 +1151,8 @@ class ConversationStore:
     def update_conversation(
         self, conversation_id: str, **fields: Any
     ) -> Optional[Dict[str, Any]]:
-        """Update mutable conversation fields (title, archived, pinned, language, metadata)."""
-        allowed = {"title", "archived", "pinned", "language", "metadata"}
+        """Update mutable conversation fields (title, pinned, language, metadata)."""
+        allowed = {"title", "pinned", "language", "metadata"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return self.get_conversation(conversation_id)
@@ -1116,7 +1173,7 @@ class ConversationStore:
             UPDATE conversations SET {', '.join(set_clauses)}
             WHERE id = %s
             RETURNING id, user_id, title, language, profile_name,
-                      archived, pinned, metadata, created_at, updated_at;
+                      pinned, metadata, created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -1213,36 +1270,6 @@ class ConversationStore:
                 row = cur.fetchone()
             conn.commit()
         return _normalize_message_row(row) if row else None
-
-    def search_messages(
-        self, user_id: str, query: str, limit: int = 50
-    ) -> list[Dict[str, Any]]:
-        """Full-text search across all messages for a user."""
-        statement = """
-            SELECT m.id, m.conversation_id, m.role, m.content, m.created_at,
-                   c.title AS conversation_title
-            FROM messages m
-            JOIN conversations c ON m.conversation_id = c.id
-            WHERE c.user_id = %s
-              AND m.content ILIKE %s
-            ORDER BY m.created_at DESC
-            LIMIT %s;
-        """
-        with self._db_pool.connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (user_id, f"%{query}%", limit))
-                rows = cur.fetchall()
-        return [
-            {
-                "message_id": r["id"],
-                "conversation_id": r["conversation_id"],
-                "conversation_title": r["conversation_title"],
-                "role": r["role"],
-                "content": r["content"],
-                "created_at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
-            }
-            for r in rows
-        ]
 
     # ── Export ──────────────────────────────────────────────────────────
 
@@ -1919,11 +1946,11 @@ def _normalize_conversation_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "title": row.get("title"),
         "language": row.get("language"),
         "profile_name": row.get("profile_name"),
-        "archived": row.get("archived", False),
         "pinned": row.get("pinned", False),
         "metadata": md,
         "last_message": row.get("last_message"),
         "message_count": row.get("message_count"),
+        "match_snippet": row.get("match_snippet"),
         "created_at": created.isoformat() if isinstance(created, datetime) else str(created) if created else None,
         "updated_at": updated.isoformat() if isinstance(updated, datetime) else str(updated) if updated else None,
     }

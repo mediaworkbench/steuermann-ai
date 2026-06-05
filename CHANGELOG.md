@@ -1,5 +1,169 @@
 # Changelog
 
+## [0.3.7] — more-frontend-improvements
+
+### Chat — Math & Code Rendering
+
+- **feat** Assistant answers now render **LaTeX math** via KaTeX (`remark-math` + `rehype-katex`,
+  `katex.min.css` loaded globally). Inline `$x^2$`, block `$$…$$`, and the LLM-style `\( … \)` /
+  `\[ … \]` delimiters are all supported — previously they showed up as raw text. `rehype-katex` runs
+  with `strict: false` so imperfect model-generated LaTeX renders leniently instead of erroring.
+- **feat** Fenced **code blocks are syntax-highlighted** with `prism-react-renderer` (synchronous, so
+  no flicker as tokens stream in), gaining a language label and a copy button. The Prism theme follows
+  the app theme (`oneLight` / `oneDark` via `useTheme`). The default language bundle covers
+  js/ts/jsx/tsx, python, json, yaml, go, rust, cpp, markdown, graphql, swift, kotlin, objc; other
+  languages (e.g. bash, sql) render as a clean themed-but-untokenized block — no global-`Prism`
+  mutation or SSR hacks (kept deliberately simple).
+- **feat** A production-safe `normalizeMath` preprocessor makes the above safe for a finance/tax
+  assistant: it **protects code spans** (fenced + inline) from any transformation, **escapes
+  currency dollar amounts** (`$5`, `$1,000.50`, `$5K` → `\$…`) *before* math parsing so they stay
+  literal, then normalizes `\(\)`/`\[\]` to `$`/`$$`. Modeled on LibreChat's battle-tested
+  `preprocessLaTeX`. Single-dollar inline math stays enabled because currency is escaped first.
+- **note** `MarkdownMessage` was extracted from the 1300-line `ChatInterface.tsx` into its own
+  component (`components/MarkdownMessage.tsx`), with the pure string preprocessors moved to
+  `lib/markdown.ts` (kept free of ESM-only deps for direct unit testing). A shared
+  `processOutsideCode` splitter ensures neither math nor footnote rewriting ever corrupts code
+  content. 15 new unit tests (`lib/__tests__/markdown.test.ts`); `tsc`/lint clean; full frontend
+  suite (64 tests) passing; production build verified. Frontend-only; no backend/API changes.
+
+### Admin — RAG Knowledge Explorer (`/admin/rag`)
+
+- **feat** New admin-only page to search the RAG knowledge base by keyword and review the
+  matching chunks (text + source file + similarity score) for evaluation — there was previously
+  no way to inspect retrieval outside of a live chat turn. Reachable from the Header nav (admin
+  only) and nested under `/admin/`, so it is automatically covered by the existing `proxy.ts`
+  middleware gate + `AdminOnly` guard.
+- **feat** A single semantic search returns **all** hits sorted by score (no threshold cut),
+  drawing the production cutoff (`pill_score_threshold`, ≈0.72) as a visible divider so the admin
+  sees exactly which chunks the chat would keep while borderline/below-cutoff chunks stay
+  inspectable. Each result shows score, source file, chunk index, language, and the full chunk
+  text (keyword-highlighted, copyable, expandable).
+- **feat** New backend router `backend/routers/rag_search.py` (sync `def`, threadpool):
+  `GET /api/rag/search` (`q`, `top_k`, `collection`, `score_threshold`) and
+  `GET /api/rag/collections` (names + `points_count`, so the admin can pick a target and confirm
+  it is populated). Reuses the same embedding provider and Qdrant search helper as
+  `node_retrieve_knowledge` (`search_qdrant`, `resolve_rag_config`,
+  `get_routing_embedding_provider`) so scores match production. Explorer reads **system/profile**
+  RAG config, not a user's session overrides. Embedding-provider, timeout, Qdrant-unreachable
+  (`ConnectError`), and missing-collection (404) failures are mapped to clean 5xx/404 responses
+  rather than surfacing as raw 500s.
+- **note** Auth posture matches the existing `/api/admin/*` endpoints: protected by the shared
+  `require_api_access` token, with admin gating enforced at the Next.js page layer (no per-request
+  role check on the API). Frontend: `useRagSearch` hook, `/admin/rag` page + `RagResultCard`,
+  `searchRag`/`fetchRagCollections` in `lib/api.ts`, EN+DE i18n. 11 backend tests
+  (`tests/test_rag_search_router.py`); `tsc`/lint clean.
+
+### Chat — Tokens/sec Metric, Block Cursor & Full-Width Reasoning Bar
+
+- **feat** The expandable per-message metrics panel (`MetricsPanel`) now shows a **Tokens/sec** cell
+  beside Input/Output Tokens — the exact output throughput of that response, computed as
+  `output_tokens ÷ response_time_ms × 1000` and rendered as `<n>/s` (1 decimal, or rounded ≥ 100).
+  Only shown when both values are present. EN (`Tokens/sec`) + DE (`Token/Sek.`) i18n keys added.
+- **fix** The streaming proxy never persisted `response_time_ms` — `_run_persistence()` in
+  `backend/routers/chat.py` saved tokens/model/tools but not the elapsed time, so the column was
+  `NULL` for every message and the new tok/s cell (and any reloaded timing) couldn't be computed.
+  It now persists `response_time_ms=int((time.time() - start_time) * 1000)`. Pre-fix messages have
+  no recorded timing, so tok/s only appears on responses sent after this change.
+- **feat** The live streaming cursor is now a **block** (`▌`-style, ~1 char wide) instead of the thin
+  blinking pipe — wider span + softened corner in `ChatInterface.tsx`, same blink keyframe.
+- **fix** The streaming **reasoning bar** (`ReasoningBox`) now spans the full message-column width from
+  the first token (added `w-full`) instead of shrink-wrapping and growing as reasoning text streamed
+  in — the parent assistant column is a flex `items-start` column, which sized the box to its content.
+- **note** Frontend-only UI + one-line backend persistence fix. `tsc`/lint clean; verified live (E2E)
+  that the tok/s cell renders (`19.4/s` for a 508-token / 26.1 s response). The composer bar was left
+  unchanged (an interim tok/s chip there was removed in favor of the metrics-panel placement).
+
+### Chat — In-Flight Stream Survives Conversation Switching
+
+- **fix** Switching to another chat while a response was still generating, then returning, **cleared
+  the inference** (the assistant answer was lost). Root cause: the `activeId`-change effect in
+  `ChatSessionProvider` unconditionally aborted the stream (`cancelStream()`); since the FastAPI proxy
+  only persists on `[DONE]` (`_run_persistence`, not in `finally`), the client disconnect tore down
+  the upstream LangGraph request and **nothing was persisted**. (Page navigation was never affected —
+  it doesn't change `activeId`.)
+- **feat** A stream now keeps running in the background when you switch chats, bound to its
+  conversation (`streamConversationRef` / reactive `streamConvId`). Returning **resumes the live
+  stream** token-by-token, or shows the completed, now-persisted answer if it finished while away.
+- **feat** Stream-derived UI (bubble, status, toasts, sound, context-ring) is **gated to the active
+  conversation** (`streamOnActive`) so a backgrounded stream can't bleed into the chat on screen; the
+  context-ring setter is guarded so a background completion can't overwrite the viewed chat's token
+  count. The optimistic user bubble is restored via `streamMsgsRef`; the follow-up queue is preserved
+  while its stream is backgrounded.
+- **note** By design: sending a *new* message in another chat still ends the backgrounded stream
+  (single concurrent stream); a background stream that *errors* while you're away is dropped silently.
+  Frontend-only (`frontend/src/context/ChatSessionContext.tsx`); no backend change. Verified live
+  (E2E) + `tsc`/lint clean + 49 frontend tests passing.
+
+### Chats — True Server-Side Pagination + Search
+
+- **feat** The `/chats` page now paginates and searches **server-side**, removing the previous
+  200-row cap (it read the shared in-memory list). A new `useConversationBrowser` hook
+  (`frontend/src/hooks/`) queries `GET /api/conversations?q=&limit=&offset=` directly with real
+  paging; search filters across **all** chats, not just the loaded slice. Pagination now applies to
+  search results too.
+- **feat** `GET /api/conversations` gains an optional `q` — case-insensitive **substring** search
+  over conversation title **and** message content (LIKE metacharacters escaped), returning an
+  accurate filtered `total` and a `match_snippet` (the most-recent matching message excerpt; null on
+  a title-only match) via a `LATERAL` subquery. Backed by **`pg_trgm` GIN** indexes on
+  `conversations.title` and `messages.content` (extension/index creation is isolated + best-effort,
+  so a low-privilege DB degrades to sequential ILIKE instead of failing startup).
+- **feat** `activeConversation` is now resolved **by id** (seeded from the clicked row, else fetched
+  once) instead of `list.find(id)`, so opening a chat beyond the sidebar's loaded slice keeps the
+  Header meta + auto-title correct. A `revision` counter on `ConversationContext` (bumped by every
+  mutator) drives cross-surface refetch so `/chats` and the sidebar stay consistent; single-row
+  pin/rename/delete patch optimistically to avoid refetch flicker.
+- **removed** The message-level `GET /api/conversations/search` route, its `SearchResultItem` model,
+  `ConversationStore.search_messages`, and the frontend `searchConversations`/`SearchResult` — search
+  is now unified into the list endpoint.
+- **fix** `_memory_was_recently_retrieved` (`backend/routers/memories.py`) iterated the
+  `(rows, total)` tuple returned by `list_conversations` (so it always raised and returned `False`,
+  silently disabling the retrieval-quality signal) and guarded on the removed `search_messages`
+  attribute — now unpacks the tuple and guards on `list_conversations`.
+- **note** Backend `tests/test_conversations` updated (q filtering, snippet, pagination; `/search`
+  tests removed) — 33 passing. Frontend 49 tests passing, lint clean, build green.
+
+### Chats — Session Management Refactor + Archive Removal
+
+- **feat** New **`/chats`** page (`frontend/src/app/chats/page.tsx`, linked from the header nav and a "See all chats" link in the sidebar) listing **all** conversations in a table. It is driven by the shared `ConversationContext` (single source of truth, so edits reflect live in the sidebar), sorted pinned-first then most-recently-updated client-side. Features: full-text search (`/api/conversations/search`) that narrows the list to matching chats with a message snippet; **multi-select** with bulk **Delete** and **Pin/Unpin**; inline rename; a per-row overflow menu (rename / pin / export JSON+Markdown / delete); and client-side pagination (50/page, hidden while searching).
+- **feat** New `useConversations.bulkPin(ids, pinned)` (replaces the removed `bulkArchive`) and a corresponding `bulkPin` on `ConversationContext`.
+- **refactor** The **sidebar** (`frontend/src/components/Sidebar.tsx`) is now a lean quick-access list — all pinned chats plus the **5** most-recent unpinned ones — and nothing else. Removed from it: the debounced full-text search, the multi-select bulk mode, and the archive view/toggle. The per-row action menu is kept (rename / pin / export / delete). The shared conversation fetch was bumped `100 → 200` so `/chats` effectively shows all chats; true server-side pagination on `/chats` (and search across >200 chats) is future work.
+- **removed** The **archive** feature, end-to-end (it was unused): frontend UI/hook/types, the FastAPI `UpdateConversationRequest.archived` / `ConversationResponse.archived` fields and the `include_archived` list query param, and the `conversations.archived` Postgres column with all its SELECT/RETURNING/WHERE/normalize references (`backend/db.py`, `backend/routers/conversations.py`). `useConversations` also dropped `archive`/`bulkArchive`/`toggleArchived`/`showArchived` and a now-dead `showArchived` re-fetch effect. No migration needed (pre-production).
+- **note** Frontend: 49 tests passing, lint clean, production build green (`/chats` route generated). Backend: full non-integration suite 1068 passing (archive-specific `test_conversations` cases removed). Pre-existing English-only default conversation title (`"New conversation"`/`"en"`) was left as-is (flagged, not in scope).
+
+### Chat — Queued Follow-up Messages
+
+- **feat** The composer is no longer locked while the assistant streams. The user can type a follow-up and **queue** it; when the current inference finishes normally it **auto-starts** the next one — no extra click. (`frontend/src/components/ChatInterface.tsx`, `frontend/src/context/ChatSessionContext.tsx`)
+- **feat** Exactly **one** queued slot. While it is occupied the composer is **locked** (textarea disabled with a "Message queued — send or remove it first" hint) so a second send can't silently replace ("swallow") the queued message. The queued message renders as a dimmed "pending" user bubble at the bottom of the thread (ChatGPT-style) with a ⏳ tag; clicking it reclaims the text into the composer for editing (which also frees the slot).
+- **feat** While streaming with the slot empty, the **Stop** button stays reachable; once the user has typed a follow-up an additional blue **Send (queue)** button appears beside it (Enter also queues). The textarea is enabled during streaming (placeholder "Type a follow-up…") until a message is queued.
+- **feat** Auto-fire happens **only on a normal completion.** A manual **Stop** or a stream **error** keeps the message queued (the pending bubble stays put with explicit *Send now* / discard controls) so the user can read the error and decide.
+- **feat** The queue is provider-owned session state (`ChatSessionContext`), so a queued follow-up survives in-app navigation just like the live stream, and is **cleared on conversation switch** so it never bleeds into another conversation (auto-fire is additionally gated on `streamConversationRef === activeId`).
+- **note** Two runtime-timing subtleties drove the design: (1) `useStreamingChat`'s `wasCancelled` is set asynchronously (in `catch`/`finally`), *after* `setIsStreaming(false)`, so it is not yet true at the commit-effect render — a provider-owned `manualStopRef` set *before* the hook's cancel is used instead (`streamError`, by contrast, is reliable there); (2) the finishing turn's trailing `setLoading(false)` races the auto-fired turn's `setLoading(true)`, so auto-fire is deferred with `setTimeout(0)` to let prior state flush first. The pending bubble is intentionally kept **out** of the `messages` array (like the live streaming indicator) so it can't disturb message ordering, the persisted-id backfill, or the `replaceFromIndex` edit/regenerate logic.
+- **note** Frontend-only; no backend/SSE/hook API changes. 49 frontend tests passing.
+
+### Chat — Session Persistence Across Navigation
+
+- **fix** A streaming inference was lost when navigating away from the chat (e.g. to `/memories`) and back — along with the user message that triggered it. `ChatInterface` was rendered only on `/` and owned the entire chat runtime in local `useState`; navigating unmounted it, which aborted the fetch (cancel-on-unmount) and destroyed all state, while backend persistence only happens at `[DONE]` — so nothing was saved.
+- **feat** New persistent `ChatSessionProvider` (`frontend/src/context/ChatSessionContext.tsx`) mounted in `LayoutShell` (inside `ConversationContext`). It owns the live chat runtime — the `messages` array, the `useStreamingChat()` instance, `contextTokens`, `loading`, `sendMessage`/`ensureConversation`, the message-load-on-`activeId` effect, and the durable commit-on-stream-end effect (message append + `persistedId` backfill). Because the shell persists across route changes, the streaming fetch keeps running in the background and returning to chat shows the still-streaming or completed response.
+- **refactor** `ChatInterface` is now a consumer of `useChatSession()` (composer + message list); it keeps only UI-local state (input, attachments, workspace doc, RAG toggle, menus) and the stream-end UX side-effects (sound, unread badge, workspace-writeback toast) which fire only while mounted. The cancel-on-unmount effect was removed; `sendMessage(text, opts)` now takes `{ attachmentIds, documentIds, ragEnabled, replaceFromIndex }`.
+- **fix** Switching conversations mid-stream no longer bleeds the in-flight response into the newly selected conversation: the provider cancels the stream on `activeId` change and gates the commit on the originating conversation (`streamConversationRef`).
+- **note** Frontend-only; backend persistence path unchanged. Out of scope: surviving a hard page refresh / tab close (the live token stream cannot be resumed after a reload).
+
+### Context Window Indicator — Accurate Per-Inference Token Accounting
+
+- **fix** The composer's context-window ring conflated two token scales. The streaming endpoint returned the real per-inference `input_tokens` when the provider reported `usage_metadata`, but fell back to `state["input_tokens"]` — a **cumulative lifetime sum**: the `respond` node accumulates `state["input_tokens"] += actual_input_tokens` and the value is checkpointed per `thread_id` and never reset, so it grows every turn. When usage capture failed, the ring jumped to that ever-growing total and could not represent actual context-window fill. (`universal_agentic_framework/server.py`, `universal_agentic_framework/orchestration/graph_builder.py`)
+- **feat** `GraphState` gains `last_input_tokens` / `last_output_tokens`; the `respond` node writes them by **overwrite** (per-inference snapshot) alongside the existing cumulative fields (retained for analytics/budgets). `server.py` falls back to these in both SSE `metadata` emit paths and the non-streaming `/invoke` response, so the value the frontend receives is always the current inference's prompt size.
+- **fix** Frontend ring now reflects **live context-window fill**: removed the `Math.max` high-water mark in `ChatInterface.tsx` (it could only grow, and locked in transient RAG/tool spikes and the cumulative leak). The ring follows the latest per-inference value, grows with history, and **drops after compaction**. Conversation reload restores from the **last** assistant message's `input_tokens` instead of the max across all messages.
+- **fix** Ring denominator no longer falls back to `max_tokens` (the output cap) — dividing prompt tokens by the output budget produced a meaningless percentage. `maxContextTokens` resolves only to the true `context_window_tokens`; when unknown, `ContextRingIndicator` renders a raw token count (e.g. `12.5k`) with a neutral ring instead of disappearing, and the context-window popover opens regardless (Compact Context stays available).
+- **fix** Per-message `input_tokens` / `output_tokens` persisted to conversation metadata are now per-inference, so `MetricsPanel` per-message token totals are no longer inflated by the cumulative leak.
+
+### Context Window Override
+
+- **feat** Optional `context_window_tokens` field on each LLM role in the profile overlay (`LLMRoleSettings` in `universal_agentic_framework/config/schemas.py`). When set it **wins** over runtime auto-detection (probe metadata / provider `/models`), guaranteeing a correct indicator denominator when the model is loaded with a smaller window than its max, the model is not loaded at probe time, or the provider does not report context length. Resolution order in `GET /api/system-config`: config override → probe metadata → `/models` map → null. Documented (commented) in `config/profiles/starter/core.yaml`.
+- **note** LM Studio auto-detection already populated the denominator: `_fetch_model_metadata()` reads `loaded_context_length` (then `max_context_length`) from the native `/api/v0/models` endpoint into probe metadata. The override is a deterministic fallback for the cases auto-detection cannot cover.
+- **test** `test_system_config_context_window_override_wins` confirms the override flows to `model_roles` and is not masked by `max_tokens` or absent auto-detection.
+
+---
+
 ## [0.3.6] — docs-tools-frontend
 
 ### Role-Based Frontend Surfaces

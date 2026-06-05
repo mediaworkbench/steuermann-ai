@@ -462,7 +462,6 @@ import type {
   ConversationListResponse,
   ConversationDetailResponse,
   PersistedMessage,
-  SearchResult,
   WorkspaceActionRequest,
 } from "@/lib/types";
 
@@ -490,17 +489,17 @@ export async function createConversation(
 
 export async function fetchConversations(
   userId: string = CURRENT_USER_ID,
-  includeArchived: boolean = false,
   limit: number = 50,
   offset: number = 0,
+  q?: string,
 ): Promise<ConversationListResponse | null> {
   try {
     const params = new URLSearchParams({
       user_id: userId,
-      include_archived: String(includeArchived),
       limit: String(limit),
       offset: String(offset),
     });
+    if (q && q.trim()) params.set("q", q.trim());
     const response = await fetch(`${API_BASE}/api/conversations?${params}`);
     if (!response.ok) {
       console.error(`Failed to fetch conversations: ${response.status}`);
@@ -531,7 +530,7 @@ export async function fetchConversation(
 
 export async function updateConversation(
   conversationId: string,
-  updates: { title?: string; archived?: boolean; pinned?: boolean; language?: string },
+  updates: { title?: string; pinned?: boolean; language?: string },
 ): Promise<Conversation | null> {
   try {
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
@@ -649,26 +648,6 @@ export async function deleteMemory(memoryId: string): Promise<boolean> {
   }
 }
 
-
-export async function searchConversations(
-  userId: string,
-  query: string,
-  limit: number = 50,
-): Promise<SearchResult[]> {
-  try {
-    const params = new URLSearchParams({
-      user_id: userId,
-      q: query,
-      limit: String(limit),
-    });
-    const response = await fetch(`${API_BASE}/api/conversations/search?${params}`);
-    if (!response.ok) return [];
-    return (await response.json()) as SearchResult[];
-  } catch (error) {
-    console.error("Error searching conversations:", error);
-    return [];
-  }
-}
 
 export async function exportConversation(
   conversationId: string,
@@ -813,6 +792,76 @@ export async function runWorkspaceAction(
     return (await response.json()) as ChatResponse;
   } catch (error) {
     console.error("Error running workspace action:", error);
+    return null;
+  }
+}
+
+// ── RAG knowledge explorer (admin) ─────────────────────────────────────────
+
+export interface RagSearchHit {
+  id: string | number | null;
+  score: number;
+  text: string;
+  file_name: string;
+  file_path: string;
+  chunk_index: number | null;
+  chunk_count: number | null;
+  detected_language: string | null;
+  language_confidence: number | null;
+  above_cutoff: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface RagSearchResponse {
+  items: RagSearchHit[];
+  count: number;
+  query: string;
+  collection: string;
+  top_k: number;
+  production_threshold: number;
+}
+
+export interface RagCollection {
+  name: string;
+  points_count: number | null;
+}
+
+export interface RagCollectionsResponse {
+  collections: RagCollection[];
+  default_collection: string;
+}
+
+export interface RagSearchParams {
+  q: string;
+  topK?: number;
+  collection?: string;
+}
+
+/** Search the RAG knowledge base. Throws with the backend detail on failure. */
+export async function searchRag(params: RagSearchParams): Promise<RagSearchResponse> {
+  const search = new URLSearchParams({ q: params.q });
+  if (params.topK != null) search.set("top_k", String(params.topK));
+  if (params.collection) search.set("collection", params.collection);
+
+  const response = await fetch(`${API_BASE}/api/rag/search?${search}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `Knowledge base search failed: ${response.status}`);
+  }
+  return (await response.json()) as RagSearchResponse;
+}
+
+/** List Qdrant collections with point counts. Returns null on failure. */
+export async function fetchRagCollections(): Promise<RagCollectionsResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/rag/collections`);
+    if (!response.ok) {
+      console.error(`Failed to fetch RAG collections: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RagCollectionsResponse;
+  } catch (error) {
+    console.error("Error fetching RAG collections:", error);
     return null;
   }
 }

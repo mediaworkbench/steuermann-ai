@@ -324,3 +324,11 @@ body {
 .back-link:hover {
   color: var(--primary-dark);
 }
+
+/* ── KaTeX math: keep inline math close to body size; let wide display math scroll ── */
+.katex { font-size: 1.05em; }
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}

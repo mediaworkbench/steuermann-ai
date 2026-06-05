@@ -46,22 +46,19 @@ profile:
 
 ### Prompt Configuration
 
-Prompt text is stored in per-language files rather than inline inside `core.yaml`.
+Prompt text is stored in per-language files rather than inline inside `core.yaml`. Prompt files live **only** in the profile overlay — the base `config/` no longer ships prompt files.
 
-**Base prompts:** `config/profiles/<id>/prompts/<language>.yaml`
-
-**Profile overrides:** `config/profiles/<profile_id>/prompts/<language>.yaml`
+**Prompt files:** `config/profiles/<profile_id>/prompts/<language>.yaml`
 
 Example:
 
 ```text
 config/
 ├── core.yaml
-├── prompts/
-│   ├── en.yaml
-│   └── de.yaml
+├── features.yaml
 └── profiles/
     └── starter/
+        ├── core.yaml
         └── prompts/
             ├── en.yaml
             └── de.yaml
@@ -76,7 +73,7 @@ synthesis_with_sources: "Synthesize the available information and cite the provi
 language_enforcement: "Respond in English unless the user explicitly asks otherwise."
 ```
 
-**Resolution order:** base prompt file → profile prompt override → environment override where supported by runtime.
+**Resolution order:** profile prompt file → environment override where supported by runtime.
 
 ### LLM Configuration
 
@@ -93,8 +90,12 @@ llm:
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3          # 0.0-2.0; higher = more creative
-      max_tokens: 16384
+      max_tokens: 16384         # output cap (NOT the context window)
       timeout: 600
+      # context_window_tokens: 16384   # optional: true prompt budget for the context-window
+      #                                # indicator. Auto-detected from the provider when omitted;
+      #                                # set this to override (model loaded with a smaller window
+      #                                # than its max, or provider does not report context length).
 
     embedding:
       provider_id: "lmstudio"
@@ -136,6 +137,8 @@ llm:
 - `vision` — multimodal/image processing requests *(optional; actively used by `analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, and `analyze_chart_tool`; library tools `image_metadata_tool` and `read_barcodes_tool` do not require it; falls back to `chat` role if omitted)*
 - `auxiliary` — Mem0 memory extraction, conversation summarization, RAG query rewriting/expansion, workspace intent classification, structured tool retry re-prompts, and conversation auto-titling; requires at least 16k context window; starter profile uses 16384 *(optional; falls back to `chat` role if omitted)*
 
+**`max_tokens` vs `context_window_tokens`:** `max_tokens` is the per-response **output** cap. `context_window_tokens` is the optional **prompt budget** that drives the chat composer's context-window indicator. When omitted, the window is auto-detected at runtime (capability probe / provider `/models`); set `context_window_tokens` to override auto-detection — useful when the model is loaded with a smaller window than its maximum, or the provider does not report a context length. Resolution order: explicit config → probe metadata → `/models` map → unknown (indicator shows a raw token count instead of a percentage).
+
 **Model strings use LiteLLM's `provider/model-name` format:**
 
 - `ollama/llama-3.1-8b` — Local Ollama (default docker-compose endpoint: `http://host.docker.internal:11434`)
@@ -175,7 +178,7 @@ llm:
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
       model: "openai/google/gemma-4-e4b"
       temperature: 0.3
-      max_tokens: 32768
+      max_tokens: 16384
       timeout: 600
       # Declare native mode when the model supports it.
       # Leave commented out to use the default (structured).
@@ -278,7 +281,7 @@ rag:
   enabled: true
   collection_name: "framework" # Must match ingestion collection
   top_k: 5 # Max results per query
-  pill_score_threshold: 0.6 # Minimum similarity score (filters irrelevant results)
+  pill_score_threshold: 0.72 # Minimum similarity score (filters irrelevant results)
   query_rewriting:
     enabled: true       # Rewrite/expand queries via auxiliary model before Qdrant search
     num_variants: 2     # 1 = single rewritten query; 2-3 = multi-query expansion (union results)
@@ -294,7 +297,7 @@ rag:
 **Notes:**
 
 - `rag.collection_name` is the single collection identifier for both ingestion and retrieval (see [docs/ingestion.md](docs/ingestion.md)).
-- `pill_score_threshold` filters low-similarity results client-side and server-side. Default `0.6` prevents irrelevant documents from leaking into the context. Set to `null` to disable.
+- `pill_score_threshold` filters low-similarity results client-side and server-side. Default `0.72` (applied in `rag_node.py` when unset) prevents irrelevant documents from leaking into the context. This is the single retrieval threshold — there is no separate `rag.score_threshold` config key. Set to `null` to disable.
 - `with_payload` can be `true` (all fields) or a list of specific payload fields.
 - `query_rewriting.num_variants` controls how many semantically varied search queries are generated. `1` rewrites the query once; `2` or `3` produces multiple variants whose Qdrant results are unioned before deduplication, improving recall for ambiguous or short queries. Uses `llm.roles.auxiliary`.
 
@@ -355,7 +358,7 @@ tokens:
 
 - `tokens_used`, `input_tokens`, and `output_tokens` are accumulated in `GraphState` each turn and exposed via Prometheus metrics and the SSE `metadata` event.
 - Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The `tokens.*` configuration keys are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
-- Conversation length is controlled by the compression threshold (`llm.roles.chat.max_tokens * 0.75`) and the `SUMMARIZE_*` env vars, not by token budget caps.
+- Conversation length is controlled by the compression threshold (`llm.roles.chat.max_tokens * 0.75`, with `min_messages=2` at the call site), not by token budget caps. The summarization defaults live in code (`memory/summarization.py`, `orchestration/performance_nodes.py`), not in environment variables.
 
 ### Checkpointing Configuration
 
@@ -591,11 +594,10 @@ ingestion:
   reingest_timeout_seconds: 1800       # Timeout for full reingest via API
 ```
 
-**Supported file types:**
+**Supported file types** (`SUPPORTED_EXTENSIONS` in `ingestion/service.py`):
 
 - PDF (`.pdf`)
 - Word documents (`.docx`)
-- CSV/Excel (`.csv`, `.xlsx`, `.xls`)
 - Markdown (`.md`, `.markdown`)
 - Text (`.txt`)
 
@@ -616,7 +618,7 @@ poetry run steuermann ingest watch  --source ./data/rag-data --collection <name>
 
 Key settings:
 
-- `NEXT_PUBLIC_API_URL` - Backend API URL (default: [http://localhost:8001](http://localhost:8001))
+- `NEXT_PUBLIC_API_BASE` - Backend API base path used by the frontend (default: `/api/proxy`, the Next.js proxy route)
 - Tailwind CSS v4 theming via `@theme` block in `globals.css` (colors, fonts, spacing)
 - Component configuration in `frontend/src/config/`
 
@@ -687,7 +689,7 @@ FASTAPI_HOST=0.0.0.0
 FASTAPI_PORT=8001
 
 # Next.js Frontend
-NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_API_BASE=/api/proxy
 NEXT_PUBLIC_CHAT_WORKSPACE_ENABLED=false
 
 # Monitoring
@@ -697,7 +699,8 @@ PROMETHEUS_PORT=9090
 WORKSPACES_PATH=./data/workspaces
 CHAT_ATTACHMENTS_ENABLED=true
 CHAT_ATTACHMENTS_ROOT=/tmp/steuermann-ai/chat-workspaces
-CHAT_ATTACHMENTS_MAX_FILE_BYTES=524288
+CHAT_ATTACHMENTS_MAX_FILE_BYTES=10485760   # 10 MB
+WORKSPACE_MAX_FILE_BYTES=10485760          # 10 MB
 CHAT_ATTACHMENTS_RETENTION_HOURS=168
 
 # Legacy conversation-scoped workspace actions (opt-in)
@@ -908,7 +911,7 @@ rag:
   enabled: true
   collection_name: "simple-assistant"
   top_k: 5
-  pill_score_threshold: 0.6
+  pill_score_threshold: 0.72
 ```
 
 ### Production Configuration (German Medical AI)
@@ -971,7 +974,7 @@ rag:
   enabled: true
   collection_name: "medical-ai-de"
   top_k: 5
-  pill_score_threshold: 0.6
+  pill_score_threshold: 0.72
 
 tokens:
   default_budget: 15000

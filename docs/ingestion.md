@@ -459,10 +459,13 @@ ingestion:
     chunk_overlap: 50               # Overlap between chunks
     language: "en"                  # Target language
   
-  # Embedding configuration
+  # Embedding configuration (remote OpenAI-compatible endpoint only)
   embedding:
-    model: "paraphrase-multilingual-MiniLM-L12-v2"
+    model: "text-embedding-granite-embedding-278m-multilingual"
+    provider: "remote"
+    remote_endpoint: "${EMBEDDING_SERVER}"
     batch_size: 32                  # Embeddings per batch
+    dimension: 768                  # Must match memory.embeddings.dimension
   
   # Collection definitions
   collections:
@@ -513,40 +516,30 @@ processing:
 
 ### Embedding Models
 
-**Available models:**
+Embeddings are generated **remotely** through an OpenAI-compatible endpoint
+(`provider: "remote"`, `remote_endpoint: ${EMBEDDING_SERVER}`). There is no local
+SentenceTransformer path — the model is whatever your embedding server exposes. The model
+**and its output dimension** must match the runtime memory/RAG settings exactly.
 
-1. **paraphrase-multilingual-MiniLM-L12-v2** (Default)
-   - Dimensions: 384
-   - Languages: 50+
-   - Speed: Fast
-   - Use case: General multilingual
+**Starter default:**
 
-2. **all-MiniLM-L6-v2**
-   - Dimensions: 384
-   - Languages: English only
-   - Speed: Very fast
-   - Use case: English-only apps
+- Model: `text-embedding-granite-embedding-278m-multilingual`
+- Dimension: `768` (must equal `memory.embeddings.dimension` and the value used at retrieval time)
+- Languages: multilingual
 
-3. **all-mpnet-base-v2**
-   - Dimensions: 768
-   - Languages: English only
-   - Speed: Slower
-   - Use case: High quality English
-
-4. **distiluse-base-multilingual-cased-v2**
-   - Dimensions: 512
-   - Languages: 15+
-   - Speed: Medium
-   - Use case: Multilingual with quality
+Any OpenAI-compatible embedding model served by LM Studio, Ollama, or another endpoint works —
+pick one and keep ingestion and retrieval pointed at the same model and dimension.
 
 **Changing models:**
 ```yaml
 embedding:
-  model: "all-mpnet-base-v2"
-  # Note: Must match dimension in memory.embeddings.dimension
+  model: "<your-embedding-model>"
+  provider: "remote"
+  remote_endpoint: "${EMBEDDING_SERVER}"
+  dimension: 768   # Must match the model's output AND memory.embeddings.dimension
 ```
 
-**⚠️ Important:** Changing models requires reindexing all collections.
+**⚠️ Important:** Changing the model or its dimension requires reindexing all collections.
 
 ### Language Validation
 
@@ -609,12 +602,13 @@ config = IngestionConfig(
     source_path=Path("/data/documents"),
     file_patterns=["**/*.pdf", "**/*.docx"],
     collection_name="my-knowledge",
-    collection_description="Domain knowledge base",
     target_language="en",
     chunk_size=512,
     chunk_overlap=50,
-    embedding_model="paraphrase-multilingual-MiniLM-L12-v2",
-    embedding_dimension=384,
+    embedding_model="text-embedding-granite-embedding-278m-multilingual",
+    embedding_dimension=768,
+    embedding_provider_type="remote",
+    embedding_remote_endpoint="http://host.docker.internal:1234/v1",  # EMBEDDING_SERVER
     qdrant_host="localhost",
     qdrant_port=6333,
     metadata={"source": "production", "version": "1.0"}
@@ -705,6 +699,12 @@ curl http://localhost:6333/collections/my-knowledge
   }
 }
 ```
+
+To inspect a collection's **content** (not just its size), administrators can use the RAG
+knowledge explorer in the frontend at `/admin/rag`: search by keyword and review the matching
+chunks with their similarity scores, against a marker for the production retrieval cutoff. This is
+the quickest way to confirm that documents were chunked and embedded as expected and that relevant
+content scores above the threshold the chat actually uses.
 
 ### Deleting Collection
 
@@ -897,11 +897,13 @@ poetry run steuermann ingest ingest --source /data/docs/batch1
 poetry run steuermann ingest ingest --source /data/docs/batch2
 ```
 
-3. **Use smaller embedding model:**
+3. **Lower the embedding batch size:**
 ```yaml
 embedding:
-  model: "all-MiniLM-L6-v2"  # 384d instead of 768d
+  batch_size: 16   # smaller payloads to the remote embedding server
 ```
+Embeddings are computed on the remote endpoint, so memory pressure during embedding is on
+that server — reduce `batch_size` or scale the embedding service.
 
 ### Issue: Qdrant connection refused
 
@@ -1042,8 +1044,8 @@ info = client.get_collection("my-knowledge")
 print(f"Vectors: {info.vectors_count}")
 print(f"Points: {info.points_count}")
 
-# Estimate size
-approx_size_mb = (info.vectors_count * 384 * 4) / (1024 * 1024)
+# Estimate size (768-dim float32 vectors)
+approx_size_mb = (info.vectors_count * 768 * 4) / (1024 * 1024)
 print(f"Approx size: {approx_size_mb:.2f} MB")
 ```
 
@@ -1085,19 +1087,19 @@ processing:
 
 ### Embedding Optimization
 
-**CPU-only (no GPU):**
-```python
-# Use smallest model
+Embedding compute happens on the remote endpoint, so GPU/CPU choice is a property of the
+embedding **server**, not this pipeline. The lever here is batch size, traded off against the
+remote server's capacity:
+
+**Conservative (small/slow endpoint):**
+```yaml
 embedding:
-  model: "all-MiniLM-L6-v2"
   batch_size: 16
 ```
 
-**With GPU:**
-```python
-# Use larger model
+**Aggressive (well-provisioned endpoint):**
+```yaml
 embedding:
-  model: "all-mpnet-base-v2"
   batch_size: 64
 ```
 

@@ -86,6 +86,8 @@ See [docs/technical_architecture.md](docs/technical_architecture.md) for memory 
 
 Drop documents into a watched directory and they are automatically chunked, embedded, and indexed into Qdrant. The ingestion service handles incremental updates, file deletions, and startup sweeps — no manual re-indexing needed. RAG retrieval is skipped automatically for queries where it adds no value.
 
+Administrators can inspect what was indexed from the **RAG knowledge explorer** at `/admin/rag`: search a collection by keyword and review the matching chunks with their similarity scores, against a visible marker for the production retrieval cutoff — useful for evaluating chunking, embedding, and threshold tuning.
+
 See [docs/ingestion.md](docs/ingestion.md) for ingestion configuration and CLI reference.
 
 ### Tool Runtime & MCP Integration
@@ -96,7 +98,7 @@ See [docs/tool_development_guide.md](docs/tool_development_guide.md) for buildin
 
 ### Operational Interface
 
-A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
+A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, an admin-only RAG knowledge explorer for searching the knowledge base by keyword and reviewing retrieved documents, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
 
 ### Performance & Reliability
 
@@ -241,22 +243,23 @@ Configuration follows a three-layer hierarchy: **Base → Profile Overlay → En
 
 ```text
 config/
-├── core.yaml              # LLM providers, embeddings, token tracking, RAG
-├── agents.yaml            # CrewAI crew and agent definitions
-├── tools.yaml             # Tool manifests and routing
-├── features.yaml          # Feature flags (caching, crews, etc.)
-├── prompts/
-│   ├── en.yaml            # English system prompts
-│   └── de.yaml            # German system prompts
+├── core.yaml              # Base infra only: database, memory vector store, checkpointing
+├── features.yaml          # Deployment-global feature flags
+├── contracts/             # Config contract schemas (validation)
 └── profiles/
     └── starter/           # Default profile (copy to create your own)
-        ├── profile.yaml   # Profile metadata
-        ├── core.yaml      # LLM/memory/RAG overrides
+        ├── profile.yaml   # Profile metadata (top-level `profile:` key)
+        ├── core.yaml      # LLM roles, embeddings, memory, RAG, tokens, ingestion
         ├── features.yaml  # Feature flag overrides
-        ├── agents.yaml    # Crew overrides
-        ├── tools.yaml     # Tool overrides
-        └── ui.yaml        # Branding and theme
+        ├── agents.yaml    # CrewAI crew and agent definitions
+        ├── tools.yaml     # Tool registration and routing
+        ├── ui.yaml        # Branding and theme
+        └── prompts/
+            ├── en.yaml    # English system prompts
+            └── de.yaml    # German system prompts
 ```
+
+Everything except base infra lives in the profile overlay — `agents.yaml`, `tools.yaml`, and per-language `prompts/` exist **only** under `config/profiles/<profile_id>/`, not at the base level.
 
 Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md](docs/configuration.md) for the full schema reference.
 

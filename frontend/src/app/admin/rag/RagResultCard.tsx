@@ -1,0 +1,128 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { Icon } from "@/components/Icon";
+import { useI18n } from "@/hooks/useI18n";
+import type { RagSearchHit } from "@/lib/api";
+
+const PREVIEW_CHARS = 320;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Highlight whitespace-separated query tokens (≥2 chars) within the chunk text. */
+function useHighlighter(query: string) {
+  return useMemo(() => {
+    const tokens = query
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2)
+      .map(escapeRegExp);
+    if (tokens.length === 0) return null;
+    return new RegExp(`(${tokens.join("|")})`, "gi");
+  }, [query]);
+}
+
+function Highlighted({ text, pattern }: { text: string; pattern: RegExp | null }) {
+  if (!pattern) return <>{text}</>;
+  // The pattern has a single capture group, so String.split keeps the matched
+  // delimiters at odd indices — render those as <mark>. (Avoids the stateful
+  // `.test()`/lastIndex pitfall of a /g regex.)
+  const parts = text.split(pattern);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="bg-atomic-tangerine/30 text-evergreen rounded px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+export function RagResultCard({ hit, query }: { hit: RagSearchHit; query: string }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const pattern = useHighlighter(query);
+
+  const isLong = hit.text.length > PREVIEW_CHARS;
+  const shown = expanded || !isLong ? hit.text : hit.text.slice(0, PREVIEW_CHARS) + "…";
+
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(hit.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  }
+
+  const scoreClasses = hit.above_cutoff
+    ? "bg-pacific-blue/15 text-evergreen"
+    : "bg-burnt-tangerine/10 text-burnt-tangerine";
+
+  return (
+    <div className="rounded-xl border border-evergreen/10 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className={`font-mono text-sm font-semibold rounded-md px-2 py-0.5 ${scoreClasses}`}>
+          {hit.score.toFixed(3)}
+        </span>
+        <span className="flex items-center gap-1.5 text-evergreen font-medium text-sm min-w-0">
+          <Icon name="description" size={16} className="text-evergreen/50 shrink-0" />
+          <span className="truncate" title={hit.file_path}>
+            {hit.file_name}
+          </span>
+        </span>
+        {hit.chunk_index != null && (
+          <span className="text-xs text-evergreen/50 font-mono">
+            {t("ragExplorer.chunk", {
+              index: hit.chunk_index,
+              count: hit.chunk_count ?? "?",
+            })}
+          </span>
+        )}
+        {hit.detected_language && (
+          <span className="text-xs uppercase tracking-wide rounded bg-evergreen/5 text-evergreen/60 px-1.5 py-0.5">
+            {hit.detected_language}
+          </span>
+        )}
+        <span
+          className={`text-xs ml-auto ${
+            hit.above_cutoff ? "text-pacific-blue" : "text-burnt-tangerine/70"
+          }`}
+        >
+          {hit.above_cutoff ? t("ragExplorer.aboveCutoff") : t("ragExplorer.belowCutoff")}
+        </span>
+        <button
+          type="button"
+          onClick={copyText}
+          className="text-evergreen/40 hover:text-pacific-blue transition-colors"
+          title={copied ? t("ragExplorer.copied") : t("ragExplorer.copy")}
+        >
+          <Icon name={copied ? "check" : "content_copy"} size={16} />
+        </button>
+      </div>
+
+      <p className="mt-3 text-sm text-evergreen/80 whitespace-pre-wrap leading-relaxed">
+        <Highlighted text={shown} pattern={pattern} />
+      </p>
+
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-2 text-xs font-medium text-pacific-blue hover:text-evergreen transition-colors"
+        >
+          {expanded ? t("ragExplorer.showLess") : t("ragExplorer.showMore")}
+        </button>
+      )}
+    </div>
+  );
+}

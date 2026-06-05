@@ -41,7 +41,6 @@ class CreateConversationRequest(BaseModel):
 
 class UpdateConversationRequest(BaseModel):
     title: Optional[str] = None
-    archived: Optional[bool] = None
     pinned: Optional[bool] = None
     language: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -67,11 +66,11 @@ class ConversationResponse(BaseModel):
     title: str
     language: str
     profile_name: Optional[str] = None
-    archived: bool
     pinned: bool
     metadata: Dict[str, Any] = {}
     last_message: Optional[str] = None
     message_count: Optional[int] = None
+    match_snippet: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -100,15 +99,6 @@ class ConversationListResponse(BaseModel):
 class ConversationDetailResponse(BaseModel):
     conversation: ConversationResponse
     messages: List[MessageResponse]
-
-
-class SearchResultItem(BaseModel):
-    message_id: int
-    conversation_id: str
-    conversation_title: str
-    role: str
-    content: str
-    created_at: str
 
 
 class AttachmentResponse(BaseModel):
@@ -218,16 +208,21 @@ async def create_conversation(body: CreateConversationRequest, request: Request)
 async def list_conversations(
     request: Request,
     user_id: str = Query(default="anonymous"),
-    include_archived: bool = Query(default=False),
+    q: Optional[str] = Query(default=None, description="Substring search over title + message content"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-    """List conversations for a user (pinned first, then most-recently updated)."""
+    """List conversations for a user (pinned first, then most-recently updated).
+
+    When ``q`` is provided, results are filtered to conversations whose title or any
+    message content matches (case-insensitive substring) and each carries a
+    ``match_snippet`` of the matching message.
+    """
     store = _get_store(request)
     effective_user_id = get_effective_user_id(user_id)
     conversations, total = store.list_conversations(
         user_id=effective_user_id,
-        include_archived=include_archived,
+        q=q,
         limit=limit,
         offset=offset,
     )
@@ -237,19 +232,6 @@ async def list_conversations(
         "limit": limit,
         "offset": offset,
     }
-
-
-@router.get("/search", response_model=List[SearchResultItem])
-async def search_messages(
-    request: Request,
-    user_id: str = Query(default="anonymous"),
-    q: str = Query(..., min_length=1),
-    limit: int = Query(default=50, ge=1, le=200),
-):
-    """Full-text search across all messages for a user."""
-    store = _get_store(request)
-    effective_user_id = get_effective_user_id(user_id)
-    return store.search_messages(user_id=effective_user_id, query=q, limit=limit)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
@@ -267,7 +249,7 @@ async def get_conversation(conversation_id: str, request: Request):
 async def update_conversation(
     conversation_id: str, body: UpdateConversationRequest, request: Request
 ):
-    """Update conversation fields (title, archived, pinned, language, metadata)."""
+    """Update conversation fields (title, pinned, language, metadata)."""
     store = _get_store(request)
     updates = body.model_dump(exclude_unset=True)
     if not updates:

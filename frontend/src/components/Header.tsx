@@ -25,8 +25,10 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
 
   const navLinks = [
     ...(isAdmin ? [{ href: "/metrics", label: t("header.metrics"), icon: "bar_chart" }] : []),
+    { href: "/chats", label: t("header.chats"), icon: "forum" },
     { href: "/memories", label: t("header.memory"), icon: "psychology" },
     { href: "/settings", label: t("header.settings"), icon: "settings" },
+    ...(isAdmin ? [{ href: "/admin/rag", label: t("header.ragExplorer"), icon: "travel_explore" }] : []),
     ...(isAdmin ? [{ href: "/admin", label: t("header.admin"), icon: "admin_panel_settings" }] : []),
   ];
   const hasMeta = activeConversation != null;

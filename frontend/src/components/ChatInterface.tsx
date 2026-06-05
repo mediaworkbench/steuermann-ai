@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
+import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
 import { ReasoningBox } from "./ReasoningBox";
@@ -12,13 +11,12 @@ import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { useConversationContext } from "./LayoutShell";
+import { useChatSession } from "@/context/ChatSessionContext";
 import { useI18n } from "@/hooks/useI18n";
-import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import {
   deleteConversationAttachment,
-  fetchConversation,
   fetchConversationAttachments,
   fetchSystemConfig,
   fetchUserSettings,
@@ -31,14 +29,9 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
   Message,
-  PersistedMessage,
   Source,
 } from "@/lib/types";
 
-/**
- * Replace [N] footnote references with clickable markdown links using the sources array.
- * E.g. "[1]" becomes "[<sup>1</sup>](url)" if source 1 has a URL, or bold "[<sup>1</sup>]" for RAG.
- */
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
   { id: "extract_webpage_mcp", label: "Extract Webpage" },
@@ -58,102 +51,6 @@ function formatModelName(model: string | null | undefined, fallback = "Model"): 
   const m = model || fallback;
   const parts = m.split("/");
   return parts.length > 1 ? parts.slice(1).join("/") : m;
-}
-
-function linkFootnotes(text: string, sources?: Source[]): string {
-  if (!sources || sources.length === 0) return text;
-  // Build a map from index (1-based from backend) to source
-  const indexMap = new Map<number, Source>();
-  sources.forEach((s) => {
-    if (s.index) indexMap.set(s.index, s);
-  });
-  // Also fall back to position-based if no index field
-  if (indexMap.size === 0) {
-    sources.forEach((s, i) => indexMap.set(i + 1, s));
-  }
-
-  const SUPERSCRIPT = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
-  const toSup = (n: number) =>
-    String(n).split("").map((d) => SUPERSCRIPT[parseInt(d)]).join("");
-
-  // Match [N], [N, M], [N, M, O] patterns
-  return text.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, nums: string) => {
-    const numbers = nums.split(",").map((n: string) => parseInt(n.trim(), 10));
-    const parts = numbers.map((n) => {
-      const src = indexMap.get(n);
-      if (!src) return `[${n}]`;
-      if (src.url) return `[${toSup(n)}](${src.url})`;
-      return `**[${toSup(n)}]**`;
-    });
-    return parts.join(" ");
-  });
-}
-
-/** Render markdown content with proper styling and footnote linking */
-function MarkdownMessage({ content, sources }: { content: string; sources?: Source[] }) {
-  const processed = useMemo(() => linkFootnotes(content, sources), [content, sources]);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children, ...props }) => (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-pacific-blue underline hover:text-pacific-blue/80 break-all"
-            {...props}
-          >
-            {children}
-          </a>
-        ),
-        p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-        h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-4 first:mt-0">{children}</h1>,
-        h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-        h3: ({ children }) => <h3 className="text-base font-semibold mb-1.5 mt-3 first:mt-0">{children}</h3>,
-        ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
-        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-        code: ({ children, className }) => {
-          const isBlock = className?.includes("language-");
-          if (isBlock) {
-            return (
-              <code className="block bg-evergreen/5 rounded-lg p-3 text-sm font-mono overflow-x-auto my-2 border border-evergreen/10">
-                {children}
-              </code>
-            );
-          }
-          return (
-            <code className="bg-evergreen/5 rounded px-1.5 py-0.5 text-sm font-mono">{children}</code>
-          );
-        },
-        pre: ({ children }) => <pre className="my-2">{children}</pre>,
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-3 border-pacific-blue/40 pl-3 my-2 text-evergreen/70 italic">
-            {children}
-          </blockquote>
-        ),
-        table: ({ children }) => (
-          <div className="overflow-x-auto my-3">
-            <table className="min-w-full text-sm border border-evergreen/10 rounded">{children}</table>
-          </div>
-        ),
-        th: ({ children }) => (
-          <th className="px-3 py-1.5 text-left font-semibold bg-light-cyan/20 border-b border-evergreen/10">
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="px-3 py-1.5 border-b border-evergreen/5">{children}</td>
-        ),
-        hr: () => <hr className="my-4 border-evergreen/10" />,
-      }}
-    >
-      {processed}
-    </ReactMarkdown>
-  );
 }
 
 /** Render source badges below a message — blue for web (clickable), amber for RAG */
@@ -239,63 +136,6 @@ function DocumentUsedBadges({
 }
 
 
-/** Generate a concise conversation title from the first user message. */
-function generateTitle(message: string): string {
-  const clean = message.replace(/\s+/g, " ").trim();
-  if (!clean) return "New conversation";
-  if (clean.length <= 50) return clean;
-  const sentenceEnd = clean.substring(0, 60).search(/[.!?]\s/);
-  if (sentenceEnd > 10) return clean.substring(0, sentenceEnd + 1);
-  const truncated = clean.substring(0, 50);
-  const lastSpace = truncated.lastIndexOf(" ");
-  if (lastSpace > 20) return truncated.substring(0, lastSpace) + "\u2026";
-  return truncated + "\u2026";
-}
-
-/** Convert a persisted (DB) message into the local UI Message shape. */
-function toUiMessage(pm: PersistedMessage, formatTime: (value: Date | string | number) => string): Message {
-  return {
-    role: pm.role === "system" ? "assistant" : pm.role,
-    content: pm.content,
-    thinking: (pm.metadata?.thinking_content as string | undefined) ?? undefined,
-    timestamp: pm.created_at
-      ? formatTime(pm.created_at)
-      : undefined,
-    persistedId: pm.id,
-    feedback: pm.feedback ?? undefined,
-    metrics: {
-      output_tokens: (pm.metadata?.output_tokens as number | undefined) ?? pm.tokens_used ?? undefined,
-      input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
-      response_time_ms: pm.response_time_ms ?? undefined,
-      model: pm.model_name ?? undefined,
-      tools_executed: [
-        ...(pm.tools_used?.map((t) => ({ name: t.name, status: t.status })) ?? []),
-        ...(pm.metadata?.rag_attempted
-          ? [{ name: "knowledge_base" as const, status: "success" as const }]
-          : []),
-      ],
-      sources: pm.metadata?.sources as Source[] | undefined,
-      rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
-      rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,
-      attachments_used: pm.metadata?.attachments_used as
-        | Array<{ id: string; original_name: string }>
-        | undefined,
-      documents_used: pm.metadata?.documents_used as
-        | Array<{ id: string; filename: string; version: number }>
-        | undefined,
-      memories_used: pm.metadata?.memories_used as
-        | Array<{
-            memory_id: string;
-            text?: string;
-            user_rating?: number | null;
-            importance_score?: number | null;
-            is_related?: boolean;
-          }>
-        | undefined,
-      map_data: pm.metadata?.map_data as import("@/lib/types").MapData | undefined,
-    },
-  };
-}
 
 function CtxRow({ label, value }: { label: string; value: number }) {
   return (
@@ -307,10 +147,8 @@ function CtxRow({ label, value }: { label: string; value: number }) {
 }
 
 export function ChatInterface() {
-  const { t, formatTime } = useI18n();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { t } = useI18n();
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
@@ -326,19 +164,20 @@ export function ChatInterface() {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const [contextTokens, setContextTokens] = useState<number>(0);
   const [isCompacting, setIsCompacting] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const startTimeRef = useRef<number>(0);
-  const wasStreamingRef = useRef(false);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
   const plopAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Live chat runtime lives in a persistent provider so it survives in-app
+  // navigation (the stream keeps running while the user is on another page).
   const {
+    messages,
+    setMessages,
     streamingContent,
     isStreaming,
     streamError,
@@ -349,18 +188,19 @@ export function ChatInterface() {
     wasCancelled,
     thinkingContent,
     isThinking,
-    sendMessage: startStream,
-    cancel: cancelStream,
-    reset: resetStream,
-  } = useStreamingChat();
+    contextTokens,
+    setContextTokens,
+    loading,
+    queuedMessage,
+    sendMessage,
+    enqueueMessage,
+    clearQueue,
+    ensureConversation,
+    cancelStream,
+  } = useChatSession();
 
-  const { activeId, create, refresh, rename, activeConversation, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
+  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
-
-
-  // Flag: when true the next activeId change came from create() and the
-  // message-fetch useEffect should skip reloading (no persisted messages yet).
-  const skipNextFetchRef = useRef(false);
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
@@ -390,43 +230,7 @@ export function ChatInterface() {
     fetchWorkspaceDocuments();
   }, [fetchWorkspaceDocuments]);
 
-  // ── Load messages when active conversation changes ─────────────────
-
-  useEffect(() => {
-    if (!activeId) {
-      setMessages([]);
-      setAttachments([]);
-      setWorkspaceSidebarOpen(false);
-      setContextTokens(0);
-      return;
-    }
-    // When a conversation was just created the DB has no messages yet.
-    // Skip the fetch so the optimistic user message is not overwritten.
-    if (skipNextFetchRef.current) {
-      skipNextFetchRef.current = false;
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const detail = await fetchConversation(activeId);
-      if (cancelled || !detail) return;
-      const loadedMessages = detail.messages.map((msg) => toUiMessage(msg, formatTime));
-      // Restore context ring to the high-water mark from persisted input_tokens.
-      const hwm = loadedMessages
-        .filter((m) => m.role === "assistant")
-        .reduce((max, m) => Math.max(max, m.metrics?.input_tokens ?? 0), 0);
-      setContextTokens(hwm);
-      setMessages(loadedMessages);
-      // New chats should start with a collapsed workspace unless explicitly opened.
-      if (detail.messages.length === 0) {
-        setWorkspaceSidebarOpen(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeId, formatTime]);
-
+  // Attachments are conversation-scoped and re-fetched on conversation change.
   useEffect(() => {
     if (!activeId) {
       setAttachments([]);
@@ -458,42 +262,17 @@ export function ChatInterface() {
     if (shouldAutoScroll) {
       scrollToBottom("smooth");
     }
-  }, [messages, loading, isStreaming, streamingContent, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, loading, isStreaming, streamingContent, queuedMessage, shouldAutoScroll]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Commit completed streaming message to messages list
+  // Stream-end UX (sound, unread badge, workspace-writeback toast/refresh) —
+  // fires only while the chat view is mounted. The durable message commit, the
+  // persisted-id backfill, and the context-token update all live in
+  // ChatSessionProvider, so they run even when the user is on another page.
+  const uxWasStreamingRef = useRef(false);
   useEffect(() => {
-    const was = wasStreamingRef.current;
-    wasStreamingRef.current = isStreaming;
+    const was = uxWasStreamingRef.current;
+    uxWasStreamingRef.current = isStreaming;
     if (was && !isStreaming && (streamingContent || wasCancelled)) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant" as const,
-          content: wasCancelled
-            ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
-            : streamingContent,
-          thinking: thinkingContent || undefined,
-          timestamp: formatTime(new Date()),
-          metrics: finalMetadata
-            ? {
-                response_time_ms: Date.now() - startTimeRef.current,
-                input_tokens: finalMetadata.input_tokens,
-                output_tokens: finalMetadata.output_tokens,
-                finish_reason: "stop",
-                model: finalMetadata.model_used,
-                tools_executed: finalMetadata.tools_executed?.map((name) => ({
-                  name,
-                  status: "success" as const,
-                })),
-                sources: finalMetadata.sources,
-                memories_used: finalMetadata.memories_used,
-                rag_attempted: finalMetadata.rag_attempted,
-                rag_doc_count: finalMetadata.rag_doc_count,
-                map_data: finalMetadata.map_data,
-              }
-            : undefined,
-        },
-      ]);
       if (finalMetadata?.workspace_document_writeback?.status === "saved") {
         const wb = finalMetadata.workspace_document_writeback;
         fetchWorkspaceDocuments();
@@ -503,59 +282,19 @@ export function ChatInterface() {
           description: `${wb.filename} updated to v${wb.version}`,
         });
       }
-      resetStream();
-
       if (soundEnabled) {
         plopAudioRef.current?.play().catch(() => {});
       }
       if (document.hidden || !document.hasFocus()) {
         setHasNewMessage(true);
       }
-
-      // After streaming, fetch the conversation to get DB message IDs so that
-      // feedback (thumbs up/down) can be persisted. _run_persistence on the
-      // backend completes before [DONE] is emitted, so the rows are ready.
-      if (activeId) {
-        fetchConversation(activeId).then((detail) => {
-          if (!detail) return;
-          setMessages((prev) => {
-            const dbMsgs = detail.messages;
-            let dbIdx = 0;
-            return prev.map((msg) => {
-              if (msg.persistedId != null) {
-                // Already has an ID — advance the DB cursor past the matching row.
-                while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].id !== msg.persistedId) dbIdx++;
-                dbIdx++;
-                return msg;
-              }
-              // Find the next DB message with the same role.
-              while (dbIdx < dbMsgs.length && dbMsgs[dbIdx].role !== msg.role) dbIdx++;
-              const dbMsg = dbMsgs[dbIdx];
-              dbIdx++;
-              return dbMsg ? { ...msg, persistedId: dbMsg.id } : msg;
-            });
-          });
-        });
-      }
     }
   }, [isStreaming, soundEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update context token count — use high-water mark so the ring never goes backwards.
-  // Per-turn prompt size fluctuates (RAG results and tool outputs vary) but conversation
-  // history only grows, so the peak value best reflects cumulative context growth.
-  // contextTokens is already reset to 0 when the active conversation changes.
-  useEffect(() => {
-    const tokens = finalMetadata?.input_tokens;
-    if (!isStreaming && tokens != null && tokens > 0) {
-      setContextTokens((prev) => Math.max(prev, tokens));
-    }
-  }, [isStreaming, finalMetadata]);
-
-  // Surface stream errors as toasts
+  // Surface stream errors as toasts (loading is reset by sendMessage in the provider)
   useEffect(() => {
     if (streamError) {
       toast.error(t("chat.messageFailed"), { description: streamError });
-      setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamError]);
@@ -565,11 +304,8 @@ export function ChatInterface() {
     if (streamWarning) {
       toast.warning(streamWarning);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamWarning]);
 
-  // Cancel any in-flight stream on unmount
-  useEffect(() => () => cancelStream(), [cancelStream]);
 
   // Preload plop audio on mount
   useEffect(() => {
@@ -660,96 +396,16 @@ export function ChatInterface() {
     el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
 
-  const ensureConversation = useCallback(
-    async (seedText: string = t("chat.newConversation")) => {
-      if (activeId) return activeId;
-      const autoTitle = generateTitle(seedText);
-      skipNextFetchRef.current = true;
-      const conv = await create(autoTitle);
-      if (!conv) {
-        skipNextFetchRef.current = false;
-        return null;
-      }
-      return conv.id;
-    },
-    [activeId, create, t],
-  );
-
-  // ── Core send logic (reused by send, regenerate, edit) ─────────────
-
-  const sendMessage = useCallback(
-    async (userMessage: string, replaceFromIndex?: number) => {
-      let convId = activeId;
-      const isFirstMessage = messages.length === 0 || replaceFromIndex === 0;
-      if (!convId) {
-        convId = await ensureConversation(userMessage);
-        if (!convId) return;
-      }
-
-      if (replaceFromIndex != null) {
-        setMessages((prev) => [
-          ...prev.slice(0, replaceFromIndex),
-          {
-            role: "user",
-            content: userMessage,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "user",
-            content: userMessage,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
-      }
-      setLoading(true);
-      startTimeRef.current = Date.now();
-
-      // Estimate context size immediately so the ring updates while the LLM generates.
-      // chars / 4 ≈ tokens; the real input_tokens replaces this when the metadata SSE arrives.
-      const _estTokens = Math.round(
-        messages.reduce((s, m) => s + m.content.length, 0) / 4 + userMessage.length / 4,
-      );
-      setContextTokens((prev) => Math.max(prev, _estTokens));
-
-      await startStream({
-        message: userMessage,
-        userId: CURRENT_USER_ID,
-        conversationId: convId,
-        attachmentIds: attachments.map((a) => a.id),
-        documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
-        ragEnabled,
-      });
-
-      setLoading(false);
-      refresh();
-      if (
-        isFirstMessage &&
-        convId &&
-        (activeConversation?.title === "New conversation" ||
-          activeConversation?.title === t("chat.newConversation"))
-      ) {
-        const betterTitle = generateTitle(userMessage);
-        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
-      }
-    },
-    [
-      activeId,
-      messages.length,
-      ensureConversation,
-      refresh,
-      rename,
-      activeConversation?.title,
-      attachments,
-      activeWorkspaceDocId,
+  // Build the per-send options from the composer's current UI state. The send
+  // orchestration itself (messages append, stream start, auto-title) lives in
+  // ChatSessionProvider so it survives navigation.
+  const buildSendOptions = useCallback(
+    () => ({
+      attachmentIds: attachments.map((a) => a.id),
+      documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
       ragEnabled,
-      startStream,
-      t,
-      formatTime,
-    ],
+    }),
+    [attachments, activeWorkspaceDocId, ragEnabled],
   );
 
   const handleAttachmentUpload = useCallback(
@@ -811,12 +467,18 @@ export function ChatInterface() {
     });
   }, []);
 
-  async function handleSend() {
-    if (!input.trim() || loading || isStreaming) return;
+  function handleSend() {
+    if (!input.trim()) return;
     const userMessage = input;
     setInput("");
     setTimeout(() => autoResize(), 0);
-    sendMessage(userMessage);
+    // Busy → queue the follow-up (replaces any existing slot); the provider
+    // auto-fires it when the current inference completes normally.
+    if (isStreaming || loading) {
+      enqueueMessage(userMessage, buildSendOptions());
+    } else {
+      sendMessage(userMessage, buildSendOptions());
+    }
   }
 
   // ── Regenerate: resend the last user message ───────────────────────
@@ -824,19 +486,19 @@ export function ChatInterface() {
   const handleRegenerate = useCallback(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
-        sendMessage(messages[i].content, i);
+        sendMessage(messages[i].content, { ...buildSendOptions(), replaceFromIndex: i });
         return;
       }
     }
-  }, [messages, sendMessage]);
+  }, [messages, sendMessage, buildSendOptions]);
 
   // ── Edit user message & resend ─────────────────────────────────────
 
   const handleEditAndResend = useCallback(
     (index: number, newContent: string) => {
-      sendMessage(newContent, index);
+      sendMessage(newContent, { ...buildSendOptions(), replaceFromIndex: index });
     },
-    [sendMessage],
+    [sendMessage, buildSendOptions],
   );
 
   // ── Feedback handler ───────────────────────────────────────────────
@@ -864,7 +526,7 @@ export function ChatInterface() {
         toast.success(newFeedback ? t("chat.feedbackSaved") : t("chat.feedbackRemoved"));
       }
     },
-    [messages, activeId, t],
+    [messages, setMessages, activeId, t],
   );
 
   const handleCompactContext = useCallback(async () => {
@@ -892,7 +554,7 @@ export function ChatInterface() {
     } finally {
       setIsCompacting(false);
     }
-  }, [activeId]);
+  }, [activeId, setContextTokens]);
 
   const prevIsStreamingRef = useRef(false);
   useEffect(() => {
@@ -918,14 +580,23 @@ export function ChatInterface() {
       cancelStream();
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey && !loading && !isStreaming) {
+    // Enter sends, or queues a follow-up while a stream is in flight.
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   }
 
+  // Only one follow-up may be queued. While a message occupies the slot the
+  // composer is locked so a second send can't silently replace ("swallow") it —
+  // the user must send-now, remove, or edit the queued message first.
+  const queueFull = queuedMessage != null;
+
   const _chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
-  const maxContextTokens = _chatRole?.context_window_tokens ?? _chatRole?.max_tokens ?? null;
+  // Only the true context window is a valid denominator. Do NOT fall back to max_tokens
+  // (the output cap) — dividing prompt tokens by the output budget gives a meaningless %.
+  // When unknown, the indicator shows a raw token count instead of a percentage.
+  const maxContextTokens = _chatRole?.context_window_tokens ?? null;
 
   const userMessageCount = messages.filter((m) => m.role === "user").length;
   const assistantMessageCount = messages.filter((m) => m.role === "assistant").length;
@@ -1029,7 +700,7 @@ export function ChatInterface() {
                 >
                   <MarkdownMessage content={streamingContent} />
                   <span
-                    className="inline-block w-0.5 h-[1.1em] bg-evergreen/60 ml-0.5 align-middle animate-cursor-blink"
+                    className="inline-block w-[0.55em] h-[1.15em] bg-evergreen/70 ml-0.5 align-middle rounded-[1px] animate-cursor-blink"
                     aria-hidden="true"
                   />
                 </div>
@@ -1047,6 +718,31 @@ export function ChatInterface() {
               )}
             </div>
           </div>
+        )}
+
+        {/* ─── Queued follow-up (pending bubble) ─── */}
+        {queuedMessage && (
+          <QueuedMessageBubble
+            text={queuedMessage.text}
+            idle={!isStreaming && !loading}
+            onDiscard={clearQueue}
+            onSendNow={() => {
+              const q = queuedMessage;
+              clearQueue();
+              sendMessage(q.text, q.opts);
+            }}
+            onEdit={() => {
+              // Only reclaim into the composer when it's empty, so an
+              // in-progress follow-up is never clobbered.
+              if (input.trim()) return;
+              setInput(queuedMessage.text);
+              clearQueue();
+              setTimeout(() => {
+                textareaRef.current?.focus();
+                autoResize();
+              }, 0);
+            }}
+          />
         )}
 
         {/* Scroll-to-bottom floating button — sticks to visible bottom when user scrolls up */}
@@ -1115,9 +811,9 @@ export function ChatInterface() {
               value={input}
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
-              disabled={isStreaming}
+              disabled={queueFull}
               className="w-full bg-transparent border-0 outline-none focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
-              placeholder={isStreaming ? (t("chat.aiThinking") ?? "Generating…") : t("chat.typeYourMessage")}
+              placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
             />
@@ -1236,7 +932,7 @@ export function ChatInterface() {
                     />
                   </button>
 
-                  {contextMenuOpen && maxContextTokens && (
+                  {contextMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
                       <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-60 z-20">
@@ -1248,15 +944,21 @@ export function ChatInterface() {
                         <div className="px-3 pb-2">
                           <div className="flex items-center justify-between text-xs text-evergreen mb-1">
                             <span>{contextTokens.toLocaleString()} tokens</span>
-                            <span className="text-evergreen/50">{_ctxPct}%</span>
+                            {maxContextTokens && <span className="text-evergreen/50">{_ctxPct}%</span>}
                           </div>
-                          <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${_ctxBarColor}`}
-                              style={{ width: `${_ctxPct}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                          {maxContextTokens ? (
+                            <>
+                              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${_ctxBarColor}`}
+                                  style={{ width: `${_ctxPct}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                            </>
+                          ) : (
+                            <p className="mt-1 text-[10px] text-evergreen/40">context window size unknown</p>
+                          )}
                         </div>
 
                         <div className="border-t border-gray-100 my-1" />
@@ -1329,21 +1031,35 @@ export function ChatInterface() {
                   <Icon name="mic" size={20} />
                 </button>
 
-                {/* Send / Cancel */}
-                {isStreaming ? (
-                  <button
-                    type="button"
-                    onClick={cancelStream}
-                    aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
-                  >
-                    <Icon name="stop_circle" size={20} />
-                  </button>
+                {/* Send / Cancel — while busy, Stop stays reachable and a Send
+                    (queue) button appears once the user has typed a follow-up. */}
+                {isStreaming || loading ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={cancelStream}
+                      aria-label={t("chat.stopGenerating") ?? "Stop generating"}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                    >
+                      <Icon name="stop_circle" size={20} />
+                    </button>
+                    {input.trim() && (
+                      <button
+                        type="button"
+                        onClick={handleSend}
+                        aria-label={t("chat.queueMessage")}
+                        title={t("chat.queueMessage")}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-pacific-blue hover:bg-pacific-blue/85 text-white transition-colors"
+                      >
+                        <Icon name="arrow_upward" size={20} />
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSend}
-                    disabled={loading || !input.trim()}
+                    disabled={!input.trim()}
                     aria-label={t("chat.sendMessage")}
                     className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
                   >
@@ -1658,6 +1374,87 @@ function UserMessage({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Queued Message — dimmed pending user bubble for a follow-up typed while the
+   model is still streaming. Not part of the `messages` array (like the live
+   streaming indicator), so it can't disturb message ordering or the
+   persisted-id backfill. Auto-fires on normal completion; on a manual Stop /
+   error it stays put (idle) with explicit Send-now / discard controls.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function QueuedMessageBubble({
+  text,
+  idle,
+  onDiscard,
+  onSendNow,
+  onEdit,
+}: {
+  text: string;
+  idle: boolean;
+  onDiscard: () => void;
+  onSendNow: () => void;
+  onEdit: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse opacity-60">
+      <div
+        className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
+                    flex items-center justify-center shrink-0"
+        aria-hidden="true"
+      >
+        <Icon name="person" size={18} className="text-white" />
+      </div>
+      <div className="flex flex-col gap-1 items-end max-w-[85%]">
+        {/* Queued tag */}
+        <div className="flex items-center gap-1.5 mr-1 text-xs text-evergreen/45">
+          <Icon name="schedule" size={13} className="animate-pulse" />
+          <span className="font-medium">{t("chat.queued")}</span>
+        </div>
+
+        {/* Bubble — click to reclaim into the composer for editing */}
+        <button
+          type="button"
+          onClick={onEdit}
+          title={t("chat.editQueued")}
+          aria-label={t("chat.editQueued")}
+          className="text-left bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen
+                     text-base leading-relaxed border border-dashed border-pacific-blue/30
+                     hover:border-pacific-blue/50 transition-colors cursor-text"
+        >
+          <p className="whitespace-pre-wrap m-0">{text}</p>
+        </button>
+
+        {/* Controls */}
+        <div className="flex items-center gap-0.5 mr-1 mt-0.5">
+          {idle && (
+            <button
+              type="button"
+              onClick={onSendNow}
+              className="p-1 rounded text-evergreen/35 hover:text-pacific-blue hover:bg-pacific-blue/10
+                         transition-colors cursor-pointer"
+              aria-label={t("chat.sendQueuedNow")}
+              title={t("chat.sendQueuedNow")}
+            >
+              <Icon name="send" size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="p-1 rounded text-evergreen/35 hover:text-burnt-tangerine hover:bg-burnt-tangerine/10
+                       transition-colors cursor-pointer"
+            aria-label={t("chat.cancelQueued")}
+            title={t("chat.cancelQueued")}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

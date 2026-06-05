@@ -6,7 +6,7 @@ The `steuermann` CLI is the operational companion for setup validation, configur
 
 ## Global Options
 
-Every command accepts `--format {human,json}` (default: `human`). Use `--format json` for stable machine-readable output in CI pipelines.
+Every command accepts `--format {yaml,json}` (default: `yaml`). Use `--format json` for stable machine-readable output in CI pipelines.
 
 Exit codes follow a strict contract:
 - `0` — success (or drift detected without `--strict`)
@@ -273,6 +273,21 @@ steuermann setup doctor [--probe-endpoints] [--format json]
 **Example:**
 ```bash
 poetry run steuermann setup doctor --probe-endpoints --format json
+```
+
+---
+
+### `steuermann setup check`
+
+Consolidated pre-flight that runs `setup doctor`, `config validate`, and `config contract-check` in sequence — a single command for CI gating.
+
+```bash
+steuermann setup check [--format json]
+```
+
+**Example:**
+```bash
+poetry run steuermann setup check --format json
 ```
 
 ---

@@ -33,6 +33,12 @@ export function MetricsPanel({
   const responseTimeSec = metrics?.response_time_ms
     ? (metrics.response_time_ms / 1000).toFixed(1)
     : null;
+  // Exact output-token throughput of this response.
+  const tps =
+    metrics?.output_tokens && metrics?.response_time_ms && metrics.response_time_ms > 0
+      ? (metrics.output_tokens / metrics.response_time_ms) * 1000
+      : null;
+  const tpsDisplay = tps == null ? null : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
   const toolCount = metrics?.tools_executed?.length ?? 0;
   const memoryCount = metrics?.memories_used?.length ?? 0;
 
@@ -158,6 +164,12 @@ export function MetricsPanel({
                 <MetricCell
                   label={t("chat.outputTokens")}
                   value={formatNumber(metrics.output_tokens)}
+                />
+              )}
+              {tpsDisplay && (
+                <MetricCell
+                  label={t("chat.tokensPerSecond")}
+                  value={`${tpsDisplay}/s`}
                 />
               )}
               {metrics?.finish_reason && (

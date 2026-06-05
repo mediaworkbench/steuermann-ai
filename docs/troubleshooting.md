@@ -128,14 +128,20 @@ docker compose logs langgraph | grep -i "retrieve_knowledge\|rag\|qdrant\|score_
 docker compose logs qdrant
 ```
 
+As an admin, the fastest interactive check is the **RAG knowledge explorer** at `/admin/rag`:
+search your keyword and see whether the expected chunks come back, at what score, and whether they
+fall above or below the production cutoff line. No matches points to a collection mismatch or
+missing ingestion; matches that all sit *below* the cutoff points to a `pill_score_threshold` that is
+too high (or a since-changed embedding model).
+
 **Common causes:**
 
 | Cause | Fix |
 | --- | --- |
 | `rag.collection_name` mismatch | The profile overlay's `rag.collection_name` must exactly match the collection used during ingestion; check both |
-| `score_threshold` too high | Lower `rag.score_threshold` in the profile overlay (default 0.6); chunks with lower similarity are filtered out |
+| `pill_score_threshold` too high | Lower `rag.pill_score_threshold` in the profile overlay (default 0.72); chunks with lower similarity are filtered out |
 | Qdrant not healthy | Check `docker compose logs qdrant`; collection list: `curl http://localhost:6333/collections` |
-| `rag.enabled` feature flag off | Check `config/features.yaml` — `rag_retrieval: false` disables the entire retrieve node |
+| RAG disabled in config | Two profile-level switches gate retrieval: `rag.enabled` in `config/profiles/<id>/core.yaml` and the `rag_retrieval` flag in `config/profiles/<id>/features.yaml` — set either to `false` and the retrieve node is skipped (base `config/features.yaml` does **not** hold this flag) |
 | Embedding model changed since ingestion | Re-ingest after changing the embedding model; existing vectors are not compatible |
 | Documents not ingested | Verify ingestion ran: `docker compose logs ingestion` or run `poetry run steuermann ingest ingest --source ./data/rag-data --collection <name>` |
 
@@ -194,7 +200,7 @@ poetry run steuermann config contract-check --format json
 | `poetry run steuermann config validate --profile <id> --format json` | Schema validation for the active profile overlay |
 | `poetry run steuermann config contract-check --format json` | Contract parity (allowed overrides, required fields) |
 | `poetry run steuermann config show --profile <id>` | Merged config after overlay application |
-| `poetry run steuermann config explain <key>` | Where a config value comes from (base, overlay, env) |
+| `poetry run steuermann config explain --key <key>` | Where a config value comes from (base, overlay, env) |
 | `docker compose logs -f langgraph` | Full graph execution trace including tool selection |
 | `docker compose logs -f fastapi` | HTTP request logs, circuit-breaker events, workspace intent |
 | `docker compose ps` | Health status of all services |

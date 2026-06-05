@@ -153,11 +153,12 @@ export interface Conversation {
   title: string;
   language: string;
   profile_name?: string | null;
-  archived: boolean;
   pinned: boolean;
   metadata: Record<string, unknown>;
   last_message?: string | null;
   message_count?: number | null;
+  /** Matching message excerpt, populated only by server-side search (`?q=`). */
+  match_snippet?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -186,15 +187,6 @@ export interface ConversationListResponse {
 export interface ConversationDetailResponse {
   conversation: Conversation;
   messages: PersistedMessage[];
-}
-
-export interface SearchResult {
-  message_id: number;
-  conversation_id: string;
-  conversation_title: string;
-  role: string;
-  content: string;
-  created_at: string;
 }
 
 // ── Memory management ────────────────────────────────────────────────

@@ -48,7 +48,6 @@ class FakeConversationStore:
             "title": title,
             "language": language,
             "profile_name": profile_name,
-            "archived": False,
             "pinned": False,
             "metadata": {},
             "last_message": None,
@@ -62,14 +61,32 @@ class FakeConversationStore:
     def list_conversations(
         self,
         user_id: str,
-        include_archived: bool = False,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[List[Dict[str, Any]], int]:
-        result = [
-            c for c in self._conversations.values()
-            if c["user_id"] == user_id and (include_archived or not c["archived"])
-        ]
+        rows = [c for c in self._conversations.values() if c["user_id"] == user_id]
+        q_clean = (q or "").strip().lower()
+
+        def _matching_snippet(conv_id: str) -> Optional[str]:
+            for m in reversed([m for m in self._messages if m["conversation_id"] == conv_id]):
+                if q_clean in (m["content"] or "").lower():
+                    return m["content"]
+            return None
+
+        result: List[Dict[str, Any]] = []
+        for c in rows:
+            if q_clean:
+                snippet = _matching_snippet(c["id"])
+                title_match = q_clean in (c["title"] or "").lower()
+                if not title_match and snippet is None:
+                    continue
+                row = dict(c)
+                row["match_snippet"] = snippet
+                result.append(row)
+            else:
+                result.append(dict(c))
+
         result.sort(key=lambda c: (not c["pinned"], c["updated_at"]), reverse=False)
         total = len(result)
         return result[offset : offset + limit], total
@@ -84,7 +101,7 @@ class FakeConversationStore:
         if not conv:
             return None
         for k, v in fields.items():
-            if k in {"title", "archived", "pinned", "language", "metadata"}:
+            if k in {"title", "pinned", "language", "metadata"}:
                 conv[k] = v
         conv["updated_at"] = datetime.now(timezone.utc).isoformat()
         return conv
@@ -141,25 +158,6 @@ class FakeConversationStore:
                 m["feedback"] = feedback
                 return m
         return None
-
-    def search_messages(
-        self, user_id: str, query: str, limit: int = 50
-    ) -> List[Dict[str, Any]]:
-        results = []
-        for m in self._messages:
-            conv = self._conversations.get(m["conversation_id"])
-            if conv and conv["user_id"] == user_id and query.lower() in m["content"].lower():
-                results.append(
-                    {
-                        "message_id": m["id"],
-                        "conversation_id": m["conversation_id"],
-                        "conversation_title": conv["title"],
-                        "role": m["role"],
-                        "content": m["content"],
-                        "created_at": m["created_at"],
-                    }
-                )
-        return results[:limit]
 
     def export_conversation(
         self, conversation_id: str, fmt: str = "json"
@@ -441,7 +439,6 @@ class TestCreateConversation:
         body = resp.json()
         assert body["title"] == "Test conv"
         assert body["user_id"] == "u1"
-        assert body["archived"] is False
         assert body["pinned"] is False
 
     def test_create_default_values(self, client):
@@ -468,20 +465,6 @@ class TestListConversations:
         body = resp.json()
         assert body["total"] == 2
         assert len(body["conversations"]) == 2
-
-    def test_list_excludes_archived(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Live")
-        fake_store.create_conversation("c2", "u1", "Old")
-        fake_store.update_conversation("c2", archived=True)
-        resp = client.get("/api/conversations?user_id=u1")
-        assert resp.json()["total"] == 1
-
-    def test_list_includes_archived(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Live")
-        fake_store.create_conversation("c2", "u1", "Old")
-        fake_store.update_conversation("c2", archived=True)
-        resp = client.get("/api/conversations?user_id=u1&include_archived=true")
-        assert resp.json()["total"] == 2
 
 
 class TestGetConversation:
@@ -510,11 +493,6 @@ class TestUpdateConversation:
         fake_store.create_conversation("c1", "u1", "Test")
         resp = client.patch("/api/conversations/c1", json={"pinned": True})
         assert resp.json()["pinned"] is True
-
-    def test_archive(self, client, fake_store):
-        fake_store.create_conversation("c1", "u1", "Test")
-        resp = client.patch("/api/conversations/c1", json={"archived": True})
-        assert resp.json()["archived"] is True
 
     def test_update_nonexistent_404(self, client):
         resp = client.patch("/api/conversations/nope", json={"title": "X"})
@@ -597,20 +575,51 @@ class TestMessages:
 
 
 class TestSearch:
-    def test_search_finds_match(self, client, fake_store):
+    """Server-side search via the unified list endpoint (?q=)."""
+
+    def test_search_matches_message_content_with_snippet(self, client, fake_store):
         fake_store.create_conversation("c1", "u1", "Chat")
+        fake_store.create_conversation("c2", "u1", "Other")
         fake_store.add_message("c1", "user", "What is tumor marker")
         fake_store.add_message("c1", "assistant", "Tumor markers are proteins")
-        resp = client.get("/api/conversations/search?user_id=u1&q=tumor")
+        resp = client.get("/api/conversations?user_id=u1&q=tumor")
         assert resp.status_code == 200
-        results = resp.json()
-        assert len(results) == 2
+        body = resp.json()
+        assert body["total"] == 1
+        assert len(body["conversations"]) == 1
+        conv = body["conversations"][0]
+        assert conv["id"] == "c1"
+        assert conv["match_snippet"] and "Tumor" in conv["match_snippet"]
+
+    def test_search_matches_title_without_snippet(self, client, fake_store):
+        fake_store.create_conversation("c1", "u1", "Radiology report")
+        fake_store.add_message("c1", "user", "hello")
+        resp = client.get("/api/conversations?user_id=u1&q=radiology")
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["conversations"][0]["match_snippet"] is None
 
     def test_search_no_results(self, client, fake_store):
         fake_store.create_conversation("c1", "u1", "Chat")
         fake_store.add_message("c1", "user", "Hello")
-        resp = client.get("/api/conversations/search?user_id=u1&q=nonexistent")
-        assert resp.json() == []
+        resp = client.get("/api/conversations?user_id=u1&q=nonexistent")
+        body = resp.json()
+        assert body["total"] == 0
+        assert body["conversations"] == []
+
+    def test_search_paginates(self, client, fake_store):
+        for i in range(5):
+            fake_store.create_conversation(f"c{i}", "u1", f"Project {i}")
+        resp = client.get("/api/conversations?user_id=u1&q=project&limit=2&offset=0")
+        body = resp.json()
+        assert body["total"] == 5
+        assert len(body["conversations"]) == 2
+
+    def test_list_without_q_has_null_snippet(self, client, fake_store):
+        fake_store.create_conversation("c1", "u1", "Chat")
+        resp = client.get("/api/conversations?user_id=u1")
+        body = resp.json()
+        assert body["conversations"][0]["match_snippet"] is None
 
 
 class TestExport:

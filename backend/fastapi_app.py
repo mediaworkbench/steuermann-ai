@@ -19,6 +19,7 @@ from backend.routers.analytics import router as analytics_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.memories import router as memories_router
 from backend.routers.workspace import router as workspace_router
+from backend.routers.rag_search import router as rag_search_router
 from backend.db import (
     LLMCapabilityProbeStore,
     SettingsStore,
@@ -268,6 +269,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations_router)
     app.include_router(memories_router)
     app.include_router(workspace_router)
+    app.include_router(rag_search_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

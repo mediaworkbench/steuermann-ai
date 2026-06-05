@@ -163,7 +163,7 @@ These counters instrument the relationship between what the agent retrieves and 
 
 ```promql
 # Total memories served in chat context, by prior-rating state and rating bucket
-# Labels: fork_name, rated (yes/no), rating_bucket (none/low/mid/high)
+# Labels: profile_name, rated (yes/no), rating_bucket (none/low/mid/high)
 langgraph_memory_retrieval_signal_total{profile_name="starter"}
 
 # Memories rated by the user shortly after being retrieved (feedback loop fired)
@@ -191,7 +191,7 @@ These metrics instrument thumbs up/down feedback on assistant messages separatel
 
 ```promql
 # Total assistant-message feedback actions in chat
-# Labels: fork_name, value (up/down/removed)
+# Labels: profile_name, value (up/down/removed)
 langgraph_message_feedback_total{profile_name="starter"}
 ```
 
@@ -325,7 +325,9 @@ service to `docker-compose.yml` with a receiver configuration.
 | `NoSuccessfulRequests` | All requests fail for 10 minutes | critical |
 | `DailyTokenUsageHigh` | >1M tokens in 24 hours | warning |
 | `MemoryLoadErrorRateHigh` | Memory load error rate >10% over 5 minutes | warning |
-| `MemoryQualityScoreLow` | Average importance score <0.3 | warning |
+| `MemoryQualityScoreLow` | Average importance score <0.3 for 10 minutes | warning |
+| `FeedbackCoverageLow` | <5% of retrieved memories rated over 30 minutes | warning |
+| `MemoryRatingCoverageLow` | <10% of retrieved memories carry a prior rating for 1 hour | warning |
 
 Check active alerts: [Prometheus alerts](http://localhost:9090/alerts)
 
@@ -489,6 +491,10 @@ Defined in `monitoring/alerts.yml`:
 | `P95LatencyHigh` | warning | Latency |
 | `NoSuccessfulRequests` | critical | Availability |
 | `DailyTokenUsageHigh` | warning | Saturation/cost |
+| `MemoryLoadErrorRateHigh` | warning | Availability (memory) |
+| `MemoryQualityScoreLow` | warning | Quality (memory) |
+| `FeedbackCoverageLow` | warning | Quality (memory) |
+| `MemoryRatingCoverageLow` | warning | Quality (memory) |
 
 ### Health and Readiness Strategy
 
@@ -508,10 +514,6 @@ docker exec langgraph curl -s http://localhost:8000/health/ready
 # Prometheus and alerting
 curl -s http://localhost:9090/api/v1/rules
 curl -s http://localhost:9090/api/v1/alerts
-
-# Tracing
-curl -s http://localhost:16686/api/services
-# Expected: framework-fastapi, framework-langgraph
 ```
 
 ### Configuration Files

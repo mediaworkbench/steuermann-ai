@@ -227,7 +227,7 @@ Tools are selected through a **three-tier architecture** that combines semantic 
 
 ### Layer 2: Model-Driven Tool Calling
 
-The LLM receives candidate tools and decides which to call. Mode is configured per model via `model_tool_calling` in `config/core.yaml`:
+The LLM receives candidate tools and decides which to call. Mode is configured per model via `model_tool_calling` in the profile overlay (`config/profiles/<id>/core.yaml`):
 
 | Mode | How it works | Best for |
 | ------ | ------------- | ---------- |
@@ -460,8 +460,8 @@ Add any new vision-LLM tools to this set. Library-based tools (`image_metadata_t
 | ------ | --------- |
 | `config/profiles/<id>/tools.yaml` | Enable/disable tools, override config |
 | `tools/<name>/tool.yaml` | Tool manifest (description, entry_point, schema) |
-| `config/core.yaml` | Tool routing settings (threshold, embedding model) |
-| `config/features.yaml` | Feature flags |
+| `config/profiles/<id>/core.yaml` | Tool routing settings (threshold, embedding model) |
+| `config/profiles/<id>/features.yaml` | Profile feature flags |
 
 ### Naming conventions
 

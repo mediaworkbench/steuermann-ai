@@ -31,7 +31,6 @@ For core execution architecture (LangGraph graph, memory, LLM integration, tool 
 │                          │  Document Parser │       │
 │                          │  - PDF           │       │
 │                          │  - DOCX          │       │
-│                          │  - CSV/Excel     │       │
 │                          │  - Markdown      │       │
 │                          │  - Text (.txt)   │       │
 │                          └────────┬─────────┘       │
@@ -49,8 +48,8 @@ For core execution architecture (LangGraph graph, memory, LLM integration, tool 
 │                                   │                  │
 │                          ┌────────▼─────────┐       │
 │                          │  Embedder        │       │
-│                          │  sentence-       │       │
-│                          │  transformers    │       │
+│                          │  Remote OpenAI-  │       │
+│                          │  compat endpoint │       │
 │                          └────────┬─────────┘       │
 │                                   │                  │
 │                          ┌────────▼─────────┐       │
@@ -223,21 +222,23 @@ The production stack separates concerns across three containers:
 
 ### **2.2 Chat Interface**
 
-The frontend provides 5 pages, 17 components, and 5 hooks — all fully wired to backend APIs.
+The frontend's pages, reusable components, and data hooks are all wired to backend APIs.
 
 **Pages:**
 
 | Route | Purpose | Minimum role | Backend APIs |
 | --- | --- | --- | --- |
 | `/` | Chat with conversation persistence | user | `/api/chat`, `/api/conversations/*` |
+| `/chats` | Browse/search all chats; multi-select delete & pin, rename | user | `/api/conversations/*` |
 | `/memories` | Personal memory management | user | `/api/memories/*` |
 | `/settings` | Personal preferences: language, sound, tools, RAG on/off + top-K, chat model | user | `/api/settings/*`, `/api/models`, `/api/system-config` |
 | `/admin` | LLM diagnostics, RAG collection/threshold, system model roles, re-ingest, danger zone | **administrator** | `/api/settings/*`, `/api/llm/*`, `/api/ingestion/*`, `/api/admin/*` |
+| `/admin/rag` | RAG knowledge explorer — keyword search over the knowledge base with a production-cutoff marker | **administrator** | `/api/rag/search`, `/api/rag/collections` |
 | `/metrics` | Real-time system metrics and historical analytics trends | **administrator** | `/api/metrics`, `/api/analytics/*` |
 
 **Key Hooks:**
 
-- `useConversations` — conversation CRUD, archive, bulk ops, export (with toast notifications)
+- `useConversations` — conversation CRUD, pin, bulk delete/pin, export (with toast notifications)
 - `useSettings` — user settings CRUD
 - `useMetrics` — real-time metrics with auto-refresh
 - `useAnalytics` — usage trends, token consumption, latency analysis
@@ -366,7 +367,7 @@ export function PatientPanel({ patientId }: { patientId: string }) {
 
 **Key metrics** (Prometheus):
 
-- `langgraph_requests_total` — Request count by profile/status (label key is legacy `fork_name`)
+- `langgraph_requests_total` — Request count by profile/status (label key is `profile_name`, value = active `PROFILE_ID`)
 - `langgraph_tokens_used_total` — Token consumption by model/node
 - `langgraph_request_duration_seconds` — Request latency
 - `langgraph_active_sessions` — Concurrent sessions

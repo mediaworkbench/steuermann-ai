@@ -241,8 +241,8 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     "knowledge_context": result.get("knowledge_context", []),
                     "tool_results": result.get("tool_results", {}),
                     "tokens_used": result.get("tokens_used", 0),
-                    "input_tokens": result.get("input_tokens", 0),
-                    "output_tokens": result.get("output_tokens", 0),
+                    "input_tokens": result.get("last_input_tokens", 0),
+                    "output_tokens": result.get("last_output_tokens", 0),
                     "provider_used": result.get("provider_used", "unknown"),
                     "model_used": result.get("model_used", "unknown"),
                     "profile_id": result.get("profile_id", profile_id),
@@ -576,8 +576,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     _map_data = _captured_map_data
                                     meta_payload = {
                                         "tokens_used": _final_output.get("tokens_used", 0),
-                                        "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
-                                        "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
+                                        "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("last_input_tokens", 0),
+                                        "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("last_output_tokens", 0),
                                         "provider_used": _final_output.get("provider_used", "unknown"),
                                         "model_used": _final_output.get("model_used", "unknown"),
                                         "profile_id": _final_output.get("profile_id", profile_id),
@@ -629,8 +629,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                 _map_data = _captured_map_data
                 meta_payload = {
                     "tokens_used": _final_output.get("tokens_used", 0),
-                    "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("input_tokens", 0),
-                    "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("output_tokens", 0),
+                    "input_tokens": _captured_input_tokens if _captured_input_tokens > 0 else _final_output.get("last_input_tokens", 0),
+                    "output_tokens": _captured_output_tokens if _captured_output_tokens > 0 else _final_output.get("last_output_tokens", 0),
                     "provider_used": _final_output.get("provider_used", "unknown"),
                     "model_used": _final_output.get("model_used", "unknown"),
                     "profile_id": _final_output.get("profile_id", profile_id),

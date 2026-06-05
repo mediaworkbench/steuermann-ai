@@ -178,7 +178,8 @@ def _make_request_with_conversation(memories_used_ids: list[str]) -> Any:
     mock_request = MagicMock()
     conv_store = MagicMock()
     mock_request.app.state.conversation_store = conv_store
-    conv_store.list_conversations.return_value = [{"id": "conv-1"}]
+    # list_conversations returns a (rows, total) tuple — match the real contract.
+    conv_store.list_conversations.return_value = ([{"id": "conv-1"}], 1)
     conv_store.get_messages.return_value = [
         {
             "role": "assistant",

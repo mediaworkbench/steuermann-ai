@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import type { Conversation } from "@/lib/types";
 import {
   createConversation,
   fetchConversations,
+  fetchConversation,
   updateConversation,
   deleteConversation,
   exportConversation,
@@ -14,20 +15,33 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 
 const USER_ID = CURRENT_USER_ID;
 
+// The shared context loads only a modest slice — enough for the sidebar's pinned + 5
+// recent. The /chats page does its own server-side pagination/search via
+// useConversationBrowser, so it does not depend on this list's size.
+const SIDEBAR_LIMIT = 50;
+
 export function useConversations() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const [activeId, setActiveIdState] = useState<string | null>(null);
+  // Fallback for activeConversation when the active chat isn't in the loaded slice
+  // (e.g. opened from a later /chats page, deep link, or reload). Seeded from the
+  // clicked row when available, otherwise fetched by id.
+  const [activeConvCache, setActiveConvCache] = useState<Conversation | null>(null);
+  // Monotonic counter bumped after every successful mutation. Other views (the
+  // /chats browser) watch it to refetch so all surfaces stay consistent.
+  const [revision, setRevision] = useState(0);
   const initialLoadDone = useRef(false);
 
-  // ── Load conversations ─────────────────────────────────────────────
+  const bump = useCallback(() => setRevision((r) => r + 1), []);
+
+  // ── Load conversations (sidebar slice) ─────────────────────────────
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchConversations(USER_ID, showArchived, 100, 0);
+      const data = await fetchConversations(USER_ID, SIDEBAR_LIMIT, 0);
       if (data) {
         setConversations(data.conversations);
         setTotal(data.total);
@@ -35,7 +49,7 @@ export function useConversations() {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, []);
 
   useEffect(() => {
     if (!initialLoadDone.current) {
@@ -44,10 +58,39 @@ export function useConversations() {
     }
   }, [refresh]);
 
-  // Re-fetch when showArchived changes (after initial load)
+  // ── Active conversation selection ──────────────────────────────────
+
+  // Accepts an optional conversation to seed the cache (avoids a fetch when the
+  // caller — sidebar/chats row — already has the full object).
+  const setActiveId = useCallback((id: string | null, conv?: Conversation | null) => {
+    setActiveIdState(id);
+    if (conv) setActiveConvCache(conv);
+    else if (id === null) setActiveConvCache(null);
+  }, []);
+
+  // Resolve activeConversation by id: prefer the loaded slice, else the seeded/fetched cache.
+  const activeConversation = useMemo<Conversation | null>(() => {
+    if (!activeId) return null;
+    return (
+      conversations.find((c) => c.id === activeId) ??
+      (activeConvCache?.id === activeId ? activeConvCache : null)
+    );
+  }, [conversations, activeId, activeConvCache]);
+
+  // When the active chat is neither in the loaded slice nor cached, fetch it once by id.
   useEffect(() => {
-    if (initialLoadDone.current) refresh();
-  }, [showArchived, refresh]);
+    if (!activeId) return;
+    if (conversations.some((c) => c.id === activeId)) return;
+    if (activeConvCache?.id === activeId) return;
+    let cancelled = false;
+    (async () => {
+      const detail = await fetchConversation(activeId);
+      if (!cancelled && detail?.conversation) setActiveConvCache(detail.conversation);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, conversations, activeConvCache]);
 
   // ── Create ─────────────────────────────────────────────────────────
 
@@ -57,33 +100,31 @@ export function useConversations() {
       if (conv) {
         setConversations((prev) => [conv, ...prev]);
         setTotal((t) => t + 1);
-        setActiveId(conv.id);
+        setActiveIdState(conv.id);
+        setActiveConvCache(conv);
+        bump();
       }
       return conv;
     },
-    [],
+    [bump],
   );
 
-  // ── Update (rename, pin, archive, language) ────────────────────────
+  // ── Update (rename, pin, language) ─────────────────────────────────
 
   const update = useCallback(
     async (
       id: string,
-      updates: { title?: string; archived?: boolean; pinned?: boolean; language?: string },
+      updates: { title?: string; pinned?: boolean; language?: string },
     ) => {
       const conv = await updateConversation(id, updates);
       if (conv) {
-        setConversations((prev) =>
-          prev.map((c) => (c.id === id ? conv : c)),
-        );
-        // If archiving the active conversation, deselect it
-        if (updates.archived && id === activeId) {
-          setActiveId(null);
-        }
+        setConversations((prev) => prev.map((c) => (c.id === id ? conv : c)));
+        setActiveConvCache((prev) => (prev?.id === id ? conv : prev));
+        bump();
       }
       return conv;
     },
-    [activeId],
+    [bump],
   );
 
   // ── Delete ─────────────────────────────────────────────────────────
@@ -94,14 +135,18 @@ export function useConversations() {
       if (ok) {
         setConversations((prev) => prev.filter((c) => c.id !== id));
         setTotal((t) => Math.max(0, t - 1));
-        if (activeId === id) setActiveId(null);
+        if (activeId === id) {
+          setActiveIdState(null);
+          setActiveConvCache(null);
+        }
+        bump();
         toast.success("Conversation deleted");
       } else {
         toast.error("Failed to delete conversation");
       }
       return ok;
     },
-    [activeId],
+    [activeId, bump],
   );
 
   // ── Rename (convenience wrapper) ──────────────────────────────────
@@ -113,16 +158,6 @@ export function useConversations() {
     [update],
   );
 
-  // ── Archive / Unarchive ───────────────────────────────────────────
-
-  const archive = useCallback(
-    async (id: string, archived: boolean) => {
-      await update(id, { archived });
-      toast.success(archived ? "Conversation archived" : "Conversation unarchived");
-    },
-    [update],
-  );
-
   // ── Bulk delete ───────────────────────────────────────────────────
 
   const bulkDelete = useCallback(
@@ -130,24 +165,31 @@ export function useConversations() {
       await Promise.all(ids.map((id) => deleteConversation(id)));
       setConversations((prev) => prev.filter((c) => !ids.includes(c.id)));
       setTotal((t) => Math.max(0, t - ids.length));
-      if (activeId && ids.includes(activeId)) setActiveId(null);
+      if (activeId && ids.includes(activeId)) {
+        setActiveIdState(null);
+        setActiveConvCache(null);
+      }
+      bump();
       toast.success(`Deleted ${ids.length} conversation${ids.length > 1 ? "s" : ""}`);
     },
-    [activeId],
+    [activeId, bump],
   );
 
-  // ── Bulk archive ──────────────────────────────────────────────────
+  // ── Bulk pin / unpin ──────────────────────────────────────────────
 
-  const bulkArchive = useCallback(
-    async (ids: string[]) => {
-      await Promise.all(ids.map((id) => updateConversation(id, { archived: true })));
+  const bulkPin = useCallback(
+    async (ids: string[], pinned: boolean) => {
+      await Promise.all(ids.map((id) => updateConversation(id, { pinned })));
       setConversations((prev) =>
-        prev.map((c) => (ids.includes(c.id) ? { ...c, archived: true } : c)),
+        prev.map((c) => (ids.includes(c.id) ? { ...c, pinned } : c)),
       );
-      if (activeId && ids.includes(activeId)) setActiveId(null);
-      toast.success(`Archived ${ids.length} conversation${ids.length > 1 ? "s" : ""}`);
+      setActiveConvCache((prev) => (prev && ids.includes(prev.id) ? { ...prev, pinned } : prev));
+      bump();
+      toast.success(
+        `${pinned ? "Pinned" : "Unpinned"} ${ids.length} conversation${ids.length > 1 ? "s" : ""}`,
+      );
     },
-    [activeId],
+    [bump],
   );
 
   // ── Export ────────────────────────────────────────────────────────
@@ -172,33 +214,21 @@ export function useConversations() {
     [],
   );
 
-  // ── Toggle archived view ──────────────────────────────────────────
-
-  const toggleArchived = useCallback(() => {
-    setShowArchived((v) => !v);
-  }, []);
-
-  // ── Derived ────────────────────────────────────────────────────────
-
-  const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
-
   return {
     conversations,
     total,
     loading,
     activeId,
     activeConversation,
-    showArchived,
+    revision,
     setActiveId,
     create,
     update,
     remove,
     rename,
-    archive,
     bulkDelete,
-    bulkArchive,
+    bulkPin,
     doExport,
-    toggleArchived,
     refresh,
   };
 }

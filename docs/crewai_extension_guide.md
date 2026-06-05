@@ -50,10 +50,10 @@ crews:
 
 ```python
 from typing import Dict, Any
-from universal_agentic_framework.config.loaders import load_agents_config, load_core_config
+from universal_agentic_framework.config.loader import load_agents_config, load_core_config
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.tools.registry import ToolRegistry
-from crew_ai import Agent, Task, Crew
+from crewai import Agent, Crew, Task
 
 class MyCrew:
     def __init__(self, language: str = "en", config_dir: str = "config",
@@ -353,7 +353,7 @@ from universal_agentic_framework.crews.my_crew import MyCrew
 
 
 def test_crew_config_exists():
-    from universal_agentic_framework.config.loaders import load_agents_config
+    from universal_agentic_framework.config.loader import load_agents_config
 
     config = load_agents_config("config")
     assert "my_crew" in config.get("crews", {})

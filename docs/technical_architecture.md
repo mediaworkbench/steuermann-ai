@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.3.0` in `pyproject.toml`.
+- The package metadata currently reports version `0.3.7` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
@@ -201,7 +201,7 @@ class GraphState(TypedDict, total=False):
     memory_analytics: Dict[str, Any]         # Importance scores, related count
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
     rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
-    rag_doc_count: int   # Docs above score_threshold injected into prompt
+    rag_doc_count: int   # Docs above pill_score_threshold injected into prompt
 
     # Tools
     loaded_tools: Annotated[List[Any], UntrackedValue(list)]              # BaseTool instances — not checkpointed
@@ -285,7 +285,7 @@ User Request (Next.js)
   │    │
   │    ├──> memory_query_cache  (Redis cache probe for memory)
   │    ├──> load_memory
-  │    ├──> retrieve_knowledge  (RAG, score_threshold: 0.6)
+  │    ├──> retrieve_knowledge  (RAG, pill_score_threshold: 0.72)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
@@ -444,6 +444,10 @@ Reasoning tokens are intercepted in `server.py` before they reach the `token` ev
 
 Workspace writeback requests (`save`/`rewrite` intent on open documents) are transparently routed to the synchronous `POST /api/chat` path because writeback requires guaranteed delivery. The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `thinkingContent`, `isThinking`, `nodeStatus`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`.
 
+The `useStreamingChat` hook is instantiated inside a persistent `ChatSessionProvider` (`frontend/src/context/ChatSessionContext.tsx`) mounted in `LayoutShell`, **not** in the route-scoped `ChatInterface`. This is what keeps an in-flight inference alive across both page navigation **and conversation switching**: the provider owns `messages`, the stream, `contextTokens`, and the send/commit/load lifecycle, so leaving the chat page (e.g. for `/memories`) or clicking another chat no longer unmounts the hook or aborts the fetch. `ChatInterface` is a `useChatSession()` consumer. Navigation **never** aborts the stream (only an explicit Stop/Escape does): it stays bound to its conversation (`streamConversationRef`; reactive mirror `streamConvId`), and the completed-message commit is gated on that conversation so a response can't be appended to a chat the user switched to. While a stream runs for a non-active conversation, all stream-derived values are gated to the active conversation (`streamOnActive` in the context `value`) so the background stream's bubble/status/toast/sound never bleed in, and the context-ring setter effect is likewise guarded (`streamConversationRef === activeIdRef`). The optimistic user bubble is snapshotted in `streamMsgsRef` and restored when the user returns to a still-live conversation (no refetch — persistence happens only on `[DONE]`). Because the client connection is no longer torn down on switch, the FastAPI proxy reaches `[DONE]` and persists normally. Limitation: only one concurrent stream — `useStreamingChat.sendMessage` aborts any in-flight request before starting a new one, so sending in another chat ends the backgrounded stream.
+
+The provider also owns the **single-slot follow-up queue** (`queuedMessage` / `enqueueMessage` / `clearQueue`): the composer stays enabled during streaming and a follow-up typed mid-stream is queued instead of sent. The same commit effect that appends the assistant bubble on the `isStreaming` true→false transition auto-fires the queued message — but **only on a normal completion**. "Normal" is decided by a provider-owned `manualStopRef` (set before the hook's `cancel`, because the hook's `wasCancelled` flips asynchronously in `catch`/`finally` and is not yet true at the commit-effect render) plus `streamError` (which _is_ reliable there); the fire is deferred with `setTimeout(0)` to avoid a `loading` race with the finishing turn, and gated on `streamConversationRef === activeId`. The queue is preserved while its stream is backgrounded (`if (!isStreamingRef.current) clearQueue()`) and cleared only on an idle conversation switch. The pending bubble is rendered by `ChatInterface` outside the `messages` array (like the live streaming indicator) so it can't disturb ordering or the persisted-id backfill.
+
 **Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
 
 ### **4.6 Async Execution Reliability**
@@ -521,7 +525,10 @@ If prior memory conflicts with current-turn tool outputs, tool outputs take prec
 
 ### 6.4 Qdrant Collection Strategy
 
-**Naming convention:** `{profile_id}_{type}_{language}` (e.g., `medical-ai-de_memory_de`)
+**Naming convention:** Memory and RAG use separate collections, named independently — there is no `_{language}` suffix.
+
+- **Memory collection:** `{collection_prefix}_memory`, where `collection_prefix` defaults to `$PROFILE_ID` (`config/core.yaml` → `memory.vector_store.collection_prefix`). For profile `starter` this is `starter_memory` (built in `memory/mem0_backend.py`).
+- **RAG collection:** named explicitly via `rag.collection_name` in the profile overlay (starter uses `framework`); it must match the collection used during ingestion.
 
 Advanced memory behavior is integrated into this architecture: semantic similarity retrieval, recency-aware ranking, frequency-aware prioritization, and cross-session linking through metadata and retrieval patterns.
 
