@@ -4,6 +4,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "./Icon";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { SINGLE_USER_DISPLAY_NAME } from "@/lib/runtime";
@@ -97,22 +99,25 @@ export function Sidebar({
                 {t("sidebar.platformSubtitle")}
               </span>
             </div>
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               className="md:hidden text-light-cyan/70 hover:text-light-cyan transition-colors -mr-1
                          min-h-11 min-w-11 flex items-center justify-center"
               onClick={onClose}
               aria-label={t("sidebar.closeNavigation")}
             >
               <Icon name="close" size={24} />
-            </button>
+            </Button>
           </div>
 
           {/* New Chat button */}
-          <button
+          <Button
+            type="button"
             onClick={() => { onNewChat?.(); }}
-            className="w-full flex items-center justify-center gap-2 bg-atomic-tangerine hover:bg-burnt-tangerine
-                       text-white transition-colors py-3 px-4 rounded-lg font-bold min-h-11
-                       shadow-lg shadow-atomic-tangerine/20 mb-2 group cursor-pointer"
+            variant="primary"
+            className="w-full gap-2 rounded-lg font-bold min-h-11 shadow-lg shadow-atomic-tangerine/20 mb-2 group cursor-pointer"
             aria-label={t("sidebar.startNewChat")}
           >
             <Icon
@@ -121,7 +126,7 @@ export function Sidebar({
               className="transition-transform group-hover:rotate-90"
             />
             <span>{t("sidebar.newChat")}</span>
-          </button>
+          </Button>
         </div>
 
         {/* Conversation history */}
@@ -279,20 +284,21 @@ function ConversationRow({
 
   return (
     <div className="relative">
-      <button
+          <Button
         onClick={() => onSelect?.(c.id)}
         onDoubleClick={(e) => {
           e.preventDefault();
           setEditValue(c.title);
           setEditing(true);
         }}
-        className={`
-          w-full flex items-center gap-2 px-3 py-2.5 rounded-lg
-          transition-colors text-left group
-          ${isActive
-            ? "bg-white/10 text-white hover:bg-white/20"
-            : "text-light-cyan/80 hover:text-white hover:bg-white/10"}
-        `}
+            variant="ghost"
+            className={`
+              w-full justify-start gap-2 px-3 py-2.5 rounded-lg
+              transition-colors text-left group
+              ${isActive
+                ? "bg-white/10 text-white hover:bg-white/20"
+                : "text-light-cyan/80 hover:text-white hover:bg-white/10"}
+            `}
         aria-current={isActive ? "page" : undefined}
       >
         <Icon
@@ -303,7 +309,7 @@ function ConversationRow({
 
         {/* Title: either input or text */}
         {editing ? (
-          <input
+          <Input
             ref={inputRef}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
@@ -336,7 +342,7 @@ function ConversationRow({
             <Icon name="more_vert" size={16} />
           </span>
         )}
-      </button>
+      </Button>
 
       {/* ── Context dropdown menu ── */}
       {menuOpen && (

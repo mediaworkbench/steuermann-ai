@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Icon } from "./Icon";
+import { Button } from "@/components/ui/Button";
 
 interface ReasoningBoxProps {
   content: string;
@@ -14,10 +15,12 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
 
   return (
     <div className="w-full mb-3 rounded-xl border border-pacific-blue/20 bg-light-cyan/10 overflow-hidden">
-      <button
+      <Button
+        type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs
-                   text-evergreen/55 hover:text-evergreen/80 transition-colors"
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start gap-2 px-3 py-2 text-xs text-evergreen/55 hover:text-evergreen/80"
         aria-expanded={expanded}
       >
         {isStreaming ? (
@@ -34,7 +37,7 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
         <span className="font-medium">
           {isStreaming ? "Reasoning…" : "Reasoning"}
         </span>
-      </button>
+      </Button>
       <div className={`reasoning-body ${expanded ? "open" : ""}`}>
         <div>
           <div className="px-3 pb-3 text-xs text-evergreen/65 font-mono leading-relaxed

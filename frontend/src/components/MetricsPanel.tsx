@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { Database } from "lucide-react";
 import { Icon } from "./Icon";
+import { Button } from "@/components/ui/Button";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
@@ -110,9 +111,12 @@ export function MetricsPanel({
 
         {/* Action icons — same row, pushed right */}
         <div className="flex items-center gap-0.5">
-          <button
+          <Button
+            type="button"
             onClick={handleCopy}
-            className={`p-1.5 rounded transition-colors ${
+            variant="ghost"
+            size="sm"
+            className={`h-8 w-8 p-0 rounded transition-colors ${
               copied
                 ? "text-pacific-blue copy-success"
                 : "text-evergreen/30 hover:text-pacific-blue hover:bg-pacific-blue/10"
@@ -120,14 +124,17 @@ export function MetricsPanel({
             aria-label={t("chat.copyMessage")}
           >
             <Icon name={copied ? "check" : "content_copy"} size={16} />
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
             onClick={onRegenerate}
-            className="p-1.5 rounded text-evergreen/30 hover:text-atomic-tangerine hover:bg-atomic-tangerine/10 transition-colors"
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 rounded text-evergreen/30 hover:text-atomic-tangerine hover:bg-atomic-tangerine/10 transition-colors"
             aria-label={t("chat.regenerateResponse")}
           >
             <Icon name="refresh" size={16} />
-          </button>
+          </Button>
         </div>
       </div>
 

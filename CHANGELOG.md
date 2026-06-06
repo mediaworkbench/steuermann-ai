@@ -10,6 +10,8 @@
 - **feat** Added a shared semantic `Button` primitive in `frontend/src/components/ui/Button.tsx` and migrated the scroll-to-bottom control and login actions onto it as the first reusable UI control.
 - **feat** Added a shared semantic `Input` primitive in `frontend/src/components/ui/Input.tsx` and migrated the login form fields onto it as the next shared form control.
 - **feat** Added shared dialog/control primitives in `frontend/src/components/ui/Dialog.tsx`, `Checkbox.tsx`, `Select.tsx`, and `Textarea.tsx`, then migrated the confirmation/export modals plus the settings/admin control surfaces onto the new shared layer.
+- **feat** Extended the shared-control rollout into the workspace shell by migrating the workspace empty-state action, evidence chips, sidebar header/edit controls, document search/rename inputs, and metrics copy/regenerate actions onto the new primitives.
+- **feat** Continued the shared-action rollout into the top header and reasoning panel by migrating the sidebar toggle, export/logout actions, and reasoning disclosure onto the new `Button` primitive.
 - **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
 - **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
 

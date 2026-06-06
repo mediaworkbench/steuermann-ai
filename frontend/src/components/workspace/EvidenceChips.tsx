@@ -3,6 +3,7 @@
 import { Icon } from "../Icon";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
+import { Button } from "@/components/ui/Button";
 import type { MessageMetrics } from "@/lib/types";
 import type { WorkspaceTabId } from "./types";
 
@@ -49,15 +50,17 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
           </>
         );
         return onSelect ? (
-          <button
+          <Button
             key={c.key}
             type="button"
             title={c.label}
             onClick={() => onSelect(c.tab)}
-            className={`${baseClass} hover:bg-pacific-blue/10 hover:text-pacific-blue hover:border-pacific-blue/20 transition-colors`}
+            variant="ghost"
+            size="sm"
+            className={`${baseClass} h-auto rounded-full px-2 py-0.5 text-[11px] hover:bg-pacific-blue/10 hover:text-pacific-blue hover:border-pacific-blue/20`}
           >
             {body}
-          </button>
+          </Button>
         ) : (
           <span key={c.key} title={c.label} className={baseClass}>
             {body}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "./Icon";
 import { ExportDialog } from "./ExportDialog";
+import { Button } from "@/components/ui/Button";
 import { AUTH_ENABLED } from "@/lib/runtime";
 import { useRole } from "@/context/RoleContext";
 import type { Conversation } from "@/lib/types";
@@ -53,7 +54,10 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
                  justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20"
     >
       <div className="flex items-center gap-3">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           className="md:hidden text-evergreen hover:text-pacific-blue transition-colors
                      min-h-11 min-w-11 flex items-center justify-center -ml-2"
           onClick={onOpenSidebar}
@@ -62,7 +66,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
           aria-controls="sidebar"
         >
           <Icon name="menu" size={24} />
-        </button>
+        </Button>
         <Link href="/" className="header-title-slot flex flex-col hover:opacity-80 transition-opacity">
           <h2 className="text-evergreen font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
             {chatTitle}
@@ -104,10 +108,12 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
       <div className="flex items-center gap-3">
         {/* Export button — only when a conversation is active */}
         {activeConversation && (
-          <button
+          <Button
+            type="button"
             onClick={() => setShowExport(true)}
-            className="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue
-                       transition-colors text-sm group min-h-11 min-w-11 justify-center"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-evergreen hover:text-pacific-blue text-sm group min-h-11 min-w-11 justify-center"
             title={t("header.exportConversation")}
           >
             <Icon
@@ -116,7 +122,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               className="group-hover:scale-110 transition-transform"
             />
             <span className="hidden lg:inline">{t("common.export")}</span>
-          </button>
+          </Button>
         )}
 
         {/* Workspace sidebar toggle — only on chat page */}
@@ -159,15 +165,18 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
         </nav>
 
         {AUTH_ENABLED && (
-          <button
+          <Button
+            type="button"
             onClick={handleLogout}
             disabled={loggingOut}
-            className="flex items-center gap-1.5 text-evergreen hover:text-burnt-tangerine transition-colors text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-evergreen hover:text-burnt-tangerine text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
             title={t("header.signOut")}
           >
             <Icon name="logout" size={18} />
             <span className="hidden sm:inline">{loggingOut ? t("header.signingOut") : t("header.signOut")}</span>
-          </button>
+          </Button>
         )}
       </div>
 

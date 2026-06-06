@@ -9,6 +9,7 @@ import {
   clearAllWorkspaceDocuments,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Input } from "@/components/ui/Input";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
@@ -275,7 +276,7 @@ export function DocumentsTab({
               fileInputRef.current?.click();
             }}
             disabled={uploadingFile || isLoading}
-            className="flex-[2] px-3 py-2 rounded-lg border border-pacific-blue/40 bg-pacific-blue/5 text-pacific-blue hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-2"
+            className="flex-2 px-3 py-2 rounded-lg border border-pacific-blue/40 bg-pacific-blue/5 text-pacific-blue hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-2"
           >
             <Icon name="upload_file" size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
@@ -320,13 +321,13 @@ export function DocumentsTab({
               size={15}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-evergreen/40 pointer-events-none"
             />
-            <input
+            <Input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("workspace.searchDocuments")}
               aria-label={t("workspace.searchDocuments")}
-              className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 bg-gray-50 text-evergreen placeholder:text-evergreen/40 focus:bg-white focus:border-pacific-blue focus:outline-none transition-colors"
+              className="h-9 rounded-lg border-gray-200 bg-gray-50 pl-8 pr-7 py-1.5 text-xs text-evergreen placeholder:text-evergreen/40 focus:bg-white"
             />
             {query && (
               <button
@@ -417,7 +418,7 @@ export function DocumentsTab({
                   <div className="px-3 py-2 border-t border-gray-200 bg-white flex gap-1.5 flex-wrap">
                     {renamingDocId === doc.id ? (
                       <div className="w-full flex gap-1.5">
-                        <input
+                        <Input
                           autoFocus
                           type="text"
                           value={renameValue}
@@ -429,7 +430,7 @@ export function DocumentsTab({
                               setRenameValue("");
                             }
                           }}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:border-pacific-blue"
+                          className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
                           placeholder={doc.filename}
                         />
                         <button

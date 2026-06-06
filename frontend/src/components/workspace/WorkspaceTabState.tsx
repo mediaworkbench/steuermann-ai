@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import { Icon } from "../Icon";
 
 type Tone = "idle" | "loading" | "error";
@@ -37,13 +38,15 @@ export function WorkspaceTabState({ icon, title, hint, tone = "idle", action }: 
       </p>
       {hint && <p className="text-xs text-evergreen/40 max-w-[13rem] break-words">{hint}</p>}
       {action && (
-        <button
+        <Button
           type="button"
           onClick={action.onClick}
-          className="mt-3 px-3 py-1.5 rounded-lg text-xs font-medium bg-pacific-blue/10 text-pacific-blue hover:bg-pacific-blue/15 transition-colors"
+          variant="secondary"
+          size="sm"
+          className="mt-3"
         >
           {action.label}
-        </button>
+        </Button>
       )}
     </div>
   );
