@@ -36,7 +36,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-white text-evergreen h-screen overflow-hidden flex flex-col md:flex-row">
+      <body className="bg-background text-foreground h-screen overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
           <I18nProvider>
             <RoleProvider>

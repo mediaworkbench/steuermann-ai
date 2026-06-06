@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.9] — design-system-foundation
+
+### Design System Kickoff
+
+- **feat** Added local Geist variable font assets to `frontend/public/fonts` and switched the global font tokens plus shell overrides to Geist as the active UI font.
+- **feat** Introduced the initial semantic token contract in `frontend/src/app/globals.css` with light/dark CSS-variable defaults and Tailwind utility mappings for background, surface, border, foreground, and status colors.
+- **feat** Switched the root app shell and sidebar chrome to the new semantic tokens so the design-system layer is now exercised by the top-level layout surfaces.
+- **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
+- **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
+
 ## [0.3.8] — workspace-panel-evolution
 
 ### Workspace — Modular Tabbed Panel

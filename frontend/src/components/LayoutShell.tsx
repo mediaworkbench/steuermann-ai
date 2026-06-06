@@ -58,7 +58,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
           toastOptions={{
             duration: 6000,
             style: {
-              fontFamily: '"Open Sans", sans-serif',
+              fontFamily: "var(--font-sans)",
               borderRadius: "0.75rem",
             },
           }}
@@ -125,7 +125,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
         onRename={convState.rename}
         onExport={convState.doExport}
       />
-      <main className="flex-1 flex flex-col h-full min-h-0 bg-white relative isolate min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col h-full min-h-0 bg-surface text-foreground relative isolate min-w-0 overflow-hidden">
         <Header
           chatTitle={isChat ? chatTitle : undefined}
           onOpenSidebar={openSidebar}
@@ -148,7 +148,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
         toastOptions={{
           duration: 6000,
           style: {
-            fontFamily: '"Open Sans", sans-serif',
+            fontFamily: "var(--font-sans)",
             borderRadius: "0.75rem",
           },
         }}
