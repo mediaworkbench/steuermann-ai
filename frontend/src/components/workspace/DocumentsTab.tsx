@@ -9,7 +9,9 @@ import {
   clearAllWorkspaceDocuments,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
@@ -270,44 +272,56 @@ export function DocumentsTab({
           aria-label="Upload document or image"
         />
         <div className="flex gap-1.5">
-          <button
+          <Button
+            type="button"
             onClick={() => {
               setNukePending(false);
               fileInputRef.current?.click();
             }}
             disabled={uploadingFile || isLoading}
-            className="flex-2 px-3 py-2 rounded-lg border border-pacific-blue/40 bg-pacific-blue/5 text-pacific-blue hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-2"
+            variant="secondary"
+            size="sm"
+            className="flex-2 border-pacific-blue/40 bg-pacific-blue/5 text-xs font-medium text-pacific-blue hover:bg-pacific-blue/10"
           >
             <Icon name="upload_file" size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
-          </button>
+          </Button>
           {documents.length > 0 &&
             (nukePending ? (
               <div className="flex-1 flex gap-1">
-                <button
+                <Button
+                  type="button"
                   onClick={() => setNukePending(false)}
-                  className="flex-1 px-2 py-2 rounded-lg border border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 text-xs font-medium transition-colors"
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1 border-gray-300 bg-gray-50 px-2 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100"
                 >
                   <Icon name="close" size={14} className="mx-auto" />
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
                   onClick={handleClearAllDocuments}
                   disabled={uploadingFile}
-                  className="flex-1 px-2 py-2 rounded-lg border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 text-xs font-medium transition-colors"
+                  variant="destructive"
+                  size="sm"
+                  className="flex-1 border border-red-300 bg-red-50 px-2 py-2 text-xs font-medium text-red-600 hover:bg-red-100"
                   title={t("workspace.nukeConfirm")}
                 >
                   <Icon name="delete_forever" size={14} className="mx-auto" />
-                </button>
+                </Button>
               </div>
             ) : (
-              <button
+              <Button
+                type="button"
                 onClick={() => setNukePending(true)}
                 disabled={uploadingFile || isLoading}
-                className="flex-1 px-2 py-2 rounded-lg border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                variant="destructive"
+                size="sm"
+                className="flex-1 border border-red-200 bg-red-50 px-2 py-2 text-xs font-medium text-red-500 hover:bg-red-100"
                 title={t("workspace.nukeAll")}
               >
                 <Icon name="delete_sweep" size={16} />
-              </button>
+              </Button>
             ))}
         </div>
       </div>
@@ -330,14 +344,16 @@ export function DocumentsTab({
               className="h-9 rounded-lg border-gray-200 bg-gray-50 pl-8 pr-7 py-1.5 text-xs text-evergreen placeholder:text-evergreen/40 focus:bg-white"
             />
             {query && (
-              <button
+              <Button
                 type="button"
                 onClick={() => setQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-evergreen/40 hover:text-evergreen"
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-evergreen/40 hover:text-evergreen"
                 aria-label={t("workspace.clearSearch")}
               >
                 <Icon name="close" size={14} />
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -433,31 +449,40 @@ export function DocumentsTab({
                           className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
                           placeholder={doc.filename}
                         />
-                        <button
+                        <Button
+                          type="button"
                           onClick={() => handleRenameDocument(doc.id, renameValue)}
                           disabled={!renameValue.trim() || processingAction === doc.id}
-                          className="px-2 py-1 rounded text-xs font-medium bg-pacific-blue text-white
+                          variant="primary"
+                          size="sm"
+                          className="px-2 py-1 text-xs font-medium bg-pacific-blue text-white
                                      hover:bg-pacific-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <Icon name="check" size={14} />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          type="button"
                           onClick={() => {
                             setRenamingDocId(null);
                             setRenameValue("");
                           }}
-                          className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600
+                          variant="secondary"
+                          size="sm"
+                          className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600
                                      hover:bg-gray-200"
                         >
                           <Icon name="close" size={14} />
-                        </button>
+                        </Button>
                       </div>
                     ) : null}
                     {!doc.mime_type?.startsWith("image/") && (
-                      <button
+                      <Button
+                        type="button"
                         onClick={() => openEditor(doc.id)}
                         disabled={processingAction === doc.id || isLoading}
-                        className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                    bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
                                    hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
                                    transition-colors"
@@ -465,12 +490,15 @@ export function DocumentsTab({
                       >
                         <Icon name="edit" size={14} className="mr-1 inline" />
                         {t("workspace.edit")}
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
+                      type="button"
                       onClick={() => handleAttachFromWorkspace(doc)}
                       disabled={processingAction === doc.id || isLoading}
-                      className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                  bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
                                  hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
@@ -478,11 +506,14 @@ export function DocumentsTab({
                     >
                       <Icon name="attach_file" size={14} className="mr-1 inline" />
                       {t("workspace.attach")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      type="button"
                       onClick={() => handleDownloadDocument(doc.id)}
                       disabled={processingAction === doc.id || isLoading}
-                      className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                  bg-burnt-tangerine/5 text-burnt-tangerine border border-burnt-tangerine/20
                                  hover:bg-burnt-tangerine/10 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
@@ -490,12 +521,15 @@ export function DocumentsTab({
                     >
                       <Icon name="download" size={14} className="mr-1 inline" />
                       {t("workspace.download")}
-                    </button>
+                    </Button>
                     {!doc.mime_type?.startsWith("image/") && (
-                      <button
+                      <Button
+                        type="button"
                         onClick={() => loadHistory(doc.id)}
                         disabled={processingAction === doc.id || isLoading}
-                        className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                    bg-gray-50 text-gray-600 border border-gray-200
                                    hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
                                    transition-colors"
@@ -503,15 +537,18 @@ export function DocumentsTab({
                       >
                         <Icon name="history" size={14} className="mr-1 inline" />
                         History
-                      </button>
+                      </Button>
                     )}
-                    <button
+                    <Button
+                      type="button"
                       onClick={() => {
                         setRenamingDocId(doc.id);
                         setRenameValue(doc.filename);
                       }}
                       disabled={processingAction === doc.id || isLoading}
-                      className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                  bg-gray-50 text-gray-600 border border-gray-200
                                  hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
@@ -519,11 +556,14 @@ export function DocumentsTab({
                     >
                       <Icon name="drive_file_rename_outline" size={14} className="mr-1 inline" />
                       Rename
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      type="button"
                       onClick={() => handleDeleteDocument(doc.id)}
                       disabled={processingAction === doc.id || isLoading}
-                      className="flex-1 min-w-fit px-2.5 py-1.5 rounded text-xs font-medium
+                      variant="destructive"
+                      size="sm"
+                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
                                  bg-red-50 text-red-600 border border-red-200
                                  hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
@@ -531,7 +571,7 @@ export function DocumentsTab({
                     >
                       <Icon name="delete" size={14} className="mr-1 inline" />
                       {t("workspace.delete")}
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -548,9 +588,15 @@ export function DocumentsTab({
             <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide">
               Version History — {getDocumentName(historyDocId)}
             </p>
-            <button onClick={closeHistory} className="text-evergreen/45 hover:text-evergreen">
+            <Button
+              type="button"
+              onClick={closeHistory}
+              variant="ghost"
+              size="sm"
+              className="p-0 text-evergreen/45 hover:text-evergreen"
+            >
               <Icon name="close" size={14} />
-            </button>
+            </Button>
           </div>
           {historyLoading ? (
             <p className="text-xs text-evergreen/50 py-2">Loading…</p>
@@ -569,19 +615,25 @@ export function DocumentsTab({
                       </span>
                     </div>
                     <div className="flex gap-1">
-                      <button
+                      <Button
+                        type="button"
                         onClick={() => previewVersion(historyDocId, v.version, v.id)}
-                        className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        variant="secondary"
+                        size="sm"
+                        className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200"
                       >
                         {previewVersionId === v.id ? "Hide" : "Preview"}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        type="button"
                         onClick={() => restoreVersion(historyDocId, v.version)}
                         disabled={processingAction === `restore-${historyDocId}-${v.version}`}
-                        className="px-1.5 py-0.5 rounded text-xs bg-pacific-blue/10 text-pacific-blue hover:bg-pacific-blue/20 disabled:opacity-40"
+                        variant="secondary"
+                        size="sm"
+                        className="px-1.5 py-0.5 text-xs bg-pacific-blue/10 text-pacific-blue hover:bg-pacific-blue/20 disabled:opacity-40"
                       >
                         Restore
-                      </button>
+                      </Button>
                     </div>
                   </div>
                   {previewVersionId === v.id && previewContent && (
@@ -606,14 +658,16 @@ export function DocumentsTab({
             <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide">
               {t("workspace.editor")}
             </p>
-            <button
+            <Button
               type="button"
               onClick={closeEditor}
-              className="text-evergreen/45 hover:text-evergreen"
+              variant="ghost"
+              size="sm"
+              className="p-0 text-evergreen/45 hover:text-evergreen"
               aria-label={t("workspace.closeEditor")}
             >
               <Icon name="close" size={14} />
-            </button>
+            </Button>
           </div>
           <p className="text-xs text-evergreen/50 mb-2 truncate">{getDocumentName(editorDocId)}</p>
           <div
@@ -625,38 +679,44 @@ export function DocumentsTab({
           >
             <div className="h-1 w-14 rounded-full bg-gray-300 hover:bg-gray-400" />
           </div>
-          <textarea
+          <Textarea
             value={editorContent}
             onChange={(e) => setEditorContent(e.target.value)}
             style={{ height: `${editorHeight}px` }}
-            className="w-full resize-none rounded-md border border-gray-300 px-2 py-2 text-xs text-evergreen focus:border-pacific-blue focus:ring-0"
+            className="w-full resize-none rounded-md border border-gray-300 px-2 py-2 text-xs text-evergreen shadow-none focus:border-pacific-blue focus:ring-0"
             placeholder={t("workspace.editDocumentPlaceholder")}
           />
-          <button
+          <Button
             type="button"
             onClick={saveEditor}
             disabled={!editorContent.trim() || isLoading || processingAction === editorDocId}
+            variant="primary"
+            size="sm"
             className="mt-2 w-full rounded-md px-3 py-2 text-xs font-medium bg-burnt-tangerine text-white hover:bg-burnt-tangerine/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {processingAction === editorDocId ? t("common.saving") : t("workspace.saveChanges")}
-          </button>
+          </Button>
           <div className="mt-2 flex gap-2">
-            <button
+            <Button
               type="button"
               onClick={reattachEditor}
               disabled={!editorContent.trim() || isLoading}
+              variant="primary"
+              size="sm"
               className="flex-1 rounded-md px-3 py-2 text-xs font-medium bg-pacific-blue text-white hover:bg-pacific-blue/90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t("workspace.attachToChat")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={downloadEditor}
               disabled={!editorContent.trim()}
+              variant="secondary"
+              size="sm"
               className="flex-1 rounded-md px-3 py-2 text-xs font-medium bg-evergreen/10 text-evergreen hover:bg-evergreen/15 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t("workspace.download")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -705,13 +765,16 @@ export function DocumentsTab({
                 alt={lightboxDoc.filename}
                 className="max-w-full max-h-[85vh] rounded-lg shadow-2xl object-contain"
               />
-              <button
+              <Button
+                type="button"
                 onClick={() => setLightboxDoc(null)}
-                className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow flex items-center justify-center"
+                variant="secondary"
+                size="sm"
+                className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow p-0"
                 aria-label="Close"
               >
                 <Icon name="close" size={16} className="text-gray-700" />
-              </button>
+              </Button>
               <p className="mt-2 text-center text-white/70 text-xs truncate">{lightboxDoc.filename}</p>
             </div>
           </div>,

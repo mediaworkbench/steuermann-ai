@@ -19,6 +19,9 @@
 - **feat** Migrated the composer send/stop/queued-send controls in `ChatInterface.tsx` to the shared `Button` primitive while preserving streaming-state behavior and icon-only sizing.
 - **feat** Migrated the assistant feedback thumbs-up/down controls in `ChatInterface.tsx` to the shared `Button` primitive to complete the core chat action rows.
 - **feat** Converted remaining isolated action controls in `Header.tsx`, `Sidebar.tsx` context menu items, and the `MetricsPanel.tsx` expand toggle to the shared `Button` primitive.
+- **feat** Migrated `workspace/DocumentsTab.tsx` action controls and editor textarea to shared `Button`/`Textarea` primitives (upload/nuke actions, document row actions, history actions, editor actions, lightbox close).
+- **feat** Completed the `SettingsPanel.tsx`/`AdminPanel.tsx` control cleanup by migrating remaining actions and selectors to shared primitives and restoring the missing role-model system-default line in settings.
+- **feat** Added shared `ui/Slider.tsx` and migrated `SettingsPanel.tsx` RAG `top_k` range control to the new primitive to remove the last native form control in Settings/Admin panels.
 - **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
 - **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
 

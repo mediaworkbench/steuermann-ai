@@ -14,6 +14,10 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 
 export interface AdminPanelProps {
   settings: UserSettings | null;
@@ -255,22 +259,26 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               onClick={handleCopyDiagnostics}
               disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
-              className="px-3 py-2 text-sm bg-indigo-100 hover:bg-indigo-200 disabled:bg-gray-100 text-indigo-800 disabled:text-gray-500 rounded-lg transition-colors"
+              variant="secondary"
+              size="sm"
+              className="bg-indigo-100 text-indigo-800 hover:bg-indigo-200 disabled:bg-gray-100 disabled:text-gray-500"
             >
               {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => void loadCapabilities()}
               disabled={capabilitiesLoading}
-              className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 text-gray-700 rounded-lg transition-colors"
+              variant="secondary"
+              size="sm"
+              className="bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-100"
             >
               {t("common.refresh")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -330,13 +338,15 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                         <td className="px-3 py-2 text-gray-700">{item.effective_mode_reason}</td>
                         <td className="px-3 py-2 text-gray-700">{item.probed_at ? formatDateTime(item.probed_at) : t("metrics.na")}</td>
                         <td className="px-3 py-2">
-                          <button
+                          <Button
                             type="button"
                             onClick={() => toggleCapabilityRow(rowKey)}
-                            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded"
+                            variant="secondary"
+                            size="sm"
+                            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200"
                           >
                             {expanded ? t("settingsPanel.hideDetails") : t("settingsPanel.showDetails")}
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                       {expanded && (
@@ -378,26 +388,26 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
             </label>
-            <input
+            <Input
               type="text"
               value={(ragConfig.collection as string) || systemConfig?.rag_defaults.collection_name || "framework"}
               onChange={(e) => handleRagConfigChange("collection", e.target.value)}
               placeholder={systemConfig?.rag_defaults.collection_name || "e.g., framework"}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 shadow-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t("settingsPanel.similarityThreshold")}
             </label>
-            <input
+            <Input
               type="number"
               min="0"
               max="1"
               step="0.1"
               value={(ragConfig.pill_score_threshold as number) || 0.72}
               onChange={(e) => handleRagConfigChange("pill_score_threshold", parseFloat(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 shadow-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
         </div>
@@ -405,14 +415,15 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         <div className="mt-6 border-t border-gray-200 pt-4">
           <h4 className="text-md font-semibold text-gray-800 mb-2">{t("settingsPanel.reingestSectionTitle")}</h4>
           <p className="text-sm text-gray-600 mb-3">{t("settingsPanel.reingestDescription")}</p>
-          <button
+          <Button
             type="button"
             onClick={() => setConfirmReingest(true)}
             disabled={reingesting}
-            className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+            variant="secondary"
+            className="bg-amber-600 text-white hover:bg-amber-700 disabled:bg-gray-400"
           >
             {reingesting ? t("settingsPanel.reingesting") : t("settingsPanel.reingestAllDocuments")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -449,7 +460,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                       <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
                     )}
                   </div>
-                  <select
+                  <Select
                     value={selectedModel}
                     onChange={(e) =>
                       setPreferredModels((prev) => ({
@@ -457,14 +468,13 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                         [roleName]: e.target.value === roleDefaultModel ? "" : e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {mergedRoleModels.map((model) => (
                       <option key={`${roleName}:${model}`} value={model}>
                         {model}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               );
             })}
@@ -474,13 +484,13 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
       {/* Save */}
       <div className="flex gap-3">
-        <button
+        <Button
           onClick={handleSave}
           disabled={saving || !settings}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+          className="flex-1"
         >
           {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-        </button>
+        </Button>
       </div>
 
       {/* Danger Zone */}
@@ -499,15 +509,15 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             ] as { key: keyof ResetOptions; label: string; description: string }[]
           ).map(({ key, label, description }) => (
             <label key={key} className="flex items-start gap-3 cursor-pointer group">
-              <input
+              <Checkbox
                 type="checkbox"
                 checked={resetOptions[key]}
                 onChange={() => toggleResetOption(key)}
-                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                className="mt-0.5"
               />
               <span className="flex flex-col">
-                <span className="text-sm font-medium text-gray-800">{label}</span>
-                <span className="text-xs text-gray-500 mt-0.5">{description}</span>
+                <span className="text-sm font-medium text-foreground">{label}</span>
+                <span className="text-xs text-foreground/60 mt-0.5">{description}</span>
               </span>
             </label>
           ))}
@@ -517,14 +527,14 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
           <p className="text-xs text-amber-700 mb-3">{t("adminPage.resetNoneSelected")}</p>
         )}
 
-        <button
+        <Button
           type="button"
           onClick={() => setConfirmReset(true)}
           disabled={resetting || !Object.values(resetOptions).some(Boolean)}
-          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+          variant="destructive"
         >
           {resetting ? t("settingsPanel.resetting") : t("adminPage.resetSelectedButton")}
-        </button>
+        </Button>
       </div>
 
       <ConfirmDialog

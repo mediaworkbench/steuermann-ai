@@ -13,6 +13,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { Slider } from "@/components/ui/Slider";
 import { Select } from "@/components/ui/Select";
 
 export interface SettingsPanelProps {
@@ -235,13 +236,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                 value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
               })}
             </label>
-            <input
-              type="range"
+            <Slider
               min="1"
               max="20"
               value={(ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5}
               onChange={(e) => handleRagConfigChange("top_k", parseInt(e.target.value))}
-              className="w-full"
             />
           </div>
         </div>
@@ -274,6 +273,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                       {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
                     </p>
                     <p className="text-xs text-gray-600">
+                      {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
                       <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
