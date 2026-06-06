@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SectionCard } from "@/components/product/SectionCard";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Slider } from "@/components/ui/Slider";
@@ -158,7 +159,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     <div className="space-y-6">
 
       {/* Language */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <SectionCard>
         <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.language")}</h3>
         <Select
           value={language}
@@ -170,7 +171,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </option>
           ))}
         </Select>
-      </div>
+      </SectionCard>
 
       {/* Sound */}
       <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">

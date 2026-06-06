@@ -4,6 +4,12 @@
 
 ### Design System Kickoff
 
+- **docs** Confirmed manual E2E strategy for this cycle (no Playwright-based gate tooling); automated accessibility/visual CI gates remain planned but deferred.
+- **chore** Removed Playwright dev dependencies (`@playwright/test`, `@axe-core/playwright`) after switching to manual E2E validation.
+- **feat** Started Phase 3 product-component extraction by adding `components/product/SectionCard.tsx` and migrating the first Settings/Admin sections to the shared product-layer shell.
+- **feat** Migrated `ui/Select.tsx`, `ui/Input.tsx`, and `ui/Textarea.tsx` to use `cn()` from `lib/utils.ts` for conflict-free Tailwind class merging, completing `cn()` adoption across all shared UI primitives.
+- **feat** Added design-system enforcement gates to `eslint.config.mjs`: Gate 1 (`no-restricted-imports`) blocks `lucide-react` re-introduction in `src/**` with a message pointing to the shared `Icon` wrapper; Gate 2 (`no-restricted-syntax`) warns on raw palette status-color class strings (`emerald-*`, `amber-*`, `red-*`, `green-*`, `blue-100`) enforcing semantic token usage.
+- **docs** Updated `design-system.md` handoff snapshot to reflect Phase 1/2 completion, the active enforcement gates, and the remaining Phase 3/5 work.
 - **feat** Phase 2 design-system foundation: installed `@radix-ui/react-slot`, `@radix-ui/react-dialog`, `@radix-ui/react-checkbox`, `@radix-ui/react-slider`, `class-variance-authority`, `clsx`, and `tailwind-merge`; added `frontend/src/lib/utils.ts` with `cn()` for conflict-free Tailwind class merging.
 - **feat** Migrated `ui/Button.tsx` to use `@radix-ui/react-slot` for the `asChild` pattern (replaces fragile `React.cloneElement`) and `class-variance-authority` for the variant system.
 - **feat** Migrated `ui/Dialog.tsx` to `@radix-ui/react-dialog`, gaining automatic focus trap, scroll lock, ESC dismissal, and `aria-modal` semantics; `DialogHeader` now uses `Dialog.Title` for the accessible name; callers (`ConfirmDialog`, `ExportDialog`) need no changes.

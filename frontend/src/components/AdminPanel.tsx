@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { SectionCard } from "@/components/product/SectionCard";
 import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
@@ -247,7 +248,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     <div className="space-y-6">
 
       {/* LLM Capability Diagnostics */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <SectionCard>
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h3 className="text-lg font-semibold text-foreground">{t("adminPage.llmSection")}</h3>
@@ -375,7 +376,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             </table>
           </div>
         )}
-      </div>
+      </SectionCard>
 
       {/* RAG Operational Configuration */}
       <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
