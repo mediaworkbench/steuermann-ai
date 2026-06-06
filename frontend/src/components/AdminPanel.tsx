@@ -136,9 +136,16 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       ].join("\t");
       const rows = capabilities.map((item) =>
         [
-          item.provider_id, item.model_name, item.role || "", item.desired_mode,
-          item.effective_mode, item.configured_tool_calling_mode || "", item.probe_status,
-          item.effective_mode_reason, item.api_base || "", item.error_message || "",
+          item.provider_id,
+          item.model_name,
+          item.role || "",
+          item.desired_mode,
+          item.effective_mode,
+          item.configured_tool_calling_mode || "",
+          item.probe_status,
+          item.effective_mode_reason,
+          item.api_base || "",
+          item.error_message || "",
           item.probed_at || "",
         ].join("\t")
       );

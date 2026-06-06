@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/Button";
+import { DialogCard, DialogHeader, DialogSurface } from "@/components/ui/Dialog";
 import { Icon } from "./Icon";
 import { exportConversation } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
@@ -59,34 +61,23 @@ export function ExportDialog({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-evergreen flex items-center gap-2">
-            <Icon name="download" size={20} className="text-pacific-blue" />
-            {t("exportDialog.title")}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-gray-100 transition-colors text-evergreen/50 hover:text-evergreen cursor-pointer"
-            aria-label={t("exportDialog.closeDialog")}
-          >
-            <Icon name="close" size={20} />
-          </button>
-        </div>
+    <DialogSurface open onClose={onClose} className="max-w-md">
+      <DialogCard>
+        <DialogHeader
+          icon="download"
+          iconClassName="text-primary"
+          title={t("exportDialog.title")}
+          onClose={onClose}
+          closeLabel={t("exportDialog.closeDialog")}
+        />
 
-        <p className="text-sm text-evergreen/60 mb-4 truncate">
+        <p className="mb-4 truncate text-sm text-muted-foreground">
           {conversationTitle}
         </p>
 
         {/* Format selector */}
         <div className="space-y-2 mb-6">
-          <label className="text-xs font-bold text-evergreen/50 uppercase tracking-wider">
+          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
             {t("exportDialog.format")}
           </label>
           <div className="flex gap-3">
@@ -113,19 +104,18 @@ export function ExportDialog({
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-3">
-          <button
+          <Button
+            variant="secondary"
+            size="md"
             onClick={onClose}
-            className="text-sm text-evergreen/60 hover:text-evergreen px-4 py-2 rounded-lg
-                       hover:bg-gray-100 transition-colors cursor-pointer"
           >
             {t("common.cancel")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
             onClick={handleExport}
             disabled={exporting}
-            className="text-sm text-white bg-pacific-blue hover:bg-pacific-blue/80 px-5 py-2
-                       rounded-lg font-medium transition-colors disabled:opacity-50 cursor-pointer
-                       flex items-center gap-2"
           >
             {exporting ? (
               <>
@@ -138,10 +128,10 @@ export function ExportDialog({
                 {t("common.export")}
               </>
             )}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogCard>
+    </DialogSurface>
   );
 }
 
@@ -164,24 +154,24 @@ function FormatOption({
       className={`flex-1 flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-colors cursor-pointer
         ${
           selected
-            ? "border-pacific-blue bg-pacific-blue/5"
-            : "border-gray-200 hover:border-pacific-blue/30 bg-white"
+            ? "border-primary bg-primary/5"
+            : "border-border hover:border-primary/30 bg-surface"
         }`}
     >
       <Icon
         name={icon}
         size={24}
-        className={selected ? "text-pacific-blue" : "text-evergreen/30"}
+        className={selected ? "text-primary" : "text-foreground/30"}
       />
       <div>
         <span
           className={`text-sm font-bold block ${
-            selected ? "text-pacific-blue" : "text-evergreen/70"
+            selected ? "text-primary" : "text-foreground/70"
           }`}
         >
           {label}
         </span>
-        <span className="text-[11px] text-evergreen/40">{description}</span>
+        <span className="text-[11px] text-foreground/40">{description}</span>
       </div>
     </button>
   );

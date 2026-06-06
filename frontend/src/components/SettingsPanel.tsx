@@ -11,6 +11,9 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Select } from "@/components/ui/Select";
 
 export interface SettingsPanelProps {
   settings: UserSettings | null;
@@ -156,34 +159,33 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       {/* Language */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.language")}</h3>
-        <select
+        <Select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {(systemConfig?.supported_languages || ["en"]).map((code) => (
             <option key={code} value={code}>
               {LANGUAGE_LABELS[code] || code.toUpperCase()}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* Sound */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.soundSection")}</h3>
         <label className="flex items-start gap-3 cursor-pointer">
-          <input
+          <Checkbox
             type="checkbox"
             checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
             onChange={(e) =>
               setAnalyticsPreferences((prev) => ({ ...prev, sound_enabled: e.target.checked }))
             }
-            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="mt-0.5"
           />
           <span className="flex flex-col">
-            <span className="text-sm font-medium text-gray-700">{t("settingsPanel.soundEnabled")}</span>
-            <span className="text-xs text-gray-500 mt-0.5">{t("settingsPanel.soundEnabledDescription")}</span>
+            <span className="text-sm font-medium text-foreground">{t("settingsPanel.soundEnabled")}</span>
+            <span className="mt-0.5 text-xs text-foreground/60">{t("settingsPanel.soundEnabledDescription")}</span>
           </span>
         </label>
       </div>
@@ -197,13 +199,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <div className="space-y-3">
             {(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => (
               <label key={tool.id} className="flex items-center gap-3 cursor-pointer">
-                <input
+                <Checkbox
                   type="checkbox"
                   checked={toolToggles[tool.id] ?? true}
                   onChange={() => handleToolToggle(tool.id)}
-                  className="w-5 h-5 text-blue-600 rounded"
+                  className="w-5 h-5"
                 />
-                <span className="text-gray-700 font-medium">{tool.label}</span>
+                <span className="font-medium text-foreground">{tool.label}</span>
               </label>
             ))}
           </div>
@@ -217,13 +219,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         <div className="space-y-4">
           <div>
             <label className="flex items-center gap-3 cursor-pointer">
-              <input
+              <Checkbox
                 type="checkbox"
                 checked={(ragConfig.enabled as boolean) !== false}
                 onChange={(e) => handleRagConfigChange("enabled", e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="w-4 h-4"
               />
-              <span className="text-sm font-medium text-gray-700">{t("settingsPanel.ragEnabled")}</span>
+              <span className="text-sm font-medium text-foreground">{t("settingsPanel.ragEnabled")}</span>
             </label>
           </div>
           <div>
@@ -272,13 +274,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                       {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
                     </p>
                     <p className="text-xs text-gray-600">
-                      {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
                       <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
                     )}
                   </div>
-                  <select
+                  <Select
                     value={selectedModel}
                     onChange={(e) =>
                       setPreferredModels((prev) => ({
@@ -286,14 +287,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                         [roleName]: e.target.value === roleDefaultModel ? "" : e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {mergedRoleModels.map((model) => (
                       <option key={`${roleName}:${model}`} value={model}>
                         {model}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               );
             })}
@@ -303,13 +303,13 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
 
       {/* Save */}
       <div className="flex gap-3">
-        <button
+        <Button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+          className="flex-1"
         >
           {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-        </button>
+        </Button>
       </div>
 
       {/* Last updated */}
@@ -332,17 +332,17 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             ] as const
           ).map(([key, labelKey, descKey]) => (
             <label key={key} className="flex items-start gap-3 cursor-pointer">
-              <input
+              <Checkbox
                 type="checkbox"
                 checked={myDataOptions[key]}
                 onChange={() =>
                   setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] }))
                 }
-                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                className="mt-0.5"
               />
               <span className="flex flex-col">
-                <span className="text-sm font-medium text-gray-700">{t(`settingsPanel.${labelKey}`)}</span>
-                <span className="text-xs text-gray-500 mt-0.5">{t(`settingsPanel.${descKey}`)}</span>
+                <span className="text-sm font-medium text-foreground">{t(`settingsPanel.${labelKey}`)}</span>
+                <span className="mt-0.5 text-xs text-foreground/60">{t(`settingsPanel.${descKey}`)}</span>
               </span>
             </label>
           ))}
@@ -350,16 +350,16 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {!Object.values(myDataOptions).some(Boolean) && (
           <p className="text-xs text-amber-600 mb-3">{t("settingsPanel.myDataResetNoneSelected")}</p>
         )}
-        <button
+        <Button
           onClick={() => {
             if (!Object.values(myDataOptions).some(Boolean)) return;
             setMyDataConfirmOpen(true);
           }}
           disabled={myDataResetting || !Object.values(myDataOptions).some(Boolean)}
-          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+          variant="destructive"
         >
           {myDataResetting ? t("settingsPanel.myDataResetting") : t("settingsPanel.myDataResetButton")}
-        </button>
+        </Button>
       </div>
 
       <ConfirmDialog
