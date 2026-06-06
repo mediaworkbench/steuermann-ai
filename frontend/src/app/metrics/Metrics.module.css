@@ -279,24 +279,6 @@
   to { transform: rotate(360deg); }
 }
 
-.error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: var(--spacing-md);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.errorTitle {
-  font-weight: 600;
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.error p {
-  margin: 0;
-}
-
 .loading {
   display: flex;
   flex-direction: column;

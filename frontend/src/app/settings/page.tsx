@@ -7,6 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useRole } from "@/context/RoleContext";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
+import { PageErrorAlert } from "@/components/product/PageErrorAlert";
 import {
   CURRENT_USER_ID,
   SINGLE_USER_DISPLAY_NAME,
@@ -32,10 +33,7 @@ export default function SettingsPage() {
       />
 
       {error && (
-        <div className={styles.error}>
-          <p className={styles.errorTitle}>{t("common.error")}</p>
-          <p>{error}</p>
-        </div>
+        <PageErrorAlert title={t("common.error")} message={error} />
       )}
 
       <SettingsPanel

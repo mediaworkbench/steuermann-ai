@@ -56,6 +56,12 @@
 - **chore** Removed now-unused route-wrapper CSS selectors (`main/header/title/subtitle`) from `app/settings/Settings.module.css` and `app/metrics/Metrics.module.css` after the `PageShell`/`PageHeader` migration, reducing dead style surface.
 - **feat** Tokenized remaining hardcoded metrics tab/alert status colors in `app/metrics/Metrics.module.css` and settings/admin error-state colors in `app/settings/Settings.module.css` to semantic design tokens for stronger light/dark parity.
 - **chore** Updated `app/metrics/page.tsx` to use profile-aware i18n page title text via `t("metrics.title", { app })` instead of a hardcoded English heading.
+- **feat** Added shared route-level error primitive `components/product/PageErrorAlert.tsx` and migrated page-level error/fallback blocks in `settings`, `admin`, `admin/rag`, and `metrics` routes to the shared alert surface.
+- **chore** Removed obsolete route error CSS from `app/settings/Settings.module.css` and `app/metrics/Metrics.module.css` after moving page errors to the shared `PageErrorAlert` component.
+- **feat** Added admin profile metadata i18n keys (`adminPage.profileLabel`, `adminPage.frameworkVersionLabel`) in EN/DE and migrated `app/admin/page.tsx` profile/version copy to translated strings.
+- **chore** Refactored `components/MapWidget.tsx` to replace inline map color literals with centralized semantic map constants (`MAP_COLOR_*`, `MAP_MULTI_MARKER_COLORS`) for marker/line styling consistency.
+- **chore** Extracted distance line source/layer IDs in `MapWidget.tsx` to shared constants and removed duplicated string literals.
+- **fix** Hardened `MapWidget.tsx` distance-line setup by removing any pre-existing distance line layer/source before adding them, preventing duplicate-layer/source insertion issues on remount/reload edge paths.
 - **feat** Migrated `ui/Select.tsx`, `ui/Input.tsx`, and `ui/Textarea.tsx` to use `cn()` from `lib/utils.ts` for conflict-free Tailwind class merging, completing `cn()` adoption across all shared UI primitives.
 - **feat** Added design-system enforcement gates to `eslint.config.mjs`: Gate 1 (`no-restricted-imports`) blocks `lucide-react` re-introduction in `src/**` with a message pointing to the shared `Icon` wrapper; Gate 2 (`no-restricted-syntax`) warns on raw palette status-color class strings (`emerald-*`, `amber-*`, `red-*`, `green-*`, `blue-100`) enforcing semantic token usage.
 - **docs** Updated `design-system.md` handoff snapshot to reflect Phase 1/2 completion, the active enforcement gates, and the remaining Phase 3/5 work.

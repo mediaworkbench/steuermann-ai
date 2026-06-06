@@ -9,6 +9,21 @@ import type { MapData } from "@/lib/types";
 
 const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SHOW_PIN_THRESHOLD = 5; // skip marker for zoom ≤ this (continent/world view)
+const DISTANCE_LINE_SOURCE_ID = "distance-line";
+const DISTANCE_LINE_LAYER_ID = "distance-line";
+const MAP_COLOR_PRIMARY = "#2563eb";
+const MAP_COLOR_SECONDARY = "#dc2626";
+const MAP_COLOR_DISTANCE_LINE = "#6366f1";
+const MAP_COLOR_SUCCESS = "#16a34a";
+const MAP_COLOR_WARNING = "#d97706";
+const MAP_COLOR_ACCENT = "#7c3aed";
+const MAP_MULTI_MARKER_COLORS = [
+  MAP_COLOR_PRIMARY,
+  MAP_COLOR_SECONDARY,
+  MAP_COLOR_SUCCESS,
+  MAP_COLOR_WARNING,
+  MAP_COLOR_ACCENT,
+];
 
 // Module-level cache so repeated mounts (multiple map results in history) share
 // one fetch instead of re-requesting the style JSON each time.
@@ -135,7 +150,7 @@ export function MapWidget({ data }: Props) {
             data.lon != null &&
             data.zoom > SHOW_PIN_THRESHOLD
           ) {
-            new maplibregl.Marker({ color: "#2563eb" })
+            new maplibregl.Marker({ color: MAP_COLOR_PRIMARY })
               .setLngLat([data.lon, data.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(data.label ?? ""))
               .addTo(mapInstance);
@@ -144,17 +159,24 @@ export function MapWidget({ data }: Props) {
           if (data.type === "distance" && data.locations && data.locations.length === 2) {
             const [a, b] = data.locations;
 
-            new maplibregl.Marker({ color: "#2563eb" })
+            new maplibregl.Marker({ color: MAP_COLOR_PRIMARY })
               .setLngLat([a.lon, a.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(a.label))
               .addTo(mapInstance);
 
-            new maplibregl.Marker({ color: "#dc2626" })
+            new maplibregl.Marker({ color: MAP_COLOR_SECONDARY })
               .setLngLat([b.lon, b.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(b.label))
               .addTo(mapInstance);
 
-            mapInstance.addSource("distance-line", {
+            if (mapInstance.getLayer(DISTANCE_LINE_LAYER_ID)) {
+              mapInstance.removeLayer(DISTANCE_LINE_LAYER_ID);
+            }
+            if (mapInstance.getSource(DISTANCE_LINE_SOURCE_ID)) {
+              mapInstance.removeSource(DISTANCE_LINE_SOURCE_ID);
+            }
+
+            mapInstance.addSource(DISTANCE_LINE_SOURCE_ID, {
               type: "geojson",
               data: {
                 type: "Feature",
@@ -169,12 +191,12 @@ export function MapWidget({ data }: Props) {
               },
             });
             mapInstance.addLayer({
-              id: "distance-line",
+              id: DISTANCE_LINE_LAYER_ID,
               type: "line",
-              source: "distance-line",
+              source: DISTANCE_LINE_SOURCE_ID,
               layout: { "line-join": "round", "line-cap": "round" },
               paint: {
-                "line-color": "#6366f1",
+                "line-color": MAP_COLOR_DISTANCE_LINE,
                 "line-width": 2,
                 "line-dasharray": [4, 3],
               },
@@ -190,9 +212,8 @@ export function MapWidget({ data }: Props) {
           }
 
           if (data.type === "multi" && data.locations && data.locations.length > 0) {
-            const colors = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
             data.locations.forEach((loc, i) => {
-              new maplibregl.Marker({ color: colors[i % colors.length] })
+              new maplibregl.Marker({ color: MAP_MULTI_MARKER_COLORS[i % MAP_MULTI_MARKER_COLORS.length] })
                 .setLngLat([loc.lon, loc.lat])
                 .setPopup(new maplibregl.Popup({ closeButton: false }).setText(loc.label))
                 .addTo(mapInstance!);

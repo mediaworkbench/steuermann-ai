@@ -18,6 +18,7 @@ import { MessageQualityPanel } from "@/components/MessageQualityPanel";
 import { Icon } from "@/components/Icon";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
+import { PageErrorAlert } from "@/components/product/PageErrorAlert";
 import { useProfile } from "@/hooks/useProfile";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
@@ -275,10 +276,7 @@ export default function MetricsPage() {
           </div>
 
           {metricsError && (
-            <div className={styles.error}>
-              <p className={styles.errorTitle}>{t("common.error")}</p>
-              <p>{metricsError}</p>
-            </div>
+            <PageErrorAlert title={t("common.error")} message={metricsError} />
           )}
 
           {metricsLoading && !metrics ? (
@@ -471,9 +469,7 @@ export default function MetricsPage() {
           </div>
 
           {analyticsError && (
-            <div className={styles.error}>
-              <p>{t("metrics.errorLoadingTrends")}: {analyticsError}</p>
-            </div>
+            <PageErrorAlert title={t("metrics.errorLoadingTrends")} message={analyticsError} />
           )}
 
           {analyticsLoading && (

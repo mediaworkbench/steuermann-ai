@@ -4,9 +4,9 @@ import { AdminOnly } from "@/components/AdminOnly";
 import { Icon } from "@/components/Icon";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
+import { PageErrorAlert } from "@/components/product/PageErrorAlert";
 import { useI18n } from "@/hooks/useI18n";
 import { useRagSearch } from "@/hooks/useRagSearch";
-import styles from "../../settings/Settings.module.css";
 import { RagResultCard } from "./RagResultCard";
 
 export default function RagExplorerPage() {
@@ -36,9 +36,7 @@ export default function RagExplorerPage() {
 
       <AdminOnly
         fallback={
-          <div className={styles.error}>
-            <p className={styles.errorTitle}>{t("adminPage.accessDenied")}</p>
-          </div>
+          <PageErrorAlert title={t("adminPage.accessDenied")} />
         }
       >
         {/* Search controls */}
@@ -122,10 +120,7 @@ export default function RagExplorerPage() {
 
         {/* Error */}
         {error && (
-          <div className={styles.error}>
-            <p className={styles.errorTitle}>{t("common.error")}</p>
-            <p>{error}</p>
-          </div>
+          <PageErrorAlert title={t("common.error")} message={error} />
         )}
 
         {/* Results */}

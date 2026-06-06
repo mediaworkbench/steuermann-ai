@@ -20,24 +20,6 @@
   font-size: 0.9rem;
 }
 
-.error {
-  background: color-mix(in srgb, var(--destructive) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
-  color: var(--destructive);
-  padding: var(--spacing-md);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.errorTitle {
-  font-weight: 600;
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.error p {
-  margin: 0;
-}
-
 .debug {
   margin-top: var(--spacing-xl);
   background: var(--bg-secondary);

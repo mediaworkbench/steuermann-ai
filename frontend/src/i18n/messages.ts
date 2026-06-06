@@ -123,6 +123,8 @@ export type Messages = {
   adminPage: {
     title: string;
     subtitle: string;
+    profileLabel: string;
+    frameworkVersionLabel: string;
     llmSection: string;
     ragSection: string;
     modelSection: string;
@@ -703,6 +705,8 @@ export const messages: Record<Locale, Messages> = {
     adminPage: {
       title: "Setup & Administration",
       subtitle: "Diagnostics, operational tuning, and system maintenance",
+      profileLabel: "Profile: {profile}",
+      frameworkVersionLabel: "Framework version: {version}",
       llmSection: "Model Tool-Calling Capabilities",
       ragSection: "Knowledge Base Configuration",
       modelSection: "System Model Selection",
@@ -1281,6 +1285,8 @@ export const messages: Record<Locale, Messages> = {
     adminPage: {
       title: "Setup & Administration",
       subtitle: "Diagnose, Betriebstuning und Systemwartung",
+      profileLabel: "Profil: {profile}",
+      frameworkVersionLabel: "Framework-Version: {version}",
       llmSection: "Modell Tool-Calling-Fähigkeiten",
       ragSection: "Wissensdatenbank-Konfiguration",
       modelSection: "Systemmodell-Auswahl",

@@ -7,6 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
+import { PageErrorAlert } from "@/components/product/PageErrorAlert";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "../settings/Settings.module.css";
 
@@ -21,22 +22,17 @@ export default function AdminPage() {
 
       <section className={styles.accountCard}>
         <div className={styles.accountInfo}>
-          <h2 className={styles.accountName}>Profile: {profile.displayName}</h2>
-          <p className={styles.versionText}>Framework version: {profile.frameworkVersion}</p>
+          <h2 className={styles.accountName}>{t("adminPage.profileLabel", { profile: profile.displayName })}</h2>
+          <p className={styles.versionText}>{t("adminPage.frameworkVersionLabel", { version: profile.frameworkVersion })}</p>
         </div>
       </section>
 
       {error && (
-        <div className={styles.error}>
-          <p className={styles.errorTitle}>{t("common.error")}</p>
-          <p>{error}</p>
-        </div>
+        <PageErrorAlert title={t("common.error")} message={error} />
       )}
 
       <AdminOnly fallback={
-        <div className={styles.error}>
-          <p className={styles.errorTitle}>{t("adminPage.accessDenied")}</p>
-        </div>
+        <PageErrorAlert title={t("adminPage.accessDenied")} />
       }>
         <AdminPanel
           settings={settings}
