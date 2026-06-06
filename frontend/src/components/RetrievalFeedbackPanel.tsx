@@ -1,8 +1,8 @@
 "use client";
 
-import { MessageSquare, Star, BarChart2 } from "lucide-react";
 import type { MemoryRetrievalQualityData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Icon } from "./Icon";
 
 interface Props {
   data: MemoryRetrievalQualityData | null;
@@ -38,10 +38,10 @@ function MiniCard({
 
 const BUCKET_ORDER = ["high", "mid", "low", "none"] as const;
 const BUCKET_COLORS: Record<string, string> = {
-  high: "bg-emerald-500",
-  mid: "bg-amber-400",
-  low: "bg-red-400",
-  none: "bg-slate-300",
+  high: "bg-success",
+  mid: "bg-warning",
+  low: "bg-destructive",
+  none: "bg-border-strong",
 };
 
 export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
@@ -66,10 +66,10 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
   // Coverage health badge thresholds match monitoring.md runbook
   const coverageHealth =
     feedbackNum >= 20
-      ? { label: t("metrics.coverageHealthy"), cls: "bg-emerald-100 text-emerald-700" }
+      ? { label: t("metrics.coverageHealthy"), cls: "bg-success/10 text-success" }
       : feedbackNum >= 5
-        ? { label: t("metrics.coverageLow"), cls: "bg-amber-100 text-amber-700" }
-        : { label: t("metrics.coverageVeryLow"), cls: "bg-red-100 text-red-700" };
+        ? { label: t("metrics.coverageLow"), cls: "bg-warning/10 text-warning" }
+        : { label: t("metrics.coverageVeryLow"), cls: "bg-destructive/10 text-destructive" };
 
   // Build bucket bar segments
   const buckets = data.rating_bucket_distribution ?? {};
@@ -101,23 +101,23 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
       {/* Mini-cards row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniCard
-          icon={<MessageSquare size={16} />}
+          icon={<Icon name="forum" size={16} />}
           label={t("metrics.retrievalSignalsTotal")}
           value={formatNumber(total)}
         />
         <MiniCard
-          icon={<Star size={16} />}
+          icon={<Icon name="star" size={16} />}
           label={t("metrics.priorRatingCoverage")}
           value={priorPct}
           unit="%"
         />
         <MiniCard
-          icon={<Star size={16} />}
+          icon={<Icon name="star" size={16} />}
           label={t("metrics.ratedAfterRetrieval")}
           value={formatNumber(data.rated_after_retrieval_total)}
         />
         <MiniCard
-          icon={<BarChart2 size={16} />}
+          icon={<Icon name="insert_chart" size={16} />}
           label={t("metrics.feedbackCoverage")}
           value={feedbackPct}
           unit="%"
@@ -131,7 +131,7 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
             {t("metrics.ratingBuckets")}
           </p>
           {/* Stacked bar */}
-          <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-muted">
             {BUCKET_ORDER.map((key) => {
               const count = buckets[key] ?? 0;
               const pct = (count / bucketTotal) * 100;

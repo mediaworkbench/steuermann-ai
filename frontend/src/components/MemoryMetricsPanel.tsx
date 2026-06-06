@@ -1,8 +1,8 @@
 "use client";
 
-import { Brain, Database, GitMerge, Zap } from "lucide-react";
 import type { MetricsData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Icon } from "./Icon";
 
 interface Props {
   metrics: MetricsData;
@@ -37,7 +37,7 @@ function MiniCard({
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  success: "text-emerald-600 bg-emerald-50",
+  success: "text-success bg-success/10",
   error: "text-destructive bg-destructive/10",
 };
 
@@ -95,41 +95,41 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
           gap: "0.5rem",
         }}
       >
-        <Brain size={18} />
+        <Icon name="psychology" size={18} />
         {t("metrics.memoryOperations")}
       </h3>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <MiniCard
-          icon={<Database size={16} />}
+          icon={<Icon name="database" size={16} />}
           label={t("metrics.totalOps")}
           value={formatNumber(Math.round(totalOps))}
         />
         {avgQuality !== null && (
           <MiniCard
-            icon={<Zap size={16} />}
+            icon={<Icon name="bolt" size={16} />}
             label={t("metrics.avgQuality")}
             value={`${Math.round(avgQuality * 100)}%`}
           />
         )}
         {coocNodes !== null && (
           <MiniCard
-            icon={<GitMerge size={16} />}
+            icon={<Icon name="merge" size={16} />}
             label={t("metrics.coOccurrenceNodes")}
             value={formatNumber(Math.round(coocNodes))}
           />
         )}
         {coocEdges !== null && (
           <MiniCard
-            icon={<GitMerge size={16} />}
+            icon={<Icon name="merge" size={16} />}
             label={t("metrics.coOccurrenceEdges")}
             value={formatNumber(Math.round(coocEdges))}
           />
         )}
         {rankingMs !== null && (
           <MiniCard
-            icon={<Zap size={16} />}
+            icon={<Icon name="bolt" size={16} />}
             label={t("metrics.rankingLatency")}
             value={rankingMs.toFixed(1)}
             unit="ms"

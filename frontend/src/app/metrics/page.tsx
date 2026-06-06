@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { RefreshCw, Download } from "lucide-react";
 import { useMetrics } from "@/hooks/useMetrics";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useSettings } from "@/hooks/useSettings";
@@ -16,6 +15,7 @@ import MemoryTrendsChart from "@/components/MemoryTrendsChart";
 import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
 import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
 import { MessageQualityPanel } from "@/components/MessageQualityPanel";
+import { Icon } from "@/components/Icon";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
@@ -267,7 +267,7 @@ export default function MetricsPage() {
               disabled={isRefreshingRealTime}
               className={styles.refreshButton}
             >
-              <RefreshCw size={18} className={isRefreshingRealTime ? styles.spin : ""} />
+              <Icon name="refresh" size={18} className={isRefreshingRealTime ? styles.spin : ""} />
               {t("common.refresh")}
             </button>
           </div>
@@ -281,7 +281,7 @@ export default function MetricsPage() {
 
           {metricsLoading && !metrics ? (
             <div className={styles.loading}>
-              <RefreshCw size={32} className={styles.spin} />
+              <Icon name="refresh" size={32} className={styles.spin} />
               <p>{t("metrics.loadingMetrics")}</p>
             </div>
           ) : metrics ? (
@@ -290,50 +290,41 @@ export default function MetricsPage() {
                 <MetricCard
                   label={t("metrics.totalRequests")}
                   value={Object.values(metrics.requests).reduce((a, b) => a + b, 0)}
-                  icon="📊"
                 />
                 <MetricCard
                   label={t("metrics.totalTokens")}
                   value={Math.floor(Object.values(metrics.tokens).reduce((a, b) => a + b, 0))}
                   unit="tokens"
-                  icon="🎯"
                 />
                 <MetricCard
                   label={t("metrics.avgLatency")}
                   value={avgLatencyMs !== null ? avgLatencyMs.toFixed(2) : t("metrics.na")}
                   unit={avgLatencyMs !== null ? "ms" : ""}
-                  icon="⚡"
                 />
                 <MetricCard
                   label={t("metrics.activeSessions")}
                   value={Object.values(metrics.sessions).reduce((a, b) => a + b, 0)}
-                  icon="👥"
                 />
                 <MetricCard
                   label={t("metrics.attachmentsInjected")}
                   value={Math.floor(injectedTotal)}
-                  icon="📎"
                 />
                 <MetricCard
                   label={t("metrics.requestsWithoutAttachments")}
                   value={Math.floor(noneTotal)}
-                  icon="🗂️"
                 />
                 <MetricCard
                   label={t("metrics.attachmentRetryTriggers")}
                   value={Math.floor(retryTotal)}
-                  icon="♻️"
                 />
                 <MetricCard
                   label={t("metrics.attachmentRetrySuccess")}
                   value={retrySuccessRate.toFixed(1)}
                   unit="%"
-                  icon="✅"
                 />
                 <MetricCard
                   label={t("metrics.profileIdMismatches")}
                   value={Math.floor(profileMismatchTotal)}
-                  icon="🧭"
                 />
               </div>
 
@@ -451,11 +442,11 @@ export default function MetricsPage() {
 
             <div className={styles.actions}>
               <button onClick={handleRefreshTrends} disabled={analyticsLoading} className={styles.actionBtn}>
-                <RefreshCw className={`${styles.icon} ${analyticsLoading ? styles.spin : ""}`} />
+                <Icon name="refresh" className={`${styles.icon} ${analyticsLoading ? styles.spin : ""}`} />
                 {t("common.refresh")}
               </button>
               <button onClick={handleExportCSV} disabled={analyticsLoading || !usageTrends || isRangeInvalid} className={styles.actionBtn}>
-                <Download className={styles.icon} />
+                <Icon name="download" className={styles.icon} />
                 {t("metrics.export")}
               </button>
               <label className={styles.checkboxLabel}>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Database } from "lucide-react";
 import { Icon } from "./Icon";
 import { Button } from "@/components/ui/Button";
 import type { MessageMetrics } from "@/lib/types";
@@ -240,7 +239,7 @@ export function MetricsPanel({
                   Knowledge Base
                 </span>
                 <div className="flex items-center gap-1.5 text-xs text-foreground">
-                  <Database size={13} className="text-muted-foreground shrink-0" />
+                  <Icon name="database" size={13} className="text-muted-foreground shrink-0" />
                   {evidence.ragDocCount > 0 ? (
                     <span>
                       {evidence.ragDocCount} document{evidence.ragDocCount !== 1 ? "s" : ""} retrieved

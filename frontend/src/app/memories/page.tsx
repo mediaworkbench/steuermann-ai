@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Trash2, RefreshCw, Brain } from "lucide-react";
 import { fetchMemories, fetchMemoryStats, deleteMemory, resetMyData } from "@/lib/api";
 import { MemoryRating } from "@/components/MemoryRating";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -9,6 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
+import { Icon } from "@/components/Icon";
 
 const PAGE_SIZE = 50;
 
@@ -16,7 +16,7 @@ function ImportanceBar({ score }: { score: number | null }) {
   if (score === null) return <span className="text-xs text-muted-foreground">—</span>;
   const pct = Math.round(score * 100);
   const color =
-    pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-yellow-400" : "bg-red-400";
+    pct >= 80 ? "bg-success" : pct >= 50 ? "bg-warning" : "bg-destructive";
   return (
     <div className="flex items-center gap-2">
       <div className="w-16 h-1.5 rounded-full bg-surface-muted overflow-hidden">
@@ -145,7 +145,7 @@ export default function MemoriesPage() {
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <Brain size={28} className="text-foreground" />
+            <Icon name="psychology" size={28} className="text-foreground" />
             <div>
               <h1 className="text-2xl font-bold text-foreground">{t("memories.title")}</h1>
               <p className="text-sm text-muted-foreground">
@@ -161,7 +161,7 @@ export default function MemoriesPage() {
                          border border-destructive/30 text-destructive hover:bg-destructive/10
                          disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
-              <Trash2 size={14} className={clearing ? "animate-pulse" : ""} />
+              <Icon name="delete" size={14} className={clearing ? "animate-pulse" : ""} />
               {t("memories.clearAll")}
             </button>
             <button
@@ -171,7 +171,7 @@ export default function MemoriesPage() {
                          bg-primary text-primary-foreground hover:bg-primary/90
                          disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
               {t("memories.refresh")}
             </button>
           </div>
@@ -247,7 +247,7 @@ export default function MemoriesPage() {
                 <tr>
                   <td colSpan={5} className="px-4 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Brain size={28} className="opacity-30" />
+                      <Icon name="psychology" size={28} className="opacity-30" />
                       <span className="text-sm">
                         {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
                       </span>
@@ -321,7 +321,7 @@ export default function MemoriesPage() {
                           className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
                           aria-label={t("memories.deleteMemory")}
                         >
-                          <Trash2 size={14} />
+                          <Icon name="delete" size={14} />
                         </button>
                       )}
                     </td>

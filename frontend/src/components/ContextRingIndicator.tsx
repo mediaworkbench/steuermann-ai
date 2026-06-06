@@ -43,7 +43,7 @@ export function ContextRingIndicator({ contextTokens, maxContextTokens }: Contex
   const colorClass =
     contextTokens === 0 ? "text-muted-foreground"
     : pct < 0.6        ? "text-foreground"
-    : pct < 0.85       ? "text-amber-500"
+    : pct < 0.85       ? "text-warning"
     :                    "text-destructive";
 
   const tooltip =

@@ -1,6 +1,5 @@
 "use client";
 
-import { MessageSquare, ThumbsDown, ThumbsUp, TrendingUp } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -12,6 +11,7 @@ import {
 } from "recharts";
 import type { MessageQualityResponse } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Icon } from "./Icon";
 
 interface Props {
   data: MessageQualityResponse | null;
@@ -75,22 +75,22 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniCard
-          icon={<ThumbsUp size={16} />}
+          icon={<Icon name="thumb_up" size={16} />}
           label={t("metrics.thumbsUp")}
           value={formatNumber(data.total_up)}
         />
         <MiniCard
-          icon={<ThumbsDown size={16} />}
+          icon={<Icon name="thumb_down" size={16} />}
           label={t("metrics.thumbsDown")}
           value={formatNumber(data.total_down)}
         />
         <MiniCard
-          icon={<TrendingUp size={16} />}
+          icon={<Icon name="trending_up" size={16} />}
           label={t("metrics.netScore")}
           value={formatNumber(data.net_score)}
         />
         <MiniCard
-          icon={<MessageSquare size={16} />}
+          icon={<Icon name="chat_bubble" size={16} />}
           label={t("metrics.feedbackRate")}
           value={feedbackRatePct}
           unit="%"

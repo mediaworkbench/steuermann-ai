@@ -84,7 +84,7 @@ function SourceBadges({ sources }: { sources?: Source[] }) {
           <span
             key={`${src.label}-${idx}`}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                       bg-amber-100 text-amber-800 border border-amber-200"
+                       bg-warning/10 text-warning border border-warning/20"
           >
             <Icon name="menu_book" size={12} />
             {src.label}
@@ -131,12 +131,12 @@ function DocumentUsedBadges({
         <span
           key={doc.id}
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-emerald-50 text-emerald-800 border border-emerald-200"
+                     bg-success/10 text-success border border-success/20"
           title={`Workspace context: ${doc.filename} (v${doc.version})`}
         >
           <Icon name="folder_open" size={12} />
           {doc.filename}
-          <span className="text-emerald-700/75">v{doc.version}</span>
+          <span className="text-success/75">v{doc.version}</span>
         </span>
       ))}
     </div>
@@ -660,8 +660,8 @@ export function ChatInterface() {
   const assistantMessageCount = messages.filter((m) => m.role === "assistant").length;
   const _ctxPct = maxContextTokens ? Math.min(100, Math.round((contextTokens / maxContextTokens) * 100)) : 0;
   const _ctxBarColor =
-    _ctxPct >= 85 ? "bg-red-500"
-    : _ctxPct >= 60 ? "bg-amber-500"
+    _ctxPct >= 85 ? "bg-destructive"
+    : _ctxPct >= 60 ? "bg-warning"
     : "bg-primary/70";
 
   return (

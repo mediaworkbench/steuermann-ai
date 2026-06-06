@@ -276,7 +276,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                       {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
-                      <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
+                      <p className="text-xs text-warning">{roleConfig.model_load_error}</p>
                     )}
                   </div>
                   <Select
@@ -321,7 +321,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
 
       {/* My Data — danger zone */}
       <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-red-700 mb-1">{t("settingsPanel.myDataSection")}</h3>
+        <h3 className="text-lg font-semibold text-destructive mb-1">{t("settingsPanel.myDataSection")}</h3>
         <p className="mb-4 text-sm text-muted-foreground">{t("settingsPanel.myDataDescription")}</p>
         <div className="space-y-3 mb-5">
           {(
@@ -348,7 +348,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           ))}
         </div>
         {!Object.values(myDataOptions).some(Boolean) && (
-          <p className="text-xs text-amber-600 mb-3">{t("settingsPanel.myDataResetNoneSelected")}</p>
+          <p className="text-xs text-warning mb-3">{t("settingsPanel.myDataResetNoneSelected")}</p>
         )}
         <Button
           onClick={() => {

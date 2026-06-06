@@ -10,8 +10,8 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, unit = "", trend = "stable", icon }: MetricCardProps) {
   const trendColor = {
-    up: "text-red-600",
-    down: "text-green-600",
+    up: "text-destructive",
+    down: "text-success",
     stable: "text-muted-foreground",
   }[trend];
 

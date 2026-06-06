@@ -4,6 +4,16 @@
 
 ### Design System Kickoff
 
+- **feat** Phase 2 design-system foundation: installed `@radix-ui/react-slot`, `@radix-ui/react-dialog`, `@radix-ui/react-checkbox`, `@radix-ui/react-slider`, `class-variance-authority`, `clsx`, and `tailwind-merge`; added `frontend/src/lib/utils.ts` with `cn()` for conflict-free Tailwind class merging.
+- **feat** Migrated `ui/Button.tsx` to use `@radix-ui/react-slot` for the `asChild` pattern (replaces fragile `React.cloneElement`) and `class-variance-authority` for the variant system.
+- **feat** Migrated `ui/Dialog.tsx` to `@radix-ui/react-dialog`, gaining automatic focus trap, scroll lock, ESC dismissal, and `aria-modal` semantics; `DialogHeader` now uses `Dialog.Title` for the accessible name; callers (`ConfirmDialog`, `ExportDialog`) need no changes.
+- **feat** Migrated `ui/Checkbox.tsx` to `@radix-ui/react-checkbox` with an adapter that preserves the existing `checked`/`onChange` caller API; removed the manual ESC `useEffect` from `ConfirmDialog` since Radix handles it natively.
+- **feat** Migrated `ui/Slider.tsx` to `@radix-ui/react-slider` with an adapter preserving the existing scalar `value`/`onChange` caller API, gaining a styled track + thumb and cross-browser consistency.
+- **feat** Completed the Phase 2 Radix/shadcn primitive foundation.
+- **feat** Completed the full status-color sweep: replaced all remaining hardcoded `emerald`/`amber`/`red`/`green`/`blue-100` utilities in `ChatInterface.tsx`, `ContextRingIndicator.tsx`, `SettingsPanel.tsx`, and `AdminPanel.tsx` with `success`/`warning`/`destructive`/`info` semantic tokens; `frontend/src` now contains no hardcoded palette status colors.
+- **fix** Restored the sidebar to its dedicated `sidebar-*` token namespace (`bg-sidebar-background`, `border-sidebar-border`, `text-sidebar-foreground`, `text-sidebar-muted`, `bg-sidebar-hover`, `bg-sidebar-active`) after a previous token sweep had incorrectly replaced them with generic surface tokens, causing the sidebar background to disappear.
+- **feat** Continued the semantic-token cleanup on the metrics and memory surfaces by replacing remaining hardcoded status colors with semantic success/warning/destructive tokens, and removed the icons from the Real-Time Metrics cards.
+- **feat** Continued the icon-system cut-over by replacing remaining direct Lucide imports on the memory and metrics surfaces with the shared Material Symbols `Icon` wrapper, keeping the canonical icon path aligned with the design-system plan.
 - **feat** Added local Geist variable font assets to `frontend/public/fonts` and switched the global font tokens plus shell overrides to Geist as the active UI font.
 - **feat** Introduced the initial semantic token contract in `frontend/src/app/globals.css` with light/dark CSS-variable defaults and Tailwind utility mappings for background, surface, border, foreground, and status colors.
 - **feat** Switched the root app shell and sidebar chrome to the new semantic tokens so the design-system layer is now exercised by the top-level layout surfaces.

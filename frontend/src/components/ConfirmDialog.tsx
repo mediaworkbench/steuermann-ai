@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { DialogCard, DialogHeader, DialogSurface } from "@/components/ui/Dialog";
@@ -65,20 +65,6 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     setChecked(false);
     props.onConfirm();
   };
-
-  const { onCancel } = props;
-  useEffect(() => {
-    if (!props.isOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setTypedValue("");
-        setChecked(false);
-        onCancel();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [props.isOpen, onCancel]);
 
   if (!props.isOpen) return null;
 

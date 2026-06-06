@@ -110,9 +110,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
   const getEffectiveModeBadgeClass = useCallback((mode: string) => {
     switch (mode) {
-      case "native": return "bg-green-100 text-green-800";
-      case "structured": return "bg-amber-100 text-amber-800";
-      case "react": return "bg-blue-100 text-blue-800";
+      case "native": return "bg-success/10 text-success";
+      case "structured": return "bg-warning/10 text-warning";
+      case "react": return "bg-info/10 text-info";
       default: return "bg-muted text-foreground";
     }
   }, []);
@@ -282,15 +282,15 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
         <div className="flex flex-wrap gap-2 mb-4">
           <span className="text-xs font-semibold text-muted-foreground">{t("settingsPanel.legendTitle")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800">{t("settingsPanel.legendNative")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800">{t("settingsPanel.legendStructured")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-blue-100 text-blue-800">{t("settingsPanel.legendReact")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-success/10 text-success">{t("settingsPanel.legendNative")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-warning/10 text-warning">{t("settingsPanel.legendStructured")}</span>
+          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-info/10 text-info">{t("settingsPanel.legendReact")}</span>
         </div>
 
         {capabilitiesLoading ? (
           <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesLoading")}</p>
         ) : capabilitiesError ? (
-          <p className="text-sm text-red-600">{capabilitiesError}</p>
+          <p className="text-sm text-destructive">{capabilitiesError}</p>
         ) : capabilities.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesEmpty")}</p>
         ) : (
@@ -453,7 +453,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                       {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
-                      <p className="text-xs text-amber-700">{roleConfig.model_load_error}</p>
+                      <p className="text-xs text-warning">{roleConfig.model_load_error}</p>
                     )}
                   </div>
                   <Select
@@ -491,7 +491,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
 
       {/* Danger Zone */}
       <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-red-700 mb-1">{t("adminPage.dangerZoneSection")}</h3>
+        <h3 className="text-lg font-semibold text-destructive mb-1">{t("adminPage.dangerZoneSection")}</h3>
         <p className="mb-5 text-sm text-muted-foreground">{t("adminPage.dangerZoneDescription")}</p>
 
         <div className="space-y-3 mb-5">
@@ -520,7 +520,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         </div>
 
         {!Object.values(resetOptions).some(Boolean) && (
-          <p className="text-xs text-amber-700 mb-3">{t("adminPage.resetNoneSelected")}</p>
+          <p className="text-xs text-warning mb-3">{t("adminPage.resetNoneSelected")}</p>
         )}
 
         <Button
