@@ -37,40 +37,40 @@ function TokenConsumptionChart({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.tokenConsumption")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("charts.loading")}</div>
+      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.tokenConsumption")}</h3>
+        <div className="text-center py-12 text-muted-foreground">{t("charts.loading")}</div>
       </div>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.tokenConsumption")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("metrics.noTokenData")}</div>
+      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.tokenConsumption")}</h3>
+        <div className="text-center py-12 text-muted-foreground">{t("metrics.noTokenData")}</div>
       </div>
     );
   }
 
   if (!showTotalTokens && !showAvgTokens) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.tokenConsumption")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("charts.selectAtLeastOneSeries")}</div>
+      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.tokenConsumption")}</h3>
+        <div className="text-center py-12 text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.dailyTokenConsumption")}</h3>
+    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+      <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.dailyTokenConsumption")}</h3>
       <ResponsiveContainer width="100%" height={300}>
         <AreaChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="date" />
-          <YAxis yAxisId="left" />
-          <YAxis yAxisId="right" orientation="right" />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+          <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+          <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
           <Tooltip content={<CustomTooltip />} />
           <Legend />
           {showTotalTokens && (
@@ -78,8 +78,8 @@ function TokenConsumptionChart({
               yAxisId="left"
               type="monotone"
               dataKey="total_tokens"
-              fill="#fbbf24"
-              stroke="#f59e0b"
+              fill="var(--chart-amber-soft)"
+              stroke="var(--chart-amber)"
               name={t("metrics.totalTokens")}
             />
           )}
@@ -88,8 +88,8 @@ function TokenConsumptionChart({
               yAxisId="right"
               type="monotone"
               dataKey="avg_tokens"
-              fill="#93c5fd"
-              stroke="#3b82f6"
+              fill="var(--chart-blue-soft)"
+              stroke="var(--chart-blue)"
               name={t("metrics.average")}
             />
           )}
@@ -106,8 +106,8 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-        <p className="text-sm font-semibold text-gray-900">{data.fullDate}</p>
+      <div className="bg-surface p-3 border border-border rounded shadow-lg">
+        <p className="text-sm font-semibold text-foreground">{data.fullDate}</p>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}

@@ -21,15 +21,15 @@ function MiniCard({
   unit?: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-evergreen/10 bg-white px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-evergreen/50">{icon}</div>
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-evergreen/40 mb-0.5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
           {label}
         </p>
-        <p className="text-xl font-bold text-evergreen">
+        <p className="text-xl font-bold text-foreground">
           {value}
-          {unit && <span className="text-sm font-medium text-evergreen/50 ml-1">{unit}</span>}
+          {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
         </p>
       </div>
     </div>
@@ -38,7 +38,7 @@ function MiniCard({
 
 const STATUS_COLORS: Record<string, string> = {
   success: "text-emerald-600 bg-emerald-50",
-  error: "text-red-600 bg-red-50",
+  error: "text-destructive bg-destructive/10",
 };
 
 export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
@@ -142,17 +142,17 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-evergreen/10">
-                <th className="py-2 text-left font-semibold text-evergreen/50 uppercase text-xs tracking-wider pr-4">
+              <tr className="border-b border-border">
+                <th className="py-2 text-left font-semibold text-muted-foreground uppercase text-xs tracking-wider pr-4">
                   {t("metrics.operation")}
                 </th>
-                <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider px-4">
+                <th className="py-2 text-right font-semibold text-muted-foreground uppercase text-xs tracking-wider px-4">
                   {t("metrics.success")}
                 </th>
-                <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider px-4">
+                <th className="py-2 text-right font-semibold text-muted-foreground uppercase text-xs tracking-wider px-4">
                   {t("metrics.error")}
                 </th>
-                <th className="py-2 text-right font-semibold text-evergreen/50 uppercase text-xs tracking-wider pl-4">
+                <th className="py-2 text-right font-semibold text-muted-foreground uppercase text-xs tracking-wider pl-4">
                   {t("metrics.total")}
                 </th>
               </tr>
@@ -167,8 +167,8 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
                   ? success + error
                   : (ops[op] ?? 0);
                 return (
-                  <tr key={op} className="border-b border-evergreen/5 hover:bg-evergreen/[0.02]">
-                    <td className="py-2 pr-4 font-medium text-evergreen">
+                  <tr key={op} className="border-b border-border/60 hover:bg-surface-muted">
+                    <td className="py-2 pr-4 font-medium text-foreground">
                       {opLabels[op] ?? op}
                     </td>
                     <td className="py-2 px-4 text-right">
@@ -177,7 +177,7 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
                           {formatNumber(Math.round(success))}
                         </span>
                       ) : (
-                        <span className="text-evergreen/30">—</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
                     <td className="py-2 px-4 text-right">
@@ -187,13 +187,13 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
                             {formatNumber(Math.round(error))}
                           </span>
                         ) : (
-                          <span className="text-evergreen/30">0</span>
+                          <span className="text-muted-foreground">0</span>
                         )
                       ) : (
-                        <span className="text-evergreen/30">—</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="py-2 pl-4 text-right font-bold text-evergreen">
+                    <td className="py-2 pl-4 text-right font-bold text-foreground">
                       {formatNumber(Math.round(opTotal))}
                     </td>
                   </tr>

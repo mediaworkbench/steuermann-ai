@@ -66,17 +66,17 @@ function UsageTrendChart({
       <h3 className="mb-4 text-lg font-semibold text-foreground">{t("charts.dailyUsageTrends")}</h3>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="date" />
-          <YAxis yAxisId="left" />
-          <YAxis yAxisId="right" orientation="right" />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+          <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+          <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
           <Tooltip content={<CustomTooltip />} />
           <Legend />
           {showRequests && (
-            <Line yAxisId="left" type="monotone" dataKey="requests" stroke="#3b82f6" name={t("metrics.requests")} />
+            <Line yAxisId="left" type="monotone" dataKey="requests" stroke="var(--chart-blue)" name={t("metrics.requests")} />
           )}
           {showUsers && (
-            <Line yAxisId="right" type="monotone" dataKey="users" stroke="#10b981" name={t("metrics.users")} />
+            <Line yAxisId="right" type="monotone" dataKey="users" stroke="var(--chart-green)" name={t("metrics.users")} />
           )}
         </LineChart>
       </ResponsiveContainer>

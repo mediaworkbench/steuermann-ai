@@ -44,27 +44,27 @@ function MemoryTrendsChart({ data, loading = false }: MemoryTrendsChartProps) {
   );
 
   if (loading) {
-    return <div className="text-center py-12 text-gray-500">{t("charts.loadingMemoryTrends")}</div>;
+    return <div className="text-center py-12 text-muted-foreground">{t("charts.loadingMemoryTrends")}</div>;
   }
 
   if (!data || data.length === 0) {
-    return <div className="text-center py-12 text-gray-500">{t("charts.noMemoryTrendData")}</div>;
+    return <div className="text-center py-12 text-muted-foreground">{t("charts.noMemoryTrendData")}</div>;
   }
 
   return (
     <ResponsiveContainer width="100%" height={320}>
       <ComposedChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="date" />
-        <YAxis yAxisId="left" />
-        <YAxis yAxisId="right" orientation="right" />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+        <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
         <Tooltip content={<CustomTooltip />} />
         <Legend />
-        <Bar yAxisId="left" dataKey="loads" fill="#0ea5a6" name={t("charts.loads")} />
-        <Bar yAxisId="left" dataKey="updates" fill="#14b8a6" name={t("charts.updates")} />
-        <Bar yAxisId="left" dataKey="errors" fill="#ef4444" name={t("charts.errors")} />
-        <Line yAxisId="right" type="monotone" dataKey="error_rate" stroke="#f97316" strokeWidth={2} name={t("charts.errorRatePercent")} />
-        <Line yAxisId="right" type="monotone" dataKey="avg_quality_score_pct" stroke="#2563eb" strokeWidth={2} name={t("charts.qualityPercent")} />
+        <Bar yAxisId="left" dataKey="loads" fill="var(--chart-teal)" name={t("charts.loads")} />
+        <Bar yAxisId="left" dataKey="updates" fill="var(--chart-teal-soft)" name={t("charts.updates")} />
+        <Bar yAxisId="left" dataKey="errors" fill="var(--chart-red)" name={t("charts.errors")} />
+        <Line yAxisId="right" type="monotone" dataKey="error_rate" stroke="var(--chart-orange)" strokeWidth={2} name={t("charts.errorRatePercent")} />
+        <Line yAxisId="right" type="monotone" dataKey="avg_quality_score_pct" stroke="var(--chart-blue-strong)" strokeWidth={2} name={t("charts.qualityPercent")} />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -77,8 +77,8 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const row = payload[0].payload;
     return (
-      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-        <p className="text-sm font-semibold text-gray-900">{row.fullDate}</p>
+      <div className="bg-surface p-3 border border-border rounded shadow-lg">
+        <p className="text-sm font-semibold text-foreground">{row.fullDate}</p>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}

@@ -11,9 +11,9 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
   const { t } = useI18n();
   if (Object.keys(data).length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.tokenUsage")}</h3>
-        <div className="text-center py-8 text-gray-500">{t("charts.noTokenUsageData")}</div>
+      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.tokenUsage")}</h3>
+        <div className="text-center py-8 text-muted-foreground">{t("charts.noTokenUsageData")}</div>
       </div>
     );
   }
@@ -25,15 +25,15 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
   }));
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.tokenUsageByModel")}</h3>
+    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+      <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.tokenUsageByModel")}</h3>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-          <YAxis />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+          <YAxis tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
           <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="tokens" fill="#3b82f6" />
+          <Bar dataKey="tokens" fill="var(--chart-blue)" />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -45,9 +45,9 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-        <p className="text-sm font-semibold text-gray-900">{data.fullName}</p>
-        <p className="text-sm text-blue-600">{t("charts.tokens")}: {formatNumber(payload[0].value)}</p>
+      <div className="bg-surface p-3 border border-border rounded shadow-lg">
+        <p className="text-sm font-semibold text-foreground">{data.fullName}</p>
+        <p className="text-sm text-primary">{t("charts.tokens")}: {formatNumber(payload[0].value)}</p>
       </div>
     );
   }

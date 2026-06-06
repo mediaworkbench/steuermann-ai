@@ -30,15 +30,15 @@ function MiniCard({
   unit?: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-evergreen/10 bg-white px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-evergreen/50">{icon}</div>
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-evergreen/40 mb-0.5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
           {label}
         </p>
-        <p className="text-xl font-bold text-evergreen">
+        <p className="text-xl font-bold text-foreground">
           {value}
-          {unit && <span className="text-sm font-medium text-evergreen/50 ml-1">{unit}</span>}
+          {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
         </p>
       </div>
     </div>
@@ -50,10 +50,10 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
 
   if (!data || data.quality_data.length === 0) {
     return (
-      <div className="rounded-2xl border border-evergreen/10 bg-white p-6 shadow-sm">
-        <h3 className="text-sm font-semibold text-evergreen/70 mb-1">{t("metrics.messageQuality")}</h3>
-        <p className="text-xs text-evergreen/40">{t("metrics.messageQualitySubtitle")}</p>
-        <p className="text-xs text-evergreen/40 italic mt-3">{t("metrics.noMessageQualityData")}</p>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground mb-1">{t("metrics.messageQuality")}</h3>
+        <p className="text-xs text-muted-foreground">{t("metrics.messageQualitySubtitle")}</p>
+        <p className="text-xs text-muted-foreground italic mt-3">{t("metrics.noMessageQualityData")}</p>
       </div>
     );
   }
@@ -67,10 +67,10 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
   }));
 
   return (
-    <div className="rounded-2xl border border-evergreen/10 bg-white p-6 shadow-sm space-y-5">
+    <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm space-y-5">
       <div>
-        <h3 className="text-sm font-semibold text-evergreen/70">{t("metrics.messageQuality")}</h3>
-        <p className="text-xs text-evergreen/40 mt-0.5">{t("metrics.messageQualitySubtitle")}</p>
+        <h3 className="text-sm font-semibold text-foreground">{t("metrics.messageQuality")}</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">{t("metrics.messageQualitySubtitle")}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -100,18 +100,18 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
-            <XAxis dataKey="date" tick={{ fill: "#4b5563", fontSize: 12 }} />
-            <YAxis tick={{ fill: "#4b5563", fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+            <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+            <YAxis tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
             <Tooltip />
-            <Bar dataKey="up" name={t("metrics.thumbsUp")} fill="#10b981" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="down" name={t("metrics.thumbsDown")} fill="#ef4444" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="up" name={t("metrics.thumbsUp")} fill="var(--chart-green)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="down" name={t("metrics.thumbsDown")} fill="var(--chart-red)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="text-xs text-evergreen/60">
-        <span className="font-semibold text-evergreen/80 mr-1">{t("metrics.totalFeedback")}:</span>
+      <div className="text-xs text-muted-foreground">
+        <span className="font-semibold text-foreground mr-1">{t("metrics.totalFeedback")}:</span>
         {formatNumber(data.total_feedback)}
       </div>
     </div>

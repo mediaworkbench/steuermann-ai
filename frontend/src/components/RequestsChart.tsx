@@ -7,7 +7,13 @@ interface RequestsChartProps {
   data: Record<string, number>;
 }
 
-const COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6"];
+const COLORS = [
+  "var(--chart-green)",
+  "var(--chart-amber)",
+  "var(--chart-red)",
+  "var(--chart-indigo)",
+  "var(--chart-violet)",
+];
 
 export function RequestsChart({ data }: RequestsChartProps) {
   const { t, formatNumber } = useI18n();
@@ -40,7 +46,7 @@ export function RequestsChart({ data }: RequestsChartProps) {
             labelLine={false}
             label={({ name, value }) => `${name}: ${value}`}
             outerRadius={100}
-            fill="#8884d8"
+            fill="var(--chart-indigo)"
             dataKey="value"
           >
             {chartData.map((_, index) => (
