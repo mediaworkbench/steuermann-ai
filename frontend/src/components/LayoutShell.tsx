@@ -9,7 +9,10 @@ import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
 import { ChatSessionProvider } from "@/context/ChatSessionContext";
+import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import type { Conversation } from "@/lib/types";
+
+const WORKSPACE_OPEN_KEY = "workspace.panelOpen";
 
 // ── Context so any child can access conversation state ───────────────
 
@@ -88,6 +91,25 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     }
   }, [profile.loading, profile.appName]);
 
+  // Restore + persist the workspace panel open state (a non-risky UI pref).
+  // Hydrate in an effect so the first client render still matches SSR. The
+  // restore effect runs before the persist effect, so the stored value is read
+  // before it can be overwritten.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(WORKSPACE_OPEN_KEY) === "true") setWorkspaceSidebarOpen(true);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSPACE_OPEN_KEY, String(workspaceSidebarOpen));
+    } catch {
+      /* ignore persistence failures */
+    }
+  }, [workspaceSidebarOpen]);
+
   return (
     <>
     <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen }}>
@@ -112,7 +134,9 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
           onToggleWorkspaceSidebar={isChat ? () => setWorkspaceSidebarOpen((prev) => !prev) : undefined}
         />
         <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
-          <ChatSessionProvider>{children}</ChatSessionProvider>
+          <WorkspacePanelProvider>
+            <ChatSessionProvider>{children}</ChatSessionProvider>
+          </WorkspacePanelProvider>
         </div>
       </main>
     </ConversationContext.Provider>

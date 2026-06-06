@@ -5,6 +5,7 @@ import { Database } from "lucide-react";
 import { Icon } from "./Icon";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
+import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 
 interface MetricsPanelProps {
   metrics?: MessageMetrics;
@@ -39,8 +40,11 @@ export function MetricsPanel({
       ? (metrics.output_tokens / metrics.response_time_ms) * 1000
       : null;
   const tpsDisplay = tps == null ? null : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
-  const toolCount = metrics?.tools_executed?.length ?? 0;
-  const memoryCount = metrics?.memories_used?.length ?? 0;
+  // Shared evidence source — keeps tool/RAG derivation identical to the in-stream
+  // chips and the workspace evidence tabs. Memories are intentionally not shown
+  // per-message; they live in the workspace Memory tab + latest-answer chip.
+  const evidence = useAnswerEvidence(metrics);
+  const toolCount = evidence.toolCount;
 
   const handleCopy = useCallback(() => {
     const doCopy = () => {
@@ -98,17 +102,6 @@ export function MetricsPanel({
                 <span className="flex items-center gap-0.5">
                   <Icon name="build" size={13} className="text-pacific-blue/70" />
                   {toolCount} {t("chat.toolsInvoked")}
-                </span>
-              </>
-            )}
-            {memoryCount > 0 && (
-              <>
-                <span className="text-evergreen/20" aria-hidden="true">
-                  ·
-                </span>
-                <span className="flex items-center gap-0.5">
-                  <Icon name="memory" size={13} className="text-pacific-blue/70" />
-                  {memoryCount} {t("chat.memoriesUsed")}
                 </span>
               </>
             )}
@@ -204,33 +197,25 @@ export function MetricsPanel({
               </div>
             )}
 
-            {/* Tools */}
-            {metrics?.tools_executed && metrics.tools_executed.length > 0 && (
+            {/* Tools (RAG is shown separately under Knowledge Base, not here) */}
+            {evidence.tools.length > 0 && (
               <div className="pt-2 border-t border-light-cyan/40">
                 <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
                   {t("chat.toolsInvoked")}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
-                  {metrics.tools_executed.map((tool, idx) => {
-                    const isRag = tool.name === "knowledge_base";
+                  {evidence.tools.map((tool, idx) => {
                     const isError = tool.status === "error";
-                    const badgeClass = isRag
-                      ? "bg-amber-100 text-amber-800 border border-amber-200"
-                      : isError
-                        ? "bg-burnt-tangerine/10 text-burnt-tangerine border border-burnt-tangerine/20"
-                        : "bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20";
-                    const iconName = isRag
-                      ? "menu_book"
-                      : tool.status === "success"
-                        ? "check_circle"
-                        : "error";
+                    const badgeClass = isError
+                      ? "bg-burnt-tangerine/10 text-burnt-tangerine border border-burnt-tangerine/20"
+                      : "bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20";
                     return (
                       <span
                         key={`${tool.name}-${idx}`}
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${badgeClass}`}
                       >
-                        <Icon name={iconName} size={11} />
-                        {isRag ? "RAG" : tool.name}
+                        <Icon name={isError ? "error" : "check_circle"} size={11} />
+                        {tool.name}
                       </span>
                     );
                   })}
@@ -239,16 +224,16 @@ export function MetricsPanel({
             )}
 
             {/* Knowledge Base */}
-            {metrics?.rag_attempted && (
+            {evidence.ragAttempted && (
               <div className="pt-2 border-t border-light-cyan/40">
                 <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
                   Knowledge Base
                 </span>
                 <div className="flex items-center gap-1.5 text-xs text-evergreen/70">
                   <Database size={13} className="text-evergreen/40 shrink-0" />
-                  {(metrics.rag_doc_count ?? 0) > 0 ? (
+                  {evidence.ragDocCount > 0 ? (
                     <span>
-                      {metrics.rag_doc_count} document{metrics.rag_doc_count !== 1 ? "s" : ""} retrieved
+                      {evidence.ragDocCount} document{evidence.ragDocCount !== 1 ? "s" : ""} retrieved
                     </span>
                   ) : (
                     <span className="text-evergreen/40">searched · no relevant results</span>
@@ -257,30 +242,6 @@ export function MetricsPanel({
               </div>
             )}
 
-            {/* Memories */}
-            {metrics?.memories_used && metrics.memories_used.length > 0 && (
-              <div className="pt-2 border-t border-light-cyan/40">
-                <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
-                  {t("chat.memoriesUsedDetail")}
-                </span>
-                <div className="space-y-1.5">
-                  {metrics.memories_used.map((mem) => (
-                    <div key={mem.memory_id} className="text-evergreen/70">
-                      <div className="text-xs">{mem.text || mem.memory_id}</div>
-                      <div className="text-[11px] text-evergreen/40 mt-0.5">
-                        {mem.is_related ? t("memories.related") : t("memories.primary")}
-                        {typeof mem.importance_score === "number"
-                          ? ` · score ${mem.importance_score.toFixed(2)}`
-                          : ""}
-                        {typeof mem.user_rating === "number"
-                          ? ` · rated ${mem.user_rating}/5`
-                          : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

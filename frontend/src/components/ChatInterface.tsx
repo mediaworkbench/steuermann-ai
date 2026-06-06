@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { Icon } from "./Icon";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -10,7 +10,10 @@ import { ReasoningBox } from "./ReasoningBox";
 import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
+import { EvidenceChips } from "./workspace/EvidenceChips";
+import type { WorkspaceTabId } from "./workspace/types";
 import { useConversationContext } from "./LayoutShell";
+import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import { useChatSession } from "@/context/ChatSessionContext";
 import { useI18n } from "@/hooks/useI18n";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
@@ -29,6 +32,8 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
   Message,
+  MessageMetrics,
+  NodeTraceEntry,
   Source,
 } from "@/lib/types";
 
@@ -152,6 +157,8 @@ export function ChatInterface() {
   const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
@@ -184,6 +191,7 @@ export function ChatInterface() {
     streamWarning,
     toolCallStatus,
     nodeStatus,
+    nodeTrace,
     finalMetadata,
     wasCancelled,
     thinkingContent,
@@ -202,8 +210,53 @@ export function ChatInterface() {
   const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
 
+  // Latest assistant answer in the active conversation. Sourced from the
+  // messages array (already active-scoped), so the evidence tabs and the
+  // latest-answer chips cannot bleed from a backgrounded stream.
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return i;
+    }
+    return -1;
+  }, [messages]);
+  const latestAnswerMetrics = useMemo<MessageMetrics | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.metrics) return m.metrics;
+    }
+    return null;
+  }, [messages]);
+
+  // Inspector trace: the live trace while the active answer is streaming,
+  // otherwise the committed trace on the latest assistant message (the live one
+  // is cleared by resetStream on completion).
+  const committedNodeTrace = useMemo<NodeTraceEntry[]>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.nodeTrace && m.nodeTrace.length > 0) return m.nodeTrace;
+    }
+    return [];
+  }, [messages]);
+  const inspectorNodeTrace = isStreaming
+    ? nodeTrace
+    : committedNodeTrace.length > 0
+      ? committedNodeTrace
+      : nodeTrace;
+
+  // Clicking an evidence chip opens the workspace panel on the matching tab.
+  const { setActiveTab: setWorkspaceTab } = useWorkspacePanel();
+  const handleSelectEvidence = useCallback(
+    (tab: WorkspaceTabId) => {
+      setWorkspaceTab(tab);
+      setWorkspaceSidebarOpen(true);
+    },
+    [setWorkspaceTab, setWorkspaceSidebarOpen],
+  );
+
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
+    setDocumentsLoading(true);
+    setDocumentsError(null);
     try {
       const response = await fetch("/api/proxy/api/workspace/documents", {
         method: "GET",
@@ -220,8 +273,11 @@ export function ChatInterface() {
       const data = await response.json();
       setDocuments(data.documents || []);
     } catch (err) {
-      // Silently fail - documents are optional
+      // Documents are optional; surface the failure in the panel rather than crash.
       console.warn("Failed to load workspace documents:", err);
+      setDocumentsError(err instanceof Error ? err.message : "Failed to load documents");
+    } finally {
+      setDocumentsLoading(false);
     }
   }, []);
 
@@ -641,6 +697,8 @@ export function ChatInterface() {
                   key={i}
                   message={msg}
                   index={i}
+                  isLatest={i === lastAssistantIndex}
+                  onSelectEvidence={handleSelectEvidence}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
                   loading={loading}
@@ -1097,9 +1155,15 @@ export function ChatInterface() {
         documents={documents}
         isLoading={loading}
         onDocumentsRefresh={fetchWorkspaceDocuments}
+        onRetryDocuments={fetchWorkspaceDocuments}
+        documentsLoading={documentsLoading}
+        documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
+        answerMetrics={latestAnswerMetrics}
+        nodeTrace={inspectorNodeTrace}
+        isStreaming={isStreaming}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
@@ -1120,12 +1184,16 @@ export function ChatInterface() {
 function AssistantMessage({
   message,
   index,
+  isLatest = false,
+  onSelectEvidence,
   onRegenerate,
   onFeedback,
   loading,
 }: {
   message: Message;
   index: number;
+  isLatest?: boolean;
+  onSelectEvidence?: (tab: WorkspaceTabId) => void;
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
@@ -1179,6 +1247,9 @@ function AssistantMessage({
 
         {/* Workspace document context badges */}
         <DocumentUsedBadges documents={message.metrics?.documents_used} />
+
+        {/* Latest-answer evidence summary — glanceable bridge to the workspace tabs */}
+        {isLatest && <EvidenceChips metrics={message.metrics} onSelect={onSelectEvidence} />}
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">

@@ -38,7 +38,11 @@ docs/status.md
 .vscode/
 .idea/
 .claude/
-CLAUDE.md
+
+# Root markdown files: keep only README and CHANGELOG tracked
+/*.md
+!/README.md
+!/CHANGELOG.md
 
 # Profile overlays: keep template starter profile tracked, ignore local/custom overlays
 /config/profiles/*/

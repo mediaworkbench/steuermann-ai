@@ -55,12 +55,22 @@ export interface MessageMetrics {
   map_data?: MapData;
 }
 
+/** One node execution captured from the streaming `node_state` events (Inspector). */
+export interface NodeTraceEntry {
+  node: string;
+  sequence: number;
+  durationMs: number | null;
+  status: "success" | "error";
+}
+
 export interface Message {
   role: "user" | "assistant";
   content: string;
   thinking?: string;
   timestamp?: string;
   metrics?: MessageMetrics;
+  /** Inspector node trace — captured at commit and restored from persisted metadata on reload. */
+  nodeTrace?: NodeTraceEntry[];
   persistedId?: number;
   feedback?: "up" | "down";
 }

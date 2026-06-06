@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncGenerator, Dict
 
 from fastapi import FastAPI, HTTPException
@@ -286,6 +287,26 @@ _TOOL_CALL_NODES: frozenset[str] = frozenset({
     "call_tools_react",
 })
 
+# Full set of real graph node names, derived from the compiled graph so it stays
+# in sync with the builder. Drives the Inspector `node_state` trace (every node,
+# not just the user-facing _NODE_STATUS_LABELS subset). on_chain_* events also
+# fire for non-node runnables; membership here filters those out. Two reflection
+# sources are tried (their shapes vary across langgraph versions); if both fail
+# we log rather than silently disabling the Inspector trace.
+def _discover_graph_node_names() -> frozenset[str]:
+    for accessor in (lambda: GRAPH.get_graph().nodes, lambda: GRAPH.nodes):
+        try:
+            names = frozenset(accessor()) - {"__start__", "__end__"}
+            if names:
+                return names
+        except Exception:
+            continue
+    logger.warning("Inspector node trace disabled: could not enumerate graph node names")
+    return frozenset()
+
+
+_GRAPH_NODE_NAMES: frozenset[str] = _discover_graph_node_names()
+
 _TOOL_LABELS: dict[str, str] = {
     "web_search_mcp": "Searching the web...",
     "duckduckgo_search": "Searching the web...",
@@ -394,6 +415,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _close_tag = ""        # matching close tag for the current block
         _pending_buf = ""      # guards against tags split across chunk boundaries
         _full_thinking = ""    # accumulated thinking text for metadata
+        _node_start: dict[str, float] = {}  # node name -> perf_counter() at start
+        _node_seq = 0          # monotonic sequence for the Inspector node trace
+        _node_trace_list: list[dict[str, Any]] = []  # accumulated trace, persisted in metadata
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
             with track_graph_request(profile_name) as ctx:
@@ -532,6 +556,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                         yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'end', 'label': _tool_label(name)})}\n\n"
 
                     elif kind == "on_chain_start":
+                        if name in _GRAPH_NODE_NAMES:
+                            _node_start[name] = time.perf_counter()
                         if name in _NODE_STATUS_LABELS:
                             # Suppress retrieve_knowledge indicator when the user has
                             # explicitly disabled RAG — the node still runs but exits
@@ -554,6 +580,17 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                             yield f"event: tool_call\ndata: {json.dumps({'name': name, 'status': 'start', 'label': 'Using tools...'})}\n\n"
 
                     elif kind == "on_chain_end":
+                        if name in _GRAPH_NODE_NAMES:
+                            _node_seq += 1
+                            _started = _node_start.pop(name, None)
+                            _dur_ms = (
+                                round((time.perf_counter() - _started) * 1000, 1)
+                                if _started is not None
+                                else None
+                            )
+                            _ns = {"node": name, "sequence": _node_seq, "duration_ms": _dur_ms, "status": "success"}
+                            _node_trace_list.append(_ns)
+                            yield f"event: node_state\ndata: {json.dumps(_ns)}\n\n"
                         output = data.get("output")
                         if isinstance(output, dict):
                             if "messages" in output:
@@ -589,6 +626,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
                                         "map_data": _map_data,
+                                        "node_trace": _node_trace_list,
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -610,6 +648,21 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 _tool_exec = output.get("tool_execution_results") or {}
                                 if "map_tool" in _tool_exec:
                                     _captured_map_data = _tool_exec["map_tool"].get("data")
+
+                    elif kind == "on_chain_error":
+                        # Best-effort per-node error status for the Inspector. A
+                        # raising node fires on_chain_error (not on_chain_end).
+                        if name in _GRAPH_NODE_NAMES:
+                            _node_seq += 1
+                            _started = _node_start.pop(name, None)
+                            _dur_ms = (
+                                round((time.perf_counter() - _started) * 1000, 1)
+                                if _started is not None
+                                else None
+                            )
+                            _ns = {"node": name, "sequence": _node_seq, "duration_ms": _dur_ms, "status": "error"}
+                            _node_trace_list.append(_ns)
+                            yield f"event: node_state\ndata: {json.dumps(_ns)}\n\n"
 
                 ctx["status"] = "success"
 
@@ -642,6 +695,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
                     "map_data": _map_data,
+                    "node_trace": _node_trace_list,
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

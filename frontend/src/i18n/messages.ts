@@ -342,6 +342,40 @@ export type Messages = {
     nukeSuccess: string;
     nukeFailed: string;
     thumbnailClickHint: string;
+    tabDocuments: string;
+    tabKnowledge: string;
+    tabMemory: string;
+    tabOutputs: string;
+    knowledgeEmpty: string;
+    memoryEmpty: string;
+    outputsEmpty: string;
+    searchDocuments: string;
+    clearSearch: string;
+    noResults: string;
+    noResultsHint: string;
+    loadingDocuments: string;
+    documentsLoadError: string;
+    retry: string;
+    evidenceSummary: string;
+    evidenceDocs: string;
+    evidenceMemory: string;
+    evidenceTools: string;
+    evidenceSources: string;
+    knowledgeRetrieved: string;
+    knowledgeNoResults: string;
+    sourcesHeading: string;
+    mapGenerated: string;
+    metaScore: string;
+    metaRated: string;
+    tabInspector: string;
+    inspectorEmpty: string;
+    inspectorRunning: string;
+    inspectorNodes: string;
+    inspectorNotRun: string;
+    inspectorPostResponse: string;
+    inspectorWaiting: string;
+    inspectorStatusSuccess: string;
+    inspectorStatusError: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -871,6 +905,40 @@ export const messages: Record<Locale, Messages> = {
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
       thumbnailClickHint: "Click to preview",
+      tabDocuments: "Documents",
+      tabKnowledge: "Knowledge",
+      tabMemory: "Memory",
+      tabOutputs: "Outputs",
+      knowledgeEmpty: "Knowledge sources used in answers will appear here.",
+      memoryEmpty: "Memories recalled for answers will appear here.",
+      outputsEmpty: "Tool and generation outputs will appear here.",
+      searchDocuments: "Search documents",
+      clearSearch: "Clear search",
+      noResults: "No matching documents",
+      noResultsHint: "Try a different search term.",
+      loadingDocuments: "Loading documents…",
+      documentsLoadError: "Couldn't load documents",
+      retry: "Retry",
+      evidenceSummary: "Answer evidence",
+      evidenceDocs: "Documents used",
+      evidenceMemory: "Memories recalled",
+      evidenceTools: "Tools used",
+      evidenceSources: "Sources",
+      knowledgeRetrieved: "{count} document(s) retrieved",
+      knowledgeNoResults: "Searched · no relevant results",
+      sourcesHeading: "Sources",
+      mapGenerated: "Map output",
+      metaScore: "score {score}",
+      metaRated: "rated {rating}/5",
+      tabInspector: "Inspector",
+      inspectorEmpty: "Node execution will appear here after the next answer.",
+      inspectorRunning: "Running…",
+      inspectorNodes: "{count} nodes",
+      inspectorNotRun: "Not in this run",
+      inspectorPostResponse: "Runs after the response is sent",
+      inspectorWaiting: "Capturing node execution…",
+      inspectorStatusSuccess: "succeeded",
+      inspectorStatusError: "failed",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1398,6 +1466,40 @@ export const messages: Record<Locale, Messages> = {
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
       thumbnailClickHint: "Klicken zum Vergrößern",
+      tabDocuments: "Dokumente",
+      tabKnowledge: "Wissen",
+      tabMemory: "Erinnerungen",
+      tabOutputs: "Ausgaben",
+      knowledgeEmpty: "Hier erscheinen die in Antworten genutzten Wissensquellen.",
+      memoryEmpty: "Hier erscheinen die für Antworten abgerufenen Erinnerungen.",
+      outputsEmpty: "Hier erscheinen Tool- und Generierungsausgaben.",
+      searchDocuments: "Dokumente suchen",
+      clearSearch: "Suche löschen",
+      noResults: "Keine passenden Dokumente",
+      noResultsHint: "Versuche einen anderen Suchbegriff.",
+      loadingDocuments: "Dokumente werden geladen…",
+      documentsLoadError: "Dokumente konnten nicht geladen werden",
+      retry: "Erneut versuchen",
+      evidenceSummary: "Antwort-Belege",
+      evidenceDocs: "Verwendete Dokumente",
+      evidenceMemory: "Abgerufene Erinnerungen",
+      evidenceTools: "Verwendete Tools",
+      evidenceSources: "Quellen",
+      knowledgeRetrieved: "{count} Dokument(e) abgerufen",
+      knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
+      sourcesHeading: "Quellen",
+      mapGenerated: "Kartenausgabe",
+      metaScore: "Score {score}",
+      metaRated: "Bewertung {rating}/5",
+      tabInspector: "Inspektor",
+      inspectorEmpty: "Die Knotenausführung erscheint hier nach der nächsten Antwort.",
+      inspectorRunning: "Läuft…",
+      inspectorNodes: "{count} Knoten",
+      inspectorNotRun: "Nicht in diesem Lauf",
+      inspectorPostResponse: "Läuft nach dem Senden der Antwort",
+      inspectorWaiting: "Knotenausführung wird erfasst…",
+      inspectorStatusSuccess: "erfolgreich",
+      inspectorStatusError: "fehlgeschlagen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",
