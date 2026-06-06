@@ -417,6 +417,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _full_thinking = ""    # accumulated thinking text for metadata
         _node_start: dict[str, float] = {}  # node name -> perf_counter() at start
         _node_seq = 0          # monotonic sequence for the Inspector node trace
+        _node_trace_list: list[dict[str, Any]] = []  # accumulated trace, persisted in metadata
         _events_iter = GRAPH.astream_events(state, config=invoke_config, version="v2")
         try:
             with track_graph_request(profile_name) as ctx:
@@ -587,10 +588,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 if _started is not None
                                 else None
                             )
-                            yield (
-                                "event: node_state\ndata: "
-                                f"{json.dumps({'node': name, 'sequence': _node_seq, 'duration_ms': _dur_ms, 'status': 'success'})}\n\n"
-                            )
+                            _ns = {"node": name, "sequence": _node_seq, "duration_ms": _dur_ms, "status": "success"}
+                            _node_trace_list.append(_ns)
+                            yield f"event: node_state\ndata: {json.dumps(_ns)}\n\n"
                         output = data.get("output")
                         if isinstance(output, dict):
                             if "messages" in output:
@@ -626,6 +626,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
                                         "map_data": _map_data,
+                                        "node_trace": _node_trace_list,
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -659,10 +660,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 if _started is not None
                                 else None
                             )
-                            yield (
-                                "event: node_state\ndata: "
-                                f"{json.dumps({'node': name, 'sequence': _node_seq, 'duration_ms': _dur_ms, 'status': 'error'})}\n\n"
-                            )
+                            _ns = {"node": name, "sequence": _node_seq, "duration_ms": _dur_ms, "status": "error"}
+                            _node_trace_list.append(_ns)
+                            yield f"event: node_state\ndata: {json.dumps(_ns)}\n\n"
 
                 ctx["status"] = "success"
 
@@ -695,6 +695,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
                     "map_data": _map_data,
+                    "node_trace": _node_trace_list,
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

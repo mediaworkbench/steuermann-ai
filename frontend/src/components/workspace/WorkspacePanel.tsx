@@ -112,13 +112,15 @@ export function WorkspacePanel({
         <div
           role="tablist"
           aria-label={t("chat.workspace")}
-          className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200/80 shrink-0"
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200/80 shrink-0 overflow-x-auto"
         >
           {TABS.map((tab) => {
             const active = activeTab === tab.id;
             const label = t(tab.labelKey);
             const count = tabCounts[tab.id];
-            const showCount = count > 0;
+            // Count shows only on the active tab so inactive tabs stay compact
+            // and all five fit the narrow panel without horizontal scrolling.
+            const showCount = active && count > 0;
             return (
               <button
                 key={tab.id}
@@ -127,7 +129,7 @@ export function WorkspacePanel({
                 aria-label={label}
                 title={label}
                 onClick={() => setActiveTab(tab.id)}
-                className={`group flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
+                className={`group flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors shrink-0
                   ${active
                     ? "bg-pacific-blue/10 text-pacific-blue px-2.5 py-1.5"
                     : "text-evergreen/45 hover:text-evergreen hover:bg-gray-100 p-1.5"}`}
@@ -135,11 +137,7 @@ export function WorkspacePanel({
                 <Icon name={tab.icon} size={16} />
                 {active && <span className="whitespace-nowrap">{label}</span>}
                 {showCount && (
-                  <span
-                    className={`rounded-full px-1.5 text-[10px] leading-4 ${
-                      active ? "bg-pacific-blue/15" : "bg-gray-200 text-evergreen/50"
-                    }`}
-                  >
+                  <span className="rounded-full px-1.5 text-[10px] leading-4 bg-pacific-blue/15">
                     {count}
                   </span>
                 )}

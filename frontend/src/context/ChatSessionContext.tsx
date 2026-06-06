@@ -41,6 +41,15 @@ function toUiMessage(
     timestamp: pm.created_at ? formatTime(pm.created_at) : undefined,
     persistedId: pm.id,
     feedback: pm.feedback ?? undefined,
+    // Inspector trace restored from persisted metadata (snake_case → camelCase).
+    nodeTrace: Array.isArray(pm.metadata?.node_trace)
+      ? (pm.metadata.node_trace as Array<Record<string, unknown>>).map((n) => ({
+          node: String(n.node ?? ""),
+          sequence: Number(n.sequence ?? 0),
+          durationMs: typeof n.duration_ms === "number" ? n.duration_ms : null,
+          status: n.status === "error" ? ("error" as const) : ("success" as const),
+        }))
+      : undefined,
     metrics: {
       output_tokens: (pm.metadata?.output_tokens as number | undefined) ?? pm.tokens_used ?? undefined,
       input_tokens: (pm.metadata?.input_tokens as number | undefined) ?? undefined,
@@ -298,6 +307,10 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
                   map_data: finalMetadata.map_data,
                 }
               : undefined,
+            // Capture the live node trace before resetStream() clears it, so the
+            // Inspector survives completion. (The server also persists it in the
+            // message metadata; toUiMessage restores it on reload.)
+            nodeTrace: nodeTrace.length > 0 ? nodeTrace : undefined,
           },
         ]);
 

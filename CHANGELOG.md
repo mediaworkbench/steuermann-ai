@@ -39,7 +39,8 @@
   and there is no GraphState schema change. Node enumeration tries two reflection sources and logs
   a warning rather than silently disabling the trace.
 - **feat** The frontend appends these to an ordered `nodeTrace` (`useStreamingChat` →
-  `ChatSessionContext`, `streamOnActive`-gated, session-local / live-only); the **Inspector** tab
+  `ChatSessionContext`, `streamOnActive`-gated, and persisted in the assistant message's metadata
+  (`_run_persistence`) so the trace survives a full conversation reload); the **Inspector** tab
   renders a semantic execution view — the ordered active path with per-node status + timing, total
   duration, a live indicator, the answer-path nodes that did not run this turn (the three
   mutually-exclusive tool-calling strategies collapse into one slot), and the post-response nodes

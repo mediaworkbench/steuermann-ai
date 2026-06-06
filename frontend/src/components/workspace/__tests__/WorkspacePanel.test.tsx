@@ -118,8 +118,9 @@ describe("WorkspacePanel", () => {
   test("Memory tab shows recalled memories with a count badge", () => {
     const answerMetrics: MessageMetrics = { memories_used: [{ memory_id: "m1", text: "likes tea" }] };
     renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
-    expect(screen.getByRole("tab", { name: /workspace\.tabMemory/ })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
+    // Count shows on the active tab.
+    expect(screen.getByRole("tab", { name: /workspace\.tabMemory/ })).toHaveTextContent("1");
     expect(screen.getByText("likes tea")).toBeInTheDocument();
   });
 
@@ -146,8 +147,9 @@ describe("WorkspacePanel", () => {
   test("Inspector tab shows the node execution trace with a count badge", () => {
     const nodeTrace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "success" }];
     renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} />);
-    expect(screen.getByRole("tab", { name: /workspace\.tabInspector/ })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    // Count shows on the active tab.
+    expect(screen.getByRole("tab", { name: /workspace\.tabInspector/ })).toHaveTextContent("1");
     expect(screen.getByText("Respond")).toBeInTheDocument();
   });
 

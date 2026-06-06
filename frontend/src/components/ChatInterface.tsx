@@ -33,6 +33,7 @@ import type {
   ConversationAttachment,
   Message,
   MessageMetrics,
+  NodeTraceEntry,
   Source,
 } from "@/lib/types";
 
@@ -225,6 +226,22 @@ export function ChatInterface() {
     }
     return null;
   }, [messages]);
+
+  // Inspector trace: the live trace while the active answer is streaming,
+  // otherwise the committed trace on the latest assistant message (the live one
+  // is cleared by resetStream on completion).
+  const committedNodeTrace = useMemo<NodeTraceEntry[]>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.nodeTrace && m.nodeTrace.length > 0) return m.nodeTrace;
+    }
+    return [];
+  }, [messages]);
+  const inspectorNodeTrace = isStreaming
+    ? nodeTrace
+    : committedNodeTrace.length > 0
+      ? committedNodeTrace
+      : nodeTrace;
 
   // Clicking an evidence chip opens the workspace panel on the matching tab.
   const { setActiveTab: setWorkspaceTab } = useWorkspacePanel();
@@ -1145,7 +1162,7 @@ export function ChatInterface() {
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
         answerMetrics={latestAnswerMetrics}
-        nodeTrace={nodeTrace}
+        nodeTrace={inspectorNodeTrace}
         isStreaming={isStreaming}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {

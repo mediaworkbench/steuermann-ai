@@ -69,6 +69,8 @@ export interface Message {
   thinking?: string;
   timestamp?: string;
   metrics?: MessageMetrics;
+  /** Inspector node trace — captured at commit and restored from persisted metadata on reload. */
+  nodeTrace?: NodeTraceEntry[];
   persistedId?: number;
   feedback?: "up" | "down";
 }

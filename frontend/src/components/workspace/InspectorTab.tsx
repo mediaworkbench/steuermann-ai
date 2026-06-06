@@ -38,7 +38,7 @@ function humanizeNode(id: string): string {
  * Inspector: a semantic view of how the latest answer was produced — the ordered
  * nodes that fired (active path) with per-node status and timing, the answer-path
  * nodes that did not run this turn, and the post-response nodes that run after the
- * answer is sent. Session-local / live only.
+ * answer is sent. Persisted in message metadata, so it survives a conversation reload.
  */
 export function InspectorTab({
   nodeTrace,
