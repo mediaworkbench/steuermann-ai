@@ -7,6 +7,8 @@
 - **feat** Added local Geist variable font assets to `frontend/public/fonts` and switched the global font tokens plus shell overrides to Geist as the active UI font.
 - **feat** Introduced the initial semantic token contract in `frontend/src/app/globals.css` with light/dark CSS-variable defaults and Tailwind utility mappings for background, surface, border, foreground, and status colors.
 - **feat** Switched the root app shell and sidebar chrome to the new semantic tokens so the design-system layer is now exercised by the top-level layout surfaces.
+- **feat** Added a shared semantic `Button` primitive in `frontend/src/components/ui/Button.tsx` and migrated the scroll-to-bottom control and login actions onto it as the first reusable UI control.
+- **feat** Added a shared semantic `Input` primitive in `frontend/src/components/ui/Input.tsx` and migrated the login form fields onto it as the next shared form control.
 - **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
 - **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
 

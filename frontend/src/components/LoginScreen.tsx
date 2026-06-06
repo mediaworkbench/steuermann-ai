@@ -3,6 +3,8 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { AUTH_ENABLED } from "@/lib/runtime";
@@ -54,13 +56,11 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
           <p className="mt-4 text-evergreen/70 leading-7">
             {t("login.authDisabledDescription")}
           </p>
-          <Link
-            href="/"
-            prefetch={false}
-            className="mt-8 inline-flex items-center rounded-full bg-evergreen px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-evergreen/90"
-          >
+          <Button asChild variant="primary" size="lg" className="mt-8 rounded-full">
+            <Link href="/" prefetch={false}>
             {t("login.enterApplication", { app: profile.appName || t("login.applicationFallback") })}
-          </Link>
+            </Link>
+          </Button>
         </div>
       </div>
     );
@@ -79,12 +79,11 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-evergreen/80">{t("login.username")}</span>
-              <input
+              <Input
                 type="text"
                 autoComplete="username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                className="w-full rounded-2xl border border-evergreen/10 bg-white px-4 py-3 text-evergreen shadow-sm outline-none transition-colors focus:border-pacific-blue/60"
                 placeholder={t("login.enterUsername")}
                 required
               />
@@ -92,12 +91,11 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-evergreen/80">{t("login.password")}</span>
-              <input
+              <Input
                 type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-2xl border border-evergreen/10 bg-white px-4 py-3 text-evergreen shadow-sm outline-none transition-colors focus:border-pacific-blue/60"
                 placeholder={t("login.enterPassword")}
                 required
               />
@@ -109,13 +107,15 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
               </div>
             )}
 
-            <button
+            <Button
               type="submit"
               disabled={submitting}
-              className="inline-flex w-full items-center justify-center rounded-full bg-evergreen px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-evergreen/92 disabled:cursor-not-allowed disabled:opacity-60"
+              variant="primary"
+              size="lg"
+              className="w-full rounded-full"
             >
               {submitting ? t("login.signingIn") : t("login.signIn")}
-            </button>
+            </Button>
           </form>
         </section>
       </div>

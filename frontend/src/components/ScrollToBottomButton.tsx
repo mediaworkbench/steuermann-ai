@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/Icon";
 
 interface ScrollToBottomButtonProps {
@@ -20,18 +21,12 @@ export function ScrollToBottomButton({ visible, unreadCount, onClick }: ScrollTo
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
       }`}
     >
-      <button
-        type="button"
+      <Button
         onClick={onClick}
         aria-label={label}
-        className={`
-          relative flex items-center gap-1.5 rounded-lg
-          bg-evergreen text-white shadow-md
-          px-6 py-2 text-sm
-          hover:bg-evergreen/80
-          transition-colors
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pacific-blue focus-visible:ring-offset-1
-        `}
+        variant="primary"
+        size="lg"
+        className="relative shadow-md"
       >
         {unreadCount > 0 && (
           <span
@@ -43,7 +38,7 @@ export function ScrollToBottomButton({ visible, unreadCount, onClick }: ScrollTo
         )}
         <Icon name="keyboard_arrow_down" size={18} ariaHidden />
         <span className="text-xs font-medium">Latest</span>
-      </button>
+      </Button>
     </div>
   );
 }
