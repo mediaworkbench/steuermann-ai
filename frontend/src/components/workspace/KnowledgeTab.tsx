@@ -3,6 +3,9 @@
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "../Icon";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
+import { WorkspaceMutedCard } from "./WorkspaceMutedCard";
+import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import type { AnswerEvidence } from "@/lib/answerEvidence";
 
 /** Read-only evidence tab: RAG / knowledge-base hits and answer sources. */
@@ -22,53 +25,38 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
   return (
     <div className="p-3 space-y-3">
       {evidence.knowledgeBaseUsed && (
-        <section className="rounded-lg border border-border bg-surface-muted p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-            {t("workspace.tabKnowledge")}
-          </p>
+        <WorkspaceMutedCard className="p-3">
+          <WorkspaceSectionLabel className="px-0">{t("workspace.tabKnowledge")}</WorkspaceSectionLabel>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Icon name="menu_book" size={14} className="text-muted-foreground shrink-0" />
             {evidence.ragDocCount > 0
               ? t("workspace.knowledgeRetrieved", { count: evidence.ragDocCount })
               : t("workspace.knowledgeNoResults")}
           </div>
-        </section>
+        </WorkspaceMutedCard>
       )}
 
       {evidence.sources.length > 0 && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
-            {t("workspace.sourcesHeading")}
-          </p>
+          <WorkspaceSectionLabel>{t("workspace.sourcesHeading")}</WorkspaceSectionLabel>
           <div className="flex flex-col gap-1.5">
             {evidence.sources.map((src, idx) => {
               const isWeb = src.type === "web";
-              const cls = isWeb
-                ? "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
-                : "bg-surface text-foreground border-border";
               const body = (
                 <>
                   <Icon name={isWeb ? "language" : "menu_book"} size={13} className="shrink-0" />
                   <span className="truncate">{src.label}</span>
                 </>
               );
-              return isWeb && src.url ? (
-                <a
+              return (
+                <WorkspaceInlineBadge
                   key={`${src.label}-${idx}`}
-                  href={src.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border no-underline transition-colors ${cls}`}
+                  tone={isWeb ? "primary" : "default"}
+                  href={isWeb ? src.url : undefined}
+                  className={!isWeb ? "bg-surface" : undefined}
                 >
                   {body}
-                </a>
-              ) : (
-                <span
-                  key={`${src.label}-${idx}`}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${cls}`}
-                >
-                  {body}
-                </span>
+                </WorkspaceInlineBadge>
               );
             })}
           </div>

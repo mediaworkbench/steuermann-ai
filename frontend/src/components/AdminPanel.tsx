@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ActionConfirmDialog } from "@/components/product/ActionConfirmDialog";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
@@ -329,13 +329,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             updatePreferredModelSelection(prev, roleName, value, roleDefaultModel)
           )
         }
-        getRoleLabel={(roleName) => t("settingsPanel.roleModelLabel", { role: roleName })}
-        getProviderLabel={(providerId) =>
-          t("settingsPanel.roleProviderLocked", { provider: providerId })
-        }
-        getSystemDefaultLabel={(defaultModel) =>
-          t("settingsPanel.systemDefault", { value: defaultModel })
-        }
+        t={t}
       />
 
       {/* Save */}
@@ -384,11 +378,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         />
       </TitledSectionCard>
 
-      <ConfirmDialog
+      <ActionConfirmDialog
         isOpen={confirmReingest}
         title={t("settingsPanel.reingestSectionTitle")}
         message={t("settingsPanel.confirmReingestAll")}
-        variant="default"
         onConfirm={() => {
           setConfirmReingest(false);
           handleReingestAll();

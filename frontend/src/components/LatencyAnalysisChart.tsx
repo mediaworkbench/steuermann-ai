@@ -3,6 +3,8 @@
 import { memo, useMemo } from "react";
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
+import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface LatencyAnalysisChartProps {
   data: Array<{
@@ -41,34 +43,30 @@ function LatencyAnalysisChart({
 
   if (loading) {
     return (
-      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.latencyAnalysis")}</h3>
-        <div className="text-center py-12 text-muted-foreground">{t("charts.loading")}</div>
-      </div>
+      <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
+        <div className="py-12 text-center text-muted-foreground">{t("charts.loading")}</div>
+      </AnalyticsChartCard>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.latencyAnalysis")}</h3>
-        <div className="text-center py-12 text-muted-foreground">{t("metrics.noLatencyData")}</div>
-      </div>
+      <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
+        <div className="py-12 text-center text-muted-foreground">{t("metrics.noLatencyData")}</div>
+      </AnalyticsChartCard>
     );
   }
 
   if (!showMin && !showAvg && !showMax) {
     return (
-      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">{t("metrics.latencyAnalysis")}</h3>
-        <div className="text-center py-12 text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
-      </div>
+      <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
+        <div className="py-12 text-center text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
+      </AnalyticsChartCard>
     );
   }
 
   return (
-    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-      <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.requestLatencyAnalysisMs")}</h3>
+    <AnalyticsChartCard title={t("charts.requestLatencyAnalysisMs")}>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
@@ -81,7 +79,7 @@ function LatencyAnalysisChart({
           {showMin && <Bar dataKey="min" stackId="latency" fill="var(--chart-green)" name={t("charts.minLatency")} />}
         </ComposedChart>
       </ResponsiveContainer>
-    </div>
+    </AnalyticsChartCard>
   );
 }
 
@@ -92,14 +90,13 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-surface p-3 border border-border rounded shadow-lg">
-        <p className="text-sm font-semibold text-foreground">{data.fullDate}</p>
+      <ChartTooltipCard title={data.fullDate}>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}ms
           </p>
         ))}
-      </div>
+      </ChartTooltipCard>
     );
   }
   return null;

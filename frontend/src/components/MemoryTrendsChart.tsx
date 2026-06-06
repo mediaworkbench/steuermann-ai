@@ -13,6 +13,7 @@ import {
   Legend,
 } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
+import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface MemoryTrendsChartProps {
   data: Array<{
@@ -77,15 +78,14 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const row = payload[0].payload;
     return (
-      <div className="bg-surface p-3 border border-border rounded shadow-lg">
-        <p className="text-sm font-semibold text-foreground">{row.fullDate}</p>
+      <ChartTooltipCard title={row.fullDate}>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}
             {entry.dataKey === "error_rate" || entry.dataKey === "avg_quality_score_pct" ? "%" : ""}
           </p>
         ))}
-      </div>
+      </ChartTooltipCard>
     );
   }
   return null;

@@ -3,6 +3,8 @@
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "../Icon";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
+import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import type { NodeTraceEntry } from "@/lib/types";
 
 // Post-response nodes run after the answer is streamed ([DONE]), so the live
@@ -150,18 +152,17 @@ export function InspectorTab({
 function NodeGroup({ heading, ids, icon }: { heading: string; ids: string[]; icon?: string }) {
   return (
     <div className="pt-2 border-t border-border/60">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
-        {heading}
-      </p>
+      <WorkspaceSectionLabel>{heading}</WorkspaceSectionLabel>
       <div className="flex flex-wrap gap-1">
         {ids.map((id) => (
-          <span
+          <WorkspaceInlineBadge
             key={id}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground bg-surface-muted border border-border"
+            size="compact"
+            className="text-muted-foreground"
           >
             {icon && <Icon name={icon} size={10} />}
             {humanizeNode(id)}
-          </span>
+          </WorkspaceInlineBadge>
         ))}
       </div>
     </div>

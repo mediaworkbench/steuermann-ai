@@ -3,6 +3,8 @@
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "../Icon";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
+import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import type { AnswerEvidence } from "@/lib/answerEvidence";
 
 /** Read-only evidence tab: tool runs and generated outputs (e.g. maps). */
@@ -24,23 +26,19 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
     <div className="p-3 space-y-3">
       {evidence.tools.length > 0 && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
-            {t("chat.toolsInvoked")}
-          </p>
+          <WorkspaceSectionLabel>{t("chat.toolsInvoked")}</WorkspaceSectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {evidence.tools.map((tool, idx) => {
               const isError = tool.status === "error";
-              const cls = isError
-                ? "bg-destructive/10 text-destructive border-destructive/20"
-                : "bg-primary/10 text-primary border-primary/20";
               return (
-                <span
+                <WorkspaceInlineBadge
                   key={`${tool.name}-${idx}`}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}
+                  tone={isError ? "destructive" : "primary"}
+                  className="gap-1 rounded-full px-2 py-0.5"
                 >
                   <Icon name={isError ? "error" : "check_circle"} size={11} />
                   {tool.name}
-                </span>
+                </WorkspaceInlineBadge>
               );
             })}
           </div>
@@ -49,15 +47,13 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
 
       {evidence.mapData && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
-            {t("workspace.mapGenerated")}
-          </p>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-surface-muted text-foreground border border-border">
+          <WorkspaceSectionLabel>{t("workspace.mapGenerated")}</WorkspaceSectionLabel>
+          <WorkspaceInlineBadge tone="default">
             <Icon name="map" size={13} className="shrink-0" />
             <span className="truncate">
               {evidence.mapData.label || evidence.mapData.summary || t("workspace.mapGenerated")}
             </span>
-          </div>
+          </WorkspaceInlineBadge>
         </section>
       )}
     </div>

@@ -2,6 +2,7 @@
 
 import { useI18n } from "@/hooks/useI18n";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { WorkspaceMutedCard } from "./WorkspaceMutedCard";
 import type { AnswerEvidence } from "@/lib/answerEvidence";
 
 /** Read-only evidence tab: memories recalled for the latest answer. */
@@ -21,7 +22,7 @@ export function MemoryTab({ evidence }: { evidence: AnswerEvidence }) {
   return (
     <div className="p-3 space-y-2">
       {evidence.memories.map((mem) => (
-        <div key={mem.memory_id} className="rounded-lg border border-border bg-surface-muted p-2.5">
+        <WorkspaceMutedCard key={mem.memory_id} className="p-2.5">
           <p className="text-xs text-foreground">{mem.text || mem.memory_id}</p>
           <p className="text-[11px] text-muted-foreground mt-1">
             {mem.is_related ? t("memories.related") : t("memories.primary")}
@@ -32,7 +33,7 @@ export function MemoryTab({ evidence }: { evidence: AnswerEvidence }) {
               <> · {t("workspace.metaRated", { rating: mem.user_rating })}</>
             )}
           </p>
-        </div>
+        </WorkspaceMutedCard>
       ))}
     </div>
   );

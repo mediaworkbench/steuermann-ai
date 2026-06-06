@@ -2,6 +2,8 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
+import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface TokenUsageChartProps {
   data: Record<string, number>;
@@ -11,10 +13,9 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
   const { t } = useI18n();
   if (Object.keys(data).length === 0) {
     return (
-      <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.tokenUsage")}</h3>
-        <div className="text-center py-8 text-muted-foreground">{t("charts.noTokenUsageData")}</div>
-      </div>
+      <AnalyticsChartCard title={t("charts.tokenUsage")}>
+        <div className="py-8 text-center text-muted-foreground">{t("charts.noTokenUsageData")}</div>
+      </AnalyticsChartCard>
     );
   }
 
@@ -25,8 +26,7 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
   }));
 
   return (
-    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-      <h3 className="text-lg font-semibold text-foreground mb-4">{t("charts.tokenUsageByModel")}</h3>
+    <AnalyticsChartCard title={t("charts.tokenUsageByModel")}>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
@@ -36,7 +36,7 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
           <Bar dataKey="tokens" fill="var(--chart-blue)" />
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </AnalyticsChartCard>
   );
 }
 
@@ -45,10 +45,9 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-surface p-3 border border-border rounded shadow-lg">
-        <p className="text-sm font-semibold text-foreground">{data.fullName}</p>
+      <ChartTooltipCard title={data.fullName}>
         <p className="text-sm text-primary">{t("charts.tokens")}: {formatNumber(payload[0].value)}</p>
-      </div>
+      </ChartTooltipCard>
     );
   }
   return null;

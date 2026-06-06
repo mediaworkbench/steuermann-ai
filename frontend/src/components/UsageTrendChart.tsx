@@ -3,6 +3,8 @@
 import { memo, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
+import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface UsageTrendChartProps {
   data: Array<{
@@ -36,34 +38,30 @@ function UsageTrendChart({
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+      <AnalyticsChartCard title={t("metrics.usageTrends")}>
         <div className="py-12 text-center text-muted-foreground">{t("charts.loading")}</div>
-      </div>
+      </AnalyticsChartCard>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+      <AnalyticsChartCard title={t("metrics.usageTrends")}>
         <div className="py-12 text-center text-muted-foreground">{t("metrics.noUsageData")}</div>
-      </div>
+      </AnalyticsChartCard>
     );
   }
 
   if (!showRequests && !showUsers) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+      <AnalyticsChartCard title={t("metrics.usageTrends")}>
         <div className="py-12 text-center text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
-      </div>
+      </AnalyticsChartCard>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
-      <h3 className="mb-4 text-lg font-semibold text-foreground">{t("charts.dailyUsageTrends")}</h3>
+    <AnalyticsChartCard title={t("charts.dailyUsageTrends")}>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
@@ -80,7 +78,7 @@ function UsageTrendChart({
           )}
         </LineChart>
       </ResponsiveContainer>
-    </div>
+    </AnalyticsChartCard>
   );
 }
 
@@ -91,14 +89,13 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="rounded border border-border bg-surface p-3 shadow-lg">
-        <p className="text-sm font-semibold text-foreground">{data.fullDate}</p>
+      <ChartTooltipCard title={data.fullDate}>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}
           </p>
         ))}
-      </div>
+      </ChartTooltipCard>
     );
   }
   return null;
