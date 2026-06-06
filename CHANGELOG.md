@@ -73,6 +73,10 @@
 - **chore** Tokenized remaining hardcoded UI color literals in `ChatInterface.module.css`, `Sidebar.module.css`, and shared globals utility classes (`.btn-primary`, `.input`, `.input:focus`) to semantic token-based values.
 - **chore** Replaced hardcoded `LoginScreen.tsx` gradients/shadows with semantic CSS-variable-driven surfaces (`--login-dev-bg`, `--login-main-bg`, `--login-card-shadow`, `--login-panel-shadow`).
 - **feat** Tightened frontend lint guardrails in `eslint.config.mjs` with a new warning rule that flags hex color literals inside JSX `className` strings.
+- **feat** Added shared page-shell extraction primitives `components/product/SegmentedTabs.tsx`, `SectionPanel.tsx`, and `ProfileMetaCard.tsx`.
+- **chore** Migrated `app/metrics/page.tsx` tab switcher + section shells to `SegmentedTabs` and `SectionPanel`, removing duplicated page-shell JSX chrome.
+- **chore** Migrated `app/admin/page.tsx` profile metadata block to `ProfileMetaCard` and removed the route’s dependency on `Settings.module.css`.
+- **chore** Removed now-unused CSS-module shell selectors from `app/metrics/Metrics.module.css` (`tabBar`, `tabButton`, `tabButtonActive`, `tabPanel`, `sectionTitle`) and from `app/settings/Settings.module.css` (`account*` selectors).
 - **feat** Migrated `ui/Select.tsx`, `ui/Input.tsx`, and `ui/Textarea.tsx` to use `cn()` from `lib/utils.ts` for conflict-free Tailwind class merging, completing `cn()` adoption across all shared UI primitives.
 - **feat** Added design-system enforcement gates to `eslint.config.mjs`: Gate 1 (`no-restricted-imports`) blocks `lucide-react` re-introduction in `src/**` with a message pointing to the shared `Icon` wrapper; Gate 2 (`no-restricted-syntax`) warns on raw palette status-color class strings (`emerald-*`, `amber-*`, `red-*`, `green-*`, `blue-100`) enforcing semantic token usage.
 - **docs** Updated `design-system.md` handoff snapshot to reflect Phase 1/2 completion, the active enforcement gates, and the remaining Phase 3/5 work.

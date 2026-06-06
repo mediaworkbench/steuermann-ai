@@ -1,25 +1,3 @@
-.accountCard {
-  display: block;
-}
-
-.accountInfo {
-  min-width: 0;
-}
-
-.accountName {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.versionText {
-  margin: 0.35rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
-
 .debug {
   margin-top: var(--spacing-xl);
   background: var(--bg-secondary);

@@ -19,6 +19,8 @@ import { Icon } from "@/components/Icon";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
 import { PageErrorAlert } from "@/components/product/PageErrorAlert";
+import { SegmentedTabs } from "@/components/product/SegmentedTabs";
+import { SectionPanel } from "@/components/product/SectionPanel";
 import { useProfile } from "@/hooks/useProfile";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
@@ -239,31 +241,18 @@ export default function MetricsPage() {
     <PageShell contentClassName="space-y-8 lg:px-12">
       <PageHeader title={t("metrics.title", { app: profile.appName ?? "AI" })} />
 
-      <div className={styles.tabBar} role="tablist" aria-label={t("metrics.sectionsLabel")}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "realtime"}
-          className={`${styles.tabButton} ${activeTab === "realtime" ? styles.tabButtonActive : ""}`}
-          onClick={() => setActiveTab("realtime")}
-        >
-          {t("metrics.realtimeTab")}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "trends"}
-          className={`${styles.tabButton} ${activeTab === "trends" ? styles.tabButtonActive : ""}`}
-          onClick={() => setActiveTab("trends")}
-        >
-          {t("metrics.trendsTab")}
-        </button>
-      </div>
+      <SegmentedTabs
+        ariaLabel={t("metrics.sectionsLabel")}
+        value={activeTab}
+        onValueChange={setActiveTab}
+        items={[
+          { value: "realtime", label: t("metrics.realtimeTab") },
+          { value: "trends", label: t("metrics.trendsTab") },
+        ]}
+      />
 
       {activeTab === "realtime" ? (
-      <section className={styles.tabPanel}>
-        <h2 className={styles.sectionTitle}>{t("metrics.realtimeTitle")}</h2>
-        <>
+      <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">
           <div className={styles.controls}>
             <button
               onClick={handleRefreshRealTime}
@@ -396,13 +385,10 @@ export default function MetricsPage() {
               )}
             </>
           ) : null}
-        </>
-      </section>
+      </SectionPanel>
       ) : (
 
-      <section className={styles.tabPanel}>
-        <h2 className={styles.sectionTitle}>{t("metrics.trendsTitle")}</h2>
-        <>
+      <SectionPanel title={t("metrics.trendsTitle")} className="mt-4">
           <div className={styles.trendControls}>
             <div className={styles.controlGroup}>
               <label className={styles.label}>{t("metrics.dateRange")}</label>
@@ -548,8 +534,7 @@ export default function MetricsPage() {
               </div>
             </div>
           )}
-        </>
-      </section>
+      </SectionPanel>
       )}
     </PageShell>
   );

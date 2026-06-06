@@ -8,8 +8,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
 import { PageErrorAlert } from "@/components/product/PageErrorAlert";
+import { ProfileMetaCard } from "@/components/product/ProfileMetaCard";
 import { CURRENT_USER_ID } from "@/lib/runtime";
-import styles from "../settings/Settings.module.css";
 
 export default function AdminPage() {
   const { t } = useI18n();
@@ -20,12 +20,10 @@ export default function AdminPage() {
     <PageShell contentClassName="space-y-8 lg:px-12">
       <PageHeader title={t("adminPage.title")} subtitle={t("adminPage.subtitle")} />
 
-      <section className={styles.accountCard}>
-        <div className={styles.accountInfo}>
-          <h2 className={styles.accountName}>{t("adminPage.profileLabel", { profile: profile.displayName })}</h2>
-          <p className={styles.versionText}>{t("adminPage.frameworkVersionLabel", { version: profile.frameworkVersion })}</p>
-        </div>
-      </section>
+      <ProfileMetaCard
+        heading={t("adminPage.profileLabel", { profile: profile.displayName })}
+        detail={t("adminPage.frameworkVersionLabel", { version: profile.frameworkVersion })}
+      />
 
       {error && (
         <PageErrorAlert title={t("common.error")} message={error} />
