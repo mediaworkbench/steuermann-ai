@@ -74,8 +74,8 @@ function SourceBadges({ sources }: { sources?: Source[] }) {
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                       bg-pacific-blue/10 text-pacific-blue border border-pacific-blue/20
-                       hover:bg-pacific-blue/20 transition-colors no-underline"
+                         bg-primary/10 text-primary border border-primary/20
+                         hover:bg-primary/20 transition-colors no-underline"
           >
             <Icon name="language" size={12} />
             {src.label}
@@ -108,7 +108,7 @@ function AttachmentUsedBadges({
         <span
           key={att.id}
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-pacific-blue/5 text-evergreen/55 border border-gray-200"
+                     bg-surface-muted text-muted-foreground border border-border"
           title={`Context from: ${att.original_name}`}
         >
           <Icon name="description" size={12} />
@@ -148,8 +148,8 @@ function DocumentUsedBadges({
 function CtxRow({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between text-xs">
-      <span className="text-evergreen/60">{label}</span>
-      <span className="text-evergreen tabular-nums">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
@@ -662,7 +662,7 @@ export function ChatInterface() {
   const _ctxBarColor =
     _ctxPct >= 85 ? "bg-red-500"
     : _ctxPct >= 60 ? "bg-amber-500"
-    : "bg-evergreen/60";
+    : "bg-primary/70";
 
   return (
     <>
@@ -672,14 +672,14 @@ export function ChatInterface() {
           {/* ─── Chat messages ─── */}
           <div
             ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto p-4 md:p-6 lg:px-12 space-y-8 scroll-smooth bg-white"
+            className="flex-1 overflow-y-auto space-y-8 bg-surface p-4 scroll-smooth md:p-6 lg:px-12"
             id="chat-container"
             role="log"
             aria-live="polite"
             aria-label={t("sidebar.chatHistory")}
           >
         {messages.length === 0 && !loading ? (
-          <div className="flex flex-col items-center justify-center h-full text-evergreen/40">
+          <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
             <Icon name="smart_toy" size={48} className="mb-4 opacity-50" />
             <p className="text-lg font-medium">{t("chat.noMessagesYet")}</p>
           </div>
@@ -714,21 +714,21 @@ export function ChatInterface() {
         {(isStreaming || (loading && !isStreaming)) && (
           <div className="flex gap-4 max-w-5xl mx-auto">
             <div
-              className="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1"
+              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground"
               aria-hidden="true"
             >
-              <Icon name="smart_toy" size={18} className="text-white" />
+              <Icon name="smart_toy" size={18} className="text-background" />
             </div>
             <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
               <div className="flex items-center gap-2 ml-1">
-                <span className="text-sm font-bold text-evergreen">
+                <span className="text-sm font-bold text-foreground">
                   {t("chat.aiAgent")}
                 </span>
               </div>
 
               {/* Node / tool status indicator */}
               {(nodeStatus || toolCallStatus?.status === "start") && (
-                <div className="text-xs text-evergreen/50 ml-1 flex items-center gap-1.5 animate-pulse mb-1">
+                <div className="mb-1 ml-1 flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
                   <Icon
                     name={
                       nodeStatus?.includes("knowledge") ? "search"
@@ -754,26 +754,26 @@ export function ChatInterface() {
               {isStreaming && streamingContent ? (
                 /* Live streaming text with cursor */
                 <div
-                  className="text-evergreen text-base leading-relaxed px-1"
+                  className="px-1 text-base leading-relaxed text-foreground"
                   aria-live="polite"
                   aria-busy="true"
                 >
                   <MarkdownMessage content={streamingContent} />
                   <span
-                    className="inline-block w-[0.55em] h-[1.15em] bg-evergreen/70 ml-0.5 align-middle rounded-[1px] animate-cursor-blink"
+                    className="ml-0.5 inline-block h-[1.15em] w-[0.55em] animate-cursor-blink rounded-[1px] bg-primary/70 align-middle"
                     aria-hidden="true"
                   />
                 </div>
               ) : (
                 /* Fallback three-dot loader (before first token arrives) */
                 <div
-                  className="px-4 py-3 rounded-2xl rounded-tl-sm bg-light-cyan/30 border border-light-cyan/50 flex items-center gap-1.5"
+                  className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-border bg-surface-muted px-4 py-3"
                   role="status"
                   aria-label={t("chat.aiThinking")}
                 >
-                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
-                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                  <span className="typing-dot h-2 w-2 rounded-full bg-primary" />
+                  <span className="typing-dot h-2 w-2 rounded-full bg-primary" />
+                  <span className="typing-dot h-2 w-2 rounded-full bg-primary" />
                 </div>
               )}
             </div>
@@ -820,7 +820,7 @@ export function ChatInterface() {
       </div>
 
       {/* ═══════════ COMPOSER ═══════════ */}
-      <div className="p-4 md:px-6 lg:px-12 md:pb-8 bg-white shrink-0 border-t border-gray-100">
+      <div className="shrink-0 border-t border-border bg-surface p-4 md:px-6 md:pb-8 lg:px-12">
         <div className="max-w-5xl mx-auto">
 
           {/* Attachment chips */}
@@ -829,7 +829,7 @@ export function ChatInterface() {
               {attachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors bg-light-cyan/20 border-pacific-blue/25 text-evergreen"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-muted px-3 py-1.5 text-xs text-foreground transition-colors"
                 >
                   <Button
                     type="button"
@@ -839,7 +839,7 @@ export function ChatInterface() {
                     className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
                     title={t("chat.insertReference")}
                   >
-                    <Icon name="description" size={14} className="text-pacific-blue" />
+                    <Icon name="description" size={14} className="text-primary" />
                     <span className="font-medium">{attachment.original_name}</span>
                   </Button>
                   <Button
@@ -851,13 +851,13 @@ export function ChatInterface() {
                     aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
                     title={t("chat.deleteAttachment")}
                   >
-                    <Icon name="close" size={14} className="text-evergreen/45" />
+                    <Icon name="close" size={14} className="text-muted-foreground" />
                   </Button>
                 </div>
               ))}
               {uploadingAttachment && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs text-evergreen/55">
-                  <span className="typing-dot w-2 h-2 rounded-full bg-pacific-blue" />
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground">
+                  <span className="typing-dot h-2 w-2 rounded-full bg-primary" />
                   <span>{t("chat.uploadingAttachment")}</span>
                 </div>
               )}
@@ -865,7 +865,7 @@ export function ChatInterface() {
           )}
 
           {/* Composer box */}
-          <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all">
+          <div className="flex flex-col rounded-xl border border-border bg-surface shadow-sm transition-all">
 
             {/* Textarea */}
             <label htmlFor="message-input" className="sr-only">{t("chat.message")}</label>
@@ -876,49 +876,55 @@ export function ChatInterface() {
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
               disabled={queueFull}
-              className="rounded-none border-0 bg-transparent px-4 pt-3 pb-2 text-base text-evergreen shadow-none resize-none focus:ring-0"
+              className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0"
               placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
             />
 
             {/* Bottom toolbar */}
-            <div className="flex items-center gap-1 px-3 py-2 border-t border-gray-100">
+            <div className="flex items-center gap-1 border-t border-border px-3 py-2">
 
               {/* Left group: +, tools, RAG */}
               <div className="flex items-center gap-0.5">
 
                 {/* + button → attach menu */}
                 <div className="relative">
-                  <button
+                  <Button
                     type="button"
                     disabled={loading || uploadingAttachment || isStreaming}
                     onClick={() => setAttachMenuOpen((v) => !v)}
-                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={t("chat.addAttachment")}
                   >
                     <Icon name="add" size={20} />
-                  </button>
+                  </Button>
                   {attachMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
-                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-40 z-20">
-                        <button
+                      <div className="absolute bottom-full left-0 z-20 mb-2 min-w-40 rounded-xl border border-border bg-surface py-1 shadow-lg">
+                        <Button
                           type="button"
                           onClick={() => { fileInputRef.current?.click(); setAttachMenuOpen(false); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                          variant="ghost"
+                          size="sm"
+                          className="w-full items-center gap-2.5 px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted"
                         >
-                          <Icon name="description" size={16} className="text-evergreen/60" />
+                          <Icon name="description" size={16} className="text-muted-foreground" />
                           {t("chat.addFile")}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
                           onClick={() => { imageInputRef.current?.click(); setAttachMenuOpen(false); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                          variant="ghost"
+                          size="sm"
+                          className="w-full items-center gap-2.5 px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted"
                         >
-                          <Icon name="image" size={16} className="text-evergreen/60" />
+                          <Icon name="image" size={16} className="text-muted-foreground" />
                           {t("chat.addImage")}
-                        </button>
+                        </Button>
                       </div>
                     </>
                   )}
@@ -926,33 +932,37 @@ export function ChatInterface() {
 
                 {/* Tools button */}
                 <div className="relative">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setToolsMenuOpen((v) => !v)}
-                    className="p-1.5 rounded-lg text-evergreen/50 hover:text-evergreen hover:bg-gray-100 transition-colors"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
                     aria-label="Tools"
                   >
                     <Icon name="build" size={20} />
-                  </button>
+                  </Button>
                   {toolsMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
-                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-50 z-20">
-                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Tools</p>
+                      <div className="absolute bottom-full left-0 z-20 mb-2 min-w-50 rounded-xl border border-border bg-surface py-2 shadow-lg">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
                         {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
                           const enabled = toolToggles[tool.id] !== false;
                           return (
-                            <button
+                            <Button
                               key={tool.id}
                               type="button"
                               onClick={() => handleToolToggle(tool.id)}
-                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-evergreen hover:bg-gray-50 transition-colors"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full items-center justify-between gap-3 px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted"
                             >
                               <span>{tool.label}</span>
-                              <span className={`shrink-0 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full transition-colors ${enabled ? "bg-evergreen text-white" : "bg-gray-100 text-gray-400"}`}>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide transition-colors ${enabled ? "bg-primary/15 text-primary" : "bg-surface-muted text-muted-foreground"}`}>
                                 {enabled ? "ON" : "OFF"}
                               </span>
-                            </button>
+                            </Button>
                           );
                         })}
                       </div>
@@ -970,8 +980,8 @@ export function ChatInterface() {
                   size="sm"
                   className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
                     ragEnabled
-                      ? "text-pacific-blue hover:bg-pacific-blue/10"
-                      : "text-evergreen/30 hover:text-evergreen/60 hover:bg-gray-100"
+                      ? "text-primary hover:bg-primary/10"
+                      : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                   }`}
                 >
                   <Icon name="database" size={20} />
@@ -991,7 +1001,7 @@ export function ChatInterface() {
                     onClick={() => setContextMenuOpen((v) => !v)}
                     variant="ghost"
                     size="sm"
-                    className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="rounded-lg p-1.5 transition-colors hover:bg-surface-muted"
                     aria-label="Context window details"
                   >
                     <ContextRingIndicator
@@ -1003,42 +1013,42 @@ export function ChatInterface() {
                   {contextMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
-                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-2 min-w-60 z-20">
-                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">
+                      <div className="absolute bottom-full right-0 z-20 mb-2 min-w-60 rounded-xl border border-border bg-surface py-2 shadow-lg">
+                        <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Context Window
                         </p>
 
                         {/* Usage bar + numbers */}
                         <div className="px-3 pb-2">
-                          <div className="flex items-center justify-between text-xs text-evergreen mb-1">
+                          <div className="mb-1 flex items-center justify-between text-xs text-foreground">
                             <span>{contextTokens.toLocaleString()} tokens</span>
-                            {maxContextTokens && <span className="text-evergreen/50">{_ctxPct}%</span>}
+                            {maxContextTokens && <span className="text-muted-foreground">{_ctxPct}%</span>}
                           </div>
                           {maxContextTokens ? (
                             <>
-                              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-1 overflow-hidden rounded-full bg-surface-muted">
                                 <div
                                   className={`h-full rounded-full transition-all ${_ctxBarColor}`}
                                   style={{ width: `${_ctxPct}%` }}
                                 />
                               </div>
-                              <p className="mt-1 text-[10px] text-evergreen/40">of {maxContextTokens.toLocaleString()} max</p>
+                              <p className="mt-1 text-[10px] text-muted-foreground">of {maxContextTokens.toLocaleString()} max</p>
                             </>
                           ) : (
-                            <p className="mt-1 text-[10px] text-evergreen/40">context window size unknown</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">context window size unknown</p>
                           )}
                         </div>
 
-                        <div className="border-t border-gray-100 my-1" />
+                        <div className="my-1 border-t border-border" />
 
                         {/* Message counts */}
                         <div className="px-3 py-1 space-y-0.5">
-                          <p className="text-[10px] font-semibold text-evergreen/40 uppercase tracking-wide mb-1">Messages</p>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Messages</p>
                           <CtxRow label="User" value={userMessageCount} />
                           <CtxRow label="Assistant" value={assistantMessageCount} />
                         </div>
 
-                        <div className="border-t border-gray-100 my-1" />
+                        <div className="my-1 border-t border-border" />
 
                         {/* Compact button */}
                         <div className="px-2 pt-1">
@@ -1048,9 +1058,9 @@ export function ChatInterface() {
                             onClick={handleCompactContext}
                             variant="ghost"
                             size="sm"
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-evergreen rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            <Icon name="compress" size={16} className="text-evergreen/60" />
+                            <Icon name="compress" size={16} className="text-muted-foreground" />
                             {isCompacting ? "Compacting…" : "Compact Context"}
                           </Button>
                         </div>
@@ -1065,7 +1075,7 @@ export function ChatInterface() {
                     value={selectedChatModel}
                     onChange={(e) => void handleModelChange(e.target.value)}
                     aria-label="Select model"
-                    className="max-w-35 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen"
+                    className="max-w-35 rounded-lg px-2.5 py-2 text-xs text-foreground"
                   >
                     {availableChatModels.map((model) => (
                       <option key={model} value={model}>
@@ -1082,7 +1092,7 @@ export function ChatInterface() {
                   aria-label="Voice input (not available)"
                   variant="ghost"
                   size="sm"
-                  className="p-1.5 rounded-lg text-evergreen/25 cursor-not-allowed"
+                  className="cursor-not-allowed rounded-lg p-1.5 text-muted-foreground"
                 >
                   <Icon name="mic" size={20} />
                 </Button>
@@ -1095,9 +1105,9 @@ export function ChatInterface() {
                       type="button"
                       onClick={cancelStream}
                       aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                      variant="primary"
+                      variant="destructive"
                       size="sm"
-                      className="w-8 h-8 p-0 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white"
+                      className="h-8 w-8 rounded-lg p-0"
                     >
                       <Icon name="stop_circle" size={20} />
                     </Button>
@@ -1109,7 +1119,7 @@ export function ChatInterface() {
                         title={t("chat.queueMessage")}
                         variant="primary"
                         size="sm"
-                        className="w-8 h-8 p-0 rounded-lg bg-pacific-blue hover:bg-pacific-blue/85 text-white"
+                        className="h-8 w-8 rounded-lg p-0"
                       >
                         <Icon name="arrow_upward" size={20} />
                       </Button>
@@ -1123,7 +1133,7 @@ export function ChatInterface() {
                     aria-label={t("chat.sendMessage")}
                     variant="primary"
                     size="sm"
-                    className="w-8 h-8 p-0 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30"
+                    className="h-8 w-8 rounded-lg p-0 disabled:opacity-30"
                   >
                     <Icon name="arrow_upward" size={20} />
                   </Button>
@@ -1206,17 +1216,17 @@ function AssistantMessage({
   return (
     <div className="msg-row flex gap-4 max-w-5xl mx-auto">
       <div
-        className="w-8 h-8 rounded-full bg-evergreen flex items-center justify-center shrink-0 mt-1"
+        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground"
         aria-hidden="true"
       >
-        <Icon name="smart_toy" size={18} className="text-white" />
+        <Icon name="smart_toy" size={18} className="text-background" />
       </div>
       <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
         {/* Name + timestamp */}
         <div className="flex items-center gap-2 ml-1">
-          <span className="text-sm font-bold text-evergreen">{t("chat.aiAgent")}</span>
+          <span className="text-sm font-bold text-foreground">{t("chat.aiAgent")}</span>
           {message.timestamp && (
-            <span className="msg-timestamp text-xs text-evergreen/40 font-mono">
+            <span className="msg-timestamp font-mono text-xs text-muted-foreground">
               {message.timestamp}
             </span>
           )}
@@ -1228,7 +1238,7 @@ function AssistantMessage({
         )}
 
         {/* Message text */}
-        <div className="text-evergreen text-base leading-relaxed px-1">
+        <div className="px-1 text-base leading-relaxed text-foreground">
           <MarkdownMessage content={message.content} sources={message.metrics?.sources} />
         </div>
 
@@ -1274,8 +1284,8 @@ function AssistantMessage({
               className={`p-1 rounded transition-colors cursor-pointer
                 ${
                   message.feedback === "up"
-                    ? "text-pacific-blue bg-pacific-blue/10"
-                    : "text-evergreen/25 hover:text-pacific-blue hover:bg-pacific-blue/10"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
                 } disabled:opacity-40`}
               aria-label="Thumbs up"
               title={t("chat.feedbackSaved")}
@@ -1291,8 +1301,8 @@ function AssistantMessage({
               className={`p-1 rounded transition-colors cursor-pointer
                 ${
                   message.feedback === "down"
-                    ? "text-burnt-tangerine bg-burnt-tangerine/10"
-                    : "text-evergreen/25 hover:text-burnt-tangerine hover:bg-burnt-tangerine/10"
+                    ? "bg-destructive/10 text-destructive"
+                    : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 } disabled:opacity-40`}
               aria-label="Thumbs down"
               title="Poor response"
@@ -1356,26 +1366,26 @@ function UserMessage({
   return (
     <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse">
       <div
-        className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
+        className="w-8 h-8 rounded-full bg-linear-to-tr from-primary to-primary/30
                     flex items-center justify-center shrink-0"
         aria-hidden="true"
       >
-        <Icon name="person" size={18} className="text-white" />
+        <Icon name="person" size={18} className="text-primary-foreground" />
       </div>
       <div className="flex flex-col gap-1 items-end max-w-[85%]">
         <div className="flex items-center gap-2 mr-1">
           {message.timestamp && (
-            <span className="msg-timestamp text-xs text-evergreen/40 font-mono">
+            <span className="msg-timestamp font-mono text-xs text-muted-foreground">
               {message.timestamp}
             </span>
           )}
-          <span className="text-sm font-bold text-pacific-blue">You</span>
+          <span className="text-sm font-bold text-primary">You</span>
         </div>
 
         {editing ? (
           /* ── Edit mode ── */
           <div className="w-full min-w-75">
-            <textarea
+            <Textarea
               ref={editRef}
               value={editValue}
               onChange={(e) => {
@@ -1393,35 +1403,40 @@ function UserMessage({
                   setEditing(false);
                 }
               }}
-              className="w-full rounded-xl border border-pacific-blue/40 bg-pacific-blue/5 p-4
-                         text-evergreen text-base leading-relaxed resize-none focus:outline-none
-                         focus:border-pacific-blue"
+              className="w-full rounded-xl border border-primary/40 bg-primary/5 p-4
+                         text-foreground text-base leading-relaxed resize-none focus:outline-none
+                         focus:border-primary"
               rows={1}
             />
             <div className="flex items-center gap-2 mt-1.5 justify-end">
-              <button
+              <Button
+                type="button"
                 onClick={() => {
                   setEditValue(message.content);
                   setEditing(false);
                 }}
-                className="text-xs text-evergreen/50 hover:text-evergreen px-2 py-1 rounded
-                           hover:bg-gray-100 transition-colors cursor-pointer"
+                variant="ghost"
+                size="sm"
+                className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors cursor-pointer
+                           hover:bg-surface-muted hover:text-foreground"
               >
                 {t("common.cancel")}
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={handleSubmitEdit}
-                className="text-xs text-white bg-pacific-blue hover:bg-pacific-blue/80 px-3 py-1
-                           rounded font-medium transition-colors cursor-pointer"
+                variant="primary"
+                size="sm"
+                className="rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer"
               >
                 {t("workspace.saveChanges")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
           /* ── Normal view ── */
           <>
-            <div className="bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen text-base leading-relaxed border border-pacific-blue/20">
+            <div className="rounded-2xl rounded-tr-sm border border-primary/20 bg-primary/10 p-5 text-base leading-relaxed text-foreground">
               <p className="whitespace-pre-wrap m-0">{message.content}</p>
             </div>
 
@@ -1434,8 +1449,8 @@ function UserMessage({
                 size="sm"
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   copied
-                    ? "text-pacific-blue"
-                    : "text-evergreen/25 hover:text-pacific-blue hover:bg-pacific-blue/10"
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-primary hover:bg-primary/10"
                 }`}
                 aria-label={t("chat.copyMessage")}
                 title={t("chat.copyMessage")}
@@ -1451,7 +1466,7 @@ function UserMessage({
                 disabled={loading}
                 variant="ghost"
                 size="sm"
-                className="p-1 rounded text-evergreen/25 hover:text-pacific-blue hover:bg-pacific-blue/10
+                className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10
                            transition-colors disabled:opacity-40 cursor-pointer"
                 aria-label="Edit message"
                 title={t("workspace.edit")}
@@ -1491,15 +1506,15 @@ function QueuedMessageBubble({
   return (
     <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse opacity-60">
       <div
-        className="w-8 h-8 rounded-full bg-linear-to-tr from-pacific-blue to-light-cyan
+        className="w-8 h-8 rounded-full bg-linear-to-tr from-primary to-primary/30
                     flex items-center justify-center shrink-0"
         aria-hidden="true"
       >
-        <Icon name="person" size={18} className="text-white" />
+        <Icon name="person" size={18} className="text-primary-foreground" />
       </div>
       <div className="flex flex-col gap-1 items-end max-w-[85%]">
         {/* Queued tag */}
-        <div className="flex items-center gap-1.5 mr-1 text-xs text-evergreen/45">
+        <div className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Icon name="schedule" size={13} className="animate-pulse" />
           <span className="font-medium">{t("chat.queued")}</span>
         </div>
@@ -1511,9 +1526,8 @@ function QueuedMessageBubble({
           title={t("chat.editQueued")}
           aria-label={t("chat.editQueued")}
           variant="ghost"
-          className="text-left bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen
-                     text-base leading-relaxed border border-dashed border-pacific-blue/30
-                     hover:border-pacific-blue/50 transition-colors cursor-text"
+          className="text-left rounded-2xl rounded-tr-sm border border-dashed border-primary/30 bg-primary/10 p-5
+                     text-base leading-relaxed text-foreground transition-colors cursor-text hover:border-primary/50"
         >
           <p className="whitespace-pre-wrap m-0">{text}</p>
         </Button>
@@ -1526,7 +1540,7 @@ function QueuedMessageBubble({
               onClick={onSendNow}
               variant="ghost"
               size="sm"
-              className="p-1 rounded text-evergreen/35 hover:text-pacific-blue hover:bg-pacific-blue/10
+              className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10
                          transition-colors cursor-pointer"
               aria-label={t("chat.sendQueuedNow")}
               title={t("chat.sendQueuedNow")}
@@ -1539,7 +1553,7 @@ function QueuedMessageBubble({
             onClick={onDiscard}
             variant="ghost"
             size="sm"
-            className="p-1 rounded text-evergreen/35 hover:text-burnt-tangerine hover:bg-burnt-tangerine/10
+            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10
                        transition-colors cursor-pointer"
             aria-label={t("chat.cancelQueued")}
             title={t("chat.cancelQueued")}

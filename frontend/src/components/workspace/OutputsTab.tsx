@@ -24,15 +24,15 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
     <div className="p-3 space-y-3">
       {evidence.tools.length > 0 && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-evergreen/40 mb-1.5 px-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
             {t("chat.toolsInvoked")}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {evidence.tools.map((tool, idx) => {
               const isError = tool.status === "error";
               const cls = isError
-                ? "bg-burnt-tangerine/10 text-burnt-tangerine border-burnt-tangerine/20"
-                : "bg-pacific-blue/10 text-pacific-blue border-pacific-blue/20";
+                ? "bg-destructive/10 text-destructive border-destructive/20"
+                : "bg-primary/10 text-primary border-primary/20";
               return (
                 <span
                   key={`${tool.name}-${idx}`}
@@ -49,10 +49,10 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
 
       {evidence.mapData && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-evergreen/40 mb-1.5 px-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
             {t("workspace.mapGenerated")}
           </p>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-evergreen/5 text-evergreen/70 border border-gray-200">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-surface-muted text-foreground border border-border">
             <Icon name="map" size={13} className="shrink-0" />
             <span className="truncate">
               {evidence.mapData.label || evidence.mapData.summary || t("workspace.mapGenerated")}

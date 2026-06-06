@@ -13,9 +13,9 @@ export function RequestsChart({ data }: RequestsChartProps) {
   const { t, formatNumber } = useI18n();
   if (Object.keys(data).length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.requestsByStatus")}</h3>
-        <div className="text-center py-8 text-gray-500">{t("charts.noRequestData")}</div>
+      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("charts.requestsByStatus")}</h3>
+        <div className="py-8 text-center text-muted-foreground">{t("charts.noRequestData")}</div>
       </div>
     );
   }
@@ -28,9 +28,9 @@ export function RequestsChart({ data }: RequestsChartProps) {
   const total = chartData.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.requestsByStatus")}</h3>
-      <div className="text-sm text-gray-600 mb-4">{t("charts.total")}: {formatNumber(total)}</div>
+    <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+      <h3 className="mb-4 text-lg font-semibold text-foreground">{t("charts.requestsByStatus")}</h3>
+      <div className="mb-4 text-sm text-muted-foreground">{t("charts.total")}: {formatNumber(total)}</div>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie

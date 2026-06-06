@@ -87,18 +87,18 @@ export function WorkspacePanel({
       <div
         className={`fixed right-0 top-16 h-[calc(100vh-4rem)] z-10
                      md:sticky md:self-start md:top-20 md:h-[calc(100vh-5rem)] md:z-0
-                     w-80 ${isOpen ? "md:w-64 lg:w-72" : "md:w-0"} bg-white border-l border-gray-200
+                     w-80 ${isOpen ? "md:w-64 lg:w-72" : "md:w-0"} bg-surface border-l border-border
                      transition-all duration-200
                      flex flex-col overflow-hidden min-h-0
                      ${isOpen ? "translate-x-0" : "translate-x-full md:translate-x-0 md:border-l-0"}`}
       >
         {/* Header */}
-        <div className="px-3 py-2.5 border-b border-gray-200/80 flex items-center justify-between shrink-0">
+        <div className="px-3 py-2.5 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="grid place-items-center w-7 h-7 rounded-lg bg-pacific-blue/10 text-pacific-blue shrink-0">
+            <span className="grid place-items-center w-7 h-7 rounded-lg bg-primary/10 text-primary shrink-0">
               <Icon name="folder_open" size={16} />
             </span>
-            <h3 className="font-semibold text-sm text-evergreen tracking-tight truncate">
+            <h3 className="font-semibold text-sm text-foreground tracking-tight truncate">
               {t("chat.workspace")}
             </h3>
           </div>
@@ -119,7 +119,7 @@ export function WorkspacePanel({
         <div
           role="tablist"
           aria-label={t("chat.workspace")}
-          className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200/80 shrink-0 overflow-x-auto"
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0 overflow-x-auto"
         >
           {TABS.map((tab) => {
             const active = activeTab === tab.id;
@@ -141,13 +141,13 @@ export function WorkspacePanel({
                 size="sm"
                 className={`group flex shrink-0 items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
                   ${active
-                    ? "bg-pacific-blue/10 text-pacific-blue px-2.5 py-1.5"
-                    : "text-evergreen/45 hover:text-evergreen hover:bg-gray-100 p-1.5"}`}
+                    ? "bg-primary/10 text-primary px-2.5 py-1.5"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-muted p-1.5"}`}
               >
                 <Icon name={tab.icon} size={16} />
                 {active && <span className="whitespace-nowrap">{label}</span>}
                 {showCount && (
-                  <span className="rounded-full px-1.5 text-[10px] leading-4 bg-pacific-blue/15">
+                  <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">
                     {count}
                   </span>
                 )}

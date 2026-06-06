@@ -29,9 +29,9 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   };
 
   return (
-    <div className="my-2 rounded-lg border border-evergreen/10 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1 bg-evergreen/5 border-b border-evergreen/10">
-        <span className="text-xs font-mono text-evergreen/50 select-none">{language}</span>
+    <div className="my-2 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3 py-1">
+        <span className="select-none font-mono text-xs text-muted-foreground">{language}</span>
         <Button
           type="button"
           onClick={handleCopy}
@@ -39,8 +39,8 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           size="sm"
           className={`p-1 rounded transition-colors cursor-pointer ${
             copied
-              ? "text-pacific-blue"
-              : "text-evergreen/40 hover:text-pacific-blue hover:bg-pacific-blue/10"
+              ? "text-primary"
+              : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
           }`}
           aria-label="Copy code"
           title="Copy code"
@@ -81,7 +81,7 @@ export function MarkdownMessage({ content, sources }: { content: string; sources
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-pacific-blue underline hover:text-pacific-blue/80 break-all"
+              className="break-all text-primary underline hover:text-primary/80"
             {...props}
           >
             {children}
@@ -104,30 +104,30 @@ export function MarkdownMessage({ content, sources }: { content: string; sources
             return <CodeBlock code={text.replace(/\n$/, "")} language={match ? match[1] : "text"} />;
           }
           return (
-            <code className="bg-evergreen/5 rounded px-1.5 py-0.5 text-sm font-mono">{children}</code>
+            <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-sm">{children}</code>
           );
         },
         // CodeBlock renders its own <pre>; keep this transparent so we never nest a block in <pre>.
         pre: ({ children }) => <>{children}</>,
         blockquote: ({ children }) => (
-          <blockquote className="border-l-3 border-pacific-blue/40 pl-3 my-2 text-evergreen/70 italic">
+          <blockquote className="my-2 border-l-3 border-primary/40 pl-3 italic text-muted-foreground">
             {children}
           </blockquote>
         ),
         table: ({ children }) => (
           <div className="overflow-x-auto my-3">
-            <table className="min-w-full text-sm border border-evergreen/10 rounded">{children}</table>
+            <table className="min-w-full rounded border border-border text-sm">{children}</table>
           </div>
         ),
         th: ({ children }) => (
-          <th className="px-3 py-1.5 text-left font-semibold bg-light-cyan/20 border-b border-evergreen/10">
+          <th className="border-b border-border bg-surface-muted px-3 py-1.5 text-left font-semibold">
             {children}
           </th>
         ),
         td: ({ children }) => (
-          <td className="px-3 py-1.5 border-b border-evergreen/5">{children}</td>
+          <td className="border-b border-border/60 px-3 py-1.5">{children}</td>
         ),
-        hr: () => <hr className="my-4 border-evergreen/10" />,
+        hr: () => <hr className="my-4 border-border" />,
       }}
     >
       {processed}

@@ -22,12 +22,12 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
   return (
     <div className="p-3 space-y-3">
       {evidence.knowledgeBaseUsed && (
-        <section className="rounded-lg border border-gray-200 bg-gray-50/60 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-evergreen/40 mb-1.5">
+        <section className="rounded-lg border border-border bg-surface-muted p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
             {t("workspace.tabKnowledge")}
           </p>
-          <div className="flex items-center gap-1.5 text-xs text-evergreen/70">
-            <Icon name="menu_book" size={14} className="text-evergreen/40 shrink-0" />
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Icon name="menu_book" size={14} className="text-muted-foreground shrink-0" />
             {evidence.ragDocCount > 0
               ? t("workspace.knowledgeRetrieved", { count: evidence.ragDocCount })
               : t("workspace.knowledgeNoResults")}
@@ -37,15 +37,15 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
 
       {evidence.sources.length > 0 && (
         <section>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-evergreen/40 mb-1.5 px-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
             {t("workspace.sourcesHeading")}
           </p>
           <div className="flex flex-col gap-1.5">
             {evidence.sources.map((src, idx) => {
               const isWeb = src.type === "web";
               const cls = isWeb
-                ? "bg-pacific-blue/5 text-pacific-blue border-pacific-blue/20 hover:bg-pacific-blue/10"
-                : "bg-amber-50 text-amber-800 border-amber-200";
+                ? "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+                : "bg-surface text-foreground border-border";
               const body = (
                 <>
                   <Icon name={isWeb ? "language" : "menu_book"} size={13} className="shrink-0" />

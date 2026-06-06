@@ -99,7 +99,7 @@ export function ExportDialog({
         </div>
 
         {error && (
-          <p className="text-burnt-tangerine text-xs mb-3">{error}</p>
+          <p className="mb-3 text-xs text-destructive">{error}</p>
         )}
 
         {/* Actions */}

@@ -86,10 +86,10 @@ export function InspectorTab({
     <div className="p-3 space-y-3">
       {/* Summary */}
       <div className="flex items-center justify-between text-xs">
-        <span className="font-semibold text-evergreen/70">
+        <span className="font-semibold text-muted-foreground">
           {t("workspace.inspectorNodes", { count: nodeTrace.length })}
         </span>
-        <span className="font-mono text-evergreen/50">{Math.round(totalMs)} ms</span>
+        <span className="font-mono text-muted-foreground">{Math.round(totalMs)} ms</span>
       </div>
 
       {/* Active path — ordered nodes that fired, with status + timing */}
@@ -100,26 +100,26 @@ export function InspectorTab({
           return (
             <li
               key={`${n.node}-${n.sequence}-${idx}`}
-              className="rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5"
+              className="rounded-lg border border-border bg-surface-muted px-2.5 py-1.5"
             >
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-evergreen/40 w-5 shrink-0">{n.sequence}</span>
+                <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
                 <Icon
                   name={isError ? "error" : "check_circle"}
                   size={13}
-                  className={`shrink-0 ${isError ? "text-burnt-tangerine" : "text-pacific-blue"}`}
+                  className={`shrink-0 ${isError ? "text-destructive" : "text-primary"}`}
                 />
-                <span className="text-xs text-evergreen/80 truncate flex-1">{humanizeNode(n.node)}</span>
+                <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
                 <span className="sr-only">
                   {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
                 </span>
                 {n.durationMs != null && (
-                  <span className="font-mono text-[10px] text-evergreen/45 shrink-0">{n.durationMs} ms</span>
+                  <span className="font-mono text-[10px] text-muted-foreground shrink-0">{n.durationMs} ms</span>
                 )}
               </div>
-              <div className="mt-1 ml-7 h-1 rounded-full bg-gray-200 overflow-hidden">
+              <div className="mt-1 ml-7 h-1 rounded-full bg-border overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${isError ? "bg-burnt-tangerine/50" : "bg-pacific-blue/40"}`}
+                  className={`h-full rounded-full ${isError ? "bg-destructive/50" : "bg-primary/40"}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -130,8 +130,8 @@ export function InspectorTab({
 
       {/* Live indicator while the answer is still streaming */}
       {isStreaming && (
-        <div className="flex items-center gap-1.5 text-[11px] text-evergreen/45 px-0.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-pacific-blue animate-pulse" />
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground px-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
           {t("workspace.inspectorRunning")}
         </div>
       )}
@@ -149,15 +149,15 @@ export function InspectorTab({
 
 function NodeGroup({ heading, ids, icon }: { heading: string; ids: string[]; icon?: string }) {
   return (
-    <div className="pt-2 border-t border-gray-100">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-evergreen/35 mb-1.5 px-0.5">
+    <div className="pt-2 border-t border-border/60">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-0.5">
         {heading}
       </p>
       <div className="flex flex-wrap gap-1">
         {ids.map((id) => (
           <span
             key={id}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-evergreen/35 bg-gray-50 border border-gray-200"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground bg-surface-muted border border-border"
           >
             {icon && <Icon name={icon} size={10} />}
             {humanizeNode(id)}

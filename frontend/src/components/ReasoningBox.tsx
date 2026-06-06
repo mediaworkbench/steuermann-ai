@@ -14,18 +14,18 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
   if (!content && !isStreaming) return null;
 
   return (
-    <div className="w-full mb-3 rounded-xl border border-pacific-blue/20 bg-light-cyan/10 overflow-hidden">
+    <div className="mb-3 w-full overflow-hidden rounded-xl border border-border bg-surface-muted">
       <Button
         type="button"
         onClick={() => setExpanded((e) => !e)}
         variant="ghost"
         size="sm"
-        className="w-full justify-start gap-2 px-3 py-2 text-xs text-evergreen/55 hover:text-evergreen/80"
+        className="w-full justify-start gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
         aria-expanded={expanded}
       >
         {isStreaming ? (
-          <span className="w-3.5 h-3.5 rounded-full border-2 border-pacific-blue/40
-                           border-t-pacific-blue animate-spin shrink-0" />
+          <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-primary/40
+                           border-t-primary" />
         ) : (
           <Icon
             name="expand_more"
@@ -33,14 +33,14 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
             className={`reasoning-chevron ${expanded ? "open" : ""}`}
           />
         )}
-        <Icon name="psychology" size={13} className="text-pacific-blue/70 shrink-0" />
+        <Icon name="psychology" size={13} className="shrink-0 text-primary/80" />
         <span className="font-medium">
           {isStreaming ? "Reasoning…" : "Reasoning"}
         </span>
       </Button>
       <div className={`reasoning-body ${expanded ? "open" : ""}`}>
         <div>
-          <div className="px-3 pb-3 text-xs text-evergreen/65 font-mono leading-relaxed
+          <div className="px-3 pb-3 text-xs text-muted-foreground font-mono leading-relaxed
                           whitespace-pre-wrap overflow-x-auto max-h-80 overflow-y-auto">
             {content}
           </div>

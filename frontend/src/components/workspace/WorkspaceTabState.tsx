@@ -24,19 +24,19 @@ export function WorkspaceTabState({ icon, title, hint, tone = "idle", action }: 
     <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
       <span
         className={`grid place-items-center w-12 h-12 rounded-2xl mb-3 ${
-          isError ? "bg-red-50 text-red-400" : "bg-gray-100 text-evergreen/30"
+          isError ? "bg-destructive/10 text-destructive" : "bg-surface-muted text-muted-foreground"
         }`}
       >
         {isLoading ? (
-          <span className="w-6 h-6 rounded-full border-2 border-pacific-blue/25 border-t-pacific-blue animate-spin" />
+          <span className="w-6 h-6 rounded-full border-2 border-primary/25 border-t-primary animate-spin" />
         ) : (
           <Icon name={icon} size={24} />
         )}
       </span>
-      <p className={`text-xs font-semibold mb-1 ${isError ? "text-red-500" : "text-evergreen/60"}`}>
+      <p className={`text-xs font-semibold mb-1 ${isError ? "text-destructive" : "text-muted-foreground"}`}>
         {title}
       </p>
-      {hint && <p className="text-xs text-evergreen/40 max-w-[13rem] break-words">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground max-w-[13rem] break-words">{hint}</p>}
       {action && (
         <Button
           type="button"

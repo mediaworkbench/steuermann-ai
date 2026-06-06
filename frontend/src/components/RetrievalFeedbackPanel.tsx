@@ -21,15 +21,15 @@ function MiniCard({
   unit?: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-evergreen/10 bg-white px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-evergreen/50">{icon}</div>
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-evergreen/40 mb-0.5">
+        <p className="mb-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </p>
-        <p className="text-xl font-bold text-evergreen">
+        <p className="text-xl font-bold text-foreground">
           {value}
-          {unit && <span className="text-sm font-medium text-evergreen/50 ml-1">{unit}</span>}
+          {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
         </p>
       </div>
     </div>
@@ -49,11 +49,11 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
 
   if (!data || data.retrieval_signals_total === 0) {
     return (
-      <div className="rounded-2xl border border-evergreen/10 bg-white p-6 shadow-sm">
-        <h3 className="text-sm font-semibold text-evergreen/70 mb-1">
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-1 text-sm font-semibold text-foreground">
           {t("metrics.retrievalFeedback")}
         </h3>
-        <p className="text-xs text-evergreen/40 italic">{t("metrics.noRetrievalData")}</p>
+        <p className="text-xs italic text-muted-foreground">{t("metrics.noRetrievalData")}</p>
       </div>
     );
   }
@@ -83,17 +83,17 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
   };
 
   return (
-    <div className="rounded-2xl border border-evergreen/10 bg-white p-6 shadow-sm space-y-5">
+    <div className="space-y-5 rounded-2xl border border-border bg-surface p-6 shadow-sm">
       <div>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-evergreen/70">
+          <h3 className="text-sm font-semibold text-foreground">
             {t("metrics.retrievalFeedback")}
           </h3>
           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${coverageHealth.cls}`}>
             {coverageHealth.label}
           </span>
         </div>
-        <p className="text-xs text-evergreen/40 mt-0.5">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {t("metrics.retrievalFeedbackSubtitle")}
         </p>
       </div>
@@ -127,7 +127,7 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
       {/* Rating bucket breakdown bar */}
       {bucketTotal > 0 && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-evergreen/40 mb-2">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t("metrics.ratingBuckets")}
           </p>
           {/* Stacked bar */}
@@ -153,7 +153,7 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
               if (!count) return null;
               const pct = ((count / bucketTotal) * 100).toFixed(1);
               return (
-                <span key={key} className="flex items-center gap-1.5 text-xs text-evergreen/60">
+                <span key={key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className={`inline-block h-2 w-2 rounded-full ${BUCKET_COLORS[key]}`} />
                   {bucketLabels[key]}: {formatNumber(count)} ({pct}%)
                 </span>
@@ -164,15 +164,15 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
       )}
 
       {/* Retrieved-with vs without rating */}
-      <div className="flex gap-4 text-xs text-evergreen/60">
+      <div className="flex gap-4 text-xs text-muted-foreground">
         <span>
-          <span className="font-semibold text-evergreen/80">
+          <span className="font-semibold text-foreground">
             {formatNumber(data.retrieved_with_prior_rating)}
           </span>{" "}
           {t("metrics.retrievedWithRating")}
         </span>
         <span>
-          <span className="font-semibold text-evergreen/80">
+          <span className="font-semibold text-foreground">
             {formatNumber(data.retrieved_without_prior_rating)}
           </span>{" "}
           {t("metrics.retrievedWithoutRating")}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 
 import { rateMemory } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 interface MemoryRatingProps {
   memoryId: string;
@@ -70,28 +71,30 @@ export function MemoryRating({
           ? getRateLabel(star)
           : `Rate ${star} star${star === 1 ? "" : "s"}`;
         return (
-          <button
+          <Button
             key={star}
             type="button"
             onClick={() => handleRate(star)}
             onMouseEnter={() => setHover(star)}
             onMouseLeave={() => setHover(0)}
             disabled={saving}
+            variant="ghost"
+            size="sm"
             aria-label={label}
             title={label}
             className={[
               "cursor-pointer rounded p-0.5 transition-colors",
-              isFilled ? "text-yellow-500" : "text-evergreen/35",
+              isFilled ? "text-yellow-500" : "text-muted-foreground",
               "hover:text-yellow-500",
               "disabled:cursor-not-allowed disabled:opacity-60",
             ].join(" ")}
           >
             <Star size={compact ? 13 : 15} className={isFilled ? "fill-yellow-400" : ""} />
-          </button>
+          </Button>
         );
       })}
       {showStatus && (
-        <span aria-live="polite" className="min-w-12 text-[11px] text-evergreen/55">
+        <span aria-live="polite" className="min-w-12 text-[11px] text-muted-foreground">
           {saving
             ? statusLabels.saving
             : status === "saved"

@@ -36,34 +36,34 @@ function UsageTrendChart({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.usageTrends")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("charts.loading")}</div>
+      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+        <div className="py-12 text-center text-muted-foreground">{t("charts.loading")}</div>
       </div>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.usageTrends")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("metrics.noUsageData")}</div>
+      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+        <div className="py-12 text-center text-muted-foreground">{t("metrics.noUsageData")}</div>
       </div>
     );
   }
 
   if (!showRequests && !showUsers) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("metrics.usageTrends")}</h3>
-        <div className="text-center py-12 text-gray-500">{t("charts.selectAtLeastOneSeries")}</div>
+      <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("metrics.usageTrends")}</h3>
+        <div className="py-12 text-center text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{t("charts.dailyUsageTrends")}</h3>
+    <div className="rounded-lg border border-border bg-surface p-6 shadow-sm">
+      <h3 className="mb-4 text-lg font-semibold text-foreground">{t("charts.dailyUsageTrends")}</h3>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" />
@@ -91,8 +91,8 @@ function CustomTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-        <p className="text-sm font-semibold text-gray-900">{data.fullDate}</p>
+      <div className="rounded border border-border bg-surface p-3 shadow-lg">
+        <p className="text-sm font-semibold text-foreground">{data.fullDate}</p>
         {payload.map((entry: any, index: number) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
             {entry.name}: {formatNumber(entry.value)}
