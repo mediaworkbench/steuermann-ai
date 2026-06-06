@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.3.8] — workspace-panel-evolution
+
+### Workspace — Modular Tabbed Panel
+
+- **feat** The monolithic right-side workspace sidebar (909 lines) is now a modular, tabbed
+  `WorkspacePanel` (`frontend/src/components/workspace/`) with five sections: **Documents**,
+  **Knowledge**, **Memory**, **Outputs**, **Inspector**. `WorkspaceSidebar` is kept as a thin
+  backwards-compatible wrapper, so the `ChatInterface` mount and the Header toggle are unchanged.
+  Editor and version-history logic moved into `useDocumentEditor` / `useVersionHistory` hooks; the
+  image lightbox is portaled to `document.body` so the panel's `translate-x` transform no longer
+  clips it.
+- **feat** Documents gained **search/filter** and explicit **empty / loading / error** states
+  (`WorkspaceTabState`). Document load/error are now real signals threaded from
+  `ChatInterface.fetchWorkspaceDocuments` (errors were previously swallowed); a failed load shows
+  an error card with a working Retry.
+- **feat** Visual modernization: tinted header, an icon-forward segmented tab bar (the active tab
+  reveals its label so long localized labels fit the narrow panel), and per-tab count badges.
+
+### Workspace — Runtime Evidence
+
+- **feat** A single shared evidence source — `deriveAnswerEvidence` (`lib/answerEvidence.ts`) +
+  `useAnswerEvidence` — feeds three surfaces so the same data is never derived three ways: the
+  read-only **Knowledge / Memory / Outputs** tabs (latest answer), a compact latest-answer
+  **`EvidenceChips`** row in the chat stream, and `MetricsPanel`. Clicking a chip opens the
+  matching workspace tab.
+- **feat** Evidence is gated to the active conversation via the `messages` array (last assistant
+  message), so a backgrounded stream cannot bleed its evidence into the on-screen chat.
+- **note** `MetricsPanel` deduped: the synthetic `knowledge_base` pseudo-tool is shown only under
+  Knowledge Base, not also as a "tool".
+
+### Workspace — Inspector (graph execution trace)
+
+- **feat** New backend SSE event: `server.py` emits `event: node_state`
+  (`{node, sequence, duration_ms, status}`) for every real graph node (enumerated from the
+  compiled graph) on `on_chain_start` / `on_chain_end` / `on_chain_error`, with a monotonic
+  per-request sequence and `perf_counter` timing. The `metadata` / `[DONE]` ordering is unchanged,
+  and there is no GraphState schema change. Node enumeration tries two reflection sources and logs
+  a warning rather than silently disabling the trace.
+- **feat** The frontend appends these to an ordered `nodeTrace` (`useStreamingChat` →
+  `ChatSessionContext`, `streamOnActive`-gated, session-local / live-only); the **Inspector** tab
+  renders a semantic execution view — the ordered active path with per-node status + timing, total
+  duration, a live indicator, the answer-path nodes that did not run this turn (the three
+  mutually-exclusive tool-calling strategies collapse into one slot), and the post-response nodes
+  that run after `[DONE]`. Per-node status is exposed to screen readers.
+
+### Workspace — State Hygiene
+
+- **feat** A small `WorkspacePanelContext` holds the panel's internal view state (the active tab,
+  persisted to localStorage); the panel open/closed state also persists (SSR-safe restore). The
+  Documents filter stays local to its tab so it does not leak across routes/conversations.
+
+### Chat — Per-message Memories removed from MetricsPanel
+
+- **change** "Memories used" is no longer shown below every assistant response. Memory provenance
+  now lives in the workspace **Memory** tab plus the latest-answer chip. `MetricsPanel` keeps
+  performance (time / tokens / tokens-per-sec / model) plus tools and RAG.
+
+### Tooling / Tests
+
+- **note** Frontend `tsc` + ESLint clean, **88** Jest tests passing (new suites for
+  `deriveAnswerEvidence`, the workspace panel/tabs, evidence chips, and the Inspector), production
+  build verified. `server.py` compiles. Streaming/session invariants (persistent
+  `ChatSessionProvider`, active-conversation gating, queued follow-up, non-aborting navigation) are
+  preserved throughout.
+
 ## [0.3.7] — more-frontend-improvements
 
 ### Chat — Math & Code Rendering
