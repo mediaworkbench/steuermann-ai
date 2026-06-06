@@ -11,8 +11,15 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { SectionCard } from "@/components/product/SectionCard";
-import { Button } from "@/components/ui/Button";
+import { DangerActionButton } from "@/components/product/DangerActionButton";
+import { DangerHintText } from "@/components/product/DangerHintText";
+import { FormFieldLabel } from "@/components/product/FormFieldLabel";
+import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
+import { PanelLoadingState } from "@/components/product/PanelLoadingState";
+import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
+import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
+import { SectionStateText } from "@/components/product/SectionStateText";
+import { TitledSectionCard } from "@/components/product/TitledSectionCard";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Slider } from "@/components/ui/Slider";
 import { Select } from "@/components/ui/Select";
@@ -148,7 +155,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   }, [myDataOptions, t]);
 
   if (loading) {
-    return <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>;
+    return <PanelLoadingState label={t("common.loading")} />;
   }
 
   const chatModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -159,8 +166,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     <div className="space-y-6">
 
       {/* Language */}
-      <SectionCard>
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.language")}</h3>
+      <TitledSectionCard title={t("settingsPanel.language")}>
         <Select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
@@ -171,11 +177,10 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </option>
           ))}
         </Select>
-      </SectionCard>
+      </TitledSectionCard>
 
       {/* Sound */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.soundSection")}</h3>
+      <TitledSectionCard title={t("settingsPanel.soundSection")}>
         <label className="flex items-start gap-3 cursor-pointer">
           <Checkbox
             type="checkbox"
@@ -190,13 +195,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             <span className="mt-0.5 text-xs text-foreground/60">{t("settingsPanel.soundEnabledDescription")}</span>
           </span>
         </label>
-      </div>
+      </TitledSectionCard>
 
       {/* Tool Toggles */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.toolSettings")}</h3>
+      <TitledSectionCard title={t("settingsPanel.toolSettings")}>
         {configLoading ? (
-          <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</div>
+          <SectionStateText>{t("settingsPanel.loadingTools")}</SectionStateText>
         ) : (
           <div className="space-y-3">
             {(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => (
@@ -212,12 +216,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             ))}
           </div>
         )}
-      </div>
+      </TitledSectionCard>
 
       {/* RAG — user-scoped controls: enabled toggle + top_k */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.ragConfiguration")}</h3>
-        {configLoading && <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</div>}
+      <TitledSectionCard title={t("settingsPanel.ragConfiguration")}>
+        {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
         <div className="space-y-4">
           <div>
             <label className="flex items-center gap-3 cursor-pointer">
@@ -231,12 +234,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </label>
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">
+            <FormFieldLabel>
               {t("settingsPanel.topKResults", {
                 default: systemConfig?.rag_defaults.top_k || 5,
                 value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
               })}
-            </label>
+            </FormFieldLabel>
             <Slider
               min="1"
               max="20"
@@ -245,73 +248,38 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             />
           </div>
         </div>
-      </div>
+      </TitledSectionCard>
 
       {/* Chat Model Selection */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.modelSelection")}</h3>
-        {configLoading ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingModels")}</p>
-        ) : chatModelOptions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.noRoleModelsAvailable")}</p>
-        ) : (
-          <div className="space-y-4">
-            {chatModelOptions.map((roleConfig) => {
-              const roleName = roleConfig.role;
-              const roleDefaultModel = roleConfig.default_model || "";
-              const selectedModel = preferredModels[roleName] || roleDefaultModel;
-              const roleModels = roleConfig.available_models || [];
-              const mergedRoleModels = roleModels.includes(roleDefaultModel)
-                ? roleModels
-                : [roleDefaultModel, ...roleModels].filter(Boolean);
-              return (
-                <div key={roleName} className="rounded-xl border border-border p-4">
-                  <div className="mb-2">
-                    <p className="text-sm font-semibold text-foreground">
-                      {t("settingsPanel.roleModelLabel", { role: roleName })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
-                    </p>
-                    {roleConfig.model_load_error && (
-                      <p className="text-xs text-warning">{roleConfig.model_load_error}</p>
-                    )}
-                  </div>
-                  <Select
-                    value={selectedModel}
-                    onChange={(e) =>
-                      setPreferredModels((prev) => ({
-                        ...prev,
-                        [roleName]: e.target.value === roleDefaultModel ? "" : e.target.value,
-                      }))
-                    }
-                  >
-                    {mergedRoleModels.map((model) => (
-                      <option key={`${roleName}:${model}`} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <RoleModelSelectionSection
+        title={t("settingsPanel.modelSelection")}
+        loading={configLoading}
+        loadingLabel={t("settingsPanel.loadingModels")}
+        emptyLabel={t("settingsPanel.noRoleModelsAvailable")}
+        roleConfigs={chatModelOptions}
+        preferredModels={preferredModels}
+        onModelChange={(roleName, value, roleDefaultModel) =>
+          setPreferredModels((prev) => ({
+            ...prev,
+            [roleName]: value === roleDefaultModel ? "" : value,
+          }))
+        }
+        getRoleLabel={(roleName) => t("settingsPanel.roleModelLabel", { role: roleName })}
+        getProviderLabel={(providerId) =>
+          t("settingsPanel.roleProviderLocked", { provider: providerId })
+        }
+        getSystemDefaultLabel={(defaultModel) =>
+          t("settingsPanel.systemDefault", { value: defaultModel })
+        }
+      />
 
       {/* Save */}
-      <div className="flex gap-3">
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex-1"
-        >
-          {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-        </Button>
-      </div>
+      <PrimarySaveBar
+        onSave={handleSave}
+        saving={saving}
+        label={t("settingsPanel.saveSettings")}
+        loadingLabel={t("common.saving")}
+      />
 
       {/* Last updated */}
       {settings?.updated_at && (
@@ -321,9 +289,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       )}
 
       {/* My Data — danger zone */}
-      <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-destructive mb-1">{t("settingsPanel.myDataSection")}</h3>
-        <p className="mb-4 text-sm text-muted-foreground">{t("settingsPanel.myDataDescription")}</p>
+      <TitledSectionCard
+        title={t("settingsPanel.myDataSection")}
+        description={t("settingsPanel.myDataDescription")}
+        tone="danger"
+      >
         <div className="space-y-3 mb-5">
           {(
             [
@@ -332,36 +302,31 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
               ["memories",     "myDataResetMemoriesLabel",      "myDataResetMemoriesDescription"],
             ] as const
           ).map(([key, labelKey, descKey]) => (
-            <label key={key} className="flex items-start gap-3 cursor-pointer">
-              <Checkbox
-                type="checkbox"
-                checked={myDataOptions[key]}
-                onChange={() =>
-                  setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] }))
-                }
-                className="mt-0.5"
-              />
-              <span className="flex flex-col">
-                <span className="text-sm font-medium text-foreground">{t(`settingsPanel.${labelKey}`)}</span>
-                <span className="mt-0.5 text-xs text-foreground/60">{t(`settingsPanel.${descKey}`)}</span>
-              </span>
-            </label>
+            <OptionCheckboxRow
+              key={key}
+              checked={myDataOptions[key]}
+              onToggle={() =>
+                setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] }))
+              }
+              label={t(`settingsPanel.${labelKey}`)}
+              description={t(`settingsPanel.${descKey}`)}
+            />
           ))}
         </div>
         {!Object.values(myDataOptions).some(Boolean) && (
-          <p className="text-xs text-warning mb-3">{t("settingsPanel.myDataResetNoneSelected")}</p>
+          <DangerHintText>{t("settingsPanel.myDataResetNoneSelected")}</DangerHintText>
         )}
-        <Button
+        <DangerActionButton
           onClick={() => {
             if (!Object.values(myDataOptions).some(Boolean)) return;
             setMyDataConfirmOpen(true);
           }}
           disabled={myDataResetting || !Object.values(myDataOptions).some(Boolean)}
-          variant="destructive"
-        >
-          {myDataResetting ? t("settingsPanel.myDataResetting") : t("settingsPanel.myDataResetButton")}
-        </Button>
-      </div>
+          loading={myDataResetting}
+          loadingLabel={t("settingsPanel.myDataResetting")}
+          label={t("settingsPanel.myDataResetButton")}
+        />
+      </TitledSectionCard>
 
       <ConfirmDialog
         isOpen={myDataConfirmOpen}

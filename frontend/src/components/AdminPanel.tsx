@@ -3,7 +3,19 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { SectionCard } from "@/components/product/SectionCard";
+import { DangerActionButton } from "@/components/product/DangerActionButton";
+import { DangerHintText } from "@/components/product/DangerHintText";
+import { DiagnosticsLegend } from "@/components/product/DiagnosticsLegend";
+import { FormFieldLabel } from "@/components/product/FormFieldLabel";
+import { LabeledValue } from "@/components/product/LabeledValue";
+import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
+import { PanelLoadingState } from "@/components/product/PanelLoadingState";
+import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
+import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
+import { SectionErrorText } from "@/components/product/SectionErrorText";
+import { SectionStateText } from "@/components/product/SectionStateText";
+import { SubsectionHeader } from "@/components/product/SubsectionHeader";
+import { TitledSectionCard } from "@/components/product/TitledSectionCard";
 import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
@@ -16,9 +28,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { Button } from "@/components/ui/Button";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 
 export interface AdminPanelProps {
   settings: UserSettings | null;
@@ -237,7 +247,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   }, [resetOptions, t]);
 
   if (loading) {
-    return <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>;
+    return <PanelLoadingState label={t("common.loading")} />;
   }
 
   const roleModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -248,52 +258,53 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     <div className="space-y-6">
 
       {/* LLM Capability Diagnostics */}
-      <SectionCard>
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">{t("adminPage.llmSection")}</h3>
-            <p className="text-sm text-muted-foreground">
-              {t("settingsPanel.capabilitiesSubtitle")}
-              {probeTtlSeconds !== null && (
-                <span>{t("settingsPanel.capabilitiesTtl", { value: probeTtlSeconds })}</span>
-              )}
-            </p>
-          </div>
+      <TitledSectionCard
+        title={t("adminPage.llmSection")}
+        description={
+          <>
+            {t("settingsPanel.capabilitiesSubtitle")}
+            {probeTtlSeconds !== null && (
+              <span>{t("settingsPanel.capabilitiesTtl", { value: probeTtlSeconds })}</span>
+            )}
+          </>
+        }
+        actions={
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              onClick={handleCopyDiagnostics}
-              disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
-              variant="secondary"
-              size="sm"
-            >
-              {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void loadCapabilities()}
-              disabled={capabilitiesLoading}
-              variant="secondary"
-              size="sm"
-            >
-              {t("common.refresh")}
-            </Button>
+          <Button
+            type="button"
+            onClick={handleCopyDiagnostics}
+            disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
+            variant="secondary"
+            size="sm"
+          >
+            {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void loadCapabilities()}
+            disabled={capabilitiesLoading}
+            variant="secondary"
+            size="sm"
+          >
+            {t("common.refresh")}
+          </Button>
           </div>
-        </div>
+        }
+      >
 
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span className="text-xs font-semibold text-muted-foreground">{t("settingsPanel.legendTitle")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-success/10 text-success">{t("settingsPanel.legendNative")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-warning/10 text-warning">{t("settingsPanel.legendStructured")}</span>
-          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-info/10 text-info">{t("settingsPanel.legendReact")}</span>
-        </div>
+        <DiagnosticsLegend
+          title={t("settingsPanel.legendTitle")}
+          nativeLabel={t("settingsPanel.legendNative")}
+          structuredLabel={t("settingsPanel.legendStructured")}
+          reactLabel={t("settingsPanel.legendReact")}
+        />
 
         {capabilitiesLoading ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesLoading")}</p>
+          <SectionStateText>{t("settingsPanel.capabilitiesLoading")}</SectionStateText>
         ) : capabilitiesError ? (
-          <p className="text-sm text-destructive">{capabilitiesError}</p>
+          <SectionErrorText>{capabilitiesError}</SectionErrorText>
         ) : capabilities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesEmpty")}</p>
+          <SectionStateText>{t("settingsPanel.capabilitiesEmpty")}</SectionStateText>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full rounded-lg border border-border text-sm">
@@ -352,13 +363,34 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                         <tr className="border-t border-border bg-surface-muted">
                           <td colSpan={8} className="px-3 py-3 text-xs text-muted-foreground">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <div><span className="font-semibold">{t("settingsPanel.detailConfiguredMode")}: </span><span>{item.configured_tool_calling_mode || t("metrics.na")}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailApiBase")}: </span><span>{item.api_base || t("metrics.na")}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailError")}: </span><span>{item.error_message || t("metrics.na")}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailBindTools")}: </span><span>{item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailVision")}: </span><span>{item.supports_vision === null || item.supports_vision === undefined ? t("metrics.na") : String(item.supports_vision)}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailReasoning")}: </span><span>{String(item.supports_reasoning ?? false)}</span></div>
-                              <div><span className="font-semibold">{t("settingsPanel.detailMismatch")}: </span><span>{String(item.capability_mismatch)}</span></div>
+                              <LabeledValue
+                                label={t("settingsPanel.detailConfiguredMode")}
+                                value={item.configured_tool_calling_mode || t("metrics.na")}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailApiBase")}
+                                value={item.api_base || t("metrics.na")}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailError")}
+                                value={item.error_message || t("metrics.na")}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailBindTools")}
+                                value={item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailVision")}
+                                value={item.supports_vision === null || item.supports_vision === undefined ? t("metrics.na") : String(item.supports_vision)}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailReasoning")}
+                                value={String(item.supports_reasoning ?? false)}
+                              />
+                              <LabeledValue
+                                label={t("settingsPanel.detailMismatch")}
+                                value={String(item.capability_mismatch)}
+                              />
                             </div>
                             <div className="mt-2">
                               <div className="font-semibold mb-1">{t("settingsPanel.detailMetadata")}</div>
@@ -376,17 +408,16 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             </table>
           </div>
         )}
-      </SectionCard>
+      </TitledSectionCard>
 
       {/* RAG Operational Configuration */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("adminPage.ragSection")}</h3>
-        {configLoading && <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</div>}
+      <TitledSectionCard title={t("adminPage.ragSection")}>
+        {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">
+            <FormFieldLabel>
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
-            </label>
+            </FormFieldLabel>
             <Input
               type="text"
               value={(ragConfig.collection as string) || systemConfig?.rag_defaults.collection_name || "framework"}
@@ -395,9 +426,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">
-              {t("settingsPanel.similarityThreshold")}
-            </label>
+            <FormFieldLabel>{t("settingsPanel.similarityThreshold")}</FormFieldLabel>
             <Input
               type="number"
               min="0"
@@ -410,8 +439,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         </div>
 
         <div className="mt-6 border-t border-border pt-4">
-          <h4 className="mb-2 text-md font-semibold text-foreground">{t("settingsPanel.reingestSectionTitle")}</h4>
-          <p className="mb-3 text-sm text-muted-foreground">{t("settingsPanel.reingestDescription")}</p>
+          <SubsectionHeader
+            title={t("settingsPanel.reingestSectionTitle")}
+            description={t("settingsPanel.reingestDescription")}
+          />
           <Button
             type="button"
             onClick={() => setConfirmReingest(true)}
@@ -422,78 +453,47 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             {reingesting ? t("settingsPanel.reingesting") : t("settingsPanel.reingestAllDocuments")}
           </Button>
         </div>
-      </div>
+      </TitledSectionCard>
 
       {/* System Model Selection (vision + auxiliary) */}
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("adminPage.modelSection")}</h3>
-        {configLoading ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingModels")}</p>
-        ) : roleModelOptions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("settingsPanel.noRoleModelsAvailable")}</p>
-        ) : (
-          <div className="space-y-4">
-            {roleModelOptions.map((roleConfig) => {
-              const roleName = roleConfig.role;
-              const roleDefaultModel = roleConfig.default_model || "";
-              const selectedModel = preferredModels[roleName] || roleDefaultModel;
-              const roleModels = roleConfig.available_models || [];
-              const mergedRoleModels = roleModels.includes(roleDefaultModel)
-                ? roleModels
-                : [roleDefaultModel, ...roleModels].filter(Boolean);
-              return (
-                <div key={roleName} className="rounded-xl border border-border p-4">
-                  <div className="mb-2">
-                    <p className="text-sm font-semibold text-foreground">
-                      {t("settingsPanel.roleModelLabel", { role: roleName })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
-                    </p>
-                    {roleConfig.model_load_error && (
-                      <p className="text-xs text-warning">{roleConfig.model_load_error}</p>
-                    )}
-                  </div>
-                  <Select
-                    value={selectedModel}
-                    onChange={(e) =>
-                      setPreferredModels((prev) => ({
-                        ...prev,
-                        [roleName]: e.target.value === roleDefaultModel ? "" : e.target.value,
-                      }))
-                    }
-                  >
-                    {mergedRoleModels.map((model) => (
-                      <option key={`${roleName}:${model}`} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <RoleModelSelectionSection
+        title={t("adminPage.modelSection")}
+        loading={configLoading}
+        loadingLabel={t("settingsPanel.loadingModels")}
+        emptyLabel={t("settingsPanel.noRoleModelsAvailable")}
+        roleConfigs={roleModelOptions}
+        preferredModels={preferredModels}
+        onModelChange={(roleName, value, roleDefaultModel) =>
+          setPreferredModels((prev) => ({
+            ...prev,
+            [roleName]: value === roleDefaultModel ? "" : value,
+          }))
+        }
+        getRoleLabel={(roleName) => t("settingsPanel.roleModelLabel", { role: roleName })}
+        getProviderLabel={(providerId) =>
+          t("settingsPanel.roleProviderLocked", { provider: providerId })
+        }
+        getSystemDefaultLabel={(defaultModel) =>
+          t("settingsPanel.systemDefault", { value: defaultModel })
+        }
+      />
 
       {/* Save */}
-      <div className="flex gap-3">
-        <Button
-          onClick={handleSave}
-          disabled={saving || !settings}
-          className="flex-1"
-        >
-          {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-        </Button>
-      </div>
+      <PrimarySaveBar
+        onSave={handleSave}
+        saving={saving}
+        disabled={!settings}
+        label={t("settingsPanel.saveSettings")}
+        loadingLabel={t("common.saving")}
+      />
 
       {/* Danger Zone */}
-      <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-destructive mb-1">{t("adminPage.dangerZoneSection")}</h3>
-        <p className="mb-5 text-sm text-muted-foreground">{t("adminPage.dangerZoneDescription")}</p>
+      <TitledSectionCard
+        title={t("adminPage.dangerZoneSection")}
+        description={t("adminPage.dangerZoneDescription")}
+        tone="danger"
+        headerClassName="mb-5"
+      >
 
         <div className="space-y-3 mb-5">
           {(
@@ -505,34 +505,29 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               { key: "llm_probes",    label: t("adminPage.resetLlmProbesLabel"),     description: t("adminPage.resetLlmProbesDescription") },
             ] as { key: keyof ResetOptions; label: string; description: string }[]
           ).map(({ key, label, description }) => (
-            <label key={key} className="flex items-start gap-3 cursor-pointer group">
-              <Checkbox
-                type="checkbox"
-                checked={resetOptions[key]}
-                onChange={() => toggleResetOption(key)}
-                className="mt-0.5"
-              />
-              <span className="flex flex-col">
-                <span className="text-sm font-medium text-foreground">{label}</span>
-                <span className="text-xs text-foreground/60 mt-0.5">{description}</span>
-              </span>
-            </label>
+            <OptionCheckboxRow
+              key={key}
+              checked={resetOptions[key]}
+              onToggle={() => toggleResetOption(key)}
+              label={label}
+              description={description}
+              className="group"
+            />
           ))}
         </div>
 
         {!Object.values(resetOptions).some(Boolean) && (
-          <p className="text-xs text-warning mb-3">{t("adminPage.resetNoneSelected")}</p>
+          <DangerHintText>{t("adminPage.resetNoneSelected")}</DangerHintText>
         )}
 
-        <Button
-          type="button"
+        <DangerActionButton
           onClick={() => setConfirmReset(true)}
           disabled={resetting || !Object.values(resetOptions).some(Boolean)}
-          variant="destructive"
-        >
-          {resetting ? t("settingsPanel.resetting") : t("adminPage.resetSelectedButton")}
-        </Button>
-      </div>
+          loading={resetting}
+          loadingLabel={t("settingsPanel.resetting")}
+          label={t("adminPage.resetSelectedButton")}
+        />
+      </TitledSectionCard>
 
       <ConfirmDialog
         isOpen={confirmReingest}
