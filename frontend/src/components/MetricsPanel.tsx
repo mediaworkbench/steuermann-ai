@@ -15,9 +15,9 @@ interface MetricsPanelProps {
 }
 
 const FINISH_REASON_COLORS: Record<string, string> = {
-  stop: "text-pacific-blue",
-  tool_use: "text-atomic-tangerine",
-  max_tokens: "text-burnt-tangerine",
+  stop: "text-primary",
+  tool_use: "text-warning",
+  max_tokens: "text-destructive",
 };
 
 export function MetricsPanel({
@@ -74,7 +74,7 @@ export function MetricsPanel({
           onClick={() => setExpanded(!expanded)}
           variant="ghost"
           size="sm"
-          className="h-auto gap-2 p-0 text-xs text-evergreen/40 hover:text-evergreen/70"
+          className="h-auto gap-2 p-0 text-xs text-muted-foreground hover:text-foreground"
           aria-expanded={expanded}
         >
           <Icon
@@ -86,25 +86,25 @@ export function MetricsPanel({
             {responseTimeSec && (
               <>
                 <span className="flex items-center gap-0.5">
-                  <Icon name="timer" size={13} className="text-pacific-blue/70" />
+                  <Icon name="timer" size={13} className="text-primary" />
                   {responseTimeSec}s
                 </span>
-                <span className="text-evergreen/20" aria-hidden="true">
+                <span className="text-muted-foreground" aria-hidden="true">
                   ·
                 </span>
               </>
             )}
             <span className="flex items-center gap-0.5">
-              <Icon name="toll" size={13} className="text-pacific-blue/70" />
+              <Icon name="toll" size={13} className="text-primary" />
               {formatNumber(totalTokens)} {t("charts.tokens")}
             </span>
             {toolCount > 0 && (
               <>
-                <span className="text-evergreen/20" aria-hidden="true">
+                <span className="text-muted-foreground" aria-hidden="true">
                   ·
                 </span>
                 <span className="flex items-center gap-0.5">
-                  <Icon name="build" size={13} className="text-pacific-blue/70" />
+                  <Icon name="build" size={13} className="text-primary" />
                   {toolCount} {t("chat.toolsInvoked")}
                 </span>
               </>
@@ -121,8 +121,8 @@ export function MetricsPanel({
             size="sm"
             className={`h-8 w-8 p-0 rounded transition-colors ${
               copied
-                ? "text-pacific-blue copy-success"
-                : "text-evergreen/30 hover:text-pacific-blue hover:bg-pacific-blue/10"
+                ? "text-primary copy-success"
+                : "text-muted-foreground hover:text-primary hover:bg-primary/10"
             }`}
             aria-label={t("chat.copyMessage")}
           >
@@ -133,7 +133,7 @@ export function MetricsPanel({
             onClick={onRegenerate}
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0 rounded text-evergreen/30 hover:text-atomic-tangerine hover:bg-atomic-tangerine/10 transition-colors"
+            className="h-8 w-8 p-0 rounded text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
             aria-label={t("chat.regenerateResponse")}
           >
             <Icon name="refresh" size={16} />
@@ -148,7 +148,7 @@ export function MetricsPanel({
         aria-label={t("chat.responseMetrics")}
       >
         <div>
-          <div className="mt-2 rounded-lg border border-light-cyan/60 bg-light-cyan/10 p-3 text-xs font-mono space-y-3">
+          <div className="mt-2 rounded-lg border border-border bg-surface-muted p-3 text-xs font-mono space-y-3">
             {/* Timing + tokens + finish reason */}
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               {responseTimeSec && (
@@ -177,13 +177,13 @@ export function MetricsPanel({
               )}
               {metrics?.finish_reason && (
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-evergreen/40 uppercase tracking-wider text-[10px]">
+                  <span className="text-muted-foreground uppercase tracking-wider text-[10px]">
                     {t("chat.finishReason")}
                   </span>
                   <span
                     className={`font-semibold ${
                       FINISH_REASON_COLORS[metrics.finish_reason] ??
-                      "text-evergreen"
+                      "text-foreground"
                     }`}
                   >
                     {metrics.finish_reason}
@@ -194,7 +194,7 @@ export function MetricsPanel({
 
             {/* Model + temperature */}
             {(metrics?.model || metrics?.temperature != null) && (
-              <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t border-light-cyan/40">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2 border-t border-border/60">
                 {metrics.model && (
                   <MetricCell label={t("chat.model")} value={metrics.model} />
                 )}
@@ -209,16 +209,16 @@ export function MetricsPanel({
 
             {/* Tools (RAG is shown separately under Knowledge Base, not here) */}
             {evidence.tools.length > 0 && (
-              <div className="pt-2 border-t border-light-cyan/40">
-                <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
+              <div className="pt-2 border-t border-border/60">
+                <span className="text-muted-foreground uppercase tracking-wider text-[10px] block mb-1.5">
                   {t("chat.toolsInvoked")}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {evidence.tools.map((tool, idx) => {
                     const isError = tool.status === "error";
                     const badgeClass = isError
-                      ? "bg-burnt-tangerine/10 text-burnt-tangerine border border-burnt-tangerine/20"
-                      : "bg-pacific-blue/15 text-pacific-blue border border-pacific-blue/20";
+                      ? "bg-destructive/10 text-destructive border border-destructive/20"
+                      : "bg-primary/15 text-primary border border-primary/20";
                     return (
                       <span
                         key={`${tool.name}-${idx}`}
@@ -235,18 +235,18 @@ export function MetricsPanel({
 
             {/* Knowledge Base */}
             {evidence.ragAttempted && (
-              <div className="pt-2 border-t border-light-cyan/40">
-                <span className="text-evergreen/40 uppercase tracking-wider text-[10px] block mb-1.5">
+              <div className="pt-2 border-t border-border/60">
+                <span className="text-muted-foreground uppercase tracking-wider text-[10px] block mb-1.5">
                   Knowledge Base
                 </span>
-                <div className="flex items-center gap-1.5 text-xs text-evergreen/70">
-                  <Database size={13} className="text-evergreen/40 shrink-0" />
+                <div className="flex items-center gap-1.5 text-xs text-foreground">
+                  <Database size={13} className="text-muted-foreground shrink-0" />
                   {evidence.ragDocCount > 0 ? (
                     <span>
                       {evidence.ragDocCount} document{evidence.ragDocCount !== 1 ? "s" : ""} retrieved
                     </span>
                   ) : (
-                    <span className="text-evergreen/40">searched · no relevant results</span>
+                    <span className="text-muted-foreground">searched · no relevant results</span>
                   )}
                 </div>
               </div>
@@ -262,10 +262,10 @@ export function MetricsPanel({
 function MetricCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-evergreen/40 uppercase tracking-wider text-[10px]">
+      <span className="text-muted-foreground uppercase tracking-wider text-[10px]">
         {label}
       </span>
-      <span className="text-evergreen font-semibold">{value}</span>
+      <span className="text-foreground font-semibold">{value}</span>
     </div>
   );
 }

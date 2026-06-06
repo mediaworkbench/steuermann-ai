@@ -79,8 +79,8 @@ export function Sidebar({
         id="sidebar"
         className={`
           fixed md:static inset-y-0 left-0 z-40
-          w-70 lg:w-80 bg-evergreen flex flex-col h-full
-          border-r border-white/10 shrink-0
+          w-70 lg:w-80 bg-surface flex flex-col h-full
+          border-r border-border shrink-0
           transition-transform duration-300 ease-in-out
           ${isOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
         `}
@@ -90,12 +90,12 @@ export function Sidebar({
           <div className="flex items-center justify-between mb-6">
             <div className="flex flex-col">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-light-cyan text-xl font-bold tracking-tight leading-tight">
+                <h1 className="text-foreground text-xl font-bold tracking-tight leading-tight">
                   {profileAppName}
                 </h1>
-                <span className="text-light-cyan/60 text-xs font-mono">v{frameworkVersion}</span>
+                <span className="text-muted-foreground text-xs font-mono">v{frameworkVersion}</span>
               </div>
-              <span className="text-pacific-blue text-xs font-mono mt-1">
+              <span className="text-primary text-xs font-mono mt-1">
                 {t("sidebar.platformSubtitle")}
               </span>
             </div>
@@ -103,7 +103,7 @@ export function Sidebar({
               type="button"
               variant="ghost"
               size="sm"
-              className="md:hidden text-light-cyan/70 hover:text-light-cyan transition-colors -mr-1
+              className="md:hidden text-muted-foreground hover:text-foreground transition-colors -mr-1
                          min-h-11 min-w-11 flex items-center justify-center"
               onClick={onClose}
               aria-label={t("sidebar.closeNavigation")}
@@ -117,7 +117,7 @@ export function Sidebar({
             type="button"
             onClick={() => { onNewChat?.(); }}
             variant="primary"
-            className="w-full gap-2 rounded-lg font-bold min-h-11 shadow-lg shadow-atomic-tangerine/20 mb-2 group cursor-pointer"
+            className="w-full gap-2 rounded-lg font-bold min-h-11 shadow-lg shadow-primary/20 mb-2 group cursor-pointer"
             aria-label={t("sidebar.startNewChat")}
           >
             <Icon
@@ -137,7 +137,7 @@ export function Sidebar({
           {/* Pinned conversations */}
           {pinned.length > 0 && (
             <div>
-              <h3 className="text-light-cyan text-xs font-bold uppercase tracking-wider mb-2 pl-3">
+              <h3 className="text-foreground text-xs font-bold uppercase tracking-wider mb-2 pl-3">
                 {t("sidebar.pinned")}
               </h3>
               <div className="space-y-0.5">
@@ -160,7 +160,7 @@ export function Sidebar({
           {/* Recent conversations */}
           {recent.length > 0 && (
             <div>
-              <h3 className="text-light-cyan text-xs font-bold uppercase tracking-wider mb-2 pl-3">
+              <h3 className="text-foreground text-xs font-bold uppercase tracking-wider mb-2 pl-3">
                 {t("sidebar.recentChats")}
               </h3>
               <div className="space-y-0.5">
@@ -181,7 +181,7 @@ export function Sidebar({
           )}
 
           {conversations.length === 0 && (
-            <p className="text-light-cyan/40 text-xs text-center mt-4">
+            <p className="text-muted-foreground text-xs text-center mt-4">
               {t("sidebar.noConversations")}
             </p>
           )}
@@ -192,8 +192,8 @@ export function Sidebar({
             prefetch={false}
             onClick={onClose}
             className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
-                       text-light-cyan/70 hover:text-light-cyan hover:bg-white/10 transition-colors
-                       border border-white/10"
+                       text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors
+                       border border-border"
           >
             <Icon name="forum" size={16} />
             <span>{t("sidebar.seeAllChats")}</span>
@@ -201,23 +201,23 @@ export function Sidebar({
         </nav>
 
         {/* User profile */}
-        <div className="p-4 border-t border-white/10 bg-evergreen space-y-1">
+        <div className="p-4 border-t border-border bg-surface space-y-1">
           <Link
             href="/settings"
             prefetch={false}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10
-                       text-light-cyan transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-muted
+                       text-foreground transition-colors"
             aria-label={t("sidebar.settingsForUser", { name: profileDisplayName })}
           >
             <span className="flex flex-col min-w-0">
-              <span className="text-sm font-bold truncate text-light-cyan">
+              <span className="text-sm font-bold truncate text-foreground">
                 {SINGLE_USER_DISPLAY_NAME}
               </span>
-              <span className="text-xs text-light-cyan/60 capitalize">
+              <span className="text-xs text-muted-foreground capitalize">
                 {role}
               </span>
             </span>
-            <Icon name="settings" className="ml-auto shrink-0 text-light-cyan/70" />
+            <Icon name="settings" className="ml-auto shrink-0 text-muted-foreground" />
           </Link>
         </div>
       </aside>
@@ -296,15 +296,15 @@ function ConversationRow({
               w-full justify-start gap-2 px-3 py-2.5 rounded-lg
               transition-colors text-left group
               ${isActive
-                ? "bg-white/10 text-white hover:bg-white/20"
-                : "text-light-cyan/80 hover:text-white hover:bg-white/10"}
+                ? "bg-surface-muted text-foreground hover:bg-surface-muted/80"
+                : "text-muted-foreground hover:text-foreground hover:bg-surface-muted"}
             `}
         aria-current={isActive ? "page" : undefined}
       >
         <Icon
           name={c.pinned ? "push_pin" : "chat_bubble_outline"}
           size={18}
-          className={isActive ? "text-light-cyan" : "text-light-cyan/60 group-hover:text-light-cyan"}
+          className={isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}
         />
 
         {/* Title: either input or text */}
@@ -319,8 +319,8 @@ function ConversationRow({
               if (e.key === "Escape") { setEditValue(c.title); setEditing(false); }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 text-sm font-medium bg-white/15 text-white rounded px-1.5 py-0.5
-                       border border-pacific-blue/50 outline-none focus:border-pacific-blue"
+            className="flex-1 min-w-0 text-sm font-medium bg-surface rounded px-1.5 py-0.5
+                       border border-border text-foreground outline-none focus:border-primary"
           />
         ) : (
           <span className="text-sm font-medium truncate flex-1 min-w-0">
@@ -335,8 +335,8 @@ function ConversationRow({
             tabIndex={0}
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
             onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setMenuOpen((v) => !v); } }}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/20
-                       text-light-cyan/70 hover:text-light-cyan transition-all cursor-pointer shrink-0"
+            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-muted
+                       text-muted-foreground hover:text-foreground transition-all cursor-pointer shrink-0"
             title={t("sidebar.moreOptions")}
           >
             <Icon name="more_vert" size={16} />
@@ -348,8 +348,8 @@ function ConversationRow({
       {menuOpen && (
         <div
           ref={menuRef}
-          className="absolute right-2 top-full mt-1 z-50 w-44 bg-[#0a3839] border border-white/15
-                     rounded-lg shadow-xl py-1 text-sm text-light-cyan/90 animate-in fade-in slide-in-from-top-1 duration-150"
+          className="absolute right-2 top-full mt-1 z-50 w-44 bg-surface border border-border
+                     rounded-lg shadow-xl py-1 text-sm text-foreground animate-in fade-in slide-in-from-top-1 duration-150"
         >
           <ContextMenuItem
             icon="edit"
@@ -361,7 +361,7 @@ function ConversationRow({
             label={c.pinned ? t("sidebar.unpin") : t("sidebar.pin")}
             onClick={() => { setMenuOpen(false); onPin?.(c.id, !c.pinned); }}
           />
-          <div className="border-t border-white/10 my-1" />
+          <div className="border-t border-border my-1" />
           <ContextMenuItem
             icon="download"
             label={t("sidebar.exportJson")}
@@ -372,7 +372,7 @@ function ConversationRow({
             label={t("sidebar.exportMarkdown")}
             onClick={() => { setMenuOpen(false); onExport?.(c.id, "markdown"); }}
           />
-          <div className="border-t border-white/10 my-1" />
+          <div className="border-t border-border my-1" />
           <ContextMenuItem
             icon="delete_outline"
             label={t("sidebar.delete")}
@@ -422,8 +422,8 @@ function ContextMenuItem({
       size="sm"
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors cursor-pointer
         ${danger
-          ? "text-red-300/80 hover:bg-red-500/20 hover:text-red-300"
-          : "hover:bg-white/10 hover:text-white"
+          ? "text-destructive/80 hover:bg-destructive/15 hover:text-destructive"
+          : "hover:bg-surface-muted hover:text-foreground"
         }`}
     >
       <Icon name={icon} size={16} />

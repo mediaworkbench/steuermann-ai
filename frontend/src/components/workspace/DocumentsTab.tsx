@@ -405,7 +405,7 @@ export function DocumentsTab({
                           className="object-cover"
                         />
                         <span
-                          className="absolute bottom-0 left-0 right-0 text-center bg-black/50 text-white truncate px-0.5"
+                          className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
                           style={{ fontSize: "8px", lineHeight: "13px" }}
                         >
                           {formatFileSize(doc.size_bytes)}
@@ -776,7 +776,7 @@ export function DocumentsTab({
               >
                 <Icon name="close" size={16} className="text-foreground" />
               </Button>
-              <p className="mt-2 text-center text-white/70 text-xs truncate">{lightboxDoc.filename}</p>
+              <p className="mt-2 text-center text-muted-foreground text-xs truncate">{lightboxDoc.filename}</p>
             </div>
           </div>,
           document.body,

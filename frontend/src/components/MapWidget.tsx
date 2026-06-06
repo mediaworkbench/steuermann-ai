@@ -230,7 +230,7 @@ export function MapWidget({ data }: Props) {
       <div ref={containerRef} className="rounded-lg overflow-hidden" style={{ width: "100%", height: "100%" }} />
 
       {data.type === "distance" && data.distance_km != null && (
-        <div className="absolute bottom-6 left-2 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
+        <div className="absolute bottom-6 left-2 rounded bg-foreground/60 px-2 py-0.5 text-xs font-medium text-background">
           {data.distance_km} km · {data.distance_miles ?? "?"} mi
         </div>
       )}
@@ -239,7 +239,7 @@ export function MapWidget({ data }: Props) {
         href={data.osm_url}
         target="_blank"
         rel="noopener noreferrer"
-        className="absolute top-1 right-1 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white hover:bg-black/80"
+        className="absolute top-1 right-1 rounded bg-foreground/60 px-2 py-0.5 text-xs font-medium text-background hover:bg-foreground/75"
       >
         Open full map ↗
       </a>

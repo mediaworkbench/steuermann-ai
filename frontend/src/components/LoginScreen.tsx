@@ -49,11 +49,11 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
 
   if (!AUTH_ENABLED) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.16),transparent_40%),linear-gradient(135deg,#f7fbfb,#eaf5f4)] text-evergreen flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-xl rounded-4xl border border-evergreen/10 bg-white/85 backdrop-blur-xl p-8 shadow-[0_30px_80px_rgba(18,55,51,0.12)]">
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-pacific-blue/80">{t("login.developmentMode")}</p>
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.16),transparent_40%),linear-gradient(135deg,#f7fbfb,#eaf5f4)] text-foreground flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/85 backdrop-blur-xl p-8 shadow-[0_30px_80px_rgba(18,55,51,0.12)]">
+          <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.developmentMode")}</p>
           <h1 className="mt-4 text-4xl font-bold tracking-tight">{t("login.authDisabled")}</h1>
-          <p className="mt-4 text-evergreen/70 leading-7">
+          <p className="mt-4 text-muted-foreground leading-7">
             {t("login.authDisabledDescription")}
           </p>
           <Button asChild variant="primary" size="lg" className="mt-8 rounded-full">
@@ -67,18 +67,18 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.22),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(248,145,64,0.18),transparent_32%),linear-gradient(145deg,#f6fbfa,#e3f1ee_55%,#fdf7f1)] text-evergreen">
+    <div className="fixed inset-0 w-screen h-screen overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.22),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(248,145,64,0.18),transparent_32%),linear-gradient(145deg,#f6fbfa,#e3f1ee_55%,#fdf7f1)] text-foreground">
       <div className="min-h-full w-full flex items-center justify-center px-6 py-10">
-        <section className="w-full max-w-xl rounded-4xl border border-evergreen/10 bg-white/88 p-8 shadow-[0_28px_80px_rgba(18,55,51,0.12)] backdrop-blur-xl lg:p-10">
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-pacific-blue/80">{t("login.login")}</p>
+        <section className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/88 p-8 shadow-[0_28px_80px_rgba(18,55,51,0.12)] backdrop-blur-xl lg:p-10">
+          <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.login")}</p>
           <h2 className="mt-4 text-3xl font-bold tracking-tight">{t("login.welcomeTo", { app: profile.appName || t("login.platformFallback") })}</h2>
-          <p className="mt-3 text-sm leading-6 text-evergreen/70">
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("login.signInAsRole", { role: profile.roleLabel.toLowerCase() })}
           </p>
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-evergreen/80">{t("login.username")}</span>
+              <span className="mb-2 block text-sm font-semibold text-foreground/80">{t("login.username")}</span>
               <Input
                 type="text"
                 autoComplete="username"
@@ -90,7 +90,7 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-evergreen/80">{t("login.password")}</span>
+              <span className="mb-2 block text-sm font-semibold text-foreground/80">{t("login.password")}</span>
               <Input
                 type="password"
                 autoComplete="current-password"
@@ -102,7 +102,7 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
             </label>
 
             {error && (
-              <div className="rounded-2xl border border-burnt-tangerine/20 bg-burnt-tangerine/8 px-4 py-3 text-sm text-burnt-tangerine">
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {error}
               </div>
             )}
