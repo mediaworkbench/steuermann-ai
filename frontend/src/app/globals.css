@@ -32,12 +32,6 @@
   --color-sidebar-hover: var(--sidebar-hover);
   --color-sidebar-active: var(--sidebar-active);
 
-  --color-evergreen: #042a2b;
-  --color-light-cyan: #cdedf6;
-  --color-pacific-blue: #5eb1bf;
-  --color-atomic-tangerine: #ef7b45;
-  --color-burnt-tangerine: #d84727;
-
   --font-sans: "Geist", sans-serif;
   --font-display: "Geist", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
@@ -156,12 +150,6 @@
   --sidebar-hover: rgba(255, 255, 255, 0.08);
   --sidebar-active: rgba(255, 255, 255, 0.14);
 
-  --evergreen: var(--foreground);
-  --light-cyan: var(--secondary);
-  --pacific-blue: var(--accent);
-  --atomic-tangerine: var(--primary);
-  --burnt-tangerine: var(--destructive);
-
   --primary-dark: #d84727;
   --primary-light: #f5a36d;
 
@@ -233,12 +221,6 @@ html[data-theme="dark"] {
   --sidebar-hover: rgba(255, 255, 255, 0.08);
   --sidebar-active: rgba(255, 255, 255, 0.14);
 
-  --evergreen: var(--foreground);
-  --light-cyan: var(--secondary);
-  --pacific-blue: var(--accent);
-  --atomic-tangerine: var(--primary);
-  --burnt-tangerine: var(--destructive);
-
   --primary-dark: #d84727;
   --primary-light: #f5a36d;
 
@@ -289,9 +271,9 @@ body {
 
 /* ── Scrollbar styling ── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #ffffff; }
-::-webkit-scrollbar-thumb { background: var(--light-cyan); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--pacific-blue); }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: var(--secondary); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* ── Metrics panel expand/collapse via CSS grid trick ── */
 .metrics-body {

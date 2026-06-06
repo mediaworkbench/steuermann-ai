@@ -54,19 +54,19 @@ export default function RagExplorerPage() {
             <Icon
               name="travel_explore"
               size={18}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-evergreen/40 pointer-events-none"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
             />
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("ragExplorer.searchPlaceholder")}
-              className="w-full pl-10 pr-28 py-2.5 rounded-lg border border-evergreen/20 text-evergreen placeholder-evergreen/30 text-sm focus:outline-none focus:ring-2 focus:ring-evergreen/30"
+              className="w-full pl-10 pr-28 py-2.5 rounded-lg border border-border bg-surface text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
             <button
               type="submit"
               disabled={loading || !query.trim()}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-evergreen text-light-cyan rounded-md px-3 py-1.5 text-sm font-medium hover:bg-pacific-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <Icon name="progress_activity" size={16} className="animate-spin" />
@@ -82,13 +82,13 @@ export default function RagExplorerPage() {
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3 text-sm">
             {/* Collection */}
             <label className="flex flex-col">
-              <span className="text-xs font-medium text-evergreen/60 mb-1">
+              <span className="text-xs font-medium text-muted-foreground mb-1">
                 {t("ragExplorer.collection")}
               </span>
               <select
                 value={collection}
                 onChange={(e) => setCollection(e.target.value)}
-                className="rounded-lg border border-evergreen/20 px-3 py-1.5 text-sm text-evergreen bg-white focus:outline-none focus:ring-2 focus:ring-evergreen/30"
+                className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground bg-surface focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               >
                 {collections.length === 0 && collection && (
                   <option value={collection}>{collection}</option>
@@ -104,7 +104,7 @@ export default function RagExplorerPage() {
 
             {/* top_k */}
             <label className="flex flex-col">
-              <span className="text-xs font-medium text-evergreen/60 mb-1">
+              <span className="text-xs font-medium text-muted-foreground mb-1">
                 {t("ragExplorer.topK")}
               </span>
               <input
@@ -115,7 +115,7 @@ export default function RagExplorerPage() {
                 onChange={(e) =>
                   setTopK(Math.min(50, Math.max(1, Number(e.target.value) || 1)))
                 }
-                className="w-20 rounded-lg border border-evergreen/20 px-3 py-1.5 text-sm text-evergreen focus:outline-none focus:ring-2 focus:ring-evergreen/30"
+                className="w-20 rounded-lg border border-border px-3 py-1.5 text-sm text-foreground bg-surface focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </label>
           </div>
@@ -132,7 +132,7 @@ export default function RagExplorerPage() {
         {/* Results */}
         {result && !error && (
           <section className="flex flex-col gap-3">
-            <p className="text-sm text-evergreen/60">
+            <p className="text-sm text-muted-foreground">
               {t("ragExplorer.resultsSummary", {
                 count: result.count,
                 collection: result.collection,
@@ -140,7 +140,7 @@ export default function RagExplorerPage() {
             </p>
 
             {items.length === 0 && (
-              <div className="rounded-xl border border-dashed border-evergreen/20 p-8 text-center text-evergreen/50 text-sm">
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground text-sm">
                 {t("ragExplorer.noResults")}
               </div>
             )}
@@ -148,14 +148,14 @@ export default function RagExplorerPage() {
             {items.map((hit, idx) => (
               <div key={`${hit.file_path}-${hit.chunk_index}-${idx}`}>
                 {idx === firstBelowIdx && (
-                  <div className="flex items-center gap-3 my-2 text-xs text-burnt-tangerine/70">
-                    <span className="h-px flex-1 bg-burnt-tangerine/30" />
+                  <div className="flex items-center gap-3 my-2 text-xs text-warning">
+                    <span className="h-px flex-1 bg-warning/40" />
                     <span className="font-medium whitespace-nowrap">
                       {t("ragExplorer.cutoffDivider", {
                         threshold: result.production_threshold.toFixed(2),
                       })}
                     </span>
-                    <span className="h-px flex-1 bg-burnt-tangerine/30" />
+                    <span className="h-px flex-1 bg-warning/40" />
                   </div>
                 )}
                 <RagResultCard hit={hit} query={result.query} />
@@ -166,7 +166,7 @@ export default function RagExplorerPage() {
 
         {/* Empty (pre-search) state */}
         {!result && !error && !loading && (
-          <div className="rounded-xl border border-dashed border-evergreen/20 p-10 text-center text-evergreen/40 text-sm">
+          <div className="rounded-xl border border-dashed border-border p-10 text-center text-muted-foreground text-sm">
             {t("ragExplorer.emptyState")}
           </div>
         )}
