@@ -12,6 +12,7 @@ const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), 
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
 import type { WorkspaceTabId } from "./workspace/types";
+import { ChatMessageShell } from "./product/ChatMessageShell";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
@@ -712,14 +713,7 @@ export function ChatInterface() {
 
         {/* ─── Streaming / Typing indicator ─── */}
         {(isStreaming || (loading && !isStreaming)) && (
-          <div className="flex gap-4 max-w-5xl mx-auto">
-            <div
-              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground"
-              aria-hidden="true"
-            >
-              <Icon name="smart_toy" size={18} className="text-background" />
-            </div>
-            <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
+          <ChatMessageShell role="assistant">
               <div className="flex items-center gap-2 ml-1">
                 <span className="text-sm font-bold text-foreground">
                   {t("chat.aiAgent")}
@@ -776,8 +770,7 @@ export function ChatInterface() {
                   <span className="typing-dot h-2 w-2 rounded-full bg-primary" />
                 </div>
               )}
-            </div>
-          </div>
+          </ChatMessageShell>
         )}
 
         {/* ─── Queued follow-up (pending bubble) ─── */}
@@ -1214,14 +1207,7 @@ function AssistantMessage({
 }) {
   const { t } = useI18n();
   return (
-    <div className="msg-row flex gap-4 max-w-5xl mx-auto">
-      <div
-        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground"
-        aria-hidden="true"
-      >
-        <Icon name="smart_toy" size={18} className="text-background" />
-      </div>
-      <div className="flex flex-col gap-1 items-start w-full max-w-[85%]">
+    <ChatMessageShell role="assistant">
         {/* Name + timestamp */}
         <div className="flex items-center gap-2 ml-1">
           <span className="text-sm font-bold text-foreground">{t("chat.aiAgent")}</span>
@@ -1311,8 +1297,7 @@ function AssistantMessage({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+    </ChatMessageShell>
   );
 }
 
@@ -1364,15 +1349,7 @@ function UserMessage({
   };
 
   return (
-    <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse">
-      <div
-        className="w-8 h-8 rounded-full bg-linear-to-tr from-primary to-primary/30
-                    flex items-center justify-center shrink-0"
-        aria-hidden="true"
-      >
-        <Icon name="person" size={18} className="text-primary-foreground" />
-      </div>
-      <div className="flex flex-col gap-1 items-end max-w-[85%]">
+    <ChatMessageShell role="user">
         <div className="flex items-center gap-2 mr-1">
           {message.timestamp && (
             <span className="msg-timestamp font-mono text-xs text-muted-foreground">
@@ -1476,8 +1453,7 @@ function UserMessage({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </ChatMessageShell>
   );
 }
 
@@ -1504,15 +1480,7 @@ function QueuedMessageBubble({
 }) {
   const { t } = useI18n();
   return (
-    <div className="msg-row flex gap-4 max-w-5xl mx-auto flex-row-reverse opacity-60">
-      <div
-        className="w-8 h-8 rounded-full bg-linear-to-tr from-primary to-primary/30
-                    flex items-center justify-center shrink-0"
-        aria-hidden="true"
-      >
-        <Icon name="person" size={18} className="text-primary-foreground" />
-      </div>
-      <div className="flex flex-col gap-1 items-end max-w-[85%]">
+    <ChatMessageShell role="user" className="opacity-60">
         {/* Queued tag */}
         <div className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Icon name="schedule" size={13} className="animate-pulse" />
@@ -1561,7 +1529,6 @@ function QueuedMessageBubble({
             <Icon name="close" size={14} />
           </Button>
         </div>
-      </div>
-    </div>
+    </ChatMessageShell>
   );
 }

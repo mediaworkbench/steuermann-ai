@@ -2,6 +2,8 @@
 
 import { AdminOnly } from "@/components/AdminOnly";
 import { Icon } from "@/components/Icon";
+import { PageShell } from "@/components/product/PageShell";
+import { PageHeader } from "@/components/product/PageHeader";
 import { useI18n } from "@/hooks/useI18n";
 import { useRagSearch } from "@/hooks/useRagSearch";
 import styles from "../../settings/Settings.module.css";
@@ -29,11 +31,8 @@ export default function RagExplorerPage() {
   const firstBelowIdx = items.findIndex((h) => !h.above_cutoff);
 
   return (
-    <main className={styles.main}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("ragExplorer.title")}</h1>
-        <p className={styles.subtitle}>{t("ragExplorer.subtitle")}</p>
-      </div>
+    <PageShell contentClassName="space-y-8 lg:px-12">
+      <PageHeader title={t("ragExplorer.title")} subtitle={t("ragExplorer.subtitle")} />
 
       <AdminOnly
         fallback={
@@ -171,6 +170,6 @@ export default function RagExplorerPage() {
           </div>
         )}
       </AdminOnly>
-    </main>
+    </PageShell>
   );
 }

@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useConversationContext } from "@/components/LayoutShell";
 import { useConversationBrowser } from "@/hooks/useConversationBrowser";
 import { useI18n } from "@/hooks/useI18n";
+import { PageShell } from "@/components/product/PageShell";
 import type { Conversation } from "@/lib/types";
 
 export default function ChatsPage() {
@@ -104,29 +105,28 @@ export default function ChatsPage() {
   }, [confirmDeleteId, browser, remove]);
 
   return (
-    <main className="flex-1 overflow-y-auto bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-6 md:px-8 md:py-8 space-y-6">
+    <PageShell contentClassName="max-w-5xl space-y-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <Icon name="forum" size={28} className="text-foreground" />
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">{t("chats.title")}</h1>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Icon name="forum" size={28} className="text-foreground" />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{t("chats.title")}</h1>
               <p className="text-sm text-muted-foreground">{t("chats.subtitle")}</p>
-            </div>
           </div>
-          <button
-            onClick={() => browser.refresh()}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
-                       bg-primary text-primary-foreground hover:bg-primary/90
-                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-          >
-            <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
-            {t("chats.refresh")}
-          </button>
         </div>
+        <button
+          onClick={() => browser.refresh()}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                     bg-primary text-primary-foreground hover:bg-primary/90
+                     disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        >
+          <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
+          {t("chats.refresh")}
+        </button>
+      </div>
 
         {/* Search */}
         <div className="relative max-w-xl">
@@ -270,7 +270,6 @@ export default function ChatsPage() {
             </div>
           </div>
         )}
-      </div>
 
       {/* Bulk delete confirmation */}
       <ConfirmDialog
@@ -293,7 +292,7 @@ export default function ChatsPage() {
         onConfirm={handleConfirmedDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
-    </main>
+    </PageShell>
   );
 }
 

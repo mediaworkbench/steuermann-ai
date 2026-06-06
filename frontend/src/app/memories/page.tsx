@@ -9,6 +9,7 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 import { Icon } from "@/components/Icon";
+import { PageShell } from "@/components/product/PageShell";
 
 const PAGE_SIZE = 50;
 
@@ -139,43 +140,42 @@ export default function MemoriesPage() {
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
-    <main className="flex-1 overflow-y-auto bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-6 md:px-8 md:py-8 space-y-6">
+    <PageShell contentClassName="max-w-5xl space-y-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <Icon name="psychology" size={28} className="text-foreground" />
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">{t("memories.title")}</h1>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Icon name="psychology" size={28} className="text-foreground" />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{t("memories.title")}</h1>
               <p className="text-sm text-muted-foreground">
                 {t("memories.subtitle")}
               </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setClearConfirmOpen(true)}
-              disabled={clearing || total === 0}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
-                         border border-destructive/30 text-destructive hover:bg-destructive/10
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-            >
-              <Icon name="delete" size={14} className={clearing ? "animate-pulse" : ""} />
-              {t("memories.clearAll")}
-            </button>
-            <button
-              onClick={() => load(offset)}
-              disabled={clearing}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
-                         bg-primary text-primary-foreground hover:bg-primary/90
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-            >
-              <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
-              {t("memories.refresh")}
-            </button>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setClearConfirmOpen(true)}
+            disabled={clearing || total === 0}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                       border border-destructive/30 text-destructive hover:bg-destructive/10
+                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            <Icon name="delete" size={14} className={clearing ? "animate-pulse" : ""} />
+            {t("memories.clearAll")}
+          </button>
+          <button
+            onClick={() => load(offset)}
+            disabled={clearing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+                       bg-primary text-primary-foreground hover:bg-primary/90
+                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
+            {t("memories.refresh")}
+          </button>
+        </div>
+      </div>
 
         {/* Stats strip */}
         {stats && (
@@ -357,7 +357,6 @@ export default function MemoriesPage() {
             </div>
           </div>
         )}
-      </div>
 
       <ConfirmDialog
         isOpen={clearConfirmOpen}
@@ -370,6 +369,6 @@ export default function MemoriesPage() {
         onCancel={() => setClearConfirmOpen(false)}
         variant="danger"
       />
-    </main>
+    </PageShell>
   );
 }

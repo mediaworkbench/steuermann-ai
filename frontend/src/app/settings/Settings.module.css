@@ -1,44 +1,3 @@
-.main {
-  flex: 1 1 0%;
-  overflow-y: auto;
-  padding: 1rem;
-  scroll-behavior: smooth;
-  background-color: #fff;
-}
-
-@media (min-width: 768px) {
-  .main {
-    padding: 1.5rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .main {
-    padding-left: 3rem;
-    padding-right: 3rem;
-  }
-}
-
-.main > * + * {
-  margin-top: 2rem;
-}
-
-.header {
-  margin-bottom: var(--spacing-lg);
-}
-
-.title {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  margin: 0;
-}
-
 .accountCard {
   display: block;
 }
@@ -62,9 +21,9 @@
 }
 
 .error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
+  background: color-mix(in srgb, var(--destructive) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+  color: var(--destructive);
   padding: var(--spacing-md);
   border-radius: var(--radius-md);
   margin-bottom: var(--spacing-lg);

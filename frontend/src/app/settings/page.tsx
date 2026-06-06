@@ -5,6 +5,8 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { useSettings } from "@/hooks/useSettings";
 import { useI18n } from "@/hooks/useI18n";
 import { useRole } from "@/context/RoleContext";
+import { PageShell } from "@/components/product/PageShell";
+import { PageHeader } from "@/components/product/PageHeader";
 import {
   CURRENT_USER_ID,
   SINGLE_USER_DISPLAY_NAME,
@@ -18,14 +20,16 @@ export default function SettingsPage() {
   const { settings, loading, error, saveSettings } = useSettings(userId);
 
   return (
-    <main className={styles.main}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("settingsPage.title")}</h1>
-        <p className={styles.subtitle}>
-          {SINGLE_USER_DISPLAY_NAME}
-          <span className="ml-2 text-sm font-normal capitalize opacity-60">· {role}</span>
-        </p>
-      </div>
+    <PageShell contentClassName="space-y-8 lg:px-12">
+      <PageHeader
+        title={t("settingsPage.title")}
+        subtitle={
+          <>
+            {SINGLE_USER_DISPLAY_NAME}
+            <span className="ml-2 text-sm font-normal capitalize opacity-60">· {role}</span>
+          </>
+        }
+      />
 
       {error && (
         <div className={styles.error}>
@@ -46,6 +50,6 @@ export default function SettingsPage() {
           <pre>{JSON.stringify(settings, null, 2)}</pre>
         </details>
       )}
-    </main>
+    </PageShell>
   );
 }

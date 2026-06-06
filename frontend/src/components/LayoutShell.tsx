@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { AppShell } from "@/components/product/AppShell";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
@@ -125,7 +126,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
         onRename={convState.rename}
         onExport={convState.doExport}
       />
-      <main className="flex-1 flex flex-col h-full min-h-0 bg-surface text-foreground relative isolate min-w-0 overflow-hidden">
+      <AppShell>
         <Header
           chatTitle={isChat ? chatTitle : undefined}
           onOpenSidebar={openSidebar}
@@ -138,7 +139,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
             <ChatSessionProvider>{children}</ChatSessionProvider>
           </WorkspacePanelProvider>
         </div>
-      </main>
+      </AppShell>
     </ConversationContext.Provider>
       <Toaster
         position="top-right"

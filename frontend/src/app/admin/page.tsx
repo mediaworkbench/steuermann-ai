@@ -5,6 +5,8 @@ import { AdminOnly } from "@/components/AdminOnly";
 import { useSettings } from "@/hooks/useSettings";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
+import { PageShell } from "@/components/product/PageShell";
+import { PageHeader } from "@/components/product/PageHeader";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "../settings/Settings.module.css";
 
@@ -14,11 +16,8 @@ export default function AdminPage() {
   const { settings, loading, error, saveSettings } = useSettings(CURRENT_USER_ID);
 
   return (
-    <main className={styles.main}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("adminPage.title")}</h1>
-        <p className={styles.subtitle}>{t("adminPage.subtitle")}</p>
-      </div>
+    <PageShell contentClassName="space-y-8 lg:px-12">
+      <PageHeader title={t("adminPage.title")} subtitle={t("adminPage.subtitle")} />
 
       <section className={styles.accountCard}>
         <div className={styles.accountInfo}>
@@ -45,6 +44,6 @@ export default function AdminPage() {
           onSave={saveSettings}
         />
       </AdminOnly>
-    </main>
+    </PageShell>
   );
 }

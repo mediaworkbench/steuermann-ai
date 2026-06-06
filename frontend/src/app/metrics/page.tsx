@@ -16,11 +16,15 @@ import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
 import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
 import { MessageQualityPanel } from "@/components/MessageQualityPanel";
 import { Icon } from "@/components/Icon";
+import { PageShell } from "@/components/product/PageShell";
+import { PageHeader } from "@/components/product/PageHeader";
+import { useProfile } from "@/hooks/useProfile";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import styles from "./Metrics.module.css";
 
 export default function MetricsPage() {
   const { t, formatTime, formatNumber } = useI18n();
+  const profile = useProfile();
   const userId = CURRENT_USER_ID;
   const today = useMemo(() => new Date(), []);
   const [activeTab, setActiveTab] = useState<"realtime" | "trends">("realtime");
@@ -231,10 +235,8 @@ export default function MetricsPage() {
     : t("metrics.na");
 
   return (
-    <main className={styles.main}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>System performance and analytics</h1>
-      </div>
+    <PageShell contentClassName="space-y-8 lg:px-12">
+      <PageHeader title={t("metrics.title", { app: profile.appName ?? "AI" })} />
 
       <div className={styles.tabBar} role="tablist" aria-label={t("metrics.sectionsLabel")}>
         <button
@@ -553,7 +555,7 @@ export default function MetricsPage() {
         </>
       </section>
       )}
-    </main>
+    </PageShell>
   );
 }
 

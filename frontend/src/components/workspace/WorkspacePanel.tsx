@@ -11,6 +11,8 @@ import { KnowledgeTab } from "./KnowledgeTab";
 import { MemoryTab } from "./MemoryTab";
 import { OutputsTab } from "./OutputsTab";
 import { InspectorTab } from "./InspectorTab";
+import { WorkspacePanelShell } from "./WorkspacePanelShell";
+import { WorkspacePanelTopBar } from "./WorkspacePanelTopBar";
 
 const TABS: { id: WorkspaceTabId; icon: string; labelKey: string }[] = [
   { id: "documents", icon: "folder_open", labelKey: "workspace.tabDocuments" },
@@ -84,35 +86,12 @@ export function WorkspacePanel({
       )}
 
       {/* Sidebar panel */}
-      <div
-        className={`fixed right-0 top-16 h-[calc(100vh-4rem)] z-10
-                     md:sticky md:self-start md:top-20 md:h-[calc(100vh-5rem)] md:z-0
-                     w-80 ${isOpen ? "md:w-64 lg:w-72" : "md:w-0"} bg-surface border-l border-border
-                     transition-all duration-200
-                     flex flex-col overflow-hidden min-h-0
-                     ${isOpen ? "translate-x-0" : "translate-x-full md:translate-x-0 md:border-l-0"}`}
-      >
-        {/* Header */}
-        <div className="px-3 py-2.5 border-b border-border flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="grid place-items-center w-7 h-7 rounded-lg bg-primary/10 text-primary shrink-0">
-              <Icon name="folder_open" size={16} />
-            </span>
-            <h3 className="font-semibold text-sm text-foreground tracking-tight truncate">
-              {t("chat.workspace")}
-            </h3>
-          </div>
-          <Button
-            type="button"
-            onClick={onToggle}
-            variant="ghost"
-            size="sm"
-            className="p-1.5 text-muted-foreground md:hidden"
-            aria-label={t("workspace.closeSidebar")}
-          >
-            <Icon name="close" size={18} />
-          </Button>
-        </div>
+      <WorkspacePanelShell isOpen={isOpen}>
+        <WorkspacePanelTopBar
+          title={t("chat.workspace")}
+          onClose={onToggle}
+          closeLabel={t("workspace.closeSidebar")}
+        />
 
         {/* Tab bar — icon-forward segmented control; the active tab reveals its
             label so even long localized labels fit the narrow panel. */}
@@ -179,7 +158,7 @@ export function WorkspacePanel({
           {activeTab === "outputs" && <OutputsTab evidence={evidence} />}
           {activeTab === "inspector" && <InspectorTab nodeTrace={nodeTrace} isStreaming={isStreaming} />}
         </div>
-      </div>
+      </WorkspacePanelShell>
     </>
   );
 }
