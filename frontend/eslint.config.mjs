@@ -53,6 +53,12 @@ export default defineConfig([
           message:
             "Raw palette utility bg-blue-100 is not allowed. Use bg-info/10 instead.",
         },
+        {
+          selector:
+            "JSXAttribute[name.name='className'] Literal[value=/#[0-9a-fA-F]{3,8}/]",
+          message:
+            "Hex color literals in JSX className are not allowed. Use semantic token classes or CSS variables.",
+        },
       ],
     },
   },

@@ -49,8 +49,8 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
 
   if (!AUTH_ENABLED) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.16),transparent_40%),linear-gradient(135deg,#f7fbfb,#eaf5f4)] text-foreground flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/85 backdrop-blur-xl p-8 shadow-[0_30px_80px_rgba(18,55,51,0.12)]">
+      <div className="min-h-screen text-foreground flex items-center justify-center px-6 py-12" style={{ background: "var(--login-dev-bg)" }}>
+        <div className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/85 backdrop-blur-xl p-8" style={{ boxShadow: "var(--login-card-shadow)" }}>
           <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.developmentMode")}</p>
           <h1 className="mt-4 text-4xl font-bold tracking-tight">{t("login.authDisabled")}</h1>
           <p className="mt-4 text-muted-foreground leading-7">
@@ -67,9 +67,9 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(39,95,87,0.22),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(248,145,64,0.18),transparent_32%),linear-gradient(145deg,#f6fbfa,#e3f1ee_55%,#fdf7f1)] text-foreground">
+    <div className="fixed inset-0 w-screen h-screen overflow-auto text-foreground" style={{ background: "var(--login-main-bg)" }}>
       <div className="min-h-full w-full flex items-center justify-center px-6 py-10">
-        <section className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/88 p-8 shadow-[0_28px_80px_rgba(18,55,51,0.12)] backdrop-blur-xl lg:p-10">
+        <section className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/88 p-8 backdrop-blur-xl lg:p-10" style={{ boxShadow: "var(--login-panel-shadow)" }}>
           <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.login")}</p>
           <h2 className="mt-4 text-3xl font-bold tracking-tight">{t("login.welcomeTo", { app: profile.appName || t("login.platformFallback") })}</h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">

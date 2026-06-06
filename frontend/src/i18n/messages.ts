@@ -384,6 +384,8 @@ export type Messages = {
     knowledgeNoResults: string;
     sourcesHeading: string;
     mapGenerated: string;
+    openFullMap: string;
+    mapDistanceBadge: string;
     metaScore: string;
     metaRated: string;
     tabInspector: string;
@@ -966,6 +968,8 @@ export const messages: Record<Locale, Messages> = {
       knowledgeNoResults: "Searched · no relevant results",
       sourcesHeading: "Sources",
       mapGenerated: "Map output",
+      openFullMap: "Open full map",
+      mapDistanceBadge: "{km} km · {miles} mi",
       metaScore: "score {score}",
       metaRated: "rated {rating}/5",
       tabInspector: "Inspector",
@@ -1546,6 +1550,8 @@ export const messages: Record<Locale, Messages> = {
       knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
       sourcesHeading: "Quellen",
       mapGenerated: "Kartenausgabe",
+      openFullMap: "Karte vollständig öffnen",
+      mapDistanceBadge: "{km} km · {miles} mi",
       metaScore: "Score {score}",
       metaRated: "Bewertung {rating}/5",
       tabInspector: "Inspektor",

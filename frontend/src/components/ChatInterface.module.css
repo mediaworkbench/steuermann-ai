@@ -73,12 +73,12 @@
 
 .userMessage .messageBubble {
   background: var(--primary);
-  color: white;
+  color: var(--primary-foreground);
   border-bottom-right-radius: var(--radius-sm);
 }
 
 .assistantMessage .messageBubble {
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-bottom-left-radius: var(--radius-sm);
@@ -127,7 +127,7 @@
 
 .inputArea {
   border-top: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-card);
   padding: var(--spacing-md);
 }
 
@@ -146,7 +146,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: 0.875rem;
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -162,7 +162,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: 0.9375rem;
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   transition: all var(--transition-fast);
 }
@@ -170,7 +170,7 @@
 .input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
 }
 
 .input:disabled {
@@ -184,7 +184,7 @@
   gap: var(--spacing-xs);
   padding: var(--spacing-sm) var(--spacing-lg);
   background: var(--primary);
-  color: white;
+  color: var(--primary-foreground);
   border: none;
   border-radius: var(--radius-md);
   font-size: 0.9375rem;

@@ -62,6 +62,17 @@
 - **chore** Refactored `components/MapWidget.tsx` to replace inline map color literals with centralized semantic map constants (`MAP_COLOR_*`, `MAP_MULTI_MARKER_COLORS`) for marker/line styling consistency.
 - **chore** Extracted distance line source/layer IDs in `MapWidget.tsx` to shared constants and removed duplicated string literals.
 - **fix** Hardened `MapWidget.tsx` distance-line setup by removing any pre-existing distance line layer/source before adding them, preventing duplicate-layer/source insertion issues on remount/reload edge paths.
+- **feat** Added shared map styling constants module `components/product/mapStyles.ts` and moved `MapWidget.tsx` map style/source/layer/color constants to that shared product layer.
+- **feat** Localized `MapWidget.tsx` map overlay copy by replacing hardcoded text with i18n keys (`workspace.openFullMap`, `workspace.mapDistanceBadge`) and added the new EN/DE translations in `i18n/messages.ts`.
+- **chore** Added `aria-label` localization for the MapWidget external-map CTA and removed remaining hardcoded map-surface copy from the component.
+- **feat** Added runtime map color resolver (`resolveMapThemeColors`) in `components/product/mapStyles.ts` that reads active CSS variables with safe fallbacks so map marker/line colors follow current light/dark + profile token themes.
+- **chore** Migrated `MapWidget.tsx` marker/line color usage from static constants to runtime-resolved theme colors (`themeColors.*`) while preserving existing map rendering behavior.
+- **docs** Clarified in `MapWidget.tsx` that map marker/line chrome is now intentionally synchronized with active profile/theme CSS tokens.
+- **feat** Added dedicated map CSS variables in `app/globals.css` (`--map-primary`, `--map-secondary`, `--map-distance-line`, `--map-success`, `--map-warning`, `--map-accent`) in both light and dark themes.
+- **chore** Updated `components/product/mapStyles.ts` resolver precedence to prefer dedicated map vars first, then chart vars as fallback, then static defaults.
+- **chore** Tokenized remaining hardcoded UI color literals in `ChatInterface.module.css`, `Sidebar.module.css`, and shared globals utility classes (`.btn-primary`, `.input`, `.input:focus`) to semantic token-based values.
+- **chore** Replaced hardcoded `LoginScreen.tsx` gradients/shadows with semantic CSS-variable-driven surfaces (`--login-dev-bg`, `--login-main-bg`, `--login-card-shadow`, `--login-panel-shadow`).
+- **feat** Tightened frontend lint guardrails in `eslint.config.mjs` with a new warning rule that flags hex color literals inside JSX `className` strings.
 - **feat** Migrated `ui/Select.tsx`, `ui/Input.tsx`, and `ui/Textarea.tsx` to use `cn()` from `lib/utils.ts` for conflict-free Tailwind class merging, completing `cn()` adoption across all shared UI primitives.
 - **feat** Added design-system enforcement gates to `eslint.config.mjs`: Gate 1 (`no-restricted-imports`) blocks `lucide-react` re-introduction in `src/**` with a message pointing to the shared `Icon` wrapper; Gate 2 (`no-restricted-syntax`) warns on raw palette status-color class strings (`emerald-*`, `amber-*`, `red-*`, `green-*`, `blue-100`) enforcing semantic token usage.
 - **docs** Updated `design-system.md` handoff snapshot to reflect Phase 1/2 completion, the active enforcement gates, and the remaining Phase 3/5 work.

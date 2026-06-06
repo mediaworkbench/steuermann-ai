@@ -143,6 +143,18 @@
   --chart-teal-soft: #14b8a6;
   --chart-orange: #f97316;
 
+  --map-primary: var(--chart-blue-strong);
+  --map-secondary: var(--chart-red);
+  --map-distance-line: var(--chart-indigo);
+  --map-success: var(--chart-green);
+  --map-warning: var(--chart-amber);
+  --map-accent: var(--chart-violet);
+
+  --login-dev-bg: radial-gradient(circle_at_top_left, color-mix(in srgb, var(--primary) 24%, transparent), transparent 40%), linear-gradient(135deg, var(--background), var(--surface-muted));
+  --login-main-bg: radial-gradient(circle_at_top_left, color-mix(in srgb, var(--primary) 28%, transparent), transparent 38%), radial-gradient(circle_at_bottom_right, color-mix(in srgb, var(--warning) 20%, transparent), transparent 32%), linear-gradient(145deg, var(--background), var(--surface-muted) 55%, var(--surface-elevated));
+  --login-card-shadow: 0 30px 80px color-mix(in srgb, var(--foreground) 12%, transparent);
+  --login-panel-shadow: 0 28px 80px color-mix(in srgb, var(--foreground) 12%, transparent);
+
   --sidebar-background: #042a2b;
   --sidebar-foreground: #cdedf6;
   --sidebar-muted: rgba(205, 237, 246, 0.72);
@@ -213,6 +225,18 @@ html[data-theme="dark"] {
   --chart-teal: #39b9b8;
   --chart-teal-soft: #63d0cb;
   --chart-orange: #f08c4b;
+
+  --map-primary: var(--chart-blue-strong);
+  --map-secondary: var(--chart-red);
+  --map-distance-line: var(--chart-indigo);
+  --map-success: var(--chart-green);
+  --map-warning: var(--chart-amber);
+  --map-accent: var(--chart-violet);
+
+  --login-dev-bg: radial-gradient(circle_at_top_left, color-mix(in srgb, var(--primary) 24%, transparent), transparent 40%), linear-gradient(135deg, var(--background), var(--surface-muted));
+  --login-main-bg: radial-gradient(circle_at_top_left, color-mix(in srgb, var(--primary) 28%, transparent), transparent 38%), radial-gradient(circle_at_bottom_right, color-mix(in srgb, var(--warning) 20%, transparent), transparent 32%), linear-gradient(145deg, var(--background), var(--surface-muted) 55%, var(--surface-elevated));
+  --login-card-shadow: 0 30px 80px color-mix(in srgb, var(--foreground) 16%, transparent);
+  --login-panel-shadow: 0 28px 80px color-mix(in srgb, var(--foreground) 16%, transparent);
 
   --sidebar-background: #031516;
   --sidebar-foreground: #d8f4f8;
@@ -368,7 +392,7 @@ body {
 
 .btn-primary {
   background: var(--primary);
-  color: white;
+  color: var(--primary-foreground);
 }
 
 .btn-primary:hover {
@@ -391,7 +415,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: 0.875rem;
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   transition: all var(--transition-fast);
 }
@@ -399,7 +423,7 @@ body {
 .input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
 }
 
 .label {

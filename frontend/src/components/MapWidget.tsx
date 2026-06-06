@@ -3,27 +3,17 @@
 import { useEffect, useRef } from "react";
 import type { StyleSpecification } from "maplibre-gl";
 import type { MapData } from "@/lib/types";
+import { useI18n } from "@/hooks/useI18n";
+import {
+  OPENFREEMAP_STYLE,
+  SHOW_PIN_THRESHOLD,
+  DISTANCE_LINE_SOURCE_ID,
+  DISTANCE_LINE_LAYER_ID,
+  resolveMapThemeColors,
+} from "@/components/product/mapStyles";
 
 // CSS is imported globally in layout.tsx — MapLibre must not import it here
 // because component-level CSS imports are unreliable in Next.js production builds.
-
-const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
-const SHOW_PIN_THRESHOLD = 5; // skip marker for zoom ≤ this (continent/world view)
-const DISTANCE_LINE_SOURCE_ID = "distance-line";
-const DISTANCE_LINE_LAYER_ID = "distance-line";
-const MAP_COLOR_PRIMARY = "#2563eb";
-const MAP_COLOR_SECONDARY = "#dc2626";
-const MAP_COLOR_DISTANCE_LINE = "#6366f1";
-const MAP_COLOR_SUCCESS = "#16a34a";
-const MAP_COLOR_WARNING = "#d97706";
-const MAP_COLOR_ACCENT = "#7c3aed";
-const MAP_MULTI_MARKER_COLORS = [
-  MAP_COLOR_PRIMARY,
-  MAP_COLOR_SECONDARY,
-  MAP_COLOR_SUCCESS,
-  MAP_COLOR_WARNING,
-  MAP_COLOR_ACCENT,
-];
 
 // Module-level cache so repeated mounts (multiple map results in history) share
 // one fetch instead of re-requesting the style JSON each time.
@@ -52,6 +42,7 @@ interface Props {
 }
 
 export function MapWidget({ data }: Props) {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,6 +68,10 @@ export function MapWidget({ data }: Props) {
                 data.locations.reduce((s, l) => s + l.lat, 0) / data.locations.length,
               ]
             : [0, 0];
+
+          // Resolve map marker/line colors from active CSS variables so map chrome
+          // stays in sync with current profile + light/dark theme.
+          const themeColors = resolveMapThemeColors();
 
         // Fetch and sanitize the style for MapLibre v4.x compatibility:
         // 1. Strip terrain / raster-dem sources (pre-existing guard).
@@ -150,7 +145,7 @@ export function MapWidget({ data }: Props) {
             data.lon != null &&
             data.zoom > SHOW_PIN_THRESHOLD
           ) {
-            new maplibregl.Marker({ color: MAP_COLOR_PRIMARY })
+            new maplibregl.Marker({ color: themeColors.primary })
               .setLngLat([data.lon, data.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(data.label ?? ""))
               .addTo(mapInstance);
@@ -159,12 +154,12 @@ export function MapWidget({ data }: Props) {
           if (data.type === "distance" && data.locations && data.locations.length === 2) {
             const [a, b] = data.locations;
 
-            new maplibregl.Marker({ color: MAP_COLOR_PRIMARY })
+            new maplibregl.Marker({ color: themeColors.primary })
               .setLngLat([a.lon, a.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(a.label))
               .addTo(mapInstance);
 
-            new maplibregl.Marker({ color: MAP_COLOR_SECONDARY })
+            new maplibregl.Marker({ color: themeColors.secondary })
               .setLngLat([b.lon, b.lat])
               .setPopup(new maplibregl.Popup({ closeButton: false }).setText(b.label))
               .addTo(mapInstance);
@@ -196,7 +191,7 @@ export function MapWidget({ data }: Props) {
               source: DISTANCE_LINE_SOURCE_ID,
               layout: { "line-join": "round", "line-cap": "round" },
               paint: {
-                "line-color": MAP_COLOR_DISTANCE_LINE,
+                "line-color": themeColors.distanceLine,
                 "line-width": 2,
                 "line-dasharray": [4, 3],
               },
@@ -213,7 +208,7 @@ export function MapWidget({ data }: Props) {
 
           if (data.type === "multi" && data.locations && data.locations.length > 0) {
             data.locations.forEach((loc, i) => {
-              new maplibregl.Marker({ color: MAP_MULTI_MARKER_COLORS[i % MAP_MULTI_MARKER_COLORS.length] })
+              new maplibregl.Marker({ color: themeColors.multiMarkerColors[i % themeColors.multiMarkerColors.length] })
                 .setLngLat([loc.lon, loc.lat])
                 .setPopup(new maplibregl.Popup({ closeButton: false }).setText(loc.label))
                 .addTo(mapInstance!);
@@ -252,7 +247,10 @@ export function MapWidget({ data }: Props) {
 
       {data.type === "distance" && data.distance_km != null && (
         <div className="absolute bottom-6 left-2 rounded bg-foreground/60 px-2 py-0.5 text-xs font-medium text-background">
-          {data.distance_km} km · {data.distance_miles ?? "?"} mi
+          {t("workspace.mapDistanceBadge", {
+            km: data.distance_km,
+            miles: data.distance_miles ?? "?",
+          })}
         </div>
       )}
 
@@ -260,9 +258,10 @@ export function MapWidget({ data }: Props) {
         href={data.osm_url}
         target="_blank"
         rel="noopener noreferrer"
+        aria-label={t("workspace.openFullMap")}
         className="absolute top-1 right-1 rounded bg-foreground/60 px-2 py-0.5 text-xs font-medium text-background hover:bg-foreground/75"
       >
-        Open full map ↗
+        {t("workspace.openFullMap")} ↗
       </a>
     </div>
   );
