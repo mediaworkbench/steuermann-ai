@@ -38,14 +38,14 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
   if (chips.length === 0) return null;
 
   const baseClass =
-    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-50 text-evergreen/55 border border-gray-200";
+    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-muted text-muted-foreground border border-border";
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 mt-2" aria-label={t("workspace.evidenceSummary")}>
       {chips.map((c) => {
         const body = (
           <>
-            <Icon name={c.icon} size={12} className="text-evergreen/40" />
+            <Icon name={c.icon} size={12} className="text-muted-foreground" />
             {c.key === "map" ? c.label : c.count}
           </>
         );
@@ -57,7 +57,7 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
             onClick={() => onSelect(c.tab)}
             variant="ghost"
             size="sm"
-            className={`${baseClass} h-auto rounded-full px-2 py-0.5 text-[11px] hover:bg-pacific-blue/10 hover:text-pacific-blue hover:border-pacific-blue/20`}
+            className={`${baseClass} h-auto rounded-full px-2 py-0.5 text-[11px] hover:bg-primary/10 hover:text-primary hover:border-primary/20`}
           >
             {body}
           </Button>

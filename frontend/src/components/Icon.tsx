@@ -3,7 +3,7 @@
  * Uses the locally-hosted MaterialSymbolsOutlined.woff2 font
  * defined in globals.css via the .material-symbols-outlined class.
  *
- * Usage: <Icon name="smart_toy" size={18} className="text-white" />
+ * Usage: <Icon name="smart_toy" size={18} className="text-primary" />
  */
 
 interface IconProps {

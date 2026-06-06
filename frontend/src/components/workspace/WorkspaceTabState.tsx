@@ -36,7 +36,7 @@ export function WorkspaceTabState({ icon, title, hint, tone = "idle", action }: 
       <p className={`text-xs font-semibold mb-1 ${isError ? "text-destructive" : "text-muted-foreground"}`}>
         {title}
       </p>
-      {hint && <p className="text-xs text-muted-foreground max-w-[13rem] break-words">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground max-w-52 wrap-break-word">{hint}</p>}
       {action && (
         <Button
           type="button"

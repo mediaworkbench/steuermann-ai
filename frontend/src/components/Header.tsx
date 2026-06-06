@@ -50,7 +50,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
 
   return (
     <header
-      className="h-16 md:h-20 bg-light-cyan/20 border-b border-light-cyan flex items-center
+      className="h-16 md:h-20 bg-surface border-b border-border flex items-center
                  justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20"
     >
       <div className="flex items-center gap-3">
@@ -58,7 +58,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
           type="button"
           variant="ghost"
           size="sm"
-          className="md:hidden text-evergreen hover:text-pacific-blue transition-colors
+          className="md:hidden text-foreground hover:text-primary transition-colors
                      min-h-11 min-w-11 flex items-center justify-center -ml-2"
           onClick={onOpenSidebar}
           aria-label={t("header.openNavigation")}
@@ -68,15 +68,15 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
           <Icon name="menu" size={24} />
         </Button>
         <Link href="/" className="header-title-slot flex flex-col hover:opacity-80 transition-opacity">
-          <h2 className="text-evergreen font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
+          <h2 className="text-foreground font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
             {chatTitle}
           </h2>
           {hasMeta ? (
-            <span className="text-pacific-blue/70 text-xs font-mono hidden md:flex items-center gap-2">
+            <span className="text-muted-foreground text-xs font-mono hidden md:flex items-center gap-2">
               {createdLabel && <span>{createdLabel}</span>}
               {msgCount != null && msgCount > 0 && (
                 <>
-                  <span className="text-pacific-blue/30">·</span>
+                  <span className="text-muted-foreground">·</span>
                   <span>
                     {msgCount === 1
                       ? t("header.messageCountOne", { count: msgCount })
@@ -86,19 +86,19 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               )}
               {lang && (
                 <>
-                  <span className="text-pacific-blue/30">·</span>
+                  <span className="text-muted-foreground">·</span>
                   <span>{lang}</span>
                 </>
               )}
               {activeConversation?.pinned && (
                 <>
-                  <span className="text-pacific-blue/30">·</span>
-                  <Icon name="push_pin" size={12} className="text-pacific-blue/60" />
+                  <span className="text-muted-foreground">·</span>
+                  <Icon name="push_pin" size={12} className="text-primary" />
                 </>
               )}
             </span>
           ) : (
-            <span className="text-pacific-blue text-xs font-mono hidden md:block">
+            <span className="text-primary text-xs font-mono hidden md:block">
               {t("header.activeSession")}
             </span>
           )}
@@ -113,7 +113,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             onClick={() => setShowExport(true)}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-evergreen hover:text-pacific-blue text-sm group min-h-11 min-w-11 justify-center"
+            className="gap-1.5 text-foreground hover:text-primary text-sm group min-h-11 min-w-11 justify-center"
             title={t("header.exportConversation")}
           >
             <Icon
@@ -132,7 +132,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             onClick={onToggleWorkspaceSidebar}
             variant="ghost"
             size="sm"
-            className="hidden md:flex gap-1.5 text-evergreen hover:text-pacific-blue text-sm font-medium group min-h-11 min-w-11 justify-center"
+            className="hidden md:flex gap-1.5 text-foreground hover:text-primary text-sm font-medium group min-h-11 min-w-11 justify-center"
             aria-label={t("chat.toggleWorkspaceSidebar")}
             title={t("chat.toggleWorkspaceSidebar")}
           >
@@ -151,7 +151,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             key={link.href}
             href={link.href}
             prefetch={false}
-            className="flex items-center gap-1.5 text-evergreen hover:text-pacific-blue
+            className="flex items-center gap-1.5 text-foreground hover:text-primary
                        transition-colors text-sm font-medium group min-h-11 min-w-11
                        justify-center md:justify-start"
           >
@@ -172,7 +172,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             disabled={loggingOut}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-evergreen hover:text-burnt-tangerine text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
+            className="gap-1.5 text-foreground hover:text-destructive text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
             title={t("header.signOut")}
           >
             <Icon name="logout" size={18} />

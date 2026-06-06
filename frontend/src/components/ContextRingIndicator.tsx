@@ -22,7 +22,7 @@ export function ContextRingIndicator({ contextTokens, maxContextTokens }: Contex
   if (!maxContextTokens) {
     const tooltip = `Context: ${contextTokens.toLocaleString()} tokens (window size unknown)`;
     return (
-      <div className="flex items-center gap-1 text-evergreen/40" title={tooltip} aria-label={tooltip}>
+      <div className="flex items-center gap-1 text-muted-foreground" title={tooltip} aria-label={tooltip}>
         <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
           <circle
             cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
@@ -41,10 +41,10 @@ export function ContextRingIndicator({ contextTokens, maxContextTokens }: Contex
   const filled = pct * CIRCUMFERENCE;
 
   const colorClass =
-    contextTokens === 0 ? "text-evergreen/30"
-    : pct < 0.6        ? "text-evergreen/60"
+    contextTokens === 0 ? "text-muted-foreground"
+    : pct < 0.6        ? "text-foreground"
     : pct < 0.85       ? "text-amber-500"
-    :                    "text-red-500";
+    :                    "text-destructive";
 
   const tooltip =
     contextTokens === 0

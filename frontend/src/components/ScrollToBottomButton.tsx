@@ -31,7 +31,7 @@ export function ScrollToBottomButton({ visible, unreadCount, onClick }: ScrollTo
         {unreadCount > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -top-2 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-white text-evergreen text-[10px] font-bold px-1 leading-none"
+            className="absolute -top-2 -right-1 min-w-4.5 h-4.5 flex items-center justify-center rounded-full border border-border bg-surface text-primary text-[10px] font-bold px-1 leading-none"
           >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
