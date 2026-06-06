@@ -492,7 +492,7 @@ export function ChatInterface() {
         setUploadingAttachment(false);
       }
     },
-    [ensureConversation, loading, refresh, uploadingAttachment, fetchWorkspaceDocuments, t],
+    [ensureConversation, loading, refresh, uploadingAttachment, fetchWorkspaceDocuments, setWorkspaceSidebarOpen, t],
   );
 
   const handleAttachmentDelete = useCallback(

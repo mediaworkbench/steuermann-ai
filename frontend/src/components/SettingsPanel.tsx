@@ -147,7 +147,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   }, [myDataOptions, t]);
 
   if (loading) {
-    return <div className="text-center py-8 text-gray-500">{t("common.loading")}</div>;
+    return <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>;
   }
 
   const chatModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -158,8 +158,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     <div className="space-y-6">
 
       {/* Language */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.language")}</h3>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.language")}</h3>
         <Select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
@@ -173,8 +173,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       </div>
 
       {/* Sound */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.soundSection")}</h3>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.soundSection")}</h3>
         <label className="flex items-start gap-3 cursor-pointer">
           <Checkbox
             type="checkbox"
@@ -192,10 +192,10 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       </div>
 
       {/* Tool Toggles */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.toolSettings")}</h3>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.toolSettings")}</h3>
         {configLoading ? (
-          <div className="text-gray-500 text-sm">{t("settingsPanel.loadingTools")}</div>
+          <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</div>
         ) : (
           <div className="space-y-3">
             {(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => (
@@ -214,9 +214,9 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       </div>
 
       {/* RAG — user-scoped controls: enabled toggle + top_k */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.ragConfiguration")}</h3>
-        {configLoading && <div className="text-gray-500 text-sm">{t("settingsPanel.loadingDefaults")}</div>}
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.ragConfiguration")}</h3>
+        {configLoading && <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</div>}
         <div className="space-y-4">
           <div>
             <label className="flex items-center gap-3 cursor-pointer">
@@ -230,7 +230,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </label>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-foreground">
               {t("settingsPanel.topKResults", {
                 default: systemConfig?.rag_defaults.top_k || 5,
                 value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
@@ -247,12 +247,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       </div>
 
       {/* Chat Model Selection */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("settingsPanel.modelSelection")}</h3>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("settingsPanel.modelSelection")}</h3>
         {configLoading ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.loadingModels")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingModels")}</p>
         ) : chatModelOptions.length === 0 ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.noRoleModelsAvailable")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.noRoleModelsAvailable")}</p>
         ) : (
           <div className="space-y-4">
             {chatModelOptions.map((roleConfig) => {
@@ -264,15 +264,15 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
                 ? roleModels
                 : [roleDefaultModel, ...roleModels].filter(Boolean);
               return (
-                <div key={roleName} className="border border-gray-200 rounded-lg p-4">
+                <div key={roleName} className="rounded-xl border border-border p-4">
                   <div className="mb-2">
-                    <p className="text-sm font-semibold text-gray-800">
+                    <p className="text-sm font-semibold text-foreground">
                       {t("settingsPanel.roleModelLabel", { role: roleName })}
                     </p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-xs text-muted-foreground">
                       {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
                     </p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-xs text-muted-foreground">
                       {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
@@ -314,15 +314,15 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
 
       {/* Last updated */}
       {settings?.updated_at && (
-        <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+        <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground">
           <p>{t("settingsPage.lastUpdated", { value: formatDateTime(settings.updated_at) })}</p>
         </div>
       )}
 
       {/* My Data — danger zone */}
-      <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+      <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-red-700 mb-1">{t("settingsPanel.myDataSection")}</h3>
-        <p className="text-sm text-gray-500 mb-4">{t("settingsPanel.myDataDescription")}</p>
+        <p className="mb-4 text-sm text-muted-foreground">{t("settingsPanel.myDataDescription")}</p>
         <div className="space-y-3 mb-5">
           {(
             [

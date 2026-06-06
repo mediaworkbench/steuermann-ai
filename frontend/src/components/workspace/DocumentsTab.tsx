@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
+import Image from "next/image";
 import { toast } from "sonner";
 import { Icon } from "../Icon";
 import {
@@ -261,7 +262,7 @@ export function DocumentsTab({
   return (
     <>
       {/* Upload section */}
-      <div className="px-3 py-3 border-b border-gray-100">
+      <div className="border-b border-border px-3 py-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -294,7 +295,7 @@ export function DocumentsTab({
                   onClick={() => setNukePending(false)}
                   variant="secondary"
                   size="sm"
-                  className="flex-1 border-gray-300 bg-gray-50 px-2 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                  className="flex-1 px-2 py-2 text-xs"
                 >
                   <Icon name="close" size={14} className="mx-auto" />
                 </Button>
@@ -333,7 +334,7 @@ export function DocumentsTab({
             <Icon
               name="search"
               size={15}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-evergreen/40 pointer-events-none"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
             />
             <Input
               type="text"
@@ -341,7 +342,7 @@ export function DocumentsTab({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("workspace.searchDocuments")}
               aria-label={t("workspace.searchDocuments")}
-              className="h-9 rounded-lg border-gray-200 bg-gray-50 pl-8 pr-7 py-1.5 text-xs text-evergreen placeholder:text-evergreen/40 focus:bg-white"
+              className="h-9 rounded-lg border-border bg-surface-muted py-1.5 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-surface"
             />
             {query && (
               <Button
@@ -349,7 +350,7 @@ export function DocumentsTab({
                 onClick={() => setQuery("")}
                 variant="ghost"
                 size="sm"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-evergreen/40 hover:text-evergreen"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("workspace.clearSearch")}
               >
                 <Icon name="close" size={14} />
@@ -361,8 +362,8 @@ export function DocumentsTab({
 
       {/* Documents section */}
       {documents.length > 0 && (
-        <div className="px-3 py-3 border-b border-gray-100">
-          <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide mb-2 px-1">
+        <div className="border-b border-border px-3 py-3">
+          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {t("workspace.myDocuments", { count: documents.length })}
           </p>
           {filteredDocuments.length === 0 ? (
@@ -376,7 +377,7 @@ export function DocumentsTab({
             {filteredDocuments.map((doc) => (
               <div
                 key={doc.id}
-                className="rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
+                className="rounded-lg border border-border bg-surface-muted transition-colors hover:bg-surface-elevated"
               >
                 <button
                   onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
@@ -385,18 +386,20 @@ export function DocumentsTab({
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {doc.mime_type?.startsWith("image/") ? (
                       <div
-                        className="relative w-16 h-11 shrink-0 rounded overflow-hidden bg-gray-200 cursor-pointer"
+                        className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
                         onClick={(e) => {
                           e.stopPropagation();
                           setLightboxDoc(doc);
                         }}
                         title={t("workspace.thumbnailClickHint")}
                       >
-                        <img
+                        <Image
                           src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
                           alt={doc.filename}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
+                          fill
+                          sizes="64px"
+                          unoptimized
+                          className="object-cover"
                         />
                         <span
                           className="absolute bottom-0 left-0 right-0 text-center bg-black/50 text-white truncate px-0.5"
@@ -409,12 +412,12 @@ export function DocumentsTab({
                       <Icon
                         name={doc.filename.endsWith(".md") ? "description" : "text_snippet"}
                         size={16}
-                        className="text-evergreen/60 shrink-0"
+                        className="shrink-0 text-muted-foreground"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-evergreen truncate">{doc.filename}</p>
-                      <p className="text-xs text-evergreen/50">
+                      <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
+                      <p className="text-xs text-muted-foreground">
                         {formatFileSize(doc.size_bytes)}
                         {doc.updated_at && !doc.mime_type?.startsWith("image/") && (
                           <> • v{doc.version}</>
@@ -425,13 +428,13 @@ export function DocumentsTab({
                   <Icon
                     name={expandedDoc === doc.id ? "expand_less" : "expand_more"}
                     size={16}
-                    className="text-evergreen/40 shrink-0 ml-1"
+                    className="ml-1 shrink-0 text-muted-foreground"
                   />
                 </button>
 
                 {/* Expanded actions */}
                 {expandedDoc === doc.id && (
-                  <div className="px-3 py-2 border-t border-gray-200 bg-white flex gap-1.5 flex-wrap">
+                  <div className="flex flex-wrap gap-1.5 border-t border-border bg-surface px-3 py-2">
                     {renamingDocId === doc.id ? (
                       <div className="w-full flex gap-1.5">
                         <Input
@@ -468,8 +471,7 @@ export function DocumentsTab({
                           }}
                           variant="secondary"
                           size="sm"
-                          className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600
-                                     hover:bg-gray-200"
+                          className="px-2 py-1 text-xs"
                         >
                           <Icon name="close" size={14} />
                         </Button>
@@ -530,8 +532,7 @@ export function DocumentsTab({
                         variant="secondary"
                         size="sm"
                         className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                   bg-gray-50 text-gray-600 border border-gray-200
-                                   hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
+                                   disabled:opacity-40 disabled:cursor-not-allowed
                                    transition-colors"
                         title="Version history"
                       >
@@ -549,8 +550,7 @@ export function DocumentsTab({
                       variant="secondary"
                       size="sm"
                       className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 bg-gray-50 text-gray-600 border border-gray-200
-                                 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed
+                                 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
                       title="Rename"
                     >
@@ -564,8 +564,7 @@ export function DocumentsTab({
                       variant="destructive"
                       size="sm"
                       className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 bg-red-50 text-red-600 border border-red-200
-                                 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed
+                                 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
                       title={t("workspace.delete")}
                     >
@@ -583,9 +582,9 @@ export function DocumentsTab({
 
       {/* Version history panel */}
       {historyDocId && (
-        <div className="px-3 py-3 border-t border-gray-100 bg-white">
+        <div className="border-t border-border bg-surface px-3 py-3">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Version History — {getDocumentName(historyDocId)}
             </p>
             <Button
@@ -593,23 +592,23 @@ export function DocumentsTab({
               onClick={closeHistory}
               variant="ghost"
               size="sm"
-              className="p-0 text-evergreen/45 hover:text-evergreen"
+              className="p-0 text-muted-foreground hover:text-foreground"
             >
               <Icon name="close" size={14} />
             </Button>
           </div>
           {historyLoading ? (
-            <p className="text-xs text-evergreen/50 py-2">Loading…</p>
+            <p className="py-2 text-xs text-muted-foreground">Loading…</p>
           ) : historyVersions.length === 0 ? (
-            <p className="text-xs text-evergreen/50 py-2">No saved versions yet.</p>
+            <p className="py-2 text-xs text-muted-foreground">No saved versions yet.</p>
           ) : (
             <div className="space-y-1.5">
               {historyVersions.map((v) => (
-                <div key={v.id} className="rounded border border-gray-200 bg-gray-50">
+                <div key={v.id} className="rounded border border-border bg-surface-muted">
                   <div className="flex items-center justify-between px-2 py-1.5">
                     <div>
-                      <span className="text-xs font-medium text-evergreen">v{v.version}</span>
-                      <span className="text-xs text-evergreen/50 ml-2">
+                      <span className="text-xs font-medium text-foreground">v{v.version}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
                         {formatFileSize(v.size_bytes)}
                         {v.created_at && ` · ${new Date(v.created_at).toLocaleDateString()}`}
                       </span>
@@ -620,7 +619,7 @@ export function DocumentsTab({
                         onClick={() => previewVersion(historyDocId, v.version, v.id)}
                         variant="secondary"
                         size="sm"
-                        className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        className="px-1.5 py-0.5 text-xs"
                       >
                         {previewVersionId === v.id ? "Hide" : "Preview"}
                       </Button>
@@ -638,7 +637,7 @@ export function DocumentsTab({
                   </div>
                   {previewVersionId === v.id && previewContent && (
                     <div className="px-2 pb-2">
-                      <pre className="text-xs bg-white border border-gray-200 rounded p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono">
+                      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-xs">
                         {previewContent.slice(0, 2000)}
                         {previewContent.length > 2000 ? "\n…" : ""}
                       </pre>
@@ -653,9 +652,9 @@ export function DocumentsTab({
 
       {/* Document editor */}
       {editorDocId && (
-        <div className="px-3 py-3 border-t border-gray-100 bg-white">
+        <div className="border-t border-border bg-surface px-3 py-3">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-evergreen/70 uppercase tracking-wide">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t("workspace.editor")}
             </p>
             <Button
@@ -663,13 +662,13 @@ export function DocumentsTab({
               onClick={closeEditor}
               variant="ghost"
               size="sm"
-              className="p-0 text-evergreen/45 hover:text-evergreen"
+              className="p-0 text-muted-foreground hover:text-foreground"
               aria-label={t("workspace.closeEditor")}
             >
               <Icon name="close" size={14} />
             </Button>
           </div>
-          <p className="text-xs text-evergreen/50 mb-2 truncate">{getDocumentName(editorDocId)}</p>
+          <p className="mb-2 truncate text-xs text-muted-foreground">{getDocumentName(editorDocId)}</p>
           <div
             role="separator"
             aria-label={t("workspace.resizeEditor")}
@@ -677,13 +676,13 @@ export function DocumentsTab({
             className="mb-2 h-2 cursor-row-resize flex items-center justify-center"
             title={t("workspace.resizeEditor")}
           >
-            <div className="h-1 w-14 rounded-full bg-gray-300 hover:bg-gray-400" />
+            <div className="h-1 w-14 rounded-full bg-border hover:bg-border-strong" />
           </div>
           <Textarea
             value={editorContent}
             onChange={(e) => setEditorContent(e.target.value)}
             style={{ height: `${editorHeight}px` }}
-            className="w-full resize-none rounded-md border border-gray-300 px-2 py-2 text-xs text-evergreen shadow-none focus:border-pacific-blue focus:ring-0"
+            className="w-full resize-none rounded-md border border-border px-2 py-2 text-xs text-foreground shadow-none focus:border-primary focus:ring-0"
             placeholder={t("workspace.editDocumentPlaceholder")}
           />
           <Button
@@ -692,7 +691,7 @@ export function DocumentsTab({
             disabled={!editorContent.trim() || isLoading || processingAction === editorDocId}
             variant="primary"
             size="sm"
-            className="mt-2 w-full rounded-md px-3 py-2 text-xs font-medium bg-burnt-tangerine text-white hover:bg-burnt-tangerine/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-2 w-full rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
           >
             {processingAction === editorDocId ? t("common.saving") : t("workspace.saveChanges")}
           </Button>
@@ -703,7 +702,7 @@ export function DocumentsTab({
               disabled={!editorContent.trim() || isLoading}
               variant="primary"
               size="sm"
-              className="flex-1 rounded-md px-3 py-2 text-xs font-medium bg-pacific-blue text-white hover:bg-pacific-blue/90 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t("workspace.attachToChat")}
             </Button>
@@ -713,7 +712,7 @@ export function DocumentsTab({
               disabled={!editorContent.trim()}
               variant="secondary"
               size="sm"
-              className="flex-1 rounded-md px-3 py-2 text-xs font-medium bg-evergreen/10 text-evergreen hover:bg-evergreen/15 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t("workspace.download")}
             </Button>
@@ -760,9 +759,12 @@ export function DocumentsTab({
             aria-label={lightboxDoc.filename}
           >
             <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-              <img
+              <Image
                 src={`/api/proxy/api/workspace/documents/${lightboxDoc.id}/download`}
                 alt={lightboxDoc.filename}
+                width={1600}
+                height={1200}
+                unoptimized
                 className="max-w-full max-h-[85vh] rounded-lg shadow-2xl object-contain"
               />
               <Button
@@ -770,10 +772,10 @@ export function DocumentsTab({
                 onClick={() => setLightboxDoc(null)}
                 variant="secondary"
                 size="sm"
-                className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow p-0"
+                className="absolute -right-3 -top-3 h-8 w-8 rounded-full bg-surface p-0 shadow"
                 aria-label="Close"
               >
-                <Icon name="close" size={16} className="text-gray-700" />
+                <Icon name="close" size={16} className="text-foreground" />
               </Button>
               <p className="mt-2 text-center text-white/70 text-xs truncate">{lightboxDoc.filename}</p>
             </div>

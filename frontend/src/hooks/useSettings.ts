@@ -49,7 +49,7 @@ export function useSettings(userId: string): UseSettingsReturn {
         return false;
       }
     },
-    [userId, settings]
+    [userId]
   );
 
   useEffect(() => {

@@ -38,7 +38,6 @@ describe("MemoryRating", () => {
 
     for (let rating = 1; rating <= 5; rating += 1) {
       fireEvent.click(screen.getByLabelText(`Rate ${rating} star${rating === 1 ? "" : "s"}`));
-      // eslint-disable-next-line no-await-in-loop
       await waitFor(() => {
         expect(mockRateMemory).toHaveBeenLastCalledWith("mem-2", rating);
       });

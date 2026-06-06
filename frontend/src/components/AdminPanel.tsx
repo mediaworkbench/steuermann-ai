@@ -113,7 +113,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       case "native": return "bg-green-100 text-green-800";
       case "structured": return "bg-amber-100 text-amber-800";
       case "react": return "bg-blue-100 text-blue-800";
-      default: return "bg-gray-100 text-gray-800";
+      default: return "bg-muted text-foreground";
     }
   }, []);
 
@@ -122,7 +122,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       case "chat": return "bg-indigo-100 text-indigo-800";
       case "vision": return "bg-purple-100 text-purple-800";
       case "auxiliary": return "bg-orange-100 text-orange-800";
-      default: return "bg-gray-100 text-gray-800";
+      default: return "bg-muted text-foreground";
     }
   }, []);
 
@@ -236,7 +236,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   }, [resetOptions, t]);
 
   if (loading) {
-    return <div className="text-center py-8 text-gray-500">{t("common.loading")}</div>;
+    return <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>;
   }
 
   const roleModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -247,11 +247,11 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     <div className="space-y-6">
 
       {/* LLM Capability Diagnostics */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800">{t("adminPage.llmSection")}</h3>
-            <p className="text-sm text-gray-600">
+            <h3 className="text-lg font-semibold text-foreground">{t("adminPage.llmSection")}</h3>
+            <p className="text-sm text-muted-foreground">
               {t("settingsPanel.capabilitiesSubtitle")}
               {probeTtlSeconds !== null && (
                 <span>{t("settingsPanel.capabilitiesTtl", { value: probeTtlSeconds })}</span>
@@ -265,7 +265,6 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
               variant="secondary"
               size="sm"
-              className="bg-indigo-100 text-indigo-800 hover:bg-indigo-200 disabled:bg-gray-100 disabled:text-gray-500"
             >
               {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
             </Button>
@@ -275,7 +274,6 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               disabled={capabilitiesLoading}
               variant="secondary"
               size="sm"
-              className="bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-100"
             >
               {t("common.refresh")}
             </Button>
@@ -283,31 +281,31 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
-          <span className="text-xs font-semibold text-gray-600">{t("settingsPanel.legendTitle")}</span>
+          <span className="text-xs font-semibold text-muted-foreground">{t("settingsPanel.legendTitle")}</span>
           <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800">{t("settingsPanel.legendNative")}</span>
           <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800">{t("settingsPanel.legendStructured")}</span>
           <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-blue-100 text-blue-800">{t("settingsPanel.legendReact")}</span>
         </div>
 
         {capabilitiesLoading ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.capabilitiesLoading")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesLoading")}</p>
         ) : capabilitiesError ? (
           <p className="text-sm text-red-600">{capabilitiesError}</p>
         ) : capabilities.length === 0 ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.capabilitiesEmpty")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.capabilitiesEmpty")}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full border border-gray-200 rounded-lg text-sm">
-              <thead className="bg-gray-50">
+            <table className="min-w-full rounded-lg border border-border text-sm">
+              <thead className="bg-surface-muted">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityModel")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityRole")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityDesired")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityEffective")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityProbeStatus")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityReason")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityProbedAt")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">{t("settingsPanel.capabilityDetails")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityModel")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityRole")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityDesired")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityEffective")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityProbeStatus")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityReason")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityProbedAt")}</th>
+                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityDetails")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -316,10 +314,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                   const expanded = !!expandedCapabilityRows[rowKey];
                   return (
                     <Fragment key={rowKey}>
-                      <tr className="border-t border-gray-200">
-                        <td className="px-3 py-2 text-gray-800">
+                      <tr className="border-t border-border">
+                        <td className="px-3 py-2 text-foreground">
                           <div className="font-medium">{item.model_name}</div>
-                          <div className="text-xs text-gray-500">{item.provider_id}</div>
+                          <div className="text-xs text-muted-foreground">{item.provider_id}</div>
                         </td>
                         <td className="px-3 py-2">
                           {item.role && (
@@ -328,30 +326,30 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-gray-700">{item.desired_mode}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.desired_mode}</td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getEffectiveModeBadgeClass(item.effective_mode)}`}>
                             {item.effective_mode}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-gray-700">{item.probe_status}</td>
-                        <td className="px-3 py-2 text-gray-700">{item.effective_mode_reason}</td>
-                        <td className="px-3 py-2 text-gray-700">{item.probed_at ? formatDateTime(item.probed_at) : t("metrics.na")}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.probe_status}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.effective_mode_reason}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.probed_at ? formatDateTime(item.probed_at) : t("metrics.na")}</td>
                         <td className="px-3 py-2">
                           <Button
                             type="button"
                             onClick={() => toggleCapabilityRow(rowKey)}
                             variant="secondary"
                             size="sm"
-                            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            className="px-2 py-1 text-xs"
                           >
                             {expanded ? t("settingsPanel.hideDetails") : t("settingsPanel.showDetails")}
                           </Button>
                         </td>
                       </tr>
                       {expanded && (
-                        <tr className="border-t border-gray-100 bg-gray-50">
-                          <td colSpan={8} className="px-3 py-3 text-xs text-gray-700">
+                        <tr className="border-t border-border bg-surface-muted">
+                          <td colSpan={8} className="px-3 py-3 text-xs text-muted-foreground">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               <div><span className="font-semibold">{t("settingsPanel.detailConfiguredMode")}: </span><span>{item.configured_tool_calling_mode || t("metrics.na")}</span></div>
                               <div><span className="font-semibold">{t("settingsPanel.detailApiBase")}: </span><span>{item.api_base || t("metrics.na")}</span></div>
@@ -363,7 +361,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                             </div>
                             <div className="mt-2">
                               <div className="font-semibold mb-1">{t("settingsPanel.detailMetadata")}</div>
-                              <pre className="overflow-x-auto p-2 bg-white border border-gray-200 rounded">
+                              <pre className="overflow-x-auto rounded border border-border bg-surface p-2">
                                 {JSON.stringify(item.metadata || {}, null, 2)}
                               </pre>
                             </div>
@@ -380,12 +378,12 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       </div>
 
       {/* RAG Operational Configuration */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("adminPage.ragSection")}</h3>
-        {configLoading && <div className="text-gray-500 text-sm">{t("settingsPanel.loadingDefaults")}</div>}
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("adminPage.ragSection")}</h3>
+        {configLoading && <div className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</div>}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-foreground">
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
             </label>
             <Input
@@ -393,11 +391,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               value={(ragConfig.collection as string) || systemConfig?.rag_defaults.collection_name || "framework"}
               onChange={(e) => handleRagConfigChange("collection", e.target.value)}
               placeholder={systemConfig?.rag_defaults.collection_name || "e.g., framework"}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 shadow-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-foreground">
               {t("settingsPanel.similarityThreshold")}
             </label>
             <Input
@@ -407,20 +404,19 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               step="0.1"
               value={(ragConfig.pill_score_threshold as number) || 0.72}
               onChange={(e) => handleRagConfigChange("pill_score_threshold", parseFloat(e.target.value))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 shadow-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
         </div>
 
-        <div className="mt-6 border-t border-gray-200 pt-4">
-          <h4 className="text-md font-semibold text-gray-800 mb-2">{t("settingsPanel.reingestSectionTitle")}</h4>
-          <p className="text-sm text-gray-600 mb-3">{t("settingsPanel.reingestDescription")}</p>
+        <div className="mt-6 border-t border-border pt-4">
+          <h4 className="mb-2 text-md font-semibold text-foreground">{t("settingsPanel.reingestSectionTitle")}</h4>
+          <p className="mb-3 text-sm text-muted-foreground">{t("settingsPanel.reingestDescription")}</p>
           <Button
             type="button"
             onClick={() => setConfirmReingest(true)}
             disabled={reingesting}
             variant="secondary"
-            className="bg-amber-600 text-white hover:bg-amber-700 disabled:bg-gray-400"
+            className="bg-warning text-warning-foreground hover:bg-warning/90 disabled:bg-muted disabled:text-muted-foreground"
           >
             {reingesting ? t("settingsPanel.reingesting") : t("settingsPanel.reingestAllDocuments")}
           </Button>
@@ -428,12 +424,12 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       </div>
 
       {/* System Model Selection (vision + auxiliary) */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{t("adminPage.modelSection")}</h3>
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">{t("adminPage.modelSection")}</h3>
         {configLoading ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.loadingModels")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingModels")}</p>
         ) : roleModelOptions.length === 0 ? (
-          <p className="text-sm text-gray-500">{t("settingsPanel.noRoleModelsAvailable")}</p>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.noRoleModelsAvailable")}</p>
         ) : (
           <div className="space-y-4">
             {roleModelOptions.map((roleConfig) => {
@@ -445,15 +441,15 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
                 ? roleModels
                 : [roleDefaultModel, ...roleModels].filter(Boolean);
               return (
-                <div key={roleName} className="border border-gray-200 rounded-lg p-4">
+                <div key={roleName} className="rounded-xl border border-border p-4">
                   <div className="mb-2">
-                    <p className="text-sm font-semibold text-gray-800">
+                    <p className="text-sm font-semibold text-foreground">
                       {t("settingsPanel.roleModelLabel", { role: roleName })}
                     </p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-xs text-muted-foreground">
                       {t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id })}
                     </p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-xs text-muted-foreground">
                       {t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                     </p>
                     {roleConfig.model_load_error && (
@@ -494,9 +490,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       </div>
 
       {/* Danger Zone */}
-      <div className="bg-white rounded-lg shadow p-6 border border-red-200">
+      <div className="rounded-2xl border border-destructive/30 bg-surface p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-red-700 mb-1">{t("adminPage.dangerZoneSection")}</h3>
-        <p className="text-sm text-gray-600 mb-5">{t("adminPage.dangerZoneDescription")}</p>
+        <p className="mb-5 text-sm text-muted-foreground">{t("adminPage.dangerZoneDescription")}</p>
 
         <div className="space-y-3 mb-5">
           {(
