@@ -12,6 +12,13 @@
 - **feat** Added shared dialog/control primitives in `frontend/src/components/ui/Dialog.tsx`, `Checkbox.tsx`, `Select.tsx`, and `Textarea.tsx`, then migrated the confirmation/export modals plus the settings/admin control surfaces onto the new shared layer.
 - **feat** Extended the shared-control rollout into the workspace shell by migrating the workspace empty-state action, evidence chips, sidebar header/edit controls, document search/rename inputs, and metrics copy/regenerate actions onto the new primitives.
 - **feat** Continued the shared-action rollout into the top header and reasoning panel by migrating the sidebar toggle, export/logout actions, and reasoning disclosure onto the new `Button` primitive.
+- **feat** Extended the shared-control rollout into `ChatInterface.tsx` by migrating the composer textarea plus the message copy/edit and queued follow-up action buttons onto the shared primitives.
+- **feat** Continued that rollout into the composer toolbar by migrating the rag toggle, context-window toggle, compact-context action, and mic placeholder onto the shared `Button` primitive.
+- **feat** Replaced the custom chat model popover in `ChatInterface.tsx` with the shared `Select` primitive while keeping the same model persistence behavior.
+- **feat** Migrated the composer attachment-chip actions in `ChatInterface.tsx` to the shared `Button` primitive.
+- **feat** Migrated the composer send/stop/queued-send controls in `ChatInterface.tsx` to the shared `Button` primitive while preserving streaming-state behavior and icon-only sizing.
+- **feat** Migrated the assistant feedback thumbs-up/down controls in `ChatInterface.tsx` to the shared `Button` primitive to complete the core chat action rows.
+- **feat** Converted remaining isolated action controls in `Header.tsx`, `Sidebar.tsx` context menu items, and the `MetricsPanel.tsx` expand toggle to the shared `Button` primitive.
 - **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
 - **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
 

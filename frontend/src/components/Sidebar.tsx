@@ -415,8 +415,11 @@ function ContextMenuItem({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
+      type="button"
       onClick={onClick}
+      variant="ghost"
+      size="sm"
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors cursor-pointer
         ${danger
           ? "text-red-300/80 hover:bg-red-500/20 hover:text-red-300"
@@ -425,6 +428,6 @@ function ContextMenuItem({
     >
       <Icon name={icon} size={16} />
       <span>{label}</span>
-    </button>
+    </Button>
   );
 }

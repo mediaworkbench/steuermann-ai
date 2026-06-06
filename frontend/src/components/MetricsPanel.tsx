@@ -69,9 +69,12 @@ export function MetricsPanel({
     <div className="mt-2 ml-1 w-full">
       {/* Metrics toggle + action icons in the same row */}
       <div className="flex items-center justify-between">
-        <button
+        <Button
+          type="button"
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 text-xs text-evergreen/40 hover:text-evergreen/70 transition-colors"
+          variant="ghost"
+          size="sm"
+          className="h-auto gap-2 p-0 text-xs text-evergreen/40 hover:text-evergreen/70"
           aria-expanded={expanded}
         >
           <Icon
@@ -107,7 +110,7 @@ export function MetricsPanel({
               </>
             )}
           </span>
-        </button>
+        </Button>
 
         {/* Action icons — same row, pushed right */}
         <div className="flex items-center gap-0.5">

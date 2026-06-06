@@ -12,6 +12,9 @@ const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), 
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
 import type { WorkspaceTabId } from "./workspace/types";
+import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
+import { Textarea } from "@/components/ui/Textarea";
 import { useConversationContext } from "./LayoutShell";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import { useChatSession } from "@/context/ChatSessionContext";
@@ -169,11 +172,11 @@ export function ChatInterface() {
   const [availableChatModels, setAvailableChatModels] = useState<string[]>([]);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hasNewMessage, setHasNewMessage] = useState(false);
+  const selectedChatModel = chatModel || systemConfig?.default_model || availableChatModels[0] || "";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -437,7 +440,6 @@ export function ChatInterface() {
 
   const handleModelChange = useCallback(async (model: string) => {
     setChatModel(model);
-    setModelMenuOpen(false);
     const merged = { ...preferredModelsRef.current, chat: model };
     preferredModelsRef.current = merged;
     await updateUserSettings(CURRENT_USER_ID, { preferred_model: model, preferred_models: merged });
@@ -829,24 +831,28 @@ export function ChatInterface() {
                   key={attachment.id}
                   className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors bg-light-cyan/20 border-pacific-blue/25 text-evergreen"
                 >
-                  <button
+                  <Button
                     type="button"
                     onClick={() => handleAttachmentPillClick(attachment)}
-                    className="inline-flex items-center gap-1 cursor-pointer"
+                    variant="ghost"
+                    size="sm"
+                    className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
                     title={t("chat.insertReference")}
                   >
                     <Icon name="description" size={14} className="text-pacific-blue" />
                     <span className="font-medium">{attachment.original_name}</span>
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     onClick={() => handleAttachmentDelete(attachment.id)}
+                    variant="ghost"
+                    size="sm"
                     className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
                     aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
                     title={t("chat.deleteAttachment")}
                   >
                     <Icon name="close" size={14} className="text-evergreen/45" />
-                  </button>
+                  </Button>
                 </div>
               ))}
               {uploadingAttachment && (
@@ -863,14 +869,14 @@ export function ChatInterface() {
 
             {/* Textarea */}
             <label htmlFor="message-input" className="sr-only">{t("chat.message")}</label>
-            <textarea
+            <Textarea
               id="message-input"
               ref={textareaRef}
               value={input}
               onChange={(e) => { setInput(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
               disabled={queueFull}
-              className="w-full bg-transparent border-0 outline-none focus:ring-0 resize-none text-evergreen placeholder-gray-400 px-4 pt-3 pb-2 text-base disabled:opacity-60 disabled:cursor-not-allowed"
+              className="rounded-none border-0 bg-transparent px-4 pt-3 pb-2 text-base text-evergreen shadow-none resize-none focus:ring-0"
               placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
               aria-label={t("chat.typeYourMessage")}
               rows={2}
@@ -955,11 +961,13 @@ export function ChatInterface() {
                 </div>
 
                 {/* RAG toggle */}
-                <button
+                <Button
                   type="button"
                   onClick={handleRagToggle}
                   disabled={isStreaming}
                   title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                  variant="ghost"
+                  size="sm"
                   className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
                     ragEnabled
                       ? "text-pacific-blue hover:bg-pacific-blue/10"
@@ -967,7 +975,7 @@ export function ChatInterface() {
                   }`}
                 >
                   <Icon name="database" size={20} />
-                </button>
+                </Button>
               </div>
 
               {/* Spacer */}
@@ -978,9 +986,11 @@ export function ChatInterface() {
 
                 {/* Context usage ring + overlay */}
                 <div className="relative">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setContextMenuOpen((v) => !v)}
+                    variant="ghost"
+                    size="sm"
                     className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                     aria-label="Context window details"
                   >
@@ -988,7 +998,7 @@ export function ChatInterface() {
                       contextTokens={contextTokens}
                       maxContextTokens={maxContextTokens}
                     />
-                  </button>
+                  </Button>
 
                   {contextMenuOpen && (
                     <>
@@ -1032,15 +1042,17 @@ export function ChatInterface() {
 
                         {/* Compact button */}
                         <div className="px-2 pt-1">
-                          <button
+                          <Button
                             type="button"
                             disabled={isStreaming || isCompacting || !activeId || contextTokens === 0}
                             onClick={handleCompactContext}
+                            variant="ghost"
+                            size="sm"
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-evergreen rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Icon name="compress" size={16} className="text-evergreen/60" />
                             {isCompacting ? "Compacting…" : "Compact Context"}
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     </>
@@ -1049,80 +1061,72 @@ export function ChatInterface() {
 
                 {/* Model selector */}
                 <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setModelMenuOpen((v) => !v)}
-                    className="flex items-center gap-0.5 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen hover:bg-gray-100 transition-colors max-w-35"
+                  <Select
+                    value={selectedChatModel}
+                    onChange={(e) => void handleModelChange(e.target.value)}
                     aria-label="Select model"
+                    className="max-w-35 rounded-lg px-2.5 py-2 text-xs text-evergreen/60 hover:text-evergreen"
                   >
-                    <span className="truncate">{formatModelName(chatModel, systemConfig?.default_model)}</span>
-                    <Icon name="keyboard_arrow_down" size={14} className="shrink-0" />
-                  </button>
-                  {modelMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setModelMenuOpen(false)} />
-                      <div className="absolute bottom-full right-0 mb-2 bg-white rounded-xl border border-gray-100 shadow-lg py-1 min-w-55 max-h-52 overflow-y-auto z-20">
-                        <p className="px-3 pb-1.5 text-[11px] font-semibold text-evergreen/40 uppercase tracking-wide">Chat model</p>
-                        {availableChatModels.map((model) => (
-                          <button
-                            key={model}
-                            type="button"
-                            onClick={() => handleModelChange(model)}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-50 ${chatModel === model ? "text-pacific-blue font-bold" : "text-evergreen"}`}
-                          >
-                            {chatModel === model && <Icon name="check" size={14} className="shrink-0" />}
-                            <span className="truncate">{formatModelName(model)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                    {availableChatModels.map((model) => (
+                      <option key={model} value={model}>
+                        {formatModelName(model)}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 {/* Microphone — inactive placeholder */}
-                <button
+                <Button
                   type="button"
                   disabled
                   aria-label="Voice input (not available)"
+                  variant="ghost"
+                  size="sm"
                   className="p-1.5 rounded-lg text-evergreen/25 cursor-not-allowed"
                 >
                   <Icon name="mic" size={20} />
-                </button>
+                </Button>
 
                 {/* Send / Cancel — while busy, Stop stays reachable and a Send
                     (queue) button appears once the user has typed a follow-up. */}
                 {isStreaming || loading ? (
                   <>
-                    <button
+                    <Button
                       type="button"
                       onClick={cancelStream}
                       aria-label={t("chat.stopGenerating") ?? "Stop generating"}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white transition-colors"
+                      variant="primary"
+                      size="sm"
+                      className="w-8 h-8 p-0 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white"
                     >
                       <Icon name="stop_circle" size={20} />
-                    </button>
+                    </Button>
                     {input.trim() && (
-                      <button
+                      <Button
                         type="button"
                         onClick={handleSend}
                         aria-label={t("chat.queueMessage")}
                         title={t("chat.queueMessage")}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-pacific-blue hover:bg-pacific-blue/85 text-white transition-colors"
+                        variant="primary"
+                        size="sm"
+                        className="w-8 h-8 p-0 rounded-lg bg-pacific-blue hover:bg-pacific-blue/85 text-white"
                       >
                         <Icon name="arrow_upward" size={20} />
-                      </button>
+                      </Button>
                     )}
                   </>
                 ) : (
-                  <button
+                  <Button
                     type="button"
                     onClick={handleSend}
                     disabled={!input.trim()}
                     aria-label={t("chat.sendMessage")}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30 transition-colors"
+                    variant="primary"
+                    size="sm"
+                    className="w-8 h-8 p-0 rounded-lg bg-burnt-tangerine hover:bg-burnt-tangerine/85 text-white disabled:opacity-30"
                   >
                     <Icon name="arrow_upward" size={20} />
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -1261,9 +1265,12 @@ function AssistantMessage({
 
           {/* Feedback buttons */}
           <div className="flex items-center gap-1 ml-1">
-            <button
+            <Button
+              type="button"
               onClick={() => onFeedback(index, "up")}
               disabled={loading}
+              variant="ghost"
+              size="sm"
               className={`p-1 rounded transition-colors cursor-pointer
                 ${
                   message.feedback === "up"
@@ -1274,10 +1281,13 @@ function AssistantMessage({
               title={t("chat.feedbackSaved")}
             >
               <Icon name="thumb_up" size={15} />
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={() => onFeedback(index, "down")}
               disabled={loading}
+              variant="ghost"
+              size="sm"
               className={`p-1 rounded transition-colors cursor-pointer
                 ${
                   message.feedback === "down"
@@ -1288,7 +1298,7 @@ function AssistantMessage({
               title="Poor response"
             >
               <Icon name="thumb_down" size={15} />
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -1417,8 +1427,11 @@ function UserMessage({
 
             {/* User message action bar */}
             <div className="flex items-center gap-0.5 mr-1 mt-0.5">
-              <button
+              <Button
                 onClick={handleCopy}
+                type="button"
+                variant="ghost"
+                size="sm"
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   copied
                     ? "text-pacific-blue"
@@ -1428,20 +1441,23 @@ function UserMessage({
                 title={t("chat.copyMessage")}
               >
                 <Icon name={copied ? "check" : "content_copy"} size={14} />
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={() => {
                   setEditValue(message.content);
                   setEditing(true);
                 }}
                 disabled={loading}
+                variant="ghost"
+                size="sm"
                 className="p-1 rounded text-evergreen/25 hover:text-pacific-blue hover:bg-pacific-blue/10
                            transition-colors disabled:opacity-40 cursor-pointer"
                 aria-label="Edit message"
                 title={t("workspace.edit")}
               >
                 <Icon name="edit" size={14} />
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1489,42 +1505,47 @@ function QueuedMessageBubble({
         </div>
 
         {/* Bubble — click to reclaim into the composer for editing */}
-        <button
+        <Button
           type="button"
           onClick={onEdit}
           title={t("chat.editQueued")}
           aria-label={t("chat.editQueued")}
+          variant="ghost"
           className="text-left bg-pacific-blue/10 p-5 rounded-2xl rounded-tr-sm text-evergreen
                      text-base leading-relaxed border border-dashed border-pacific-blue/30
                      hover:border-pacific-blue/50 transition-colors cursor-text"
         >
           <p className="whitespace-pre-wrap m-0">{text}</p>
-        </button>
+        </Button>
 
         {/* Controls */}
         <div className="flex items-center gap-0.5 mr-1 mt-0.5">
           {idle && (
-            <button
+            <Button
               type="button"
               onClick={onSendNow}
+              variant="ghost"
+              size="sm"
               className="p-1 rounded text-evergreen/35 hover:text-pacific-blue hover:bg-pacific-blue/10
                          transition-colors cursor-pointer"
               aria-label={t("chat.sendQueuedNow")}
               title={t("chat.sendQueuedNow")}
             >
               <Icon name="send" size={14} />
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
             onClick={onDiscard}
+            variant="ghost"
+            size="sm"
             className="p-1 rounded text-evergreen/35 hover:text-burnt-tangerine hover:bg-burnt-tangerine/10
                        transition-colors cursor-pointer"
             aria-label={t("chat.cancelQueued")}
             title={t("chat.cancelQueued")}
           >
             <Icon name="close" size={14} />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

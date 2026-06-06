@@ -127,11 +127,12 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
 
         {/* Workspace sidebar toggle — only on chat page */}
         {onToggleWorkspaceSidebar && (
-          <button
+          <Button
             type="button"
             onClick={onToggleWorkspaceSidebar}
-            className="hidden md:flex items-center gap-1.5 text-evergreen hover:text-pacific-blue
-                       transition-colors text-sm font-medium group min-h-11 min-w-11 justify-center"
+            variant="ghost"
+            size="sm"
+            className="hidden md:flex gap-1.5 text-evergreen hover:text-pacific-blue text-sm font-medium group min-h-11 min-w-11 justify-center"
             aria-label={t("chat.toggleWorkspaceSidebar")}
             title={t("chat.toggleWorkspaceSidebar")}
           >
@@ -141,7 +142,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               className="group-hover:scale-110 transition-transform"
             />
             <span className="hidden lg:inline">{t("chat.workspace")}</span>
-          </button>
+          </Button>
         )}
 
         <nav className="flex items-center gap-2 md:gap-6" aria-label="Main navigation">
