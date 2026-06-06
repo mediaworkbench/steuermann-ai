@@ -3,16 +3,13 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { WorkspaceTabId } from "@/components/workspace/types";
 
-const VALID_TABS: WorkspaceTabId[] = ["documents", "knowledge", "memory", "outputs"];
+const VALID_TABS: WorkspaceTabId[] = ["documents", "knowledge", "memory", "outputs", "inspector"];
 const ACTIVE_TAB_KEY = "workspace.activeTab";
 
 interface WorkspacePanelContextValue {
   /** Selected right-panel tab. Persisted to localStorage. */
   activeTab: WorkspaceTabId;
   setActiveTab: (tab: WorkspaceTabId) => void;
-  /** Documents tab search/filter text. In-memory only (not persisted). */
-  documentQuery: string;
-  setDocumentQuery: (query: string) => void;
 }
 
 const WorkspacePanelContext = createContext<WorkspacePanelContextValue | null>(null);
@@ -24,14 +21,14 @@ export function useWorkspacePanel(): WorkspacePanelContextValue {
 }
 
 /**
- * Holds the workspace panel's *internal* view state (active tab + document
- * filter) so it is shared across the panel, the chat evidence chips, and any
- * future consumer — without entangling it with conversation/stream state, which
- * stays in their existing providers. Only the active tab is persisted.
+ * Holds the workspace panel's *internal* view state (the active tab) so it is
+ * shared across the panel and the chat evidence chips (chip → tab) — without
+ * entangling it with conversation/stream state, which stays in their existing
+ * providers. The active tab is persisted; transient per-tab state (e.g. the
+ * Documents filter) stays local to its tab so it does not leak across routes.
  */
 export function WorkspacePanelProvider({ children }: { children: React.ReactNode }) {
   const [activeTab, setActiveTabState] = useState<WorkspaceTabId>("documents");
-  const [documentQuery, setDocumentQuery] = useState("");
 
   // Restore the persisted tab on mount. Done in an effect (not in the initial
   // state) so the first client render matches SSR and avoids a hydration mismatch.
@@ -56,7 +53,7 @@ export function WorkspacePanelProvider({ children }: { children: React.ReactNode
   }, []);
 
   return (
-    <WorkspacePanelContext.Provider value={{ activeTab, setActiveTab, documentQuery, setDocumentQuery }}>
+    <WorkspacePanelContext.Provider value={{ activeTab, setActiveTab }}>
       {children}
     </WorkspacePanelContext.Provider>
   );

@@ -367,6 +367,15 @@ export type Messages = {
     mapGenerated: string;
     metaScore: string;
     metaRated: string;
+    tabInspector: string;
+    inspectorEmpty: string;
+    inspectorRunning: string;
+    inspectorNodes: string;
+    inspectorNotRun: string;
+    inspectorPostResponse: string;
+    inspectorWaiting: string;
+    inspectorStatusSuccess: string;
+    inspectorStatusError: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -921,6 +930,15 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Map output",
       metaScore: "score {score}",
       metaRated: "rated {rating}/5",
+      tabInspector: "Inspector",
+      inspectorEmpty: "Node execution will appear here after the next answer.",
+      inspectorRunning: "Running…",
+      inspectorNodes: "{count} nodes",
+      inspectorNotRun: "Not in this run",
+      inspectorPostResponse: "Runs after the response is sent",
+      inspectorWaiting: "Capturing node execution…",
+      inspectorStatusSuccess: "succeeded",
+      inspectorStatusError: "failed",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1473,6 +1491,15 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Kartenausgabe",
       metaScore: "Score {score}",
       metaRated: "Bewertung {rating}/5",
+      tabInspector: "Inspektor",
+      inspectorEmpty: "Die Knotenausführung erscheint hier nach der nächsten Antwort.",
+      inspectorRunning: "Läuft…",
+      inspectorNodes: "{count} Knoten",
+      inspectorNotRun: "Nicht in diesem Lauf",
+      inspectorPostResponse: "Läuft nach dem Senden der Antwort",
+      inspectorWaiting: "Knotenausführung wird erfasst…",
+      inspectorStatusSuccess: "erfolgreich",
+      inspectorStatusError: "fehlgeschlagen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

@@ -1,4 +1,4 @@
-import type { ConversationAttachment, MessageMetrics } from "@/lib/types";
+import type { ConversationAttachment, MessageMetrics, NodeTraceEntry } from "@/lib/types";
 
 export interface VersionEntry {
   id: string;
@@ -19,7 +19,7 @@ export interface WorkspaceDocument {
   updated_at?: string;
 }
 
-export type WorkspaceTabId = "documents" | "knowledge" | "memory" | "outputs";
+export type WorkspaceTabId = "documents" | "knowledge" | "memory" | "outputs" | "inspector";
 
 /**
  * Shared props for the workspace panel. `WorkspaceSidebar` re-exports this as
@@ -48,4 +48,11 @@ export interface WorkspacePanelProps {
    * no answer yet. Already active-conversation-scoped by the caller.
    */
   answerMetrics?: MessageMetrics | null;
+  /**
+   * Ordered per-node execution trace of the latest/live answer (Inspector tab).
+   * Already active-conversation-gated by the caller. Session-local: not persisted.
+   */
+  nodeTrace?: NodeTraceEntry[];
+  /** True while the active conversation's answer is streaming (drives Inspector live state). */
+  isStreaming?: boolean;
 }

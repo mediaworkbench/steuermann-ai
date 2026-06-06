@@ -55,6 +55,14 @@ export interface MessageMetrics {
   map_data?: MapData;
 }
 
+/** One node execution captured from the streaming `node_state` events (Inspector). */
+export interface NodeTraceEntry {
+  node: string;
+  sequence: number;
+  durationMs: number | null;
+  status: "success" | "error";
+}
+
 export interface Message {
   role: "user" | "assistant";
   content: string;

@@ -190,6 +190,7 @@ export function ChatInterface() {
     streamWarning,
     toolCallStatus,
     nodeStatus,
+    nodeTrace,
     finalMetadata,
     wasCancelled,
     thinkingContent,
@@ -1144,6 +1145,8 @@ export function ChatInterface() {
         writebackSavedDocId={writebackSavedDocId}
         onActiveDocumentChange={setActiveWorkspaceDocId}
         answerMetrics={latestAnswerMetrics}
+        nodeTrace={nodeTrace}
+        isStreaming={isStreaming}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;

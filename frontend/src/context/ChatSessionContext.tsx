@@ -13,7 +13,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { fetchConversation } from "@/lib/api";
 import { CURRENT_USER_ID } from "@/lib/runtime";
-import type { ChatResponse, MapData, Message, PersistedMessage, Source } from "@/lib/types";
+import type { ChatResponse, MapData, Message, NodeTraceEntry, PersistedMessage, Source } from "@/lib/types";
 
 // ── Helpers (moved from ChatInterface) ──────────────────────────────────
 
@@ -98,6 +98,7 @@ interface ChatSessionValue {
   thinkingContent: string;
   isThinking: boolean;
   nodeStatus: string | null;
+  nodeTrace: NodeTraceEntry[];
   toolCallStatus: { name: string; status: "start" | "end"; label: string } | null;
   streamError: string | null;
   streamWarning: string | null;
@@ -150,6 +151,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     streamWarning,
     toolCallStatus,
     nodeStatus,
+    nodeTrace,
     finalMetadata,
     wasCancelled,
     thinkingContent,
@@ -481,6 +483,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     thinkingContent: streamOnActive ? thinkingContent : "",
     isThinking: streamOnActive && isThinking,
     nodeStatus: streamOnActive ? nodeStatus : null,
+    nodeTrace: streamOnActive ? nodeTrace : [],
     toolCallStatus: streamOnActive ? toolCallStatus : null,
     streamError: streamOnActive ? streamError : null,
     streamWarning: streamOnActive ? streamWarning : null,

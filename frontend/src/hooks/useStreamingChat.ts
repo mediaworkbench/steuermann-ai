@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ChatResponse } from "@/lib/types";
+import type { ChatResponse, NodeTraceEntry } from "@/lib/types";
 
 // ── Public API ────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ export interface UseStreamingChatReturn {
   streamWarning: string | null;
   toolCallStatus: { name: string; status: "start" | "end"; label: string } | null;
   nodeStatus: string | null;
+  nodeTrace: NodeTraceEntry[];
   finalMetadata: ChatResponse["metadata"] | null;
   wasCancelled: boolean;
   thinkingContent: string;
@@ -65,6 +66,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const [toolCallStatus, setToolCallStatus] = useState<{ name: string; status: "start" | "end"; label: string } | null>(null);
   const [nodeStatus, setNodeStatus] = useState<string | null>(null);
+  const [nodeTrace, setNodeTrace] = useState<NodeTraceEntry[]>([]);
   const [finalMetadata, setFinalMetadata] = useState<ChatResponse["metadata"] | null>(null);
   const [wasCancelled, setWasCancelled] = useState(false);
   const [thinkingContent, setThinkingContent] = useState("");
@@ -90,6 +92,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     setWasCancelled(false);
     setToolCallStatus(null);
     setNodeStatus(null);
+    setNodeTrace([]);
     setThinkingContent("");
     setIsThinking(false);
   }, [cancel]);
@@ -106,6 +109,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
       setStreamError(null);
       setToolCallStatus(null);
       setNodeStatus(null);
+      setNodeTrace([]);
       setFinalMetadata(null);
       setWasCancelled(false);
       setThinkingContent("");
@@ -202,6 +206,18 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 setNodeStatus((parsed.label as string) ?? null);
                 break;
 
+              case "node_state":
+                setNodeTrace((prev) => [
+                  ...prev,
+                  {
+                    node: parsed.node as string,
+                    sequence: parsed.sequence as number,
+                    durationMs: (parsed.duration_ms as number | null) ?? null,
+                    status: (parsed.status as "success" | "error") ?? "success",
+                  },
+                ]);
+                break;
+
               case "metadata":
                 setFinalMetadata(buildMetadataFromSSE(parsed));
                 setNodeStatus(null);
@@ -263,6 +279,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     streamWarning,
     toolCallStatus,
     nodeStatus,
+    nodeTrace,
     finalMetadata,
     wasCancelled,
     thinkingContent,

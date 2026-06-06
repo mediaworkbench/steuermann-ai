@@ -9,12 +9,14 @@ import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { MemoryTab } from "./MemoryTab";
 import { OutputsTab } from "./OutputsTab";
+import { InspectorTab } from "./InspectorTab";
 
 const TABS: { id: WorkspaceTabId; icon: string; labelKey: string }[] = [
   { id: "documents", icon: "folder_open", labelKey: "workspace.tabDocuments" },
   { id: "knowledge", icon: "menu_book", labelKey: "workspace.tabKnowledge" },
   { id: "memory", icon: "memory", labelKey: "workspace.tabMemory" },
   { id: "outputs", icon: "build", labelKey: "workspace.tabOutputs" },
+  { id: "inspector", icon: "account_tree", labelKey: "workspace.tabInspector" },
 ];
 
 /**
@@ -41,6 +43,8 @@ export function WorkspacePanel({
   documentsError = null,
   onRetryDocuments,
   answerMetrics = null,
+  nodeTrace = [],
+  isStreaming = false,
 }: WorkspacePanelProps) {
   const { t } = useI18n();
   const { activeTab, setActiveTab } = useWorkspacePanel();
@@ -51,6 +55,7 @@ export function WorkspacePanel({
     knowledge: evidence.sourceCount,
     memory: evidence.memoryCount,
     outputs: evidence.toolCount + (evidence.mapData ? 1 : 0),
+    inspector: nodeTrace.length,
   };
 
   return (
@@ -164,6 +169,7 @@ export function WorkspacePanel({
           {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}
           {activeTab === "memory" && <MemoryTab evidence={evidence} />}
           {activeTab === "outputs" && <OutputsTab evidence={evidence} />}
+          {activeTab === "inspector" && <InspectorTab nodeTrace={nodeTrace} isStreaming={isStreaming} />}
         </div>
       </div>
     </>

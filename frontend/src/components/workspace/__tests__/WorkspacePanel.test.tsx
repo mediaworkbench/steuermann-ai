@@ -2,11 +2,12 @@ import type { ReactElement } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
+import { InspectorTab } from "../InspectorTab";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkspaceDocument } from "../types";
-import type { MessageMetrics } from "@/lib/types";
+import type { MessageMetrics, NodeTraceEntry } from "@/lib/types";
 
 jest.mock("@/hooks/useI18n");
 
@@ -46,9 +47,9 @@ beforeEach(() => {
 });
 
 describe("WorkspacePanel", () => {
-  test("renders the four workspace tabs with Documents active by default", () => {
+  test("renders the workspace tabs with Documents active by default", () => {
     renderWithPanel(<WorkspacePanel {...baseProps} />);
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
     // Documents tab is active → its empty state shows.
     expect(screen.getByText("workspace.noDocuments")).toBeInTheDocument();
   });
@@ -69,7 +70,7 @@ describe("WorkspacePanel", () => {
 
   test("compat wrapper WorkspaceSidebar renders the modular panel", () => {
     renderWithPanel(<WorkspaceSidebar {...baseProps} />);
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByText("workspace.noDocuments")).toBeInTheDocument();
   });
 
@@ -142,6 +143,14 @@ describe("WorkspacePanel", () => {
     expect(screen.getByText("workspace.knowledgeRetrieved")).toBeInTheDocument();
   });
 
+  test("Inspector tab shows the node execution trace with a count badge", () => {
+    const nodeTrace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "success" }];
+    renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} />);
+    expect(screen.getByRole("tab", { name: /workspace\.tabInspector/ })).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    expect(screen.getByText("Respond")).toBeInTheDocument();
+  });
+
   test("persists the active tab across remounts", () => {
     const { unmount } = renderWithPanel(<WorkspacePanel {...baseProps} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
@@ -179,5 +188,43 @@ describe("EvidenceChips", () => {
     render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} onSelect={onSelect} />);
     fireEvent.click(screen.getByTitle("workspace.evidenceMemory"));
     expect(onSelect).toHaveBeenCalledWith("memory");
+  });
+});
+
+describe("InspectorTab", () => {
+  test("shows an empty state when there is no trace", () => {
+    render(<InspectorTab nodeTrace={[]} />);
+    expect(screen.getByText("workspace.inspectorEmpty")).toBeInTheDocument();
+  });
+
+  test("renders the ordered node trace with humanized labels and timing", () => {
+    const trace: NodeTraceEntry[] = [
+      { node: "load_tools", sequence: 1, durationMs: 12, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 340, status: "success" },
+    ];
+    render(<InspectorTab nodeTrace={trace} />);
+    expect(screen.getByText("Load tools")).toBeInTheDocument();
+    expect(screen.getByText("Respond")).toBeInTheDocument();
+    expect(screen.getByText("12 ms")).toBeInTheDocument();
+    // Both bottom groups render: nodes that didn't run + nodes that run after.
+    expect(screen.getByText("workspace.inspectorNotRun")).toBeInTheDocument();
+    expect(screen.getByText("workspace.inspectorPostResponse")).toBeInTheDocument();
+  });
+
+  test("collapses the mutually-exclusive tool-calling strategies into one slot", () => {
+    const trace: NodeTraceEntry[] = [
+      { node: "load_tools", sequence: 1, durationMs: 5, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 200, status: "success" },
+    ];
+    render(<InspectorTab nodeTrace={trace} />);
+    expect(screen.getByText("Call tools")).toBeInTheDocument();
+    expect(screen.queryByText("Call tools native")).not.toBeInTheDocument();
+    expect(screen.queryByText("Call tools structured")).not.toBeInTheDocument();
+  });
+
+  test("conveys node error status to screen readers", () => {
+    const trace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "error" }];
+    render(<InspectorTab nodeTrace={trace} />);
+    expect(screen.getByText("workspace.inspectorStatusError")).toBeInTheDocument();
   });
 });

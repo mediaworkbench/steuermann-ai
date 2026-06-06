@@ -15,7 +15,6 @@ import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useDocumentEditor } from "./useDocumentEditor";
 import { useVersionHistory } from "./useVersionHistory";
 import { WorkspaceTabState } from "./WorkspaceTabState";
-import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 
 interface DocumentsTabProps {
   conversationId?: string | null;
@@ -54,8 +53,10 @@ export function DocumentsTab({
   const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Filter text lives in the panel context so it survives tab switches.
-  const { documentQuery: query, setDocumentQuery: setQuery } = useWorkspacePanel();
+  // Filter text is local. The Documents tab stays mounted across tab switches
+  // (display:contents in WorkspacePanel), so it persists without leaking across
+  // routes the way panel-context state would.
+  const [query, setQuery] = useState("");
 
   const filteredDocuments = useMemo(() => {
     const q = query.trim().toLowerCase();
