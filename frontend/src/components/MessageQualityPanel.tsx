@@ -12,37 +12,12 @@ import {
 import type { MessageQualityResponse } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "./Icon";
+import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
+import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
 interface Props {
   data: MessageQualityResponse | null;
   formatNumber: (n: number) => string;
-}
-
-function MiniCard({
-  icon,
-  label,
-  value,
-  unit,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  unit?: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-muted-foreground">{icon}</div>
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
-          {label}
-        </p>
-        <p className="text-xl font-bold text-foreground">
-          {value}
-          {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
-        </p>
-      </div>
-    </div>
-  );
 }
 
 export function MessageQualityPanel({ data, formatNumber }: Props) {
@@ -50,11 +25,11 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
 
   if (!data || data.quality_data.length === 0) {
     return (
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <AnalyticsPanelSurface>
         <h3 className="text-sm font-semibold text-foreground mb-1">{t("metrics.messageQuality")}</h3>
         <p className="text-xs text-muted-foreground">{t("metrics.messageQualitySubtitle")}</p>
         <p className="text-xs text-muted-foreground italic mt-3">{t("metrics.noMessageQualityData")}</p>
-      </div>
+      </AnalyticsPanelSurface>
     );
   }
 
@@ -67,29 +42,29 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
   }));
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm space-y-5">
+    <AnalyticsPanelSurface className="space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-foreground">{t("metrics.messageQuality")}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">{t("metrics.messageQualitySubtitle")}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="thumb_up" size={16} />}
           label={t("metrics.thumbsUp")}
           value={formatNumber(data.total_up)}
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="thumb_down" size={16} />}
           label={t("metrics.thumbsDown")}
           value={formatNumber(data.total_down)}
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="trending_up" size={16} />}
           label={t("metrics.netScore")}
           value={formatNumber(data.net_score)}
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="chat_bubble" size={16} />}
           label={t("metrics.feedbackRate")}
           value={feedbackRatePct}
@@ -114,6 +89,6 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
         <span className="font-semibold text-foreground mr-1">{t("metrics.totalFeedback")}:</span>
         {formatNumber(data.total_feedback)}
       </div>
-    </div>
+    </AnalyticsPanelSurface>
   );
 }

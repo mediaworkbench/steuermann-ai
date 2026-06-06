@@ -52,7 +52,7 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
                 <WorkspaceInlineBadge
                   key={`${src.label}-${idx}`}
                   tone={isWeb ? "primary" : "default"}
-                  href={isWeb ? src.url : undefined}
+                  href={isWeb ? (src.url ?? undefined) : undefined}
                   className={!isWeb ? "bg-surface" : undefined}
                 >
                   {body}

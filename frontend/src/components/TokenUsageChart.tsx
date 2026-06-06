@@ -1,8 +1,10 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
 import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
+import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface TokenUsageChartProps {
@@ -14,7 +16,7 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
   if (Object.keys(data).length === 0) {
     return (
       <AnalyticsChartCard title={t("charts.tokenUsage")}>
-        <div className="py-8 text-center text-muted-foreground">{t("charts.noTokenUsageData")}</div>
+        <AnalyticsChartState compact message={t("charts.noTokenUsageData")} />
       </AnalyticsChartCard>
     );
   }
@@ -27,7 +29,7 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
 
   return (
     <AnalyticsChartCard title={t("charts.tokenUsageByModel")}>
-      <ResponsiveContainer width="100%" height={300}>
+      <AnalyticsChartViewport>
         <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
           <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
@@ -35,7 +37,7 @@ export function TokenUsageChart({ data }: TokenUsageChartProps) {
           <Tooltip content={<CustomTooltip />} />
           <Bar dataKey="tokens" fill="var(--chart-blue)" />
         </BarChart>
-      </ResponsiveContainer>
+      </AnalyticsChartViewport>
     </AnalyticsChartCard>
   );
 }

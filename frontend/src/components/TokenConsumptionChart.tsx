@@ -1,9 +1,11 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
 import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
+import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface TokenConsumptionChartProps {
@@ -40,7 +42,7 @@ function TokenConsumptionChart({
   if (loading) {
     return (
       <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <div className="py-12 text-center text-muted-foreground">{t("charts.loading")}</div>
+        <AnalyticsChartState message={t("charts.loading")} />
       </AnalyticsChartCard>
     );
   }
@@ -48,7 +50,7 @@ function TokenConsumptionChart({
   if (!data || data.length === 0) {
     return (
       <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <div className="py-12 text-center text-muted-foreground">{t("metrics.noTokenData")}</div>
+        <AnalyticsChartState message={t("metrics.noTokenData")} />
       </AnalyticsChartCard>
     );
   }
@@ -56,14 +58,14 @@ function TokenConsumptionChart({
   if (!showTotalTokens && !showAvgTokens) {
     return (
       <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <div className="py-12 text-center text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
+        <AnalyticsChartState message={t("charts.selectAtLeastOneSeries")} />
       </AnalyticsChartCard>
     );
   }
 
   return (
     <AnalyticsChartCard title={t("charts.dailyTokenConsumption")}>
-      <ResponsiveContainer width="100%" height={300}>
+      <AnalyticsChartViewport>
         <AreaChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
           <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
@@ -92,7 +94,7 @@ function TokenConsumptionChart({
             />
           )}
         </AreaChart>
-      </ResponsiveContainer>
+      </AnalyticsChartViewport>
     </AnalyticsChartCard>
   );
 }

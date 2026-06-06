@@ -18,6 +18,11 @@ import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useDocumentEditor } from "./useDocumentEditor";
 import { useVersionHistory } from "./useVersionHistory";
+import { WorkspaceDocActionButton } from "./WorkspaceDocActionButton";
+import { WorkspaceMutedCard } from "./WorkspaceMutedCard";
+import { WorkspacePanelHeaderRow } from "./WorkspacePanelHeaderRow";
+import { WorkspacePanelSection } from "./WorkspacePanelSection";
+import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 
 interface DocumentsTabProps {
@@ -162,16 +167,16 @@ export function DocumentsTab({
         }
         setRenamingDocId(null);
         setRenameValue("");
-        toast.success("Renamed", { description: trimmed });
+        toast.success(t("workspace.renamed"), { description: trimmed });
         onDocumentsRefresh?.();
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Rename failed";
-        toast.error("Rename failed", { description: message });
+        const message = err instanceof Error ? err.message : t("workspace.renameFailed");
+        toast.error(t("workspace.renameFailed"), { description: message });
       } finally {
         setProcessingAction(null);
       }
     },
-    [onDocumentsRefresh],
+    [onDocumentsRefresh, t],
   );
 
   const handleDownloadDocument = useCallback(
@@ -270,7 +275,7 @@ export function DocumentsTab({
           onChange={handleUploadFile}
           disabled={uploadingFile || isLoading}
           className="hidden"
-          aria-label="Upload document or image"
+          aria-label={t("workspace.uploadAriaLabel")}
         />
         <div className="flex gap-1.5">
           <Button
@@ -363,9 +368,9 @@ export function DocumentsTab({
       {/* Documents section */}
       {documents.length > 0 && (
         <div className="border-b border-border px-3 py-3">
-          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <WorkspaceSectionLabel className="mb-2 text-xs tracking-wide">
             {t("workspace.myDocuments", { count: documents.length })}
-          </p>
+          </WorkspaceSectionLabel>
           {filteredDocuments.length === 0 ? (
             <WorkspaceTabState
               icon="search_off"
@@ -480,96 +485,60 @@ export function DocumentsTab({
                       </div>
                     ) : null}
                     {!doc.mime_type?.startsWith("image/") && (
-                      <Button
-                        type="button"
+                      <WorkspaceDocActionButton
                         onClick={() => openEditor(doc.id)}
                         disabled={processingAction === doc.id || isLoading}
                         variant="ghost"
-                        size="sm"
-                        className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                   disabled:opacity-40 disabled:cursor-not-allowed
-                                   transition-colors"
+                        icon="edit"
+                        label={t("workspace.edit")}
                         title={t("workspace.edit")}
-                      >
-                        <Icon name="edit" size={14} className="mr-1 inline" />
-                        {t("workspace.edit")}
-                      </Button>
+                      />
                     )}
-                    <Button
-                      type="button"
+                    <WorkspaceDocActionButton
                       onClick={() => handleAttachFromWorkspace(doc)}
                       disabled={processingAction === doc.id || isLoading}
                       variant="ghost"
-                      size="sm"
-                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 disabled:opacity-40 disabled:cursor-not-allowed
-                                 transition-colors"
+                      icon="attach_file"
+                      label={t("workspace.attach")}
                       title={t("workspace.attach")}
-                    >
-                      <Icon name="attach_file" size={14} className="mr-1 inline" />
-                      {t("workspace.attach")}
-                    </Button>
-                    <Button
-                      type="button"
+                    />
+                    <WorkspaceDocActionButton
                       onClick={() => handleDownloadDocument(doc.id)}
                       disabled={processingAction === doc.id || isLoading}
                       variant="ghost"
-                      size="sm"
-                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 disabled:opacity-40 disabled:cursor-not-allowed
-                                 transition-colors"
+                      icon="download"
+                      label={t("workspace.download")}
                       title={t("workspace.download")}
-                    >
-                      <Icon name="download" size={14} className="mr-1 inline" />
-                      {t("workspace.download")}
-                    </Button>
+                    />
                     {!doc.mime_type?.startsWith("image/") && (
-                      <Button
-                        type="button"
+                      <WorkspaceDocActionButton
                         onClick={() => loadHistory(doc.id)}
                         disabled={processingAction === doc.id || isLoading}
                         variant="secondary"
-                        size="sm"
-                        className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                   disabled:opacity-40 disabled:cursor-not-allowed
-                                   transition-colors"
-                        title="Version history"
-                      >
-                        <Icon name="history" size={14} className="mr-1 inline" />
-                        History
-                      </Button>
+                        icon="history"
+                        label={t("workspace.history")}
+                        title={t("workspace.versionHistoryTooltip")}
+                      />
                     )}
-                    <Button
-                      type="button"
+                    <WorkspaceDocActionButton
                       onClick={() => {
                         setRenamingDocId(doc.id);
                         setRenameValue(doc.filename);
                       }}
                       disabled={processingAction === doc.id || isLoading}
                       variant="secondary"
-                      size="sm"
-                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 disabled:opacity-40 disabled:cursor-not-allowed
-                                 transition-colors"
-                      title="Rename"
-                    >
-                      <Icon name="drive_file_rename_outline" size={14} className="mr-1 inline" />
-                      Rename
-                    </Button>
-                    <Button
-                      type="button"
+                      icon="drive_file_rename_outline"
+                      label={t("workspace.rename")}
+                      title={t("workspace.rename")}
+                    />
+                    <WorkspaceDocActionButton
                       onClick={() => handleDeleteDocument(doc.id)}
                       disabled={processingAction === doc.id || isLoading}
                       variant="destructive"
-                      size="sm"
-                      className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 disabled:opacity-40 disabled:cursor-not-allowed
-                                 transition-colors"
+                      icon="delete"
+                      label={t("workspace.delete")}
                       title={t("workspace.delete")}
-                    >
-                      <Icon name="delete" size={14} className="mr-1 inline" />
-                      {t("workspace.delete")}
-                    </Button>
+                    />
                   </div>
                 )}
               </div>
@@ -581,29 +550,20 @@ export function DocumentsTab({
 
       {/* Version history panel */}
       {historyDocId && (
-        <div className="border-t border-border bg-surface px-3 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Version History — {getDocumentName(historyDocId)}
-            </p>
-            <Button
-              type="button"
-              onClick={closeHistory}
-              variant="ghost"
-              size="sm"
-              className="p-0 text-muted-foreground hover:text-foreground"
-            >
-              <Icon name="close" size={14} />
-            </Button>
-          </div>
+        <WorkspacePanelSection>
+          <WorkspacePanelHeaderRow
+            title={t("workspace.versionHistoryTitle", { name: getDocumentName(historyDocId) })}
+            onClose={closeHistory}
+            closeLabel={t("common.close")}
+          />
           {historyLoading ? (
-            <p className="py-2 text-xs text-muted-foreground">Loading…</p>
+            <p className="py-2 text-xs text-muted-foreground">{t("workspace.loadingVersions")}</p>
           ) : historyVersions.length === 0 ? (
-            <p className="py-2 text-xs text-muted-foreground">No saved versions yet.</p>
+            <p className="py-2 text-xs text-muted-foreground">{t("workspace.noSavedVersions")}</p>
           ) : (
             <div className="space-y-1.5">
               {historyVersions.map((v) => (
-                <div key={v.id} className="rounded border border-border bg-surface-muted">
+                <WorkspaceMutedCard key={v.id} className="rounded border">
                   <div className="flex items-center justify-between px-2 py-1.5">
                     <div>
                       <span className="text-xs font-medium text-foreground">v{v.version}</span>
@@ -620,7 +580,7 @@ export function DocumentsTab({
                         size="sm"
                         className="px-1.5 py-0.5 text-xs"
                       >
-                        {previewVersionId === v.id ? "Hide" : "Preview"}
+                        {previewVersionId === v.id ? t("workspace.hidePreview") : t("workspace.preview")}
                       </Button>
                       <Button
                         type="button"
@@ -630,7 +590,7 @@ export function DocumentsTab({
                         size="sm"
                         className="px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10 disabled:opacity-40"
                       >
-                        Restore
+                        {t("workspace.restore")}
                       </Button>
                     </div>
                   </div>
@@ -642,31 +602,21 @@ export function DocumentsTab({
                       </pre>
                     </div>
                   )}
-                </div>
+                </WorkspaceMutedCard>
               ))}
             </div>
           )}
-        </div>
+        </WorkspacePanelSection>
       )}
 
       {/* Document editor */}
       {editorDocId && (
-        <div className="border-t border-border bg-surface px-3 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {t("workspace.editor")}
-            </p>
-            <Button
-              type="button"
-              onClick={closeEditor}
-              variant="ghost"
-              size="sm"
-              className="p-0 text-muted-foreground hover:text-foreground"
-              aria-label={t("workspace.closeEditor")}
-            >
-              <Icon name="close" size={14} />
-            </Button>
-          </div>
+        <WorkspacePanelSection>
+          <WorkspacePanelHeaderRow
+            title={t("workspace.editor")}
+            onClose={closeEditor}
+            closeLabel={t("workspace.closeEditor")}
+          />
           <p className="mb-2 truncate text-xs text-muted-foreground">{getDocumentName(editorDocId)}</p>
           <div
             role="separator"
@@ -716,7 +666,7 @@ export function DocumentsTab({
               {t("workspace.download")}
             </Button>
           </div>
-        </div>
+        </WorkspacePanelSection>
       )}
 
       {/* Empty / loading / error state (only when there is nothing to list) */}
@@ -772,7 +722,7 @@ export function DocumentsTab({
                 variant="secondary"
                 size="sm"
                 className="absolute -right-3 -top-3 h-8 w-8 rounded-full bg-surface p-0 shadow"
-                aria-label="Close"
+                aria-label={t("workspace.closeLightbox")}
               >
                 <Icon name="close" size={16} className="text-foreground" />
               </Button>

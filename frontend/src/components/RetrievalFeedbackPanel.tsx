@@ -3,37 +3,12 @@
 import type { MemoryRetrievalQualityData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "./Icon";
+import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
+import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
 interface Props {
   data: MemoryRetrievalQualityData | null;
   formatNumber: (n: number) => string;
-}
-
-function MiniCard({
-  icon,
-  label,
-  value,
-  unit,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  unit?: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-muted-foreground">{icon}</div>
-      <div>
-        <p className="mb-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </p>
-        <p className="text-xl font-bold text-foreground">
-          {value}
-          {unit && <span className="ml-1 text-sm font-medium text-muted-foreground">{unit}</span>}
-        </p>
-      </div>
-    </div>
-  );
 }
 
 const BUCKET_ORDER = ["high", "mid", "low", "none"] as const;
@@ -49,12 +24,12 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
 
   if (!data || data.retrieval_signals_total === 0) {
     return (
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <AnalyticsPanelSurface>
         <h3 className="mb-1 text-sm font-semibold text-foreground">
           {t("metrics.retrievalFeedback")}
         </h3>
         <p className="text-xs italic text-muted-foreground">{t("metrics.noRetrievalData")}</p>
-      </div>
+      </AnalyticsPanelSurface>
     );
   }
 
@@ -83,7 +58,7 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
   };
 
   return (
-    <div className="space-y-5 rounded-2xl border border-border bg-surface p-6 shadow-sm">
+    <AnalyticsPanelSurface className="space-y-5">
       <div>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">
@@ -100,23 +75,23 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
 
       {/* Mini-cards row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="forum" size={16} />}
           label={t("metrics.retrievalSignalsTotal")}
           value={formatNumber(total)}
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="star" size={16} />}
           label={t("metrics.priorRatingCoverage")}
           value={priorPct}
           unit="%"
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="star" size={16} />}
           label={t("metrics.ratedAfterRetrieval")}
           value={formatNumber(data.rated_after_retrieval_total)}
         />
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="insert_chart" size={16} />}
           label={t("metrics.feedbackCoverage")}
           value={feedbackPct}
@@ -178,6 +153,6 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
           {t("metrics.retrievedWithoutRating")}
         </span>
       </div>
-    </div>
+    </AnalyticsPanelSurface>
   );
 }

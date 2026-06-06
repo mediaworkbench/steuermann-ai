@@ -1,9 +1,11 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
 import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
+import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
 interface LatencyAnalysisChartProps {
@@ -44,7 +46,7 @@ function LatencyAnalysisChart({
   if (loading) {
     return (
       <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
-        <div className="py-12 text-center text-muted-foreground">{t("charts.loading")}</div>
+        <AnalyticsChartState message={t("charts.loading")} />
       </AnalyticsChartCard>
     );
   }
@@ -52,7 +54,7 @@ function LatencyAnalysisChart({
   if (!data || data.length === 0) {
     return (
       <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
-        <div className="py-12 text-center text-muted-foreground">{t("metrics.noLatencyData")}</div>
+        <AnalyticsChartState message={t("metrics.noLatencyData")} />
       </AnalyticsChartCard>
     );
   }
@@ -60,14 +62,14 @@ function LatencyAnalysisChart({
   if (!showMin && !showAvg && !showMax) {
     return (
       <AnalyticsChartCard title={t("metrics.latencyAnalysis")}>
-        <div className="py-12 text-center text-muted-foreground">{t("charts.selectAtLeastOneSeries")}</div>
+        <AnalyticsChartState message={t("charts.selectAtLeastOneSeries")} />
       </AnalyticsChartCard>
     );
   }
 
   return (
     <AnalyticsChartCard title={t("charts.requestLatencyAnalysisMs")}>
-      <ResponsiveContainer width="100%" height={300}>
+      <AnalyticsChartViewport>
         <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
           <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
@@ -78,7 +80,7 @@ function LatencyAnalysisChart({
           {showAvg && <Line type="monotone" dataKey="avg" stroke="var(--chart-blue)" strokeWidth={2} name={t("charts.avgLatency")} />}
           {showMin && <Bar dataKey="min" stackId="latency" fill="var(--chart-green)" name={t("charts.minLatency")} />}
         </ComposedChart>
-      </ResponsiveContainer>
+      </AnalyticsChartViewport>
     </AnalyticsChartCard>
   );
 }

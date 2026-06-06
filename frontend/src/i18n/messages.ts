@@ -341,6 +341,7 @@ export type Messages = {
     nukeConfirm: string;
     nukeSuccess: string;
     nukeFailed: string;
+    uploadAriaLabel: string;
     thumbnailClickHint: string;
     tabDocuments: string;
     tabKnowledge: string;
@@ -354,8 +355,24 @@ export type Messages = {
     noResults: string;
     noResultsHint: string;
     loadingDocuments: string;
+    loadingVersions: string;
     documentsLoadError: string;
     retry: string;
+    versionHistoryTitle: string;
+    noSavedVersions: string;
+    preview: string;
+    hidePreview: string;
+    restore: string;
+    restoredToVersion: string;
+    restoreFailed: string;
+    rename: string;
+    renamed: string;
+    renameFailed: string;
+    history: string;
+    versionHistoryTooltip: string;
+    loadVersionHistoryFailed: string;
+    loadVersionPreviewFailed: string;
+    closeLightbox: string;
     evidenceSummary: string;
     evidenceDocs: string;
     evidenceMemory: string;
@@ -904,6 +921,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Delete all?",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
+      uploadAriaLabel: "Upload document or image",
       thumbnailClickHint: "Click to preview",
       tabDocuments: "Documents",
       tabKnowledge: "Knowledge",
@@ -917,8 +935,24 @@ export const messages: Record<Locale, Messages> = {
       noResults: "No matching documents",
       noResultsHint: "Try a different search term.",
       loadingDocuments: "Loading documents…",
+      loadingVersions: "Loading…",
       documentsLoadError: "Couldn't load documents",
       retry: "Retry",
+      versionHistoryTitle: "Version History - {name}",
+      noSavedVersions: "No saved versions yet.",
+      preview: "Preview",
+      hidePreview: "Hide",
+      restore: "Restore",
+      restoredToVersion: "Restored to v{version}",
+      restoreFailed: "Restore failed",
+      rename: "Rename",
+      renamed: "Renamed",
+      renameFailed: "Rename failed",
+      history: "History",
+      versionHistoryTooltip: "Version history",
+      loadVersionHistoryFailed: "Failed to load version history",
+      loadVersionPreviewFailed: "Failed to load version preview",
+      closeLightbox: "Close",
       evidenceSummary: "Answer evidence",
       evidenceDocs: "Documents used",
       evidenceMemory: "Memories recalled",
@@ -1465,6 +1499,7 @@ export const messages: Record<Locale, Messages> = {
       nukeConfirm: "Alle löschen?",
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
+      uploadAriaLabel: "Dokument oder Bild hochladen",
       thumbnailClickHint: "Klicken zum Vergrößern",
       tabDocuments: "Dokumente",
       tabKnowledge: "Wissen",
@@ -1478,8 +1513,24 @@ export const messages: Record<Locale, Messages> = {
       noResults: "Keine passenden Dokumente",
       noResultsHint: "Versuche einen anderen Suchbegriff.",
       loadingDocuments: "Dokumente werden geladen…",
+      loadingVersions: "Lädt…",
       documentsLoadError: "Dokumente konnten nicht geladen werden",
       retry: "Erneut versuchen",
+      versionHistoryTitle: "Versionsverlauf - {name}",
+      noSavedVersions: "Noch keine gespeicherten Versionen.",
+      preview: "Vorschau",
+      hidePreview: "Verbergen",
+      restore: "Wiederherstellen",
+      restoredToVersion: "Auf v{version} wiederhergestellt",
+      restoreFailed: "Wiederherstellen fehlgeschlagen",
+      rename: "Umbenennen",
+      renamed: "Umbenannt",
+      renameFailed: "Umbenennen fehlgeschlagen",
+      history: "Verlauf",
+      versionHistoryTooltip: "Versionsverlauf",
+      loadVersionHistoryFailed: "Versionsverlauf konnte nicht geladen werden",
+      loadVersionPreviewFailed: "Versionsvorschau konnte nicht geladen werden",
+      closeLightbox: "Schließen",
       evidenceSummary: "Antwort-Belege",
       evidenceDocs: "Verwendete Dokumente",
       evidenceMemory: "Abgerufene Erinnerungen",

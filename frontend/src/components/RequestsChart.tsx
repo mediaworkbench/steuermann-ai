@@ -1,8 +1,10 @@
 "use client";
 
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell, Tooltip } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
 import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
+import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
+import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 
 interface RequestsChartProps {
   data: Record<string, number>;
@@ -21,7 +23,7 @@ export function RequestsChart({ data }: RequestsChartProps) {
   if (Object.keys(data).length === 0) {
     return (
       <AnalyticsChartCard title={t("charts.requestsByStatus")}>
-        <div className="py-8 text-center text-muted-foreground">{t("charts.noRequestData")}</div>
+        <AnalyticsChartState compact message={t("charts.noRequestData")} />
       </AnalyticsChartCard>
     );
   }
@@ -36,7 +38,7 @@ export function RequestsChart({ data }: RequestsChartProps) {
   return (
     <AnalyticsChartCard title={t("charts.requestsByStatus")}>
       <div className="mb-4 text-sm text-muted-foreground">{t("charts.total")}: {formatNumber(total)}</div>
-      <ResponsiveContainer width="100%" height={300}>
+      <AnalyticsChartViewport>
         <PieChart>
           <Pie
             data={chartData}
@@ -54,7 +56,7 @@ export function RequestsChart({ data }: RequestsChartProps) {
           </Pie>
           <Tooltip formatter={(value: number) => formatNumber(value)} />
         </PieChart>
-      </ResponsiveContainer>
+      </AnalyticsChartViewport>
     </AnalyticsChartCard>
   );
 }

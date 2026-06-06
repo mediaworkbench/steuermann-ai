@@ -31,6 +31,21 @@
 - **feat** Migrated `MemoryTab.tsx` memory item shells to `WorkspaceMutedCard`.
 - **feat** Migrated `OutputsTab.tsx` tool/map headings and chip rows to `WorkspaceSectionLabel` and `WorkspaceInlineBadge`.
 - **feat** Migrated `InspectorTab.tsx` node-group headings/chips to `WorkspaceSectionLabel` and compact `WorkspaceInlineBadge` chips.
+- **feat** Added `components/workspace/WorkspacePanelHeaderRow.tsx` and `WorkspaceDocActionButton.tsx` to standardize workspace panel header rows (title + close action) and document action-button rows.
+- **feat** Migrated `DocumentsTab.tsx` repeated expanded-row actions (edit/attach/download/history/rename/delete) to `WorkspaceDocActionButton`.
+- **feat** Migrated `DocumentsTab.tsx` version-history and editor header rows to `WorkspacePanelHeaderRow` and switched the documents list section heading to `WorkspaceSectionLabel`.
+- **feat** Migrated `DocumentsTab.tsx` version-history item shells to `WorkspaceMutedCard` for consistent evidence-panel card chrome.
+- **feat** Added `components/product/AnalyticsPanelSurface.tsx` and `AnalyticsStatCard.tsx` to standardize analytics panel shells and compact metrics summary cards.
+- **feat** Migrated `MessageQualityPanel.tsx` and `RetrievalFeedbackPanel.tsx` to the new analytics panel/stat-card primitives, removing duplicated local `MiniCard` implementations.
+- **feat** Migrated `MemoryMetricsPanel.tsx` to shared `AnalyticsPanelSurface`/`AnalyticsStatCard` primitives and replaced the remaining inline-style panel shell with semantic token classes.
+- **feat** Added `components/product/AnalyticsChartState.tsx` and `AnalyticsChartViewport.tsx` to standardize chart empty/loading/select-state messaging and `ResponsiveContainer` viewport wrappers.
+- **feat** Migrated `TokenUsageChart.tsx`, `TokenConsumptionChart.tsx`, `UsageTrendChart.tsx`, `LatencyAnalysisChart.tsx`, and `RequestsChart.tsx` to the new chart state/viewport primitives, removing repeated state blocks and container markup.
+- **feat** Added `components/workspace/WorkspacePanelSection.tsx` and migrated the `DocumentsTab.tsx` version-history/editor shells to the shared section wrapper.
+- **feat** Completed `DocumentsTab.tsx` i18n cleanup by replacing remaining hardcoded history/rename/lightbox strings with workspace translation keys.
+- **feat** Extended `frontend/src/i18n/messages.ts` workspace contract (EN/DE) with history/rename/lightbox keys (`versionHistoryTitle`, `loadingVersions`, `noSavedVersions`, `preview`, `hidePreview`, `restore`, `rename`, `renamed`, `renameFailed`, `closeLightbox`).
+- **feat** Extended workspace i18n coverage with upload/version-history helper keys (`uploadAriaLabel`, `history`, `versionHistoryTooltip`, `loadVersionHistoryFailed`, `loadVersionPreviewFailed`, `restoredToVersion`, `restoreFailed`) and wired them into `DocumentsTab.tsx` + `useVersionHistory.ts`.
+- **chore** Localized `useVersionHistory.ts` toast messaging via `useI18n`, removing remaining hardcoded user-facing status/error strings from the version-history flow.
+- **docs** Cleaned stale contradictory "In progress / pending" notes in `design-system.md` so pending items now reflect only real remaining work (CI gates, phase-3 shells, profile hardening).
 - **feat** Migrated `ui/Select.tsx`, `ui/Input.tsx`, and `ui/Textarea.tsx` to use `cn()` from `lib/utils.ts` for conflict-free Tailwind class merging, completing `cn()` adoption across all shared UI primitives.
 - **feat** Added design-system enforcement gates to `eslint.config.mjs`: Gate 1 (`no-restricted-imports`) blocks `lucide-react` re-introduction in `src/**` with a message pointing to the shared `Icon` wrapper; Gate 2 (`no-restricted-syntax`) warns on raw palette status-color class strings (`emerald-*`, `amber-*`, `red-*`, `green-*`, `blue-100`) enforcing semantic token usage.
 - **docs** Updated `design-system.md` handoff snapshot to reflect Phase 1/2 completion, the active enforcement gates, and the remaining Phase 3/5 work.

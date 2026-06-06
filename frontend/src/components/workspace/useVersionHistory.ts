@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { useI18n } from "@/hooks/useI18n";
 import type { VersionEntry } from "./types";
 import { workspaceAuthHeaders } from "./utils";
 
@@ -22,6 +23,7 @@ export function useVersionHistory({
   setProcessingAction,
   onAfterRestore,
 }: UseVersionHistoryArgs) {
+  const { t } = useI18n();
   const [historyDocId, setHistoryDocId] = useState<string | null>(null);
   const [historyVersions, setHistoryVersions] = useState<VersionEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -49,11 +51,11 @@ export function useVersionHistory({
       const data: VersionEntry[] = await res.json();
       setHistoryVersions(data);
     } catch {
-      toast.error("Failed to load version history");
+      toast.error(t("workspace.loadVersionHistoryFailed"));
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const previewVersion = useCallback(
     async (docId: string, version: number, versionId: string) => {
@@ -71,10 +73,10 @@ export function useVersionHistory({
         setPreviewVersionId(versionId);
         setPreviewContent(data.content_text || "");
       } catch {
-        toast.error("Failed to load version preview");
+        toast.error(t("workspace.loadVersionPreviewFailed"));
       }
     },
-    [previewVersionId],
+    [previewVersionId, t],
   );
 
   const restoreVersion = useCallback(
@@ -89,19 +91,19 @@ export function useVersionHistory({
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || res.statusText);
         }
-        toast.success(`Restored to v${version}`);
+        toast.success(t("workspace.restoredToVersion", { version }));
         setHistoryDocId(null);
         setHistoryVersions([]);
         onDocumentsRefresh?.();
         onAfterRestore?.(docId);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Restore failed";
-        toast.error("Restore failed", { description: message });
+        const message = err instanceof Error ? err.message : t("workspace.restoreFailed");
+        toast.error(t("workspace.restoreFailed"), { description: message });
       } finally {
         setProcessingAction(null);
       }
     },
-    [onDocumentsRefresh, onAfterRestore, setProcessingAction],
+    [onDocumentsRefresh, onAfterRestore, setProcessingAction, t],
   );
 
   return {

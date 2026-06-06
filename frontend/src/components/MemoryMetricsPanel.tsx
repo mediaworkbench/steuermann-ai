@@ -3,37 +3,12 @@
 import type { MetricsData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { Icon } from "./Icon";
+import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
+import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
 interface Props {
   metrics: MetricsData;
   formatNumber: (n: number) => string;
-}
-
-function MiniCard({
-  icon,
-  label,
-  value,
-  unit,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  unit?: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
-      <div className="mt-0.5 text-muted-foreground">{icon}</div>
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
-          {label}
-        </p>
-        <p className="text-xl font-bold text-foreground">
-          {value}
-          {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
-        </p>
-      </div>
-    </div>
-  );
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -74,61 +49,42 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
   }
 
   return (
-    <div
-      style={{
-        background: "var(--bg-card)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-sm)",
-        border: "1px solid var(--border-color)",
-        padding: "var(--spacing-lg)",
-        marginBottom: "var(--spacing-xl)",
-      }}
-    >
-      <h3
-        style={{
-          fontSize: "1.125rem",
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          margin: "0 0 var(--spacing-md) 0",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-        }}
-      >
+    <AnalyticsPanelSurface className="mb-6 rounded-lg">
+      <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
         <Icon name="psychology" size={18} />
         {t("metrics.memoryOperations")}
       </h3>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <MiniCard
+        <AnalyticsStatCard
           icon={<Icon name="database" size={16} />}
           label={t("metrics.totalOps")}
           value={formatNumber(Math.round(totalOps))}
         />
         {avgQuality !== null && (
-          <MiniCard
+          <AnalyticsStatCard
             icon={<Icon name="bolt" size={16} />}
             label={t("metrics.avgQuality")}
             value={`${Math.round(avgQuality * 100)}%`}
           />
         )}
         {coocNodes !== null && (
-          <MiniCard
+          <AnalyticsStatCard
             icon={<Icon name="merge" size={16} />}
             label={t("metrics.coOccurrenceNodes")}
             value={formatNumber(Math.round(coocNodes))}
           />
         )}
         {coocEdges !== null && (
-          <MiniCard
+          <AnalyticsStatCard
             icon={<Icon name="merge" size={16} />}
             label={t("metrics.coOccurrenceEdges")}
             value={formatNumber(Math.round(coocEdges))}
           />
         )}
         {rankingMs !== null && (
-          <MiniCard
+          <AnalyticsStatCard
             icon={<Icon name="bolt" size={16} />}
             label={t("metrics.rankingLatency")}
             value={rankingMs.toFixed(1)}
@@ -203,6 +159,6 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
           </table>
         </div>
       )}
-    </div>
+    </AnalyticsPanelSurface>
   );
 }
