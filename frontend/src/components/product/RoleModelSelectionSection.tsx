@@ -19,9 +19,7 @@ interface RoleModelSelectionSectionProps {
   roleConfigs: RoleModelConfig[];
   preferredModels: Record<string, string | null>;
   onModelChange: (roleName: string, value: string, roleDefaultModel: string) => void;
-  getRoleLabel: (roleName: string) => string;
-  getProviderLabel: (providerId: string) => string;
-  getSystemDefaultLabel: (defaultModel: string) => string;
+  t: (key: string, params?: Record<string, string>) => string;
 }
 
 export function RoleModelSelectionSection({
@@ -32,9 +30,7 @@ export function RoleModelSelectionSection({
   roleConfigs,
   preferredModels,
   onModelChange,
-  getRoleLabel,
-  getProviderLabel,
-  getSystemDefaultLabel,
+  t,
 }: RoleModelSelectionSectionProps) {
   return (
     <SectionCard>
@@ -58,9 +54,11 @@ export function RoleModelSelectionSection({
               <RoleModelSelectorCard
                 key={roleName}
                 roleName={roleName}
-                roleLabel={getRoleLabel(roleName)}
-                providerLabel={getProviderLabel(roleConfig.provider_id || "")}
-                systemDefaultLabel={getSystemDefaultLabel(roleDefaultModel)}
+                roleLabel={t("settingsPanel.roleModelLabel", { role: roleName })}
+                providerLabel={
+                  t("settingsPanel.roleProviderLocked", { provider: roleConfig.provider_id || "" })
+                }
+                systemDefaultLabel={t("settingsPanel.systemDefault", { value: roleDefaultModel })}
                 selectedModel={selectedModel}
                 modelOptions={mergedRoleModels}
                 modelLoadError={roleConfig.model_load_error}

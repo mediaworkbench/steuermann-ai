@@ -1,21 +1,21 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { DangerActionButton } from "@/components/product/DangerActionButton";
-import { DangerHintText } from "@/components/product/DangerHintText";
-import { DiagnosticsLegend } from "@/components/product/DiagnosticsLegend";
+import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
+import { DangerOptionsList } from "@/components/product/DangerOptionsList";
+import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
+import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
 import { FormFieldLabel } from "@/components/product/FormFieldLabel";
-import { LabeledValue } from "@/components/product/LabeledValue";
-import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
 import { PanelLoadingState } from "@/components/product/PanelLoadingState";
 import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
-import { SectionErrorText } from "@/components/product/SectionErrorText";
 import { SectionStateText } from "@/components/product/SectionStateText";
 import { SubsectionHeader } from "@/components/product/SubsectionHeader";
 import { TitledSectionCard } from "@/components/product/TitledSectionCard";
+import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
+import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
@@ -118,24 +118,6 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   useEffect(() => {
     void loadCapabilities();
   }, [loadCapabilities]);
-
-  const getEffectiveModeBadgeClass = useCallback((mode: string) => {
-    switch (mode) {
-      case "native": return "bg-success/10 text-success";
-      case "structured": return "bg-warning/10 text-warning";
-      case "react": return "bg-info/10 text-info";
-      default: return "bg-muted text-foreground";
-    }
-  }, []);
-
-  const getRoleBadgeClass = useCallback((role?: string) => {
-    switch (role) {
-      case "chat": return "bg-indigo-100 text-indigo-800";
-      case "vision": return "bg-purple-100 text-purple-800";
-      case "auxiliary": return "bg-orange-100 text-orange-800";
-      default: return "bg-muted text-foreground";
-    }
-  }, []);
 
   const handleCopyDiagnostics = useCallback(async () => {
     if (capabilities.length === 0 || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
@@ -258,7 +240,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
     <div className="space-y-6">
 
       {/* LLM Capability Diagnostics */}
-      <TitledSectionCard
+      <DiagnosticsSectionCard
         title={t("adminPage.llmSection")}
         description={
           <>
@@ -268,147 +250,26 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             )}
           </>
         }
-        actions={
-          <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            onClick={handleCopyDiagnostics}
-            disabled={capabilitiesLoading || copyingDiagnostics || capabilities.length === 0}
-            variant="secondary"
-            size="sm"
-          >
-            {copyingDiagnostics ? t("common.loading") : t("settingsPanel.copyDiagnostics")}
-          </Button>
-          <Button
-            type="button"
-            onClick={() => void loadCapabilities()}
-            disabled={capabilitiesLoading}
-            variant="secondary"
-            size="sm"
-          >
-            {t("common.refresh")}
-          </Button>
-          </div>
-        }
-      >
-
-        <DiagnosticsLegend
-          title={t("settingsPanel.legendTitle")}
-          nativeLabel={t("settingsPanel.legendNative")}
-          structuredLabel={t("settingsPanel.legendStructured")}
-          reactLabel={t("settingsPanel.legendReact")}
-        />
-
-        {capabilitiesLoading ? (
-          <SectionStateText>{t("settingsPanel.capabilitiesLoading")}</SectionStateText>
-        ) : capabilitiesError ? (
-          <SectionErrorText>{capabilitiesError}</SectionErrorText>
-        ) : capabilities.length === 0 ? (
-          <SectionStateText>{t("settingsPanel.capabilitiesEmpty")}</SectionStateText>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full rounded-lg border border-border text-sm">
-              <thead className="bg-surface-muted">
-                <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityModel")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityRole")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityDesired")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityEffective")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityProbeStatus")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityReason")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityProbedAt")}</th>
-                  <th className="px-3 py-2 text-left font-semibold text-foreground">{t("settingsPanel.capabilityDetails")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {capabilities.map((item) => {
-                  const rowKey = `${item.provider_id}:${item.model_name}`;
-                  const expanded = !!expandedCapabilityRows[rowKey];
-                  return (
-                    <Fragment key={rowKey}>
-                      <tr className="border-t border-border">
-                        <td className="px-3 py-2 text-foreground">
-                          <div className="font-medium">{item.model_name}</div>
-                          <div className="text-xs text-muted-foreground">{item.provider_id}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          {item.role && (
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getRoleBadgeClass(item.role)}`}>
-                              {item.role}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{item.desired_mode}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getEffectiveModeBadgeClass(item.effective_mode)}`}>
-                            {item.effective_mode}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{item.probe_status}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{item.effective_mode_reason}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{item.probed_at ? formatDateTime(item.probed_at) : t("metrics.na")}</td>
-                        <td className="px-3 py-2">
-                          <Button
-                            type="button"
-                            onClick={() => toggleCapabilityRow(rowKey)}
-                            variant="secondary"
-                            size="sm"
-                            className="px-2 py-1 text-xs"
-                          >
-                            {expanded ? t("settingsPanel.hideDetails") : t("settingsPanel.showDetails")}
-                          </Button>
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr className="border-t border-border bg-surface-muted">
-                          <td colSpan={8} className="px-3 py-3 text-xs text-muted-foreground">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <LabeledValue
-                                label={t("settingsPanel.detailConfiguredMode")}
-                                value={item.configured_tool_calling_mode || t("metrics.na")}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailApiBase")}
-                                value={item.api_base || t("metrics.na")}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailError")}
-                                value={item.error_message || t("metrics.na")}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailBindTools")}
-                                value={item.supports_bind_tools === null ? t("metrics.na") : String(item.supports_bind_tools)}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailVision")}
-                                value={item.supports_vision === null || item.supports_vision === undefined ? t("metrics.na") : String(item.supports_vision)}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailReasoning")}
-                                value={String(item.supports_reasoning ?? false)}
-                              />
-                              <LabeledValue
-                                label={t("settingsPanel.detailMismatch")}
-                                value={String(item.capability_mismatch)}
-                              />
-                            </div>
-                            <div className="mt-2">
-                              <div className="font-semibold mb-1">{t("settingsPanel.detailMetadata")}</div>
-                              <pre className="overflow-x-auto rounded border border-border bg-surface p-2">
-                                {JSON.stringify(item.metadata || {}, null, 2)}
-                              </pre>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </TitledSectionCard>
+        items={capabilities}
+        loading={capabilitiesLoading}
+        error={capabilitiesError}
+        expandedRows={expandedCapabilityRows}
+        onToggleRow={toggleCapabilityRow}
+        formatDateTime={formatDateTime}
+        labels={buildCapabilitiesTableLabels(t)}
+        legendTitle={t("settingsPanel.legendTitle")}
+        legendNative={t("settingsPanel.legendNative")}
+        legendStructured={t("settingsPanel.legendStructured")}
+        legendReact={t("settingsPanel.legendReact")}
+        loadingLabel={t("settingsPanel.capabilitiesLoading")}
+        emptyLabel={t("settingsPanel.capabilitiesEmpty")}
+        copyLabel={t("settingsPanel.copyDiagnostics")}
+        copyingLabel={t("common.loading")}
+        refreshLabel={t("common.refresh")}
+        copying={copyingDiagnostics}
+        onCopy={handleCopyDiagnostics}
+        onRefresh={() => void loadCapabilities()}
+      />
 
       {/* RAG Operational Configuration */}
       <TitledSectionCard title={t("adminPage.ragSection")}>
@@ -464,10 +325,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         roleConfigs={roleModelOptions}
         preferredModels={preferredModels}
         onModelChange={(roleName, value, roleDefaultModel) =>
-          setPreferredModels((prev) => ({
-            ...prev,
-            [roleName]: value === roleDefaultModel ? "" : value,
-          }))
+          setPreferredModels((prev) =>
+            updatePreferredModelSelection(prev, roleName, value, roleDefaultModel)
+          )
         }
         getRoleLabel={(roleName) => t("settingsPanel.roleModelLabel", { role: roleName })}
         getProviderLabel={(providerId) =>
@@ -494,9 +354,8 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         tone="danger"
         headerClassName="mb-5"
       >
-
-        <div className="space-y-3 mb-5">
-          {(
+        <DangerOptionsList
+          options={(
             [
               { key: "conversations", label: t("adminPage.resetConversationsLabel"), description: t("adminPage.resetConversationsDescription") },
               { key: "workspace",     label: t("adminPage.resetWorkspaceLabel"),     description: t("adminPage.resetWorkspaceDescription") },
@@ -504,28 +363,24 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               { key: "analytics",     label: t("adminPage.resetAnalyticsLabel"),     description: t("adminPage.resetAnalyticsDescription") },
               { key: "llm_probes",    label: t("adminPage.resetLlmProbesLabel"),     description: t("adminPage.resetLlmProbesDescription") },
             ] as { key: keyof ResetOptions; label: string; description: string }[]
-          ).map(({ key, label, description }) => (
-            <OptionCheckboxRow
-              key={key}
-              checked={resetOptions[key]}
-              onToggle={() => toggleResetOption(key)}
-              label={label}
-              description={description}
-              className="group"
-            />
-          ))}
-        </div>
+          ).map(({ key, label, description }) => ({
+            key,
+            checked: resetOptions[key],
+            onToggle: () => toggleResetOption(key),
+            label,
+            description,
+            className: "group",
+          }))}
+        />
 
-        {!Object.values(resetOptions).some(Boolean) && (
-          <DangerHintText>{t("adminPage.resetNoneSelected")}</DangerHintText>
-        )}
-
-        <DangerActionButton
-          onClick={() => setConfirmReset(true)}
-          disabled={resetting || !Object.values(resetOptions).some(Boolean)}
+        <DangerSelectionActions
+          hasSelection={Object.values(resetOptions).some(Boolean)}
+          hintText={t("adminPage.resetNoneSelected")}
+          onAction={() => setConfirmReset(true)}
           loading={resetting}
           loadingLabel={t("settingsPanel.resetting")}
-          label={t("adminPage.resetSelectedButton")}
+          actionLabel={t("adminPage.resetSelectedButton")}
+          disabled={resetting}
         />
       </TitledSectionCard>
 
@@ -541,12 +396,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         onCancel={() => setConfirmReingest(false)}
       />
 
-      <ConfirmDialog
+      <DangerConfirmDialog
         isOpen={confirmReset}
         title={t("adminPage.dangerZoneSection")}
         message={t("adminPage.resetConfirmMessage")}
-        variant="danger"
-        requireChecked={true}
         checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
         confirmLabel={t("adminPage.resetSelectedButton")}
         onConfirm={() => {

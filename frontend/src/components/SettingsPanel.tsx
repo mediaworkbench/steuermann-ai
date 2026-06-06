@@ -10,17 +10,18 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { DangerActionButton } from "@/components/product/DangerActionButton";
-import { DangerHintText } from "@/components/product/DangerHintText";
+import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
+import { DangerOptionsList } from "@/components/product/DangerOptionsList";
+import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { FormFieldLabel } from "@/components/product/FormFieldLabel";
+import { OptionChecklist } from "@/components/product/OptionChecklist";
 import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
 import { PanelLoadingState } from "@/components/product/PanelLoadingState";
 import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
 import { SectionStateText } from "@/components/product/SectionStateText";
 import { TitledSectionCard } from "@/components/product/TitledSectionCard";
-import { Checkbox } from "@/components/ui/Checkbox";
+import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Slider } from "@/components/ui/Slider";
 import { Select } from "@/components/ui/Select";
 
@@ -181,20 +182,17 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
 
       {/* Sound */}
       <TitledSectionCard title={t("settingsPanel.soundSection")}>
-        <label className="flex items-start gap-3 cursor-pointer">
-          <Checkbox
-            type="checkbox"
-            checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
-            onChange={(e) =>
-              setAnalyticsPreferences((prev) => ({ ...prev, sound_enabled: e.target.checked }))
-            }
-            className="mt-0.5"
-          />
-          <span className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">{t("settingsPanel.soundEnabled")}</span>
-            <span className="mt-0.5 text-xs text-foreground/60">{t("settingsPanel.soundEnabledDescription")}</span>
-          </span>
-        </label>
+        <OptionCheckboxRow
+          checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
+          onToggle={() =>
+            setAnalyticsPreferences((prev) => ({
+              ...prev,
+              sound_enabled: !((prev.sound_enabled as boolean) ?? true),
+            }))
+          }
+          label={t("settingsPanel.soundEnabled")}
+          description={t("settingsPanel.soundEnabledDescription")}
+        />
       </TitledSectionCard>
 
       {/* Tool Toggles */}
@@ -202,19 +200,16 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {configLoading ? (
           <SectionStateText>{t("settingsPanel.loadingTools")}</SectionStateText>
         ) : (
-          <div className="space-y-3">
-            {(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => (
-              <label key={tool.id} className="flex items-center gap-3 cursor-pointer">
-                <Checkbox
-                  type="checkbox"
-                  checked={toolToggles[tool.id] ?? true}
-                  onChange={() => handleToolToggle(tool.id)}
-                  className="w-5 h-5"
-                />
-                <span className="font-medium text-foreground">{tool.label}</span>
-              </label>
-            ))}
-          </div>
+          <OptionChecklist
+            items={(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => ({
+              key: tool.id,
+              checked: toolToggles[tool.id] ?? true,
+              onToggle: () => handleToolToggle(tool.id),
+              label: tool.label,
+              alignment: "center" as const,
+              checkboxClassName: "w-5 h-5",
+            }))}
+          />
         )}
       </TitledSectionCard>
 
@@ -223,15 +218,15 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
         <div className="space-y-4">
           <div>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <Checkbox
-                type="checkbox"
-                checked={(ragConfig.enabled as boolean) !== false}
-                onChange={(e) => handleRagConfigChange("enabled", e.target.checked)}
-                className="w-4 h-4"
-              />
-              <span className="text-sm font-medium text-foreground">{t("settingsPanel.ragEnabled")}</span>
-            </label>
+            <OptionCheckboxRow
+              checked={(ragConfig.enabled as boolean) !== false}
+              onToggle={() =>
+                handleRagConfigChange("enabled", !((ragConfig.enabled as boolean) !== false))
+              }
+              label={t("settingsPanel.ragEnabled")}
+              alignment="center"
+              checkboxClassName="w-4 h-4"
+            />
           </div>
           <div>
             <FormFieldLabel>
@@ -259,18 +254,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         roleConfigs={chatModelOptions}
         preferredModels={preferredModels}
         onModelChange={(roleName, value, roleDefaultModel) =>
-          setPreferredModels((prev) => ({
-            ...prev,
-            [roleName]: value === roleDefaultModel ? "" : value,
-          }))
+          setPreferredModels((prev) =>
+            updatePreferredModelSelection(prev, roleName, value, roleDefaultModel)
+          )
         }
-        getRoleLabel={(roleName) => t("settingsPanel.roleModelLabel", { role: roleName })}
-        getProviderLabel={(providerId) =>
-          t("settingsPanel.roleProviderLocked", { provider: providerId })
-        }
-        getSystemDefaultLabel={(defaultModel) =>
-          t("settingsPanel.systemDefault", { value: defaultModel })
-        }
+        t={t}
       />
 
       {/* Save */}
@@ -294,50 +282,40 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         description={t("settingsPanel.myDataDescription")}
         tone="danger"
       >
-        <div className="space-y-3 mb-5">
-          {(
+        <DangerOptionsList
+          options={(
             [
               ["conversations", "myDataResetConversationsLabel", "myDataResetConversationsDescription"],
               ["workspace",    "myDataResetWorkspaceLabel",     "myDataResetWorkspaceDescription"],
               ["memories",     "myDataResetMemoriesLabel",      "myDataResetMemoriesDescription"],
             ] as const
-          ).map(([key, labelKey, descKey]) => (
-            <OptionCheckboxRow
-              key={key}
-              checked={myDataOptions[key]}
-              onToggle={() =>
-                setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] }))
-              }
-              label={t(`settingsPanel.${labelKey}`)}
-              description={t(`settingsPanel.${descKey}`)}
-            />
-          ))}
-        </div>
-        {!Object.values(myDataOptions).some(Boolean) && (
-          <DangerHintText>{t("settingsPanel.myDataResetNoneSelected")}</DangerHintText>
-        )}
-        <DangerActionButton
-          onClick={() => {
-            if (!Object.values(myDataOptions).some(Boolean)) return;
-            setMyDataConfirmOpen(true);
-          }}
-          disabled={myDataResetting || !Object.values(myDataOptions).some(Boolean)}
+          ).map(([key, labelKey, descKey]) => ({
+            key,
+            checked: myDataOptions[key],
+            onToggle: () => setMyDataOptions((prev) => ({ ...prev, [key]: !prev[key] })),
+            label: t(`settingsPanel.${labelKey}`),
+            description: t(`settingsPanel.${descKey}`),
+          }))}
+        />
+        <DangerSelectionActions
+          hasSelection={Object.values(myDataOptions).some(Boolean)}
+          hintText={t("settingsPanel.myDataResetNoneSelected")}
+          onAction={() => setMyDataConfirmOpen(true)}
           loading={myDataResetting}
           loadingLabel={t("settingsPanel.myDataResetting")}
-          label={t("settingsPanel.myDataResetButton")}
+          actionLabel={t("settingsPanel.myDataResetButton")}
+          disabled={myDataResetting}
         />
       </TitledSectionCard>
 
-      <ConfirmDialog
+      <DangerConfirmDialog
         isOpen={myDataConfirmOpen}
         title={t("settingsPanel.myDataSection")}
         message={t("settingsPanel.myDataResetConfirmMessage")}
         confirmLabel={t("settingsPanel.myDataResetButton")}
-        requireChecked
         checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
         onConfirm={handleMyDataReset}
         onCancel={() => setMyDataConfirmOpen(false)}
-        variant="danger"
       />
     </div>
   );
