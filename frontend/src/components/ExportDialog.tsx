@@ -149,9 +149,12 @@ function FormatOption({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
+      type="button"
       onClick={onClick}
-      className={`flex-1 flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-colors cursor-pointer
+      variant="ghost"
+      size="sm"
+      className={`flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors
         ${
           selected
             ? "border-primary bg-primary/5"
@@ -173,6 +176,6 @@ function FormatOption({
         </span>
         <span className="text-[11px] text-foreground/40">{description}</span>
       </div>
-    </button>
+    </Button>
   );
 }

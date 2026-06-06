@@ -7,6 +7,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Highlight, themes } from "prism-react-renderer";
 import { Icon } from "./Icon";
+import { Button } from "@/components/ui/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { linkFootnotes, normalizeMath } from "@/lib/markdown";
 import type { Source } from "@/lib/types";
@@ -31,8 +32,11 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
     <div className="my-2 rounded-lg border border-evergreen/10 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1 bg-evergreen/5 border-b border-evergreen/10">
         <span className="text-xs font-mono text-evergreen/50 select-none">{language}</span>
-        <button
+        <Button
+          type="button"
           onClick={handleCopy}
+          variant="ghost"
+          size="sm"
           className={`p-1 rounded transition-colors cursor-pointer ${
             copied
               ? "text-pacific-blue"
@@ -42,7 +46,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           title="Copy code"
         >
           <Icon name={copied ? "check" : "content_copy"} size={14} />
-        </button>
+        </Button>
       </div>
       <Highlight code={code} language={language} theme={theme}>
         {({ className, style, tokens, getLineProps, getTokenProps }) => (

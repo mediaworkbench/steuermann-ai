@@ -4,6 +4,7 @@ import { Icon } from "../Icon";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
+import { Button } from "@/components/ui/Button";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
@@ -61,14 +62,17 @@ export function WorkspacePanel({
   return (
     <>
       {/* Toggle button (visible on mobile/tablet) */}
-      <button
+      <Button
+        type="button"
         onClick={onToggle}
-        className="md:hidden fixed bottom-20 right-4 z-40 rounded-full p-3 bg-pacific-blue text-white shadow-lg hover:bg-pacific-blue/90 transition-colors"
+        variant="primary"
+        size="sm"
+        className="fixed bottom-20 right-4 z-40 rounded-full p-3 shadow-lg transition-colors md:hidden"
         title={t("workspace.toggleSidebar")}
         aria-label={t("workspace.toggleSidebar")}
       >
         <Icon name={isOpen ? "close" : "folder"} size={24} />
-      </button>
+      </Button>
 
       {/* Sidebar overlay (mobile) */}
       {isOpen && (
@@ -98,13 +102,16 @@ export function WorkspacePanel({
               {t("chat.workspace")}
             </h3>
           </div>
-          <button
+          <Button
+            type="button"
             onClick={onToggle}
-            className="md:hidden p-1.5 hover:bg-gray-100 rounded-lg text-evergreen/60"
+            variant="ghost"
+            size="sm"
+            className="p-1.5 text-muted-foreground md:hidden"
             aria-label={t("workspace.closeSidebar")}
           >
             <Icon name="close" size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Tab bar — icon-forward segmented control; the active tab reveals its
@@ -122,14 +129,17 @@ export function WorkspacePanel({
             // and all five fit the narrow panel without horizontal scrolling.
             const showCount = active && count > 0;
             return (
-              <button
+              <Button
+                type="button"
                 key={tab.id}
                 role="tab"
                 aria-selected={active}
                 aria-label={label}
                 title={label}
                 onClick={() => setActiveTab(tab.id)}
-                className={`group flex items-center gap-1.5 rounded-lg text-xs font-medium transition-colors shrink-0
+                variant="ghost"
+                size="sm"
+                className={`group flex shrink-0 items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
                   ${active
                     ? "bg-pacific-blue/10 text-pacific-blue px-2.5 py-1.5"
                     : "text-evergreen/45 hover:text-evergreen hover:bg-gray-100 p-1.5"}`}
@@ -141,7 +151,7 @@ export function WorkspacePanel({
                     {count}
                   </span>
                 )}
-              </button>
+              </Button>
             );
           })}
         </div>

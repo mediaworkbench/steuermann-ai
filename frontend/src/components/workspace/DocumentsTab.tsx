@@ -282,7 +282,7 @@ export function DocumentsTab({
             disabled={uploadingFile || isLoading}
             variant="secondary"
             size="sm"
-            className="flex-2 border-pacific-blue/40 bg-pacific-blue/5 text-xs font-medium text-pacific-blue hover:bg-pacific-blue/10"
+            className="flex-2 text-xs font-medium"
           >
             <Icon name="upload_file" size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
@@ -305,7 +305,7 @@ export function DocumentsTab({
                   disabled={uploadingFile}
                   variant="destructive"
                   size="sm"
-                  className="flex-1 border border-red-300 bg-red-50 px-2 py-2 text-xs font-medium text-red-600 hover:bg-red-100"
+                  className="flex-1 px-2 py-2 text-xs font-medium"
                   title={t("workspace.nukeConfirm")}
                 >
                   <Icon name="delete_forever" size={14} className="mx-auto" />
@@ -318,7 +318,7 @@ export function DocumentsTab({
                 disabled={uploadingFile || isLoading}
                 variant="destructive"
                 size="sm"
-                className="flex-1 border border-red-200 bg-red-50 px-2 py-2 text-xs font-medium text-red-500 hover:bg-red-100"
+                className="flex-1 px-2 py-2 text-xs font-medium"
                 title={t("workspace.nukeAll")}
               >
                 <Icon name="delete_sweep" size={16} />
@@ -379,9 +379,12 @@ export function DocumentsTab({
                 key={doc.id}
                 className="rounded-lg border border-border bg-surface-muted transition-colors hover:bg-surface-elevated"
               >
-                <button
+                <Button
+                  type="button"
                   onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
-                  className="w-full px-3 py-2 flex items-center justify-between text-left"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between px-3 py-2 text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {doc.mime_type?.startsWith("image/") ? (
@@ -430,7 +433,7 @@ export function DocumentsTab({
                     size={16}
                     className="ml-1 shrink-0 text-muted-foreground"
                   />
-                </button>
+                </Button>
 
                 {/* Expanded actions */}
                 {expandedDoc === doc.id && (
@@ -458,8 +461,7 @@ export function DocumentsTab({
                           disabled={!renameValue.trim() || processingAction === doc.id}
                           variant="primary"
                           size="sm"
-                          className="px-2 py-1 text-xs font-medium bg-pacific-blue text-white
-                                     hover:bg-pacific-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Icon name="check" size={14} />
                         </Button>
@@ -482,11 +484,10 @@ export function DocumentsTab({
                         type="button"
                         onClick={() => openEditor(doc.id)}
                         disabled={processingAction === doc.id || isLoading}
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
                         className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                   bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
-                                   hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                   disabled:opacity-40 disabled:cursor-not-allowed
                                    transition-colors"
                         title={t("workspace.edit")}
                       >
@@ -498,11 +499,10 @@ export function DocumentsTab({
                       type="button"
                       onClick={() => handleAttachFromWorkspace(doc)}
                       disabled={processingAction === doc.id || isLoading}
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
                       className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 bg-pacific-blue/5 text-pacific-blue border border-pacific-blue/20
-                                 hover:bg-pacific-blue/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
                       title={t("workspace.attach")}
                     >
@@ -513,11 +513,10 @@ export function DocumentsTab({
                       type="button"
                       onClick={() => handleDownloadDocument(doc.id)}
                       disabled={processingAction === doc.id || isLoading}
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
                       className="flex-1 min-w-fit px-2.5 py-1.5 text-xs font-medium
-                                 bg-burnt-tangerine/5 text-burnt-tangerine border border-burnt-tangerine/20
-                                 hover:bg-burnt-tangerine/10 disabled:opacity-40 disabled:cursor-not-allowed
+                                 disabled:opacity-40 disabled:cursor-not-allowed
                                  transition-colors"
                       title={t("workspace.download")}
                     >
@@ -627,9 +626,9 @@ export function DocumentsTab({
                         type="button"
                         onClick={() => restoreVersion(historyDocId, v.version)}
                         disabled={processingAction === `restore-${historyDocId}-${v.version}`}
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
-                        className="px-1.5 py-0.5 text-xs bg-pacific-blue/10 text-pacific-blue hover:bg-pacific-blue/20 disabled:opacity-40"
+                        className="px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10 disabled:opacity-40"
                       >
                         Restore
                       </Button>

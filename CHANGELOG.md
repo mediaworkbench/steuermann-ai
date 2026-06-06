@@ -25,6 +25,9 @@
 - **chore** Cleared remaining frontend lint warnings by fixing hook dependency arrays, removing an obsolete eslint directive in tests, and migrating `DocumentsTab.tsx` image rendering to `next/image` (`unoptimized` for authenticated proxy URLs).
 - **feat** Tokenized `SettingsPanel.tsx` and `AdminPanel.tsx` neutral surface styling (containers, borders, text, muted states, table chrome, and danger-zone shells) to semantic design-system classes (`bg-surface`, `border-border`, `text-foreground`, `text-muted-foreground`, etc.).
 - **feat** Tokenized `workspace/DocumentsTab.tsx` neutral styling (upload/search/list/history/editor shells, borders, muted text, panel chrome, and lightbox close control) to semantic classes and reduced legacy gray/evergreen utility usage.
+- **feat** Further simplified `workspace/DocumentsTab.tsx` action styling by removing most remaining custom brand utility overrides in favor of semantic `Button` variants/token classes (keeping only intentional white-on-dark lightbox overlays).
+- **feat** Replaced the remaining native expand/collapse row control in `workspace/DocumentsTab.tsx` with the shared `Button` primitive to complete action-control consistency in that tab.
+- **feat** Migrated additional native action controls to the shared `Button` primitive in `workspace/WorkspacePanel.tsx`, `ExportDialog.tsx` (format selector tiles), and `MarkdownMessage.tsx` (code-copy control).
 - **note** Formal frontend design-system work has started from the attached plan. Open Sans remains embedded locally but inactive so the typography cutover can be reversed only through an explicit token/config change.
 - **note** The migration target is the documented token-first, shared-component architecture with profile-driven theming, Material Symbols as the canonical icon path, and a hard cut-over away from legacy reusable UI patterns.
 
