@@ -1,4 +1,4 @@
-import { Select } from "@/components/ui/Select";
+import { Select } from "@/components/ui/select";
 
 interface RoleModelSelectorCardProps {
   roleName: string;

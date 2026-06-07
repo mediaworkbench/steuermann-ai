@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { iconMap } from "@/lib/iconMap";
 
 type Tone = "idle" | "loading" | "error";

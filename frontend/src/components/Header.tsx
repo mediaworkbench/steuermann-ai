@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { ExportDialog } from "./ExportDialog";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { AUTH_ENABLED } from "@/lib/runtime";
 import { useRole } from "@/context/RoleContext";
 import type { Conversation } from "@/lib/types";

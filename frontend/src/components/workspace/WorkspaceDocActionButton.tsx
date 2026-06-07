@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { iconMap } from "@/lib/iconMap";
 import { cn } from "@/lib/utils";
 

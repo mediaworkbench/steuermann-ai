@@ -7,7 +7,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Highlight, themes } from "prism-react-renderer";
 import { Check, Copy } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
 import { linkFootnotes, normalizeMath } from "@/lib/markdown";
 import type { Source } from "@/lib/types";

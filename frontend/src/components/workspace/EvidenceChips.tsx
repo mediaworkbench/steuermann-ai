@@ -3,7 +3,7 @@
 import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import type { MessageMetrics } from "@/lib/types";
 import type { WorkspaceTabId } from "./types";
 

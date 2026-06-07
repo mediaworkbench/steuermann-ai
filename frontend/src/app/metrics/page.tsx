@@ -18,11 +18,11 @@ import TokenConsumptionChart from "@/components/TokenConsumptionChart";
 import UsageTrendChart from "@/components/UsageTrendChart";
 import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
 import MemoryTrendsChart from "@/components/MemoryTrendsChart";
-import { Button } from "@/components/ui/Button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
 import { PageErrorAlert } from "@/components/product/PageErrorAlert";
-import { SegmentedTabs } from "@/components/product/SegmentedTabs";
 import { SectionPanel } from "@/components/product/SectionPanel";
 import { MetricsSummaryList } from "@/components/product/MetricsSummaryList";
 import { MetricsTableCard } from "@/components/product/MetricsTableCard";
@@ -194,7 +194,12 @@ export default function MetricsPage() {
   return (
     <PageShell contentClassName="space-y-8 lg:px-12">
       <PageHeader title={t("metrics.title", { app: profile.appName ?? "AI" })} />
-      <SegmentedTabs ariaLabel={t("metrics.sectionsLabel")} value={activeTab} onValueChange={setActiveTab} items={[{ value: "realtime", label: t("metrics.realtimeTab") }, { value: "trends", label: t("metrics.trendsTab") }]} />
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "realtime" | "trends")} className="w-fit">
+        <TabsList aria-label={t("metrics.sectionsLabel")}>
+          <TabsTrigger value="realtime">{t("metrics.realtimeTab")}</TabsTrigger>
+          <TabsTrigger value="trends">{t("metrics.trendsTab")}</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {activeTab === "realtime" ? (
         <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">

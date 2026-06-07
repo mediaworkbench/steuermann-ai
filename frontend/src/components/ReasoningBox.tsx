@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Brain, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 
 interface ReasoningBoxProps {
   content: string;

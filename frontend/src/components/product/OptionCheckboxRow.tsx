@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Checkbox } from "@/components/ui/Checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
 interface OptionCheckboxRowProps {
@@ -32,7 +32,6 @@ export function OptionCheckboxRow({
       )}
     >
       <Checkbox
-        type="checkbox"
         checked={checked}
         onChange={onToggle}
         className={cn(alignment === "center" ? "" : "mt-0.5", checkboxClassName)}

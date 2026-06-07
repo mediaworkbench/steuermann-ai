@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { AlertCircle, Check, CheckCircle, ChevronDown, CircleDollarSign, Copy, Database, RefreshCw, Timer, Wrench } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";

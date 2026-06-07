@@ -1,5 +1,5 @@
-import { Input } from "@/components/ui/Input";
-import { FormFieldLabel } from "@/components/product/FormFieldLabel";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 interface MetricsDateRangeFieldProps {
   label: string;
@@ -28,7 +28,7 @@ export function MetricsDateRangeField({
 }: MetricsDateRangeFieldProps) {
   return (
     <div className="grid gap-2">
-      <FormFieldLabel className="mb-0">{label}</FormFieldLabel>
+      <Label className="mb-0 block">{label}</Label>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           type="date"

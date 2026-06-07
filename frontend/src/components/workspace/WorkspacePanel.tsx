@@ -5,7 +5,7 @@ import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";

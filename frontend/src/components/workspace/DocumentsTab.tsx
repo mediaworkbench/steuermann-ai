@@ -10,9 +10,9 @@ import {
   clearAllWorkspaceDocuments,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Textarea } from "@/components/ui/Textarea";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";

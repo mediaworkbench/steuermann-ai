@@ -7,15 +7,15 @@ import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
-import { FormFieldLabel } from "@/components/product/FormFieldLabel";
-import { PanelLoadingState } from "@/components/product/PanelLoadingState";
 import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
 import { SectionStateText } from "@/components/product/SectionStateText";
 import { SubsectionHeader } from "@/components/product/SubsectionHeader";
-import { TitledSectionCard } from "@/components/product/TitledSectionCard";
 import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
 import {
   LLMCapabilityItem,
   fetchLLMCapabilities,
@@ -27,8 +27,8 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export interface AdminPanelProps {
   settings: UserSettings | null;
@@ -229,7 +229,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   }, [resetOptions, t]);
 
   if (loading) {
-    return <PanelLoadingState label={t("common.loading")} />;
+    return <div className="space-y-3 py-4"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /><p className="text-sm text-muted-foreground">{t("common.loading")}</p></div>;
   }
 
   const roleModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -272,13 +272,17 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       />
 
       {/* RAG Operational Configuration */}
-      <TitledSectionCard title={t("adminPage.ragSection")}>
+      <Card>
+        <CardHeader className="px-6 pt-6 pb-0">
+          <CardTitle>{t("adminPage.ragSection")}</CardTitle>
+        </CardHeader>
+        <div className="p-6 pt-4">
         {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
         <div className="space-y-4">
           <div>
-            <FormFieldLabel>
+            <Label className="mb-2 block">
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
-            </FormFieldLabel>
+            </Label>
             <Input
               type="text"
               value={(ragConfig.collection as string) || systemConfig?.rag_defaults.collection_name || "framework"}
@@ -287,7 +291,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             />
           </div>
           <div>
-            <FormFieldLabel>{t("settingsPanel.similarityThreshold")}</FormFieldLabel>
+            <Label className="mb-2 block">{t("settingsPanel.similarityThreshold")}</Label>
             <Input
               type="number"
               min="0"
@@ -314,7 +318,8 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             {reingesting ? t("settingsPanel.reingesting") : t("settingsPanel.reingestAllDocuments")}
           </Button>
         </div>
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       {/* System Model Selection (vision + auxiliary) */}
       <RoleModelSelectionSection
@@ -342,12 +347,12 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       />
 
       {/* Danger Zone */}
-      <TitledSectionCard
-        title={t("adminPage.dangerZoneSection")}
-        description={t("adminPage.dangerZoneDescription")}
-        tone="danger"
-        headerClassName="mb-5"
-      >
+      <Card className="!ring-destructive/30">
+        <CardHeader className="pb-0">
+          <CardTitle className="text-destructive">{t("adminPage.dangerZoneSection")}</CardTitle>
+          <CardDescription>{t("adminPage.dangerZoneDescription")}</CardDescription>
+        </CardHeader>
+        <div className="px-6 pt-4 pb-6">
         <DangerOptionsList
           options={(
             [
@@ -376,7 +381,8 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
           actionLabel={t("adminPage.resetSelectedButton")}
           disabled={resetting}
         />
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       <ActionConfirmDialog
         isOpen={confirmReingest}

@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { CapabilityDetailsPanel } from "@/components/product/CapabilityDetailsPanel";
 import { CapabilityModePill } from "@/components/product/CapabilityModePill";
 import { CapabilityRolePill } from "@/components/product/CapabilityRolePill";

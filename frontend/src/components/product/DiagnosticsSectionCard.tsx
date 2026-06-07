@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import type { LLMCapabilityItem } from "@/lib/api";
 import { CapabilitiesTable, type CapabilitiesTableLabels } from "@/components/product/CapabilitiesTable";
 import { DiagnosticsLegend } from "@/components/product/DiagnosticsLegend";
 import { SectionErrorText } from "@/components/product/SectionErrorText";
 import { SectionStateText } from "@/components/product/SectionStateText";
-import { TitledSectionCard } from "@/components/product/TitledSectionCard";
 
 interface DiagnosticsSectionCardProps {
   title: ReactNode;
@@ -55,32 +55,36 @@ export function DiagnosticsSectionCard({
   onRefresh,
 }: DiagnosticsSectionCardProps) {
   return (
-    <TitledSectionCard
-      title={title}
-      description={description}
-      actions={
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            onClick={onCopy}
-            disabled={loading || copying || items.length === 0}
-            variant="secondary"
-            size="sm"
-          >
-            {copying ? copyingLabel : copyLabel}
-          </Button>
-          <Button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            variant="secondary"
-            size="sm"
-          >
-            {refreshLabel}
-          </Button>
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              onClick={onCopy}
+              disabled={loading || copying || items.length === 0}
+              variant="secondary"
+              size="sm"
+            >
+              {copying ? copyingLabel : copyLabel}
+            </Button>
+            <Button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              variant="secondary"
+              size="sm"
+            >
+              {refreshLabel}
+            </Button>
+          </div>
         </div>
-      }
-    >
+      </CardHeader>
+      <div className="px-6 pb-6">
       <DiagnosticsLegend
         title={legendTitle}
         nativeLabel={legendNative}
@@ -103,6 +107,7 @@ export function DiagnosticsSectionCard({
           labels={labels}
         />
       )}
-    </TitledSectionCard>
+      </div>
+    </Card>
   );
 }

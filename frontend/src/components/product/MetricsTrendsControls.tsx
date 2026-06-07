@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { RefreshCw, Download } from "lucide-react";
 import { MetricsDateRangeField } from "@/components/product/MetricsDateRangeField";
 import { MetricsDatePresetButtons } from "@/components/product/MetricsDatePresetButtons";

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { rateMemory } from "@/lib/api";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { Star } from "lucide-react";
 
 interface MemoryRatingProps {
