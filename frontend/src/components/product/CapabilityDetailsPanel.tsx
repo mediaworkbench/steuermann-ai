@@ -1,4 +1,3 @@
-import { LabeledValue } from "@/components/product/LabeledValue";
 import type { LLMCapabilityItem } from "@/lib/api";
 
 interface CapabilityDetailsPanelProps {
@@ -19,23 +18,38 @@ interface CapabilityDetailsPanelProps {
 export function CapabilityDetailsPanel({ item, labels }: CapabilityDetailsPanelProps) {
   return (
     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-      <LabeledValue label={labels.configuredMode} value={item.configured_tool_calling_mode || labels.na} />
-      <LabeledValue label={labels.apiBase} value={item.api_base || labels.na} />
-      <LabeledValue label={labels.error} value={item.error_message || labels.na} />
-      <LabeledValue
-        label={labels.bindTools}
-        value={item.supports_bind_tools === null ? labels.na : String(item.supports_bind_tools)}
-      />
-      <LabeledValue
-        label={labels.vision}
-        value={
-          item.supports_vision === null || item.supports_vision === undefined
+      <div>
+        <span className="font-semibold">{labels.configuredMode}: </span>
+        <span>{item.configured_tool_calling_mode || labels.na}</span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.apiBase}: </span>
+        <span>{item.api_base || labels.na}</span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.error}: </span>
+        <span>{item.error_message || labels.na}</span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.bindTools}: </span>
+        <span>{item.supports_bind_tools === null ? labels.na : String(item.supports_bind_tools)}</span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.vision}: </span>
+        <span>
+          {item.supports_vision === null || item.supports_vision === undefined
             ? labels.na
-            : String(item.supports_vision)
-        }
-      />
-      <LabeledValue label={labels.reasoning} value={String(item.supports_reasoning ?? false)} />
-      <LabeledValue label={labels.mismatch} value={String(item.capability_mismatch)} />
+            : String(item.supports_vision)}
+        </span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.reasoning}: </span>
+        <span>{String(item.supports_reasoning ?? false)}</span>
+      </div>
+      <div>
+        <span className="font-semibold">{labels.mismatch}: </span>
+        <span>{String(item.capability_mismatch)}</span>
+      </div>
       <div className="md:col-span-2">
         <div className="mb-1 font-semibold">{labels.metadata}</div>
         <pre className="overflow-x-auto rounded border border-border bg-surface p-2">

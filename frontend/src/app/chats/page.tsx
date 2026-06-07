@@ -9,7 +9,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useConversationContext } from "@/components/LayoutShell";
 import { useConversationBrowser } from "@/hooks/useConversationBrowser";
 import { useI18n } from "@/hooks/useI18n";
-import { PageShell } from "@/components/product/PageShell";
 import type { Conversation } from "@/lib/types";
 
 export default function ChatsPage() {
@@ -106,7 +105,8 @@ export default function ChatsPage() {
   }, [confirmDeleteId, browser, remove]);
 
   return (
-    <PageShell contentClassName="max-w-5xl space-y-6">
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 max-w-5xl space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -292,7 +292,8 @@ export default function ChatsPage() {
         onConfirm={handleConfirmedDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
-    </PageShell>
+      </div>
+    </main>
   );
 }
 

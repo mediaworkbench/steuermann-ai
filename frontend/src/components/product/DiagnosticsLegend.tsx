@@ -1,5 +1,3 @@
-import { TonePill } from "@/components/product/TonePill";
-
 interface DiagnosticsLegendProps {
   title: string;
   nativeLabel: string;
@@ -16,9 +14,9 @@ export function DiagnosticsLegend({
   return (
     <div className="mb-4 flex flex-wrap gap-2">
       <span className="text-xs font-semibold text-muted-foreground">{title}</span>
-      <TonePill tone="success">{nativeLabel}</TonePill>
-      <TonePill tone="warning">{structuredLabel}</TonePill>
-      <TonePill tone="info">{reactLabel}</TonePill>
+      <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-success/10 text-success">{nativeLabel}</span>
+      <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-warning/10 text-warning">{structuredLabel}</span>
+      <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-info/10 text-info">{reactLabel}</span>
     </div>
   );
 }

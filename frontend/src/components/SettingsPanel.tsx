@@ -10,14 +10,13 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Button } from "@/components/ui/button";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { OptionChecklist } from "@/components/product/OptionChecklist";
 import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
-import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
-import { SectionStateText } from "@/components/product/SectionStateText";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -212,7 +211,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         </CardHeader>
         <div className="px-6 pb-6">
         {configLoading ? (
-          <SectionStateText>{t("settingsPanel.loadingTools")}</SectionStateText>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</p>
         ) : (
           <OptionChecklist
             items={(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => ({
@@ -234,7 +233,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           <CardTitle>{t("settingsPanel.ragConfiguration")}</CardTitle>
         </CardHeader>
         <div className="px-6 pb-6">
-        {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
+        {configLoading && <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</p>}
         <div className="space-y-4">
           <div>
             <OptionCheckboxRow
@@ -282,12 +281,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       />
 
       {/* Save */}
-      <PrimarySaveBar
-        onSave={handleSave}
-        saving={saving}
-        label={t("settingsPanel.saveSettings")}
-        loadingLabel={t("common.saving")}
-      />
+      <div className="flex gap-3">
+      <Button onClick={handleSave} disabled={saving} className="flex-1">
+        {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
+      </Button>
+      </div>
 
       {/* Last updated */}
       {settings?.updated_at && (

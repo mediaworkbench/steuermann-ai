@@ -20,15 +20,10 @@ import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
 import MemoryTrendsChart from "@/components/MemoryTrendsChart";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { PageShell } from "@/components/product/PageShell";
-import { PageHeader } from "@/components/product/PageHeader";
-import { PageErrorAlert } from "@/components/product/PageErrorAlert";
-import { SectionPanel } from "@/components/product/SectionPanel";
 import { MetricsSummaryList } from "@/components/product/MetricsSummaryList";
 import { MetricsTableCard } from "@/components/product/MetricsTableCard";
 import { MetricsKeyValueGridCard } from "@/components/product/MetricsKeyValueGridCard";
 import { MetricsStatsGrid } from "@/components/product/MetricsStatsGrid";
-import { MetricsLoadingState } from "@/components/product/MetricsLoadingState";
 import { MetricsTrendChartCard } from "@/components/product/MetricsTrendChartCard";
 import { type MetricsSaveStatus } from "@/components/product/MetricsSaveStatusIndicator";
 import { MetricsTrendsControls } from "@/components/product/MetricsTrendsControls";
@@ -192,8 +187,13 @@ export default function MetricsPage() {
     : t("metrics.na");
 
   return (
-    <PageShell contentClassName="space-y-8 lg:px-12">
-      <PageHeader title={t("metrics.title", { app: profile.appName ?? "AI" })} />
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 space-y-8 lg:px-12">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">{t("metrics.title", { app: profile.appName ?? "AI" })}</h1>
+        </div>
+      </div>
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "realtime" | "trends")} className="w-fit">
         <TabsList aria-label={t("metrics.sectionsLabel")}>
           <TabsTrigger value="realtime">{t("metrics.realtimeTab")}</TabsTrigger>
@@ -202,7 +202,8 @@ export default function MetricsPage() {
       </Tabs>
 
       {activeTab === "realtime" ? (
-        <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">
+        <section className="rounded-xl border border-border bg-surface px-6 py-6 shadow-sm mt-4">
+          <h2 className="mb-4 text-xl font-bold text-foreground">{t("metrics.realtimeTitle")}</h2>
           <div className="mb-6 flex justify-end">
             <Button onClick={handleRefreshRealTime} disabled={isRefreshingRealTime} variant="primary" size="md">
               <RefreshCw size={18} className={isRefreshingRealTime ? "animate-spin" : ""} />
@@ -210,10 +211,16 @@ export default function MetricsPage() {
             </Button>
           </div>
 
-          {metricsError ? <PageErrorAlert title={t("common.error")} message={metricsError} /> : null}
+          {metricsError ? <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-destructive">
+            <p className="mb-1 font-semibold">{t("common.error")}</p>
+            <p>{metricsError}</p>
+          </div> : null}
 
           {metricsLoading && !metrics ? (
-            <MetricsLoadingState label={t("metrics.loadingMetrics")} />
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <RefreshCw size={32} className="animate-spin" />
+              <p className="mt-4 mb-0">{t("metrics.loadingMetrics")}</p>
+            </div>
           ) : metrics ? (
             <>
               <MetricsStatsGrid>
@@ -259,9 +266,10 @@ export default function MetricsPage() {
               ) : null}
             </>
           ) : null}
-        </SectionPanel>
+        </section>
       ) : (
-        <SectionPanel title={t("metrics.trendsTitle")} className="mt-4">
+        <section className="rounded-xl border border-border bg-surface px-6 py-6 shadow-sm mt-4">
+          <h2 className="mb-4 text-xl font-bold text-foreground">{t("metrics.trendsTitle")}</h2>
           <MetricsTrendsControls
             dateRangeLabel={t("metrics.dateRange")}
             startDate={startDate}
@@ -381,9 +389,10 @@ export default function MetricsPage() {
               </MetricsTrendChartCard>
             </div>
           </MetricsTrendsStatusSection>
-        </SectionPanel>
+        </section>
       )}
-    </PageShell>
+      </div>
+    </main>
   );
 }
 

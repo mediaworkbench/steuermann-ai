@@ -1,6 +1,5 @@
 import * as React from "react";
-import { MetricsLoadingState } from "@/components/product/MetricsLoadingState";
-import { PageErrorAlert } from "@/components/product/PageErrorAlert";
+import { RefreshCw } from "lucide-react";
 
 interface MetricsTrendsStatusSectionProps {
   lastUpdatedLabel: string;
@@ -27,9 +26,15 @@ export function MetricsTrendsStatusSection({
         {lastUpdatedLabel}: {lastUpdatedValue}
       </div>
 
-      {errorMessage ? <PageErrorAlert title={errorTitle} message={errorMessage} /> : null}
+      {errorMessage ? <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-destructive">
+        <p className="mb-1 font-semibold">{errorTitle}</p>
+        {errorMessage ? <p>{errorMessage}</p> : null}
+      </div> : null}
 
-      {isLoading ? <MetricsLoadingState label={loadingLabel} /> : children}
+      {isLoading ? <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+        <RefreshCw size={32} className="animate-spin" />
+        <p className="mt-4 mb-0">{loadingLabel}</p>
+      </div> : children}
     </>
   );
 }

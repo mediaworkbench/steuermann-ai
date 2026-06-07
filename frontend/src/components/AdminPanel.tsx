@@ -7,10 +7,7 @@ import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
-import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
-import { SectionStateText } from "@/components/product/SectionStateText";
-import { SubsectionHeader } from "@/components/product/SubsectionHeader";
 import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -277,7 +274,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
           <CardTitle>{t("adminPage.ragSection")}</CardTitle>
         </CardHeader>
         <div className="p-6 pt-4">
-        {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
+        {configLoading && <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</p>}
         <div className="space-y-4">
           <div>
             <Label className="mb-2 block">
@@ -304,10 +301,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         </div>
 
         <div className="mt-6 border-t border-border pt-4">
-          <SubsectionHeader
-            title={t("settingsPanel.reingestSectionTitle")}
-            description={t("settingsPanel.reingestDescription")}
-          />
+          <div className="mb-3">
+            <h4 className="mb-2 text-md font-semibold text-foreground">{t("settingsPanel.reingestSectionTitle")}</h4>
+            <p className="text-sm text-muted-foreground">{t("settingsPanel.reingestDescription")}</p>
+          </div>
           <Button
             type="button"
             onClick={() => setConfirmReingest(true)}
@@ -338,13 +335,11 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       />
 
       {/* Save */}
-      <PrimarySaveBar
-        onSave={handleSave}
-        saving={saving}
-        disabled={!settings}
-        label={t("settingsPanel.saveSettings")}
-        loadingLabel={t("common.saving")}
-      />
+      <div className="flex gap-3">
+      <Button onClick={handleSave} disabled={!settings || saving} className="flex-1">
+        {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
+      </Button>
+      </div>
 
       {/* Danger Zone */}
       <Card className="!ring-destructive/30">

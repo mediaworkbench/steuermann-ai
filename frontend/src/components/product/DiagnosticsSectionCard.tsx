@@ -4,8 +4,6 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import type { LLMCapabilityItem } from "@/lib/api";
 import { CapabilitiesTable, type CapabilitiesTableLabels } from "@/components/product/CapabilitiesTable";
 import { DiagnosticsLegend } from "@/components/product/DiagnosticsLegend";
-import { SectionErrorText } from "@/components/product/SectionErrorText";
-import { SectionStateText } from "@/components/product/SectionStateText";
 
 interface DiagnosticsSectionCardProps {
   title: ReactNode;
@@ -93,11 +91,11 @@ export function DiagnosticsSectionCard({
       />
 
       {loading ? (
-        <SectionStateText>{loadingLabel}</SectionStateText>
+        <p className="text-sm text-muted-foreground">{loadingLabel}</p>
       ) : error ? (
-        <SectionErrorText>{error}</SectionErrorText>
+        <p className="text-sm text-destructive">{error}</p>
       ) : items.length === 0 ? (
-        <SectionStateText>{emptyLabel}</SectionStateText>
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
       ) : (
         <CapabilitiesTable
           items={items}

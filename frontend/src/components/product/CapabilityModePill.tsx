@@ -1,12 +1,10 @@
-import { TonePill } from "@/components/product/TonePill";
-
 interface CapabilityModePillProps {
   mode: string;
 }
 
 export function CapabilityModePill({ mode }: CapabilityModePillProps) {
-  if (mode === "native") return <TonePill tone="success">{mode}</TonePill>;
-  if (mode === "structured") return <TonePill tone="warning">{mode}</TonePill>;
-  if (mode === "react") return <TonePill tone="info">{mode}</TonePill>;
-  return <TonePill tone="muted">{mode}</TonePill>;
+  if (mode === "native") return <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-success/10 text-success">{mode}</span>;
+  if (mode === "structured") return <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-warning/10 text-warning">{mode}</span>;
+  if (mode === "react") return <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-info/10 text-info">{mode}</span>;
+  return <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold bg-muted text-foreground">{mode}</span>;
 }

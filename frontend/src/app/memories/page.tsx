@@ -9,7 +9,6 @@ import { CURRENT_USER_ID } from "@/lib/runtime";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 import { Brain, Trash2, RefreshCw } from "lucide-react";
-import { PageShell } from "@/components/product/PageShell";
 
 const PAGE_SIZE = 50;
 
@@ -140,7 +139,8 @@ export default function MemoriesPage() {
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
-    <PageShell contentClassName="max-w-5xl space-y-6">
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 max-w-5xl space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -369,6 +369,7 @@ export default function MemoriesPage() {
         onCancel={() => setClearConfirmOpen(false)}
         variant="danger"
       />
-    </PageShell>
+      </div>
+    </main>
   );
 }
