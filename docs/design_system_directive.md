@@ -138,4 +138,4 @@ Every frontend PR must satisfy all items below:
 - `design-system.md` (plan and migration history)
 - `docs/profile_creation.md` (profile overlay workflow)
 - `docs/configuration.md` (runtime configuration contract)
-- `docs/status.md` (runtime/documentation sync checkpoint)
+- `docs/status.md` (runtime/documentation sync checkpoint
