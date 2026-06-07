@@ -1,29 +1,38 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { useMetrics } from "@/hooks/useMetrics";
+import { useEffect, useMemo, useState } from "react";
 import { useAnalytics } from "@/hooks/useAnalytics";
-import { useSettings } from "@/hooks/useSettings";
 import { useI18n } from "@/hooks/useI18n";
+import { useMetrics } from "@/hooks/useMetrics";
+import { useProfile } from "@/hooks/useProfile";
+import { useSettings } from "@/hooks/useSettings";
+import { CURRENT_USER_ID } from "@/lib/runtime";
+import { Icon } from "@/components/Icon";
 import { MetricCard } from "@/components/MetricCard";
-import { TokenUsageChart } from "@/components/TokenUsageChart";
+import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
+import { MessageQualityPanel } from "@/components/MessageQualityPanel";
+import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
 import { RequestsChart } from "@/components/RequestsChart";
-import UsageTrendChart from "@/components/UsageTrendChart";
+import { TokenUsageChart } from "@/components/TokenUsageChart";
 import TokenConsumptionChart from "@/components/TokenConsumptionChart";
+import UsageTrendChart from "@/components/UsageTrendChart";
 import LatencyAnalysisChart from "@/components/LatencyAnalysisChart";
 import MemoryTrendsChart from "@/components/MemoryTrendsChart";
-import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
-import { RetrievalFeedbackPanel } from "@/components/RetrievalFeedbackPanel";
-import { MessageQualityPanel } from "@/components/MessageQualityPanel";
-import { Icon } from "@/components/Icon";
+import { Button } from "@/components/ui/Button";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
 import { PageErrorAlert } from "@/components/product/PageErrorAlert";
 import { SegmentedTabs } from "@/components/product/SegmentedTabs";
 import { SectionPanel } from "@/components/product/SectionPanel";
-import { useProfile } from "@/hooks/useProfile";
-import { CURRENT_USER_ID } from "@/lib/runtime";
-import styles from "./Metrics.module.css";
+import { MetricsSummaryList } from "@/components/product/MetricsSummaryList";
+import { MetricsTableCard } from "@/components/product/MetricsTableCard";
+import { MetricsKeyValueGridCard } from "@/components/product/MetricsKeyValueGridCard";
+import { MetricsStatsGrid } from "@/components/product/MetricsStatsGrid";
+import { MetricsLoadingState } from "@/components/product/MetricsLoadingState";
+import { MetricsTrendChartCard } from "@/components/product/MetricsTrendChartCard";
+import { type MetricsSaveStatus } from "@/components/product/MetricsSaveStatusIndicator";
+import { MetricsTrendsControls } from "@/components/product/MetricsTrendsControls";
+import { MetricsTrendsStatusSection } from "@/components/product/MetricsTrendsStatusSection";
 
 export default function MetricsPage() {
   const { t, formatTime, formatNumber } = useI18n();
@@ -31,12 +40,8 @@ export default function MetricsPage() {
   const userId = CURRENT_USER_ID;
   const today = useMemo(() => new Date(), []);
   const [activeTab, setActiveTab] = useState<"realtime" | "trends">("realtime");
-  
-  // Real-time tab state
   const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useMetrics(true, 10000);
   const [isRefreshingRealTime, setIsRefreshingRealTime] = useState(false);
-
-  // Trends tab state
   const [days, setDays] = useState(30);
   const [startDate, setStartDate] = useState(() => toInputDate(addDays(today, -29)));
   const [endDate, setEndDate] = useState(() => toInputDate(today));
@@ -51,11 +56,9 @@ export default function MetricsPage() {
   const [showLatencyAvg, setShowLatencyAvg] = useState(true);
   const [showLatencyMax, setShowLatencyMax] = useState(true);
   const [hasHydratedPreferences, setHasHydratedPreferences] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-
+  const [saveStatus, setSaveStatus] = useState<MetricsSaveStatus>("idle");
   const { settings, saveSettings } = useSettings(userId);
 
-  // Compute date range
   const computedDays = useMemo(() => {
     if (!startDate || !endDate) return 0;
     const start = new Date(`${startDate}T00:00:00`);
@@ -65,9 +68,7 @@ export default function MetricsPage() {
   }, [startDate, endDate]);
 
   useEffect(() => {
-    if (computedDays > 0 && computedDays !== days) {
-      setDays(computedDays);
-    }
+    if (computedDays > 0 && computedDays !== days) setDays(computedDays);
   }, [computedDays, days]);
 
   const isRangeInvalid = computedDays === 0;
@@ -81,48 +82,21 @@ export default function MetricsPage() {
 
   const analyticsPreferences = useMemo<AnalyticsPreferences>(
     () => ({
-      dateRange: {
-        startDate,
-        endDate,
-      },
-      usage: {
-        showRequests: showUsageRequests,
-        showUsers: showUsageUsers,
-      },
-      tokens: {
-        showTotal: showTokenTotal,
-        showAvg: showTokenAvg,
-      },
-      latency: {
-        showMin: showLatencyMin,
-        showAvg: showLatencyAvg,
-        showMax: showLatencyMax,
-      },
+      dateRange: { startDate, endDate },
+      usage: { showRequests: showUsageRequests, showUsers: showUsageUsers },
+      tokens: { showTotal: showTokenTotal, showAvg: showTokenAvg },
+      latency: { showMin: showLatencyMin, showAvg: showLatencyAvg, showMax: showLatencyMax },
     }),
-    [
-      startDate,
-      endDate,
-      showUsageRequests,
-      showUsageUsers,
-      showTokenTotal,
-      showTokenAvg,
-      showLatencyMin,
-      showLatencyAvg,
-      showLatencyMax,
-    ]
+    [startDate, endDate, showUsageRequests, showUsageUsers, showTokenTotal, showTokenAvg, showLatencyMin, showLatencyAvg, showLatencyMax]
   );
 
   useEffect(() => {
-    if (!settings || hasHydratedPreferences) {
-      return;
-    }
+    if (!settings || hasHydratedPreferences) return;
     const preferences = normalizeAnalyticsPreferences(settings.analytics_preferences);
-
     if (preferences.dateRange) {
       setStartDate(preferences.dateRange.startDate);
       setEndDate(preferences.dateRange.endDate);
     }
-
     setShowUsageRequests(preferences.usage.showRequests);
     setShowUsageUsers(preferences.usage.showUsers);
     setShowTokenTotal(preferences.tokens.showTotal);
@@ -134,9 +108,7 @@ export default function MetricsPage() {
   }, [settings, hasHydratedPreferences]);
 
   useEffect(() => {
-    if (!hasHydratedPreferences) {
-      return;
-    }
+    if (!hasHydratedPreferences) return;
     setSaveStatus("saving");
     const timer = setTimeout(() => {
       void saveSettings({ analytics_preferences: analyticsPreferences })
@@ -163,11 +135,7 @@ export default function MetricsPage() {
     loading: analyticsLoading,
     error: analyticsError,
     refetch: refetchAnalytics,
-  } = useAnalytics({
-    days,
-    autoRefresh,
-    refetchInterval: 60000,
-  });
+  } = useAnalytics({ days, autoRefresh, refetchInterval: 60000 });
 
   const handleRefreshRealTime = async () => {
     setIsRefreshingRealTime(true);
@@ -186,24 +154,16 @@ export default function MetricsPage() {
       [],
       [t("metrics.usageTrends")],
       ["Date", t("metrics.requests"), t("metrics.users")],
-      ...(usageTrends?.map((t) => [t.date, t.requests, t.users]) || []),
+      ...(usageTrends?.map((row) => [row.date, row.requests, row.users]) || []),
       [],
       [t("metrics.tokenConsumption")],
       ["Date", t("metrics.totalTokens"), t("metrics.average"), t("metrics.requests")],
-      ...(tokenConsumption?.map((t) => [t.date, t.total_tokens, t.avg_tokens.toFixed(2), t.requests]) || []),
+      ...(tokenConsumption?.map((row) => [row.date, row.total_tokens, row.avg_tokens.toFixed(2), row.requests]) || []),
       [],
       [t("metrics.latencyAnalysis")],
       ["Date", `${t("metrics.min")} (ms)`, `${t("metrics.average")} (ms)`, `${t("metrics.max")} (ms)`, t("metrics.requests")],
-      ...(latencyAnalysis?.map((l) => [
-        l.date,
-        l.min_latency_ms.toFixed(2),
-        l.avg_latency_ms.toFixed(2),
-        l.max_latency_ms.toFixed(2),
-        l.requests,
-      ]) || []),
-    ]
-      .map((row) => row.join(","))
-      .join("\n");
+      ...(latencyAnalysis?.map((row) => [row.date, row.min_latency_ms.toFixed(2), row.avg_latency_ms.toFixed(2), row.max_latency_ms.toFixed(2), row.requests]) || []),
+    ].map((row) => row.join(",")).join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
@@ -216,7 +176,6 @@ export default function MetricsPage() {
     window.URL.revokeObjectURL(url);
   };
 
-  // Metrics page data
   const attachments = metrics?.attachments ?? {};
   const attachmentRetries = metrics?.attachment_retries ?? {};
   const injectedTotal = attachments.injected_total ?? 0;
@@ -226,315 +185,198 @@ export default function MetricsPage() {
   const retrySuccessRate = retryTotal > 0 ? (retrySuccessTotal / retryTotal) * 100 : 0;
   const profileMismatchTotal = metrics?.profile_guardrails?.profile_id_mismatch_total ?? 0;
   const avgRequestDurationSeconds = Number(metrics?.latency?.avg_request_duration_seconds);
-  const avgLatencyMs = Number.isFinite(avgRequestDurationSeconds) && avgRequestDurationSeconds >= 0
-    ? avgRequestDurationSeconds * 1000
-    : null;
-
-  const validLatencySeries = (latencyAnalysis ?? []).filter((entry) =>
-    Number.isFinite(entry.avg_latency_ms)
-  );
+  const avgLatencyMs = Number.isFinite(avgRequestDurationSeconds) && avgRequestDurationSeconds >= 0 ? avgRequestDurationSeconds * 1000 : null;
+  const validLatencySeries = (latencyAnalysis ?? []).filter((entry) => Number.isFinite(entry.avg_latency_ms));
   const trendsAvgLatencyText = validLatencySeries.length > 0
-    ? `${(validLatencySeries.reduce((sum, latency) => sum + latency.avg_latency_ms, 0) / validLatencySeries.length).toFixed(1)}ms`
+    ? `${(validLatencySeries.reduce((sum, row) => sum + row.avg_latency_ms, 0) / validLatencySeries.length).toFixed(1)}ms`
     : t("metrics.na");
 
   return (
     <PageShell contentClassName="space-y-8 lg:px-12">
       <PageHeader title={t("metrics.title", { app: profile.appName ?? "AI" })} />
-
-      <SegmentedTabs
-        ariaLabel={t("metrics.sectionsLabel")}
-        value={activeTab}
-        onValueChange={setActiveTab}
-        items={[
-          { value: "realtime", label: t("metrics.realtimeTab") },
-          { value: "trends", label: t("metrics.trendsTab") },
-        ]}
-      />
+      <SegmentedTabs ariaLabel={t("metrics.sectionsLabel")} value={activeTab} onValueChange={setActiveTab} items={[{ value: "realtime", label: t("metrics.realtimeTab") }, { value: "trends", label: t("metrics.trendsTab") }]} />
 
       {activeTab === "realtime" ? (
-      <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">
-          <div className={styles.controls}>
-            <button
-              onClick={handleRefreshRealTime}
-              disabled={isRefreshingRealTime}
-              className={styles.refreshButton}
-            >
-              <Icon name="refresh" size={18} className={isRefreshingRealTime ? styles.spin : ""} />
+        <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">
+          <div className="mb-6 flex justify-end">
+            <Button onClick={handleRefreshRealTime} disabled={isRefreshingRealTime} variant="primary" size="md">
+              <Icon name="refresh" size={18} className={isRefreshingRealTime ? "animate-spin" : ""} />
               {t("common.refresh")}
-            </button>
+            </Button>
           </div>
 
-          {metricsError && (
-            <PageErrorAlert title={t("common.error")} message={metricsError} />
-          )}
+          {metricsError ? <PageErrorAlert title={t("common.error")} message={metricsError} /> : null}
 
           {metricsLoading && !metrics ? (
-            <div className={styles.loading}>
-              <Icon name="refresh" size={32} className={styles.spin} />
-              <p>{t("metrics.loadingMetrics")}</p>
-            </div>
+            <MetricsLoadingState label={t("metrics.loadingMetrics")} />
           ) : metrics ? (
             <>
-              <div className={styles.statsGrid}>
-                <MetricCard
-                  label={t("metrics.totalRequests")}
-                  value={Object.values(metrics.requests).reduce((a, b) => a + b, 0)}
-                />
-                <MetricCard
-                  label={t("metrics.totalTokens")}
-                  value={Math.floor(Object.values(metrics.tokens).reduce((a, b) => a + b, 0))}
-                  unit="tokens"
-                />
-                <MetricCard
-                  label={t("metrics.avgLatency")}
-                  value={avgLatencyMs !== null ? avgLatencyMs.toFixed(2) : t("metrics.na")}
-                  unit={avgLatencyMs !== null ? "ms" : ""}
-                />
-                <MetricCard
-                  label={t("metrics.activeSessions")}
-                  value={Object.values(metrics.sessions).reduce((a, b) => a + b, 0)}
-                />
-                <MetricCard
-                  label={t("metrics.attachmentsInjected")}
-                  value={Math.floor(injectedTotal)}
-                />
-                <MetricCard
-                  label={t("metrics.requestsWithoutAttachments")}
-                  value={Math.floor(noneTotal)}
-                />
-                <MetricCard
-                  label={t("metrics.attachmentRetryTriggers")}
-                  value={Math.floor(retryTotal)}
-                />
-                <MetricCard
-                  label={t("metrics.attachmentRetrySuccess")}
-                  value={retrySuccessRate.toFixed(1)}
-                  unit="%"
-                />
-                <MetricCard
-                  label={t("metrics.profileIdMismatches")}
-                  value={Math.floor(profileMismatchTotal)}
-                />
-              </div>
+              <MetricsStatsGrid>
+                <MetricCard label={t("metrics.totalRequests")} value={Object.values(metrics.requests).reduce((a, b) => a + b, 0)} />
+                <MetricCard label={t("metrics.totalTokens")} value={Math.floor(Object.values(metrics.tokens).reduce((a, b) => a + b, 0))} unit="tokens" />
+                <MetricCard label={t("metrics.avgLatency")} value={avgLatencyMs !== null ? avgLatencyMs.toFixed(2) : t("metrics.na")} unit={avgLatencyMs !== null ? "ms" : ""} />
+                <MetricCard label={t("metrics.activeSessions")} value={Object.values(metrics.sessions).reduce((a, b) => a + b, 0)} />
+                <MetricCard label={t("metrics.attachmentsInjected")} value={Math.floor(injectedTotal)} />
+                <MetricCard label={t("metrics.requestsWithoutAttachments")} value={Math.floor(noneTotal)} />
+                <MetricCard label={t("metrics.attachmentRetryTriggers")} value={Math.floor(retryTotal)} />
+                <MetricCard label={t("metrics.attachmentRetrySuccess")} value={retrySuccessRate.toFixed(1)} unit="%" />
+                <MetricCard label={t("metrics.profileIdMismatches")} value={Math.floor(profileMismatchTotal)} />
+              </MetricsStatsGrid>
 
-              <div className={styles.chartsGrid}>
+              <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <TokenUsageChart data={metrics.tokens} />
                 <RequestsChart data={metrics.requests} />
               </div>
 
-              {Object.keys(metrics.memory_ops).length > 0 && (
-                <MemoryMetricsPanel metrics={metrics} formatNumber={formatNumber} />
-              )}
+              {Object.keys(metrics.memory_ops).length > 0 ? <MemoryMetricsPanel metrics={metrics} formatNumber={formatNumber} /> : null}
 
-              {Object.keys(metrics.llm_calls).length > 0 && (
-                <div className={styles.card}>
-                  <h3 className={styles.cardTitle}>{t("metrics.llmCallsByProvider")}</h3>
-                  <div className={styles.tableWrapper}>
-                    <table className={styles.table}>
-                      <thead>
-                        <tr>
-                          <th>{t("metrics.providerModelStatus")}</th>
-                          <th>{t("metrics.count")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(metrics.llm_calls).map(([key, value]) => (
-                          <tr key={key}>
-                            <td>{key}</td>
-                            <td className={styles.numCell}>
-                              {typeof value === "number" ? formatNumber(Math.round(value)) : 0}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              {Object.keys(metrics.llm_calls).length > 0 ? (
+                <MetricsTableCard
+                  title={t("metrics.llmCallsByProvider")}
+                  labelHeader={t("metrics.providerModelStatus")}
+                  valueHeader={t("metrics.count")}
+                  rows={Object.entries(metrics.llm_calls).map(([key, value]) => ({ label: key, value: typeof value === "number" ? formatNumber(Math.round(value)) : 0 }))}
+                />
+              ) : null}
 
-              {Object.keys(attachments).length > 0 && (
-                <div className={styles.card}>
-                  <h3 className={styles.cardTitle}>{t("metrics.attachmentContextMetrics")}</h3>
-                  <div className={styles.opsGrid}>
-                    {Object.entries(attachments).map(([key, value]) => (
-                      <div key={key} className={styles.opItem}>
-                        <p className={styles.opLabel}>{key}</p>
-                        <p className={styles.opValue}>
-                          {typeof value === "number" ? formatNumber(Math.round(value)) : 0}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {Object.keys(attachments).length > 0 ? (
+                <MetricsKeyValueGridCard
+                  title={t("metrics.attachmentContextMetrics")}
+                  items={Object.entries(attachments).map(([key, value]) => ({ keyLabel: key, value: typeof value === "number" ? formatNumber(Math.round(value)) : 0 }))}
+                />
+              ) : null}
 
-              {Object.keys(attachmentRetries).length > 0 && (
-                <div className={styles.card}>
-                  <h3 className={styles.cardTitle}>{t("metrics.attachmentRetryGuardrail")}</h3>
-                  <div className={styles.opsGrid}>
-                    {Object.entries(attachmentRetries).map(([key, value]) => (
-                      <div key={key} className={styles.opItem}>
-                        <p className={styles.opLabel}>{key}</p>
-                        <p className={styles.opValue}>
-                          {typeof value === "number" ? formatNumber(Math.round(value)) : 0}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {Object.keys(attachmentRetries).length > 0 ? (
+                <MetricsKeyValueGridCard
+                  title={t("metrics.attachmentRetryGuardrail")}
+                  items={Object.entries(attachmentRetries).map(([key, value]) => ({ keyLabel: key, value: typeof value === "number" ? formatNumber(Math.round(value)) : 0 }))}
+                />
+              ) : null}
             </>
           ) : null}
-      </SectionPanel>
+        </SectionPanel>
       ) : (
+        <SectionPanel title={t("metrics.trendsTitle")} className="mt-4">
+          <MetricsTrendsControls
+            dateRangeLabel={t("metrics.dateRange")}
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            maxEndDate={toInputDate(today)}
+            dayCount={computedDays}
+            daysLabel={t("metrics.days")}
+            isRangeInvalid={isRangeInvalid}
+            invalidRangeLabel={t("metrics.invalidRange")}
+            presets={[
+              { key: "last-7", label: t("metrics.last7Days"), days: 7 },
+              { key: "last-30", label: t("metrics.last30Days"), days: 30 },
+              { key: "last-90", label: t("metrics.last90Days"), days: 90 },
+            ]}
+            onSelectPreset={(daysToShow) => applyPreset(daysToShow, setStartDate, setEndDate)}
+            onRefresh={handleRefreshTrends}
+            refreshDisabled={analyticsLoading}
+            refreshLabel={t("common.refresh")}
+            onExport={handleExportCSV}
+            exportDisabled={analyticsLoading || !usageTrends || isRangeInvalid}
+            exportLabel={t("metrics.export")}
+            autoRefresh={autoRefresh}
+            onAutoRefreshChange={setAutoRefresh}
+            autoRefreshLabel={t("metrics.autoRefresh60s")}
+            saveStatus={saveStatus}
+            savePreferencesLabel={t("metrics.savePreferences")}
+            preferencesSavedLabel={t("metrics.preferencesSaved")}
+            preferencesFailedLabel={t("metrics.preferencesFailed")}
+          />
 
-      <SectionPanel title={t("metrics.trendsTitle")} className="mt-4">
-          <div className={styles.trendControls}>
-            <div className={styles.controlGroup}>
-              <label className={styles.label}>{t("metrics.dateRange")}</label>
-              <div className={styles.dateInputs}>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  max={endDate}
-                  className={styles.dateInput}
-                />
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  min={startDate}
-                  max={toInputDate(today)}
-                  className={styles.dateInput}
-                />
-                <span className={styles.dayCount}>
-                  {computedDays} {t("metrics.days")}
-                  {isRangeInvalid && <span className={styles.invalidRange}>{t("metrics.invalidRange")}</span>}
-                </span>
-              </div>
-              <div className={styles.presets}>
-                <button type="button" onClick={() => applyPreset(7, setStartDate, setEndDate)} className={styles.presetBtn}>
-                  {t("metrics.last7Days")}
-                </button>
-                <button type="button" onClick={() => applyPreset(30, setStartDate, setEndDate)} className={styles.presetBtn}>
-                  {t("metrics.last30Days")}
-                </button>
-                <button type="button" onClick={() => applyPreset(90, setStartDate, setEndDate)} className={styles.presetBtn}>
-                  {t("metrics.last90Days")}
-                </button>
-              </div>
-            </div>
+          <MetricsTrendsStatusSection
+            lastUpdatedLabel={t("metrics.lastUpdated")}
+            lastUpdatedValue={isMounted ? formatTime(lastRefresh) : "--:--:--"}
+            errorTitle={t("metrics.errorLoadingTrends")}
+            errorMessage={analyticsError}
+            isLoading={analyticsLoading}
+            loadingLabel={t("metrics.loadingTrends")}
+          >
+            <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <MetricsTrendChartCard
+                title={t("metrics.usageTrends")}
+                subtitle={t("metrics.dailyRequestsAndUsers")}
+                options={[
+                  { key: "usage-requests", label: t("metrics.requests"), checked: showUsageRequests, onToggle: setShowUsageRequests },
+                  { key: "usage-users", label: t("metrics.users"), checked: showUsageUsers, onToggle: setShowUsageUsers },
+                ]}
+                hasData={Boolean(usageTrends && usageTrends.length > 0)}
+                hasSelection={hasUsageSeries}
+                emptyDataMessage={t("metrics.noUsageData")}
+                emptySelectionMessage={t("metrics.selectAtLeastOneMetric")}
+              >
+                <UsageTrendChart data={usageTrends ?? []} showRequests={showUsageRequests} showUsers={showUsageUsers} />
+              </MetricsTrendChartCard>
 
-            <div className={styles.actions}>
-              <button onClick={handleRefreshTrends} disabled={analyticsLoading} className={styles.actionBtn}>
-                <Icon name="refresh" className={`${styles.icon} ${analyticsLoading ? styles.spin : ""}`} />
-                {t("common.refresh")}
-              </button>
-              <button onClick={handleExportCSV} disabled={analyticsLoading || !usageTrends || isRangeInvalid} className={styles.actionBtn}>
-                <Icon name="download" className={styles.icon} />
-                {t("metrics.export")}
-              </button>
-              <label className={styles.checkboxLabel}>
-                <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-                {t("metrics.autoRefresh60s")}
-              </label>
-            </div>
+              <MetricsTrendChartCard
+                title={t("metrics.tokenConsumption")}
+                subtitle={t("metrics.totalAndAverageTokens")}
+                options={[
+                  { key: "token-total", label: t("metrics.total"), checked: showTokenTotal, onToggle: setShowTokenTotal },
+                  { key: "token-avg", label: t("metrics.average"), checked: showTokenAvg, onToggle: setShowTokenAvg },
+                ]}
+                hasData={Boolean(tokenConsumption && tokenConsumption.length > 0)}
+                hasSelection={hasTokenSeries}
+                emptyDataMessage={t("metrics.noTokenData")}
+                emptySelectionMessage={t("metrics.selectAtLeastOneMetric")}
+              >
+                <TokenConsumptionChart data={tokenConsumption ?? []} showTotalTokens={showTokenTotal} showAvgTokens={showTokenAvg} />
+              </MetricsTrendChartCard>
 
-            {saveStatus !== "idle" && (
-              <div className={styles.saveStatus}>
-                {saveStatus === "saving" && <><div className={styles.spinner} /><span>{t("metrics.savePreferences")}</span></>}
-                {saveStatus === "saved" && <><span className={styles.checkIcon}>✓</span><span>{t("metrics.preferencesSaved")}</span></>}
-                {saveStatus === "error" && <><span className={styles.xIcon}>✕</span><span>{t("metrics.preferencesFailed")}</span></>}
-              </div>
-            )}
-          </div>
+              <MetricsTrendChartCard
+                title={t("metrics.latencyAnalysis")}
+                subtitle={t("metrics.minAverageMaxDuration")}
+                options={[
+                  { key: "latency-min", label: t("metrics.min"), checked: showLatencyMin, onToggle: setShowLatencyMin },
+                  { key: "latency-avg", label: t("metrics.average"), checked: showLatencyAvg, onToggle: setShowLatencyAvg },
+                  { key: "latency-max", label: t("metrics.max"), checked: showLatencyMax, onToggle: setShowLatencyMax },
+                ]}
+                hasData={Boolean(latencyAnalysis && latencyAnalysis.length > 0)}
+                hasSelection={hasLatencySeries}
+                emptyDataMessage={t("metrics.noLatencyData")}
+                emptySelectionMessage={t("metrics.selectAtLeastOneMetric")}
+              >
+                <LatencyAnalysisChart data={latencyAnalysis ?? []} showMin={showLatencyMin} showAvg={showLatencyAvg} showMax={showLatencyMax} />
+              </MetricsTrendChartCard>
 
-          <div className={styles.lastRefresh}>
-            {t("metrics.lastUpdated")}: {isMounted ? formatTime(lastRefresh) : "--:--:--"}
-          </div>
-
-          {analyticsError && (
-            <PageErrorAlert title={t("metrics.errorLoadingTrends")} message={analyticsError} />
-          )}
-
-          {analyticsLoading && (
-            <div className={styles.loading}>
-              <div className={styles.loadingSpinner} />
-              <p>{t("metrics.loadingTrends")}</p>
-            </div>
-          )}
-
-          {!analyticsLoading && (
-            <div className={styles.chartsGrid}>
-              <div className={styles.chartCard}>
-                <h3 className={styles.chartTitle}>{t("metrics.usageTrends")}</h3>
-                <p className={styles.chartSubtitle}>{t("metrics.dailyRequestsAndUsers")}</p>
-                <div className={styles.chartOptions}>
-                  <label><input type="checkbox" checked={showUsageRequests} onChange={(e) => setShowUsageRequests(e.target.checked)} /> {t("metrics.requests")}</label>
-                  <label><input type="checkbox" checked={showUsageUsers} onChange={(e) => setShowUsageUsers(e.target.checked)} /> {t("metrics.users")}</label>
-                </div>
-                {usageTrends && usageTrends.length > 0 ? (
-                  hasUsageSeries ? <UsageTrendChart data={usageTrends} showRequests={showUsageRequests} showUsers={showUsageUsers} /> : <p>{t("metrics.selectAtLeastOneMetric")}</p>
-                ) : <p>{t("metrics.noUsageData")}</p>}
-              </div>
-
-              <div className={styles.chartCard}>
-                <h3 className={styles.chartTitle}>{t("metrics.tokenConsumption")}</h3>
-                <p className={styles.chartSubtitle}>{t("metrics.totalAndAverageTokens")}</p>
-                <div className={styles.chartOptions}>
-                  <label><input type="checkbox" checked={showTokenTotal} onChange={(e) => setShowTokenTotal(e.target.checked)} /> {t("metrics.total")}</label>
-                  <label><input type="checkbox" checked={showTokenAvg} onChange={(e) => setShowTokenAvg(e.target.checked)} /> {t("metrics.average")}</label>
-                </div>
-                {tokenConsumption && tokenConsumption.length > 0 ? (
-                  hasTokenSeries ? <TokenConsumptionChart data={tokenConsumption} showTotalTokens={showTokenTotal} showAvgTokens={showTokenAvg} /> : <p>{t("metrics.selectAtLeastOneMetric")}</p>
-                ) : <p>{t("metrics.noTokenData")}</p>}
-              </div>
-
-              <div className={styles.chartCard}>
-                <h3 className={styles.chartTitle}>{t("metrics.latencyAnalysis")}</h3>
-                <p className={styles.chartSubtitle}>{t("metrics.minAverageMaxDuration")}</p>
-                <div className={styles.chartOptions}>
-                  <label><input type="checkbox" checked={showLatencyMin} onChange={(e) => setShowLatencyMin(e.target.checked)} /> {t("metrics.min")}</label>
-                  <label><input type="checkbox" checked={showLatencyAvg} onChange={(e) => setShowLatencyAvg(e.target.checked)} /> {t("metrics.average")}</label>
-                  <label><input type="checkbox" checked={showLatencyMax} onChange={(e) => setShowLatencyMax(e.target.checked)} /> {t("metrics.max")}</label>
-                </div>
-                {latencyAnalysis && latencyAnalysis.length > 0 ? (
-                  hasLatencySeries ? <LatencyAnalysisChart data={latencyAnalysis} showMin={showLatencyMin} showAvg={showLatencyAvg} showMax={showLatencyMax} /> : <p>{t("metrics.selectAtLeastOneMetric")}</p>
-                ) : <p>{t("metrics.noLatencyData")}</p>}
-              </div>
-
-              <div className={styles.chartCard}>
-                <h3 className={styles.chartTitle}>{t("metrics.memoryTrends")}</h3>
-                <p className={styles.chartSubtitle}>{t("metrics.dailyMemoryOpsQualityAndErrorRate")}</p>
-                {memoryTrends && memoryTrends.length > 0 ? (
-                  <MemoryTrendsChart data={memoryTrends} />
-                ) : <p>{t("metrics.noMemoryTrendData")}</p>}
-              </div>
+              <MetricsTrendChartCard
+                title={t("metrics.memoryTrends")}
+                subtitle={t("metrics.dailyMemoryOpsQualityAndErrorRate")}
+                hasData={Boolean(memoryTrends && memoryTrends.length > 0)}
+                emptyDataMessage={t("metrics.noMemoryTrendData")}
+              >
+                <MemoryTrendsChart data={memoryTrends ?? []} />
+              </MetricsTrendChartCard>
 
               <RetrievalFeedbackPanel data={memoryRetrievalQuality} formatNumber={formatNumber} />
               <MessageQualityPanel data={messageQuality} formatNumber={formatNumber} />
 
-              <div className={styles.chartCard}>
-                <h3 className={styles.chartTitle}>{t("metrics.summary")}</h3>
-                <p className={styles.chartSubtitle}>{t("metrics.keyMetricsForPeriod")}</p>
-                {usageTrends && usageTrends.length > 0 ? (
-                  <div className={styles.summaryGrid}>
-                    <div className={styles.summaryRow}><span>{t("metrics.totalRequests")}</span><span>{formatNumber(usageTrends.reduce((sum, trend) => sum + trend.requests, 0))}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.uniqueUsers")}</span><span>{formatNumber(usageTrends.reduce((sum, trend) => sum + trend.users, 0))}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.totalTokens")}</span><span>{tokenConsumption ? (tokenConsumption.reduce((sum, token) => sum + token.total_tokens, 0) / 1000).toFixed(1) + "K" : t("metrics.na")}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.avgLatency")}</span><span>{trendsAvgLatencyText}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.memoryLoads")}</span><span>{memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.loads, 0))) : t("metrics.na")}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.memoryUpdates")}</span><span>{memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.updates, 0))) : t("metrics.na")}</span></div>
-                    <div className={styles.summaryRow}><span>{t("metrics.memoryErrorRate")}</span><span>{memoryTrends && memoryTrends.length > 0 ? `${(
-                      memoryTrends.reduce((sum, day) => sum + day.error_rate, 0) / memoryTrends.length
-                    ).toFixed(2)}%` : t("metrics.na")}</span></div>
-                  </div>
-                ) : <p>{t("metrics.noSummaryData")}</p>}
-              </div>
+              <MetricsTrendChartCard
+                title={t("metrics.summary")}
+                subtitle={t("metrics.keyMetricsForPeriod")}
+                hasData={Boolean(usageTrends && usageTrends.length > 0)}
+                emptyDataMessage={t("metrics.noSummaryData")}
+              >
+                <MetricsSummaryList
+                  rows={[
+                    { label: t("metrics.totalRequests"), value: formatNumber(usageTrends?.reduce((sum, trend) => sum + trend.requests, 0) ?? 0) },
+                    { label: t("metrics.uniqueUsers"), value: formatNumber(usageTrends?.reduce((sum, trend) => sum + trend.users, 0) ?? 0) },
+                    { label: t("metrics.totalTokens"), value: tokenConsumption ? `${(tokenConsumption.reduce((sum, token) => sum + token.total_tokens, 0) / 1000).toFixed(1)}K` : t("metrics.na") },
+                    { label: t("metrics.avgLatency"), value: trendsAvgLatencyText },
+                    { label: t("metrics.memoryLoads"), value: memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.loads, 0))) : t("metrics.na") },
+                    { label: t("metrics.memoryUpdates"), value: memoryTrends ? formatNumber(Math.round(memoryTrends.reduce((sum, day) => sum + day.updates, 0))) : t("metrics.na") },
+                    { label: t("metrics.memoryErrorRate"), value: memoryTrends && memoryTrends.length > 0 ? `${(memoryTrends.reduce((sum, day) => sum + day.error_rate, 0) / memoryTrends.length).toFixed(2)}%` : t("metrics.na") },
+                  ]}
+                />
+              </MetricsTrendChartCard>
             </div>
-          )}
-      </SectionPanel>
+          </MetricsTrendsStatusSection>
+        </SectionPanel>
       )}
     </PageShell>
   );
@@ -551,11 +393,7 @@ function addDays(date: Date, daysToAdd: number): Date {
   return next;
 }
 
-function applyPreset(
-  daysToShow: number,
-  setStartDate: (value: string) => void,
-  setEndDate: (value: string) => void
-): void {
+function applyPreset(daysToShow: number, setStartDate: (value: string) => void, setEndDate: (value: string) => void): void {
   const end = new Date();
   const start = addDays(end, -(daysToShow - 1));
   setStartDate(toInputDate(start));
@@ -579,10 +417,7 @@ function normalizeAnalyticsPreferences(preferences: Record<string, unknown> | un
     dateRange:
       typeof (dateRange as { startDate?: string })?.startDate === "string" &&
       typeof (dateRange as { endDate?: string })?.endDate === "string"
-        ? {
-            startDate: (dateRange as { startDate: string }).startDate,
-            endDate: (dateRange as { endDate: string }).endDate,
-          }
+        ? { startDate: (dateRange as { startDate: string }).startDate, endDate: (dateRange as { endDate: string }).endDate }
         : undefined,
     usage: {
       showRequests: typeof (usage as { showRequests?: boolean })?.showRequests === "boolean" ? (usage as { showRequests: boolean }).showRequests : true,
