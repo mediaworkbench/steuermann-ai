@@ -322,8 +322,8 @@ Tailwind v4 uses CSS-based configuration via `@import "tailwindcss"` in `globals
   --color-atomic-tangerine: #ef7b45;
   --color-burnt-tangerine: #d84727;
 
-  --font-sans: "Open Sans", sans-serif;
-  --font-display: "Open Sans", sans-serif;
+  --font-sans: "Geist", sans-serif;
+  --font-display: "Geist", sans-serif;
 }
 ```
 
