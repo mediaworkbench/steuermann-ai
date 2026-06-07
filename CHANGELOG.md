@@ -1,5 +1,49 @@
 # Changelog
 
+### [0.4.0] — shadcn-ui-migration
+
+**Icon System — Material Symbols → lucide-react**
+
+* **Hard cut:** Replaced all 71 Material Symbols Outlined icon usages across 32 source files with direct `lucide-react` imports. Deleted `Icon.tsx`, the `MaterialSymbolsOutlined.woff2` font asset, and the `@font-face` / `.material-symbols-outlined` CSS. Created `lib/iconMap.ts` for dynamic string→icon resolution. Added ESLint rule blocking `material-symbols-outlined` CSS class. Updated `docs/design_system_directive.md` for the new icon policy.
+
+**UI Primitives — shadcn/ui adoption (Phase 2 & 3)**
+
+* **Replaced 7 existing primitives:** Button (CVA + `@radix-ui/react-slot`, `@base-ui/react/button` removed), Input, Textarea, Checkbox (`@radix-ui/react-checkbox`), Slider (`@radix-ui/react-slider`), Select (native `<select>` styled), Dialog (migrated to shadcn `<AlertDialog>`, then deleted). All files renamed from PascalCase to lowercase (`Button.tsx` → `button.tsx`).
+* **Installed 15 new shadcn components** via `shadcn@latest add`: `alert-dialog`, `avatar`, `badge`, `card`, `dropdown-menu`, `label`, `popover`, `separator`, `sheet`, `skeleton`, `sonner`, `switch`, `tabs`, `tooltip`, `alert`. All backed by `@base-ui/react`.
+* **20 ui/ component files** (all lowercase, `dialog.tsx` deleted): `alert-dialog.tsx`, `alert.tsx`, `avatar.tsx`, `badge.tsx`, `button.tsx`, `card.tsx`, `checkbox.tsx`, `dropdown-menu.tsx`, `input.tsx`, `label.tsx`, `popover.tsx`, `select.tsx`, `separator.tsx`, `sheet.tsx`, `skeleton.tsx`, `slider.tsx`, `switch.tsx`, `tabs.tsx`, `textarea.tsx`, `tooltip.tsx`.
+
+**Product/ Layer Simplification (Phase 4)**
+
+* **Deleted 6 thin wrapper components** — consumers now import directly from shadcn `ui/`: `SectionCard`, `TitledSectionCard`, `SectionHeader`, `FormFieldLabel`, `SegmentedTabs`, `PanelLoadingState`.
+* **Deleted 13 more business-logic wrappers** in two audit sub-steps, replacing with inline JSX: `SectionErrorText`, `SectionStateText`, `DangerHintText`, `DangerActionButton`, `LabeledValue`, `PrimarySaveBar`, `SubsectionHeader`, `SectionPanel` (Step 2a); `TonePill`, `PageShell`, `PageHeader`, `PageErrorAlert`, `MetricsLoadingState` (Step 2b).
+* **38 product/ files remain** — real business-logic components (not thin wrappers), not in scope for deletion.
+
+**Dialog Migration**
+
+* `ConfirmDialog.tsx` rewritten to use shadcn `<AlertDialog>` + lucide `AlertTriangle`/`HelpCircle` icons with a `confirmedRef` guard preventing double `onCancel` dispatch.
+* `ExportDialog.tsx` migrated from legacy `DialogSurface`/`DialogCard`/`DialogHeader` to shadcn `<AlertDialog>` with lucide `Download`/`FileText`/`Code2` icons. Deleted `dialog.tsx`.
+
+**CSS Infrastructure**
+
+* Added shadcn CSS variable aliases (`--color-ring`, `--color-input`, `--color-card`, `--color-popover`, `--radius`) in `globals.css` `@theme` block.
+* Added missing `@theme inline` block from `shadcn/tailwind.css`; fixed `@custom-variant dark` to target `[data-theme="dark"]` instead of `.dark`.
+* Removed circular `--font-sans: var(--font-sans)` from `@theme inline`.
+* Added missing shadcn CSS vars (`--card`, `--popover`, `--input`, `--ring`, `--chart-*`, `--sidebar-*`) to both `:root` and `html[data-theme="dark"]`.
+* Removed Google Fonts Geist import.
+
+**Dependencies**
+
+* Removed 9 unused packages: `@radix-ui/react-dropdown-menu`, `@radix-ui/react-label`, `@radix-ui/react-popover`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-switch`, `@radix-ui/react-tabs`, `@radix-ui/react-tooltip`, `@radix-ui/react-dialog`. Lockfile pruned 31+ transitive packages.
+* Remaining Radix: `@radix-ui/react-checkbox`, `@radix-ui/react-slider`, `@radix-ui/react-slot`.
+
+**Verification**
+
+* `npm run lint` — 0 errors, 0 warnings.
+* `npx tsc --noEmit` — 0 errors.
+* `docker compose build` — all 4 images (nextjs, fastapi, langgraph, ingestion) build clean.
+* Frontend Jest — 12 suites, 88 tests all passing.
+* Backend pytest — 1082 passed, 1 skipped, 36 deselected (no regressions).
+
 ### [0.3.9] — design-system-foundation
 
 **Core UI & Design System (Phase 2 & 3)**
