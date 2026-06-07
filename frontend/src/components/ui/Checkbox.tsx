@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/components/Icon";
+import { Check } from "lucide-react";
 
 /**
  * Radix-based Checkbox.
@@ -48,7 +48,7 @@ export const Checkbox = React.forwardRef<
       {...rest}
     >
       <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-        <Icon name="check" size={12} />
+        <Check size={12} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

@@ -1,7 +1,8 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/components/Icon";
+import { X } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * DialogSurface
@@ -72,7 +73,7 @@ export function DialogHeader({ icon, iconClassName = "", title, onClose, closeLa
     <div className="mb-4 flex items-center justify-between gap-4">
       <DialogPrimitive.Title asChild>
         <h3 className="flex items-center gap-2 text-lg font-bold text-foreground">
-          {icon ? <Icon name={icon} size={20} className={iconClassName} /> : null}
+          {icon ? (() => { const LucideIcon = iconMap[icon]; return <LucideIcon size={20} className={iconClassName} />; })() : null}
           {title}
         </h3>
       </DialogPrimitive.Title>
@@ -83,7 +84,7 @@ export function DialogHeader({ icon, iconClassName = "", title, onClose, closeLa
           className="rounded-md p-1 text-foreground/50 transition-colors hover:bg-surface-muted hover:text-foreground"
           aria-label={closeLabel}
         >
-          <Icon name="close" size={20} />
+          <X size={20} />
         </button>
       </DialogPrimitive.Close>
     </div>

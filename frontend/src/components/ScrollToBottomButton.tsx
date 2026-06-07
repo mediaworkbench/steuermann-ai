@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/Icon";
+import { ChevronDown } from "lucide-react";
 
 interface ScrollToBottomButtonProps {
   visible: boolean;
@@ -36,7 +36,7 @@ export function ScrollToBottomButton({ visible, unreadCount, onClick }: ScrollTo
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
-        <Icon name="keyboard_arrow_down" size={18} ariaHidden />
+        <ChevronDown size={18} aria-hidden="true" />
         <span className="text-xs font-medium">Latest</span>
       </Button>
     </div>

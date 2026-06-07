@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/Button";
-import { Icon } from "../Icon";
+import { iconMap } from "@/lib/iconMap";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceDocActionButtonProps {
@@ -21,6 +21,7 @@ export function WorkspaceDocActionButton({
   variant = "ghost",
   className,
 }: WorkspaceDocActionButtonProps) {
+  const ActionIcon = iconMap[icon];
   return (
     <Button
       type="button"
@@ -34,7 +35,7 @@ export function WorkspaceDocActionButton({
       )}
       title={title ?? label}
     >
-      <Icon name={icon} size={14} className="mr-1 inline" />
+      <ActionIcon size={14} className="mr-1 inline" />
       {label}
     </Button>
   );

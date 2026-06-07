@@ -1,7 +1,8 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "../Icon";
+import { AlertCircle, CheckCircle } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
@@ -106,11 +107,10 @@ export function InspectorTab({
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
-                <Icon
-                  name={isError ? "error" : "check_circle"}
-                  size={13}
-                  className={`shrink-0 ${isError ? "text-destructive" : "text-primary"}`}
-                />
+                {isError
+                  ? <AlertCircle size={13} className="shrink-0 text-destructive" />
+                  : <CheckCircle size={13} className="shrink-0 text-primary" />
+                }
                 <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
                 <span className="sr-only">
                   {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
@@ -150,6 +150,7 @@ export function InspectorTab({
 }
 
 function NodeGroup({ heading, ids, icon }: { heading: string; ids: string[]; icon?: string }) {
+  const IconCmp = icon ? iconMap[icon] : null;
   return (
     <div className="pt-2 border-t border-border/60">
       <WorkspaceSectionLabel>{heading}</WorkspaceSectionLabel>
@@ -160,7 +161,7 @@ function NodeGroup({ heading, ids, icon }: { heading: string; ids: string[]; ico
             size="compact"
             className="text-muted-foreground"
           >
-            {icon && <Icon name={icon} size={10} />}
+            {IconCmp && <IconCmp size={10} />}
             {humanizeNode(id)}
           </WorkspaceInlineBadge>
         ))}

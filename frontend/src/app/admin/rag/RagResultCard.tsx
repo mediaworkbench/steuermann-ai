@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Icon } from "@/components/Icon";
+import { FileText, Check, Copy } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import type { RagSearchHit } from "@/lib/api";
 
@@ -75,7 +75,7 @@ export function RagResultCard({ hit, query }: { hit: RagSearchHit; query: string
           {hit.score.toFixed(3)}
         </span>
         <span className="flex items-center gap-1.5 text-foreground font-medium text-sm min-w-0">
-          <Icon name="description" size={16} className="text-muted-foreground shrink-0" />
+          <FileText size={16} className="text-muted-foreground shrink-0" />
           <span className="truncate" title={hit.file_path}>
             {hit.file_name}
           </span>
@@ -106,7 +106,7 @@ export function RagResultCard({ hit, query }: { hit: RagSearchHit; query: string
           className="text-muted-foreground hover:text-primary transition-colors"
           title={copied ? t("ragExplorer.copied") : t("ragExplorer.copy")}
         >
-          <Icon name={copied ? "check" : "content_copy"} size={16} />
+          {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
       </div>
 

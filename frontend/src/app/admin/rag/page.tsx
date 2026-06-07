@@ -1,7 +1,7 @@
 "use client";
 
 import { AdminOnly } from "@/components/AdminOnly";
-import { Icon } from "@/components/Icon";
+import { Compass, LoaderCircle, Search } from "lucide-react";
 import { PageShell } from "@/components/product/PageShell";
 import { PageHeader } from "@/components/product/PageHeader";
 import { PageErrorAlert } from "@/components/product/PageErrorAlert";
@@ -48,8 +48,7 @@ export default function RagExplorerPage() {
           className="flex flex-col gap-4"
         >
           <div className="relative">
-            <Icon
-              name="travel_explore"
+            <Compass
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
             />
@@ -66,9 +65,9 @@ export default function RagExplorerPage() {
               className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <Icon name="progress_activity" size={16} className="animate-spin" />
+                <LoaderCircle size={16} className="animate-spin" />
               ) : (
-                <Icon name="search" size={16} />
+                <Search size={16} />
               )}
               <span className="hidden sm:inline">
                 {loading ? t("ragExplorer.searching") : t("ragExplorer.search")}

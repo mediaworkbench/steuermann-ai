@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { Highlight, themes } from "prism-react-renderer";
-import { Icon } from "./Icon";
+import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { linkFootnotes, normalizeMath } from "@/lib/markdown";
@@ -45,7 +45,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           aria-label="Copy code"
           title="Copy code"
         >
-          <Icon name={copied ? "check" : "content_copy"} size={14} />
+          {copied ? <Check size={14} /> : <Copy size={14} />}
         </Button>
       </div>
       <Highlight code={code} language={language} theme={theme}>

@@ -14,8 +14,8 @@ export default defineConfig([
   /* ─────────────────────────────────────────────────────────────────────────
    * Design-system enforcement gates
    * These rules enforce the locked choices from design-system.md:
-   *   1. Icon system: only the shared Icon wrapper (Material Symbols) is allowed.
-   *      Direct lucide-react imports are blocked everywhere in src/.
+   *   1. Icon system: direct lucide-react imports are the canonical path.
+   *      The legacy `material-symbols-outlined` CSS class is blocked.
    *   2. Token policy: raw Tailwind palette status-color utilities are blocked
    *      in shared components and pages. Use the semantic token classes instead:
    *        emerald-*  →  success
@@ -27,20 +27,17 @@ export default defineConfig([
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      // Gate 1 – icon system: block lucide-react re-introduction
-      "no-restricted-imports": [
-        "error",
-        {
-          name: "lucide-react",
-          message:
-            "lucide-react is not part of the design system. Use the shared Icon wrapper " +
-            "(components/Icon.tsx) with a Material Symbols icon name instead.",
-        },
-      ],
+      // Gate 1 – icon system: block the legacy material-symbols-outlined class
       // Gate 2 – token policy: block raw palette status-color class strings
-      // This catches the most common drift patterns at the JSX className level.
       "no-restricted-syntax": [
         "error",
+        {
+          selector:
+            "Literal[value=/material-symbols-outlined/]",
+          message:
+            "Material Symbols is no longer part of the design system. " +
+            "Use lucide-react directly instead.",
+        },
         {
           selector:
             "Literal[value=/\\b(bg|text|border)-(emerald|amber|red|green)-(\\d+|\\w+)\\b/]",

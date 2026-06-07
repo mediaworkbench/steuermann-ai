@@ -1,6 +1,6 @@
 "use client";
 
-import { Icon } from "../Icon";
+import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { Button } from "@/components/ui/Button";
@@ -43,9 +43,10 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 mt-2" aria-label={t("workspace.evidenceSummary")}>
       {chips.map((c) => {
+        const ChipIcon = iconMap[c.icon];
         const body = (
           <>
-            <Icon name={c.icon} size={12} className="text-muted-foreground" />
+            <ChipIcon size={12} className="text-muted-foreground" />
             {c.key === "map" ? c.label : c.count}
           </>
         );

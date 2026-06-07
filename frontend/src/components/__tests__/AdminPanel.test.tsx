@@ -213,14 +213,17 @@ describe("AdminPanel", () => {
     await screen.findByText("adminPage.dangerZoneSection");
 
     // Uncheck analytics
-    const analyticsLabel = screen.getByText("adminPage.resetAnalyticsLabel").closest("label");
-    const analyticsCheckbox = analyticsLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;
+    const allCheckboxes = screen.getAllByRole("checkbox");
+    const analyticsCheckbox = allCheckboxes.find(
+      (cb) => cb.closest("label")?.textContent?.includes("adminPage.resetAnalyticsLabel")
+    )!;
     fireEvent.click(analyticsCheckbox);
     expect(analyticsCheckbox).not.toBeChecked();
 
     // Uncheck llm_probes
-    const probesLabel = screen.getByText("adminPage.resetLlmProbesLabel").closest("label");
-    const probesCheckbox = probesLabel!.querySelector("input[type='checkbox']") as HTMLInputElement;
+    const probesCheckbox = allCheckboxes.find(
+      (cb) => cb.closest("label")?.textContent?.includes("adminPage.resetLlmProbesLabel")
+    )!;
     fireEvent.click(probesCheckbox);
     expect(probesCheckbox).not.toBeChecked();
 

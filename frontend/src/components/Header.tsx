@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Icon } from "./Icon";
+import { Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/Button";
 import { AUTH_ENABLED } from "@/lib/runtime";
@@ -65,7 +66,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
           aria-expanded="false"
           aria-controls="sidebar"
         >
-          <Icon name="menu" size={24} />
+          <Menu size={24} />
         </Button>
         <Link href="/" className="header-title-slot flex flex-col hover:opacity-80 transition-opacity">
           <h2 className="text-foreground font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
@@ -93,7 +94,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               {activeConversation?.pinned && (
                 <>
                   <span className="text-muted-foreground">·</span>
-                  <Icon name="push_pin" size={12} className="text-primary" />
+                  <Pin size={12} className="text-primary" />
                 </>
               )}
             </span>
@@ -116,8 +117,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             className="gap-1.5 text-foreground hover:text-primary text-sm group min-h-11 min-w-11 justify-center"
             title={t("header.exportConversation")}
           >
-            <Icon
-              name="download"
+            <Download
               size={18}
               className="group-hover:scale-110 transition-transform"
             />
@@ -136,11 +136,11 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             aria-label={t("chat.toggleWorkspaceSidebar")}
             title={t("chat.toggleWorkspaceSidebar")}
           >
-            <Icon
-              name={workspaceSidebarOpen ? "right_panel_close" : "right_panel_open"}
-              size={18}
-              className="group-hover:scale-110 transition-transform"
-            />
+            {workspaceSidebarOpen ? (
+              <PanelRightClose size={18} className="group-hover:scale-110 transition-transform" />
+            ) : (
+              <PanelRightOpen size={18} className="group-hover:scale-110 transition-transform" />
+            )}
             <span className="hidden lg:inline">{t("chat.workspace")}</span>
           </Button>
         )}
@@ -155,11 +155,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
                        transition-colors text-sm font-medium group min-h-11 min-w-11
                        justify-center md:justify-start"
           >
-            <Icon
-              name={link.icon}
-              size={18}
-              className="group-hover:scale-110 transition-transform"
-            />
+            {(() => { const LucideIcon = iconMap[link.icon]; return <LucideIcon size={18} className="group-hover:scale-110 transition-transform" />; })()}
             <span className="hidden sm:inline">{link.label}</span>
           </Link>
         ))}
@@ -175,7 +171,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
             className="gap-1.5 text-foreground hover:text-destructive text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
             title={t("header.signOut")}
           >
-            <Icon name="logout" size={18} />
+            <LogOut size={18} />
             <span className="hidden sm:inline">{loggingOut ? t("header.signingOut") : t("header.signOut")}</span>
           </Button>
         )}

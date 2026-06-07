@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { rateMemory } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "./Icon";
+import { Star } from "lucide-react";
 
 interface MemoryRatingProps {
   memoryId: string;
@@ -89,7 +89,7 @@ export function MemoryRating({
               "disabled:cursor-not-allowed disabled:opacity-60",
             ].join(" ")}
           >
-            <Icon name="star" size={compact ? 13 : 15} className={isFilled ? "text-yellow-500" : "text-muted-foreground"} />
+            <Star size={compact ? 13 : 15} className={isFilled ? "text-yellow-500" : "text-muted-foreground"} />
           </Button>
         );
       })}

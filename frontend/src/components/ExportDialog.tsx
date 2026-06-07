@@ -4,7 +4,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { DialogCard, DialogHeader, DialogSurface } from "@/components/ui/Dialog";
-import { Icon } from "./Icon";
+import { Download, LoaderCircle } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { exportConversation } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -119,12 +120,12 @@ export function ExportDialog({
           >
             {exporting ? (
               <>
-                <Icon name="progress_activity" size={16} className="animate-spin" />
+                <LoaderCircle size={16} className="animate-spin" />
                 {t("exportDialog.exporting")}
               </>
             ) : (
               <>
-                <Icon name="download" size={16} />
+                <Download size={16} />
                 {t("common.export")}
               </>
             )}
@@ -161,11 +162,7 @@ function FormatOption({
             : "border-border hover:border-primary/30 bg-surface"
         }`}
     >
-      <Icon
-        name={icon}
-        size={24}
-        className={selected ? "text-primary" : "text-foreground/30"}
-      />
+      {(() => { const LucideIcon = iconMap[icon]; return <LucideIcon size={24} className={selected ? "text-primary" : "text-foreground/30"} />; })()}
       <div>
         <span
           className={`text-sm font-bold block ${

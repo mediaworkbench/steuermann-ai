@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "../Icon";
+import { BookOpen, Globe } from "lucide-react";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
 import { WorkspaceMutedCard } from "./WorkspaceMutedCard";
@@ -28,7 +28,7 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
         <WorkspaceMutedCard className="p-3">
           <WorkspaceSectionLabel className="px-0">{t("workspace.tabKnowledge")}</WorkspaceSectionLabel>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Icon name="menu_book" size={14} className="text-muted-foreground shrink-0" />
+            <BookOpen size={14} className="text-muted-foreground shrink-0" />
             {evidence.ragDocCount > 0
               ? t("workspace.knowledgeRetrieved", { count: evidence.ragDocCount })
               : t("workspace.knowledgeNoResults")}
@@ -44,7 +44,7 @@ export function KnowledgeTab({ evidence }: { evidence: AnswerEvidence }) {
               const isWeb = src.type === "web";
               const body = (
                 <>
-                  <Icon name={isWeb ? "language" : "menu_book"} size={13} className="shrink-0" />
+                  {isWeb ? <Globe size={13} className="shrink-0" /> : <BookOpen size={13} className="shrink-0" />}
                   <span className="truncate">{src.label}</span>
                 </>
               );

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Icon } from "./Icon";
+import { MessageCircle, MessageSquare, MoreVertical, Pin, Plus, Settings, X } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -108,7 +109,7 @@ export function Sidebar({
               onClick={onClose}
               aria-label={t("sidebar.closeNavigation")}
             >
-              <Icon name="close" size={24} />
+              <X size={24} />
             </Button>
           </div>
 
@@ -120,8 +121,7 @@ export function Sidebar({
             className="w-full gap-2 rounded-lg font-bold min-h-11 shadow-lg shadow-primary/20 mb-2 group cursor-pointer"
             aria-label={t("sidebar.startNewChat")}
           >
-            <Icon
-              name="add"
+            <Plus
               size={20}
               className="transition-transform group-hover:rotate-90"
             />
@@ -195,7 +195,7 @@ export function Sidebar({
                        text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors
                        border border-sidebar-border"
           >
-            <Icon name="forum" size={16} />
+            <MessageSquare size={16} />
             <span>{t("sidebar.seeAllChats")}</span>
           </Link>
         </nav>
@@ -217,7 +217,7 @@ export function Sidebar({
                 {role}
               </span>
             </span>
-            <Icon name="settings" className="ml-auto shrink-0 text-sidebar-muted" />
+            <Settings className="ml-auto shrink-0 text-sidebar-muted" />
           </Link>
         </div>
       </aside>
@@ -301,11 +301,11 @@ function ConversationRow({
             `}
         aria-current={isActive ? "page" : undefined}
       >
-        <Icon
-          name={c.pinned ? "push_pin" : "chat_bubble_outline"}
-          size={18}
-          className={isActive ? "text-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground"}
-        />
+        {c.pinned ? (
+          <Pin size={18} className={isActive ? "text-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground"} />
+        ) : (
+          <MessageCircle size={18} className={isActive ? "text-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground"} />
+        )}
 
         {/* Title: either input or text */}
         {editing ? (
@@ -339,7 +339,7 @@ function ConversationRow({
                        text-sidebar-muted hover:text-sidebar-foreground transition-all cursor-pointer shrink-0"
             title={t("sidebar.moreOptions")}
           >
-            <Icon name="more_vert" size={16} />
+            <MoreVertical size={16} />
           </span>
         )}
       </Button>
@@ -426,7 +426,7 @@ function ContextMenuItem({
           : "hover:bg-surface-muted hover:text-foreground"
         }`}
     >
-      <Icon name={icon} size={16} />
+      {(() => { const LucideIcon = iconMap[icon]; return <LucideIcon size={16} />; })()}
       <span>{label}</span>
     </Button>
   );

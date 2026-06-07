@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Icon } from "./Icon";
+import { Brain, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 interface ReasoningBoxProps {
@@ -27,13 +27,12 @@ export function ReasoningBox({ content, isStreaming = false }: ReasoningBoxProps
           <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-primary/40
                            border-t-primary" />
         ) : (
-          <Icon
-            name="expand_more"
+          <ChevronDown
             size={14}
             className={`reasoning-chevron ${expanded ? "open" : ""}`}
           />
         )}
-        <Icon name="psychology" size={13} className="shrink-0 text-primary/80" />
+        <Brain size={13} className="shrink-0 text-primary/80" />
         <span className="font-medium">
           {isStreaming ? "Reasoning…" : "Reasoning"}
         </span>

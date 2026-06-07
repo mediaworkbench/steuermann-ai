@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/Icon";
+import { RefreshCw, Download } from "lucide-react";
 import { MetricsDateRangeField } from "@/components/product/MetricsDateRangeField";
 import { MetricsDatePresetButtons } from "@/components/product/MetricsDatePresetButtons";
 import { MetricsInlineToggle } from "@/components/product/MetricsInlineToggle";
@@ -89,11 +89,11 @@ export function MetricsTrendsControls({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={onRefresh} disabled={refreshDisabled} variant="secondary" size="sm">
-          <Icon name="refresh" className={`h-4 w-4 ${refreshDisabled ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 ${refreshDisabled ? "animate-spin" : ""}`} />
           {refreshLabel}
         </Button>
         <Button onClick={onExport} disabled={exportDisabled} variant="secondary" size="sm">
-          <Icon name="download" className="h-4 w-4" />
+          <Download className="h-4 w-4" />
           {exportLabel}
         </Button>
         <MetricsInlineToggle

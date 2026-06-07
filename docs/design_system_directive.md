@@ -73,8 +73,9 @@ When shared logic is needed, move it to:
 
 ### 4) Icon system
 
-- Canonical icon path: `components/Icon.tsx` (Material Symbols).
-- Direct `lucide-react` imports are not allowed.
+- Canonical icon library: `lucide-react` (direct imports in every file).
+- A `lib/iconMap.ts` index is available for dynamic icon resolution via string keys.
+- The legacy `material-symbols-outlined` class is blocked; the font file has been removed.
 
 ### 5) Accessibility baseline
 
@@ -91,7 +92,7 @@ The directive is enforced in `frontend/eslint.config.mjs`.
 
 Current enforced checks include:
 
-- blocked `lucide-react` imports
+- blocked `material-symbols-outlined` CSS class
 - blocked raw status/palette class patterns in JSX class strings
 - blocked hex color literals in JSX class strings
 - import-boundary restrictions between `ui`, `product`, and `app` layers
@@ -128,7 +129,7 @@ Every frontend PR must satisfy all items below:
 
 1. No layer-boundary violations (`ui`/`product`/`app`).
 2. No raw palette or hex drift in JSX class strings.
-3. No direct `lucide-react` import.
+3. Only `lucide-react` icon imports (no material-symbols-outlined).
 4. Reusable UI extracted to shared layers when repeated.
 5. Keyboard and focus behavior validated for interactive changes.
 6. `npm run lint` passes.

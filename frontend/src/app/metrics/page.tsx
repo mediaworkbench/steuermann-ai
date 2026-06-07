@@ -7,7 +7,7 @@ import { useMetrics } from "@/hooks/useMetrics";
 import { useProfile } from "@/hooks/useProfile";
 import { useSettings } from "@/hooks/useSettings";
 import { CURRENT_USER_ID } from "@/lib/runtime";
-import { Icon } from "@/components/Icon";
+import { RefreshCw } from "lucide-react";
 import { MetricCard } from "@/components/MetricCard";
 import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
 import { MessageQualityPanel } from "@/components/MessageQualityPanel";
@@ -200,7 +200,7 @@ export default function MetricsPage() {
         <SectionPanel title={t("metrics.realtimeTitle")} className="mt-4">
           <div className="mb-6 flex justify-end">
             <Button onClick={handleRefreshRealTime} disabled={isRefreshingRealTime} variant="primary" size="md">
-              <Icon name="refresh" size={18} className={isRefreshingRealTime ? "animate-spin" : ""} />
+              <RefreshCw size={18} className={isRefreshingRealTime ? "animate-spin" : ""} />
               {t("common.refresh")}
             </Button>
           </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "../Icon";
+import { AlertCircle, CheckCircle, Map } from "lucide-react";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
@@ -36,7 +36,7 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
                   tone={isError ? "destructive" : "primary"}
                   className="gap-1 rounded-full px-2 py-0.5"
                 >
-                  <Icon name={isError ? "error" : "check_circle"} size={11} />
+                  {isError ? <AlertCircle size={11} /> : <CheckCircle size={11} />}
                   {tool.name}
                 </WorkspaceInlineBadge>
               );
@@ -49,7 +49,7 @@ export function OutputsTab({ evidence }: { evidence: AnswerEvidence }) {
         <section>
           <WorkspaceSectionLabel>{t("workspace.mapGenerated")}</WorkspaceSectionLabel>
           <WorkspaceInlineBadge tone="default">
-            <Icon name="map" size={13} className="shrink-0" />
+            <Map size={13} className="shrink-0" />
             <span className="truncate">
               {evidence.mapData.label || evidence.mapData.summary || t("workspace.mapGenerated")}
             </span>
