@@ -6,7 +6,9 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  jsxA11y.configs.recommended,
+  // jsx-a11y plugin is already registered by eslint-config-next/core-web-vitals (6 rules);
+  // add the remaining recommended rules without re-registering the plugin.
+  { rules: jsxA11y.flatConfigs.recommended.rules },
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

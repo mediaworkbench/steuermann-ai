@@ -248,13 +248,15 @@ export function DocumentsTab({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {doc.mime_type?.startsWith("image/") ? (
-            <div
+            <button
+              type="button"
               className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
               onClick={(e) => {
                 e.stopPropagation();
                 setLightboxDoc(doc);
               }}
               title={t("workspace.thumbnailClickHint")}
+              aria-label={t("workspace.thumbnailClickHint")}
             >
               <Image
                 src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
@@ -270,7 +272,7 @@ export function DocumentsTab({
               >
                 {formatFileSize(doc.size_bytes)}
               </span>
-            </div>
+            </button>
           ) : (
             doc.filename.endsWith(".md")
               ? <FileText size={16} className="shrink-0 text-muted-foreground" />
@@ -298,6 +300,7 @@ export function DocumentsTab({
           {renamingDocId === doc.id ? (
             <div className="w-full flex gap-1.5">
               <Input
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 type="text"
                 value={renameValue}
@@ -559,13 +562,27 @@ export function DocumentsTab({
         lightboxDoc &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-            onClick={() => setLightboxDoc(null)}
             role="dialog"
             aria-modal
             aria-label={lightboxDoc.filename}
+            className="fixed inset-0 z-50 flex items-center justify-center"
           >
-            <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            {/* Backdrop — click to dismiss */}
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              className="absolute inset-0 bg-black/80"
+              onClick={() => setLightboxDoc(null)}
+              onKeyDown={(e) => { if (e.key === "Escape") setLightboxDoc(null); }}
+            />
+            {/* Content — stops backdrop click from propagating */}
+            <div
+              role="presentation"
+              className="relative z-10 max-w-[90vw] max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               <Image
                 src={`/api/proxy/api/workspace/documents/${lightboxDoc.id}/download`}
                 alt={lightboxDoc.filename}

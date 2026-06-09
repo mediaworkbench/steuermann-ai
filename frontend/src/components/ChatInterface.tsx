@@ -728,7 +728,7 @@ export function ChatInterface() {
 
         {/* ─── Streaming / Typing indicator ─── */}
         {(isStreaming || (loading && !isStreaming)) && (
-          <ChatMessageShell role="assistant">
+          <ChatMessageShell messageRole="assistant">
               <div className="flex items-center gap-2 ml-1">
                 <span className="text-sm font-bold text-foreground">
                   {t("chat.aiAgent")}
@@ -905,7 +905,7 @@ export function ChatInterface() {
                   </Button>
                   {attachMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
                       <div className="absolute bottom-full left-0 z-20 mb-2 min-w-40 rounded-xl border border-border bg-surface py-1 shadow-lg">
                         <Button
                           type="button"
@@ -946,7 +946,7 @@ export function ChatInterface() {
                   </Button>
                   {toolsMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
                       <div className="absolute bottom-full left-0 z-20 mb-2 min-w-50 rounded-xl border border-border bg-surface py-2 shadow-lg">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
                         {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
@@ -1014,7 +1014,7 @@ export function ChatInterface() {
 
                   {contextMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
                       <div className="absolute bottom-full right-0 z-20 mb-2 min-w-60 rounded-xl border border-border bg-surface py-2 shadow-lg">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Context Window
@@ -1220,7 +1220,7 @@ function AssistantMessage({
 }) {
   const { t } = useI18n();
   return (
-    <ChatMessageShell role="assistant">
+    <ChatMessageShell messageRole="assistant">
         {/* Name + timestamp */}
         <div className="flex items-center gap-2 ml-1">
           <span className="text-sm font-bold text-foreground">{t("chat.aiAgent")}</span>
@@ -1362,7 +1362,7 @@ function UserMessage({
   };
 
   return (
-    <ChatMessageShell role="user">
+    <ChatMessageShell messageRole="user">
         <div className="flex items-center gap-2 mr-1">
           {message.timestamp && (
             <span className="msg-timestamp font-mono text-xs text-muted-foreground">
@@ -1493,7 +1493,7 @@ function QueuedMessageBubble({
 }) {
   const { t } = useI18n();
   return (
-    <ChatMessageShell role="user" className="opacity-60">
+    <ChatMessageShell messageRole="user" className="opacity-60">
         {/* Queued tag */}
         <div className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock size={13} className="animate-pulse" />

@@ -66,9 +66,7 @@ export function ActiveDocumentPane({ onClose, isLoading = false }: ActiveDocumen
     >
       {/* Left-edge resize handle (desktop only) */}
       <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("workspace.resizeSplitView")}
+        aria-hidden="true"
         onMouseDown={onResizeStart}
         title={t("workspace.resizeSplitView")}
         className="absolute left-0 top-0 bottom-0 z-10 hidden w-1.5 -translate-x-1/2 cursor-col-resize md:block"

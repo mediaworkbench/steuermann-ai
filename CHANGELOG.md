@@ -5,11 +5,11 @@
 Continues the deferred workspace-panel work (`workspace-refactor.md`): Phase 3c (Documents list
 virtualization) and Phase 2 (Active Document split-view). Phases 2.1 / 3a / 3b remain deferred.
 
-**Phase 3c — Documents list virtualization**
+**Documents list virtualization**
 
 * Added `@tanstack/react-virtual`; the workspace Documents list now windows past a 50-row threshold via the new generic `VirtualizedList` (`frontend/src/components/workspace/VirtualizedList.tsx`). At or below the threshold the list renders exactly as before (zero behavior change for the common case). Dynamic measurement handles the expandable, variable-height rows.
 
-**Phase 2 — Active Document split-view**
+**Active Document split-view**
 
 * **One editor source of truth:** lifted `useDocumentEditor` + `useVersionHistory` + the shared `processingAction` token into a new `ActiveDocumentProvider` (`frontend/src/context/ActiveDocumentContext.tsx`), mounted in `ChatInterface`. The Documents tab and the new pane share a single editor instance — never two competing editors.
 * **`DocumentEditorView`** (`frontend/src/components/workspace/DocumentEditorView.tsx`): extracted the editor + version-history UI; rendered inline in the Documents tab (split off) or in the pane (split on).
@@ -19,7 +19,10 @@ virtualization) and Phase 2 (Active Document split-view). Phases 2.1 / 3a / 3b r
 * i18n: new EN+DE keys (`chat.toggleSplitView`, `chat.splitView`, `workspace.splitView*`, `workspace.closeSplitView`, `workspace.resizeSplitView`).
 * Tests: extended `WorkspacePanel.test.tsx` (threshold switch to the windowed list; `ActiveDocumentPane` empty state + close); existing renders now wrap in `ActiveDocumentProvider`. Full suite: 111 passing.
 
-> **Known pre-existing blocker (not from this work):** `npm run build` (Turbopack) fails with case-sensitive `Module not found: '@/components/ui/button'` across ~43 files because the v0.4.0 shadcn migration left the `components/ui/*.tsx` files capitalized (`Button.tsx`) while imports are lowercase. Dev + `tsc` + Jest work on macOS; a production build needs the casing reconciled app-wide (separate from the workspace refactor).
+**Build hygiene — fixed a v0.4.0 case-sensitivity regression**
+
+* The shadcn migration switched `components/ui` imports to lowercase but left six files PascalCase (`Button.tsx`, `Checkbox.tsx`, `Input.tsx`, `Select.tsx`, `Slider.tsx`, `Textarea.tsx`), so `npm run build` (Turbopack, case-sensitive) failed app-wide with `Module not found: '@/components/ui/button'` (~43 errors) — dev/`tsc`/Jest passed on macOS's case-insensitive FS only. Renamed all six to lowercase (`git mv`, all 49 imports were already lowercase). **`npm run build` now compiles cleanly** and `tsc` has no remaining `forceConsistentCasingInFileNames` errors.
+* Still broken (separate, pre-existing): `npm run lint` (`eslint .`) errors under ESLint 9 flat-config because `eslint-config-next` passes a top-level `parserOptions`. Linting currently rides on `next build`.
 
 ### [0.4.0] — shadcn-ui-migration
 

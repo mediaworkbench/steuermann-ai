@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useLayoutEffect, useRef } from "react";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "@/components/workspace/types";
 import { useDocumentEditor } from "@/components/workspace/useDocumentEditor";
@@ -87,7 +87,7 @@ export function ActiveDocumentProvider({
 
   const { editorDocId } = editor;
   const editorRef = useRef(editor);
-  editorRef.current = editor;
+  useLayoutEffect(() => { editorRef.current = editor; });
   const conversationIdRef = useRef(conversationId);
   const restoredConvRef = useRef<string | null | undefined>(undefined);
 

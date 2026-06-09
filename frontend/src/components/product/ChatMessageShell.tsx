@@ -5,14 +5,14 @@ import { Bot, User } from "lucide-react";
 type ChatRole = "assistant" | "user";
 
 interface ChatMessageShellProps {
-  role: ChatRole;
+  messageRole: ChatRole;
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
 }
 
-export function ChatMessageShell({ role, children, className, bodyClassName }: ChatMessageShellProps) {
-  const assistant = role === "assistant";
+export function ChatMessageShell({ messageRole, children, className, bodyClassName }: ChatMessageShellProps) {
+  const assistant = messageRole === "assistant";
 
   return (
     <div

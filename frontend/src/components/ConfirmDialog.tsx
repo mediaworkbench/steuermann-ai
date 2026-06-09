@@ -113,6 +113,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             )}
             <Input
               type="text"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               value={typedValue}
               onChange={(e) => setTypedValue(e.target.value)}

@@ -121,8 +121,7 @@ export function DocumentEditorView({ isLoading = false, variant = "inline" }: Do
       <p className="mb-2 truncate text-xs text-muted-foreground">{getDocumentName(editorDocId)}</p>
       {!pane && (
         <div
-          role="separator"
-          aria-label={t("workspace.resizeEditor")}
+          aria-hidden="true"
           onMouseDown={onResizeStart}
           className="mb-2 h-2 cursor-row-resize flex items-center justify-center"
           title={t("workspace.resizeEditor")}
