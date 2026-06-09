@@ -601,7 +601,10 @@ const SidebarMenuButton = React.forwardRef<
 
     return (
       <Tooltip>
-        <TooltipTrigger>{button}</TooltipTrigger>
+        {/* `render` merges the trigger onto the existing button instead of
+            wrapping it in Base UI's own <button> (which would nest a button
+            inside a button → invalid HTML + hydration mismatch, React #418). */}
+        <TooltipTrigger render={button} />
         <TooltipContent
           side="right"
           align="center"
