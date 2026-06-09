@@ -7,6 +7,7 @@ import {
   SINGLE_USER_DISPLAY_NAME,
   SINGLE_USER_ROLE_LABEL,
 } from "@/lib/runtime";
+import { findUnknownTokens } from "@/lib/tokenContract";
 
 interface ProfileTheme {
   colors: Record<string, string>;
@@ -43,6 +44,20 @@ function toCssVarName(key: string): string {
 function applyThemeTokens(profileId: string, theme: ProfileTheme): void {
   const html = document.documentElement;
   html.setAttribute("data-profile", profileId);
+
+  const unknownColors = findUnknownTokens("colors", Object.keys(theme.colors));
+  const unknownFonts = findUnknownTokens("fonts", Object.keys(theme.fonts));
+  const unknownRadii = findUnknownTokens("radius", Object.keys(theme.radius));
+
+  for (const key of unknownColors) {
+    console.warn(`[profile] theme.colors: "${key}" is not a recognized token key`);
+  }
+  for (const key of unknownFonts) {
+    console.warn(`[profile] theme.fonts: "${key}" is not a recognized token key`);
+  }
+  for (const key of unknownRadii) {
+    console.warn(`[profile] theme.radius: "${key}" is not a recognized token key`);
+  }
 
   const tokenEntries: Array<[string, string]> = [
     ...Object.entries(theme.colors),

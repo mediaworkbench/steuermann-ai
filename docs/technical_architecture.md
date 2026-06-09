@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.3.7` in `pyproject.toml`.
+- The package metadata currently reports version `0.4.0` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
@@ -853,7 +853,7 @@ This architecture covers:
 
 - **Separation of Concerns**: Frontend, adapter, orchestration decoupled
 - **Scalability**: Each service can scale independently
-- **Modern UI**: React + TypeScript + Tailwind CSS v4 + Material Symbols Outlined for professional interfaces
+- **Modern UI**: React + TypeScript + Tailwind CSS v4 + shadcn/ui primitives + lucide-react icons for professional interfaces
 - **API Flexibility**: FastAPI provides fast, documented REST endpoints
 - **Deployment-oriented**: Proven stack choices with experimental-beta product maturity
 - **Security Boundary**: Next.js owns user login, while FastAPI stays behind the trusted proxy boundary

@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import type { MessageQualityResponse } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "./Icon";
+import { ThumbsUp, ThumbsDown, TrendingUp, MessageCircle } from "lucide-react";
 import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
 import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
@@ -50,22 +50,22 @@ export function MessageQualityPanel({ data, formatNumber }: Props) {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <AnalyticsStatCard
-          icon={<Icon name="thumb_up" size={16} />}
+          icon={<ThumbsUp size={16} />}
           label={t("metrics.thumbsUp")}
           value={formatNumber(data.total_up)}
         />
         <AnalyticsStatCard
-          icon={<Icon name="thumb_down" size={16} />}
+          icon={<ThumbsDown size={16} />}
           label={t("metrics.thumbsDown")}
           value={formatNumber(data.total_down)}
         />
         <AnalyticsStatCard
-          icon={<Icon name="trending_up" size={16} />}
+          icon={<TrendingUp size={16} />}
           label={t("metrics.netScore")}
           value={formatNumber(data.net_score)}
         />
         <AnalyticsStatCard
-          icon={<Icon name="chat_bubble" size={16} />}
+          icon={<MessageCircle size={16} />}
           label={t("metrics.feedbackRate")}
           value={feedbackRatePct}
           unit="%"

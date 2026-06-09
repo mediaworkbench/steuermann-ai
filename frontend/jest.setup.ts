@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom";
+import { toHaveNoViolations } from "jest-axe";
 import { ReadableStream, WritableStream, TransformStream } from "stream/web";
+
+expect.extend(toHaveNoViolations);
 import { TextEncoder, TextDecoder } from "util";
 if (!global.ReadableStream) global.ReadableStream = ReadableStream;
 if (!global.WritableStream) global.WritableStream = WritableStream;

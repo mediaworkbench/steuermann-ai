@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/components/Icon";
+import { Bot, User } from "lucide-react";
 
 type ChatRole = "assistant" | "user";
 
@@ -31,11 +31,11 @@ export function ChatMessageShell({ role, children, className, bodyClassName }: C
         )}
         aria-hidden="true"
       >
-        <Icon
-          name={assistant ? "smart_toy" : "person"}
-          size={18}
-          className={assistant ? "text-background" : "text-primary-foreground"}
-        />
+        {assistant ? (
+          <Bot size={18} className="text-background" />
+        ) : (
+          <User size={18} className="text-primary-foreground" />
+        )}
       </div>
       <div
         className={cn(

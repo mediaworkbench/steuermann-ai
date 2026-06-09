@@ -1,10 +1,11 @@
 "use client";
 
-import { Icon } from "../Icon";
+import { Folder, X } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
@@ -73,7 +74,7 @@ export function WorkspacePanel({
         title={t("workspace.toggleSidebar")}
         aria-label={t("workspace.toggleSidebar")}
       >
-        <Icon name={isOpen ? "close" : "folder"} size={24} />
+        {isOpen ? <X size={24} /> : <Folder size={24} />}
       </Button>
 
       {/* Sidebar overlay (mobile) */}
@@ -107,6 +108,7 @@ export function WorkspacePanel({
             // Count shows only on the active tab so inactive tabs stay compact
             // and all five fit the narrow panel without horizontal scrolling.
             const showCount = active && count > 0;
+            const TabIcon = iconMap[tab.icon];
             return (
               <Button
                 type="button"
@@ -123,7 +125,7 @@ export function WorkspacePanel({
                     ? "bg-primary/10 text-primary px-2.5 py-1.5"
                     : "text-muted-foreground hover:text-foreground hover:bg-surface-muted p-1.5"}`}
               >
-                <Icon name={tab.icon} size={16} />
+                <TabIcon size={16} />
                 {active && <span className="whitespace-nowrap">{label}</span>}
                 {showCount && (
                   <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">

@@ -4,15 +4,15 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Icon } from "../Icon";
+import { Check, ChevronDown, ChevronUp, Eraser, FileText, ScrollText, Search, Trash, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Textarea } from "@/components/ui/Textarea";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
@@ -289,7 +289,7 @@ export function DocumentsTab({
             size="sm"
             className="flex-2 text-xs font-medium"
           >
-            <Icon name="upload_file" size={16} />
+            <Upload size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
           </Button>
           {documents.length > 0 &&
@@ -302,7 +302,7 @@ export function DocumentsTab({
                   size="sm"
                   className="flex-1 px-2 py-2 text-xs"
                 >
-                  <Icon name="close" size={14} className="mx-auto" />
+                  <X size={14} className="mx-auto" />
                 </Button>
                 <Button
                   type="button"
@@ -313,7 +313,7 @@ export function DocumentsTab({
                   className="flex-1 px-2 py-2 text-xs font-medium"
                   title={t("workspace.nukeConfirm")}
                 >
-                  <Icon name="delete_forever" size={14} className="mx-auto" />
+                  <Trash size={14} className="mx-auto" />
                 </Button>
               </div>
             ) : (
@@ -326,7 +326,7 @@ export function DocumentsTab({
                 className="flex-1 px-2 py-2 text-xs font-medium"
                 title={t("workspace.nukeAll")}
               >
-                <Icon name="delete_sweep" size={16} />
+                <Eraser size={16} />
               </Button>
             ))}
         </div>
@@ -336,8 +336,7 @@ export function DocumentsTab({
       {documents.length > 0 && (
         <div className="px-3 pt-3">
           <div className="relative">
-            <Icon
-              name="search"
+            <Search
               size={15}
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50"
             />
@@ -358,7 +357,7 @@ export function DocumentsTab({
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("workspace.clearSearch")}
               >
-                <Icon name="close" size={14} />
+                <X size={14} />
               </Button>
             )}
           </div>
@@ -417,11 +416,9 @@ export function DocumentsTab({
                         </span>
                       </div>
                     ) : (
-                      <Icon
-                        name={doc.filename.endsWith(".md") ? "description" : "text_snippet"}
-                        size={16}
-                        className="shrink-0 text-muted-foreground"
-                      />
+                      doc.filename.endsWith(".md")
+                        ? <FileText size={16} className="shrink-0 text-muted-foreground" />
+                        : <ScrollText size={16} className="shrink-0 text-muted-foreground" />
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
@@ -433,11 +430,10 @@ export function DocumentsTab({
                       </p>
                     </div>
                   </div>
-                  <Icon
-                    name={expandedDoc === doc.id ? "expand_less" : "expand_more"}
-                    size={16}
-                    className="ml-1 shrink-0 text-muted-foreground"
-                  />
+                  {expandedDoc === doc.id
+                    ? <ChevronUp size={16} className="ml-1 shrink-0 text-muted-foreground" />
+                    : <ChevronDown size={16} className="ml-1 shrink-0 text-muted-foreground" />
+                  }
                 </Button>
 
                 {/* Expanded actions */}
@@ -468,7 +464,7 @@ export function DocumentsTab({
                           size="sm"
                           className="px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          <Icon name="check" size={14} />
+                          <Check size={14} />
                         </Button>
                         <Button
                           type="button"
@@ -480,7 +476,7 @@ export function DocumentsTab({
                           size="sm"
                           className="px-2 py-1 text-xs"
                         >
-                          <Icon name="close" size={14} />
+                          <X size={14} />
                         </Button>
                       </div>
                     ) : null}
@@ -724,7 +720,7 @@ export function DocumentsTab({
                 className="absolute -right-3 -top-3 h-8 w-8 rounded-full bg-surface p-0 shadow"
                 aria-label={t("workspace.closeLightbox")}
               >
-                <Icon name="close" size={16} className="text-foreground" />
+                <X size={16} className="text-foreground" />
               </Button>
               <p className="mt-2 text-center text-muted-foreground text-xs truncate">{lightboxDoc.filename}</p>
             </div>

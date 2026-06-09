@@ -1,5 +1,4 @@
-import { DangerActionButton } from "@/components/product/DangerActionButton";
-import { DangerHintText } from "@/components/product/DangerHintText";
+import { Button } from "@/components/ui/button";
 
 interface DangerSelectionActionsProps {
   hasSelection: boolean;
@@ -22,14 +21,15 @@ export function DangerSelectionActions({
 }: DangerSelectionActionsProps) {
   return (
     <>
-      {!hasSelection && <DangerHintText>{hintText}</DangerHintText>}
-      <DangerActionButton
+      {!hasSelection && <p className="mb-3 text-xs text-warning">{hintText}</p>}
+      <Button
+        type="button"
         onClick={onAction}
-        disabled={!hasSelection || disabled}
-        loading={loading}
-        loadingLabel={loadingLabel}
-        label={actionLabel}
-      />
+        disabled={!hasSelection || disabled || loading}
+        variant="destructive"
+      >
+        {loading ? loadingLabel : actionLabel}
+      </Button>
     </>
   );
 }

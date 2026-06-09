@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/Button";
-import { Icon } from "../Icon";
+import { Button } from "@/components/ui/button";
+import { iconMap } from "@/lib/iconMap";
 
 type Tone = "idle" | "loading" | "error";
 
@@ -19,6 +19,7 @@ interface WorkspaceTabStateProps {
 export function WorkspaceTabState({ icon, title, hint, tone = "idle", action }: WorkspaceTabStateProps) {
   const isError = tone === "error";
   const isLoading = tone === "loading";
+  const StateIcon = iconMap[icon];
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
@@ -30,7 +31,7 @@ export function WorkspaceTabState({ icon, title, hint, tone = "idle", action }: 
         {isLoading ? (
           <span className="w-6 h-6 rounded-full border-2 border-primary/25 border-t-primary animate-spin" />
         ) : (
-          <Icon name={icon} size={24} />
+          <StateIcon size={24} />
         )}
       </span>
       <p className={`text-xs font-semibold mb-1 ${isError ? "text-destructive" : "text-muted-foreground"}`}>

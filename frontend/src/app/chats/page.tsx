@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Icon } from "@/components/Icon";
+import { MessageSquare, RefreshCw, Search, Pin, BookmarkMinus, Trash2, MoreVertical } from "lucide-react";
+import { iconMap } from "@/lib/iconMap";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useConversationContext } from "@/components/LayoutShell";
 import { useConversationBrowser } from "@/hooks/useConversationBrowser";
 import { useI18n } from "@/hooks/useI18n";
-import { PageShell } from "@/components/product/PageShell";
 import type { Conversation } from "@/lib/types";
 
 export default function ChatsPage() {
@@ -105,12 +105,13 @@ export default function ChatsPage() {
   }, [confirmDeleteId, browser, remove]);
 
   return (
-    <PageShell contentClassName="max-w-5xl space-y-6">
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 max-w-5xl space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Icon name="forum" size={28} className="text-foreground" />
+          <MessageSquare size={28} className="text-foreground" />
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t("chats.title")}</h1>
               <p className="text-sm text-muted-foreground">{t("chats.subtitle")}</p>
@@ -123,15 +124,14 @@ export default function ChatsPage() {
                      bg-primary text-primary-foreground hover:bg-primary/90
                      disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
-          <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           {t("chats.refresh")}
         </button>
       </div>
 
         {/* Search */}
         <div className="relative max-w-xl">
-          <Icon
-            name="search"
+          <Search
             size={16}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
           />
@@ -164,7 +164,7 @@ export default function ChatsPage() {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
                            border border-border text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
               >
-                <Icon name="push_pin" size={14} />
+                <Pin size={14} />
                 {t("chats.pinSelected")}
               </button>
               <button
@@ -172,7 +172,7 @@ export default function ChatsPage() {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
                            border border-border text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
               >
-                <Icon name="keep_off" size={14} />
+                <BookmarkMinus size={14} />
                 {t("chats.unpinSelected")}
               </button>
               <button
@@ -180,7 +180,7 @@ export default function ChatsPage() {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
                            border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
               >
-                <Icon name="delete_outline" size={14} />
+                <Trash2 size={14} />
                 {t("chats.deleteSelected")}
               </button>
             </div>
@@ -219,7 +219,7 @@ export default function ChatsPage() {
                 <tr>
                   <td colSpan={5} className="px-4 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Icon name="forum" size={28} className="opacity-30" />
+                      <MessageSquare size={28} className="opacity-30" />
                       <span className="text-sm">
                         {query ? t("chats.noMatch") : t("chats.noChatsYet")}
                       </span>
@@ -292,7 +292,8 @@ export default function ChatsPage() {
         onConfirm={handleConfirmedDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
-    </PageShell>
+      </div>
+    </main>
   );
 }
 
@@ -384,7 +385,7 @@ function ChatRow({
       </td>
       <td className="px-4 py-3 max-w-xs lg:max-w-lg">
         <div className="flex items-start gap-2">
-          {c.pinned && <Icon name="push_pin" size={14} className="text-primary/70 mt-0.5 shrink-0" />}
+          {c.pinned && <Pin size={14} className="text-primary/70 mt-0.5 shrink-0" />}
           <div className="min-w-0 flex-1">
             {editing ? (
               <input
@@ -428,7 +429,7 @@ function ChatRow({
           className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
           aria-label={t("sidebar.moreOptions")}
         >
-          <Icon name="more_vert" size={16} />
+          <MoreVertical size={16} />
         </button>
         {menuOpen && menuPos && createPortal(
           <div
@@ -467,13 +468,14 @@ function RowMenuItem({
   danger?: boolean;
   onClick: () => void;
 }) {
+  const LucideIcon = iconMap[icon];
   return (
     <button
       onClick={onClick}
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors cursor-pointer
         ${danger ? "text-destructive hover:bg-destructive/10" : "hover:bg-surface-muted"}`}
     >
-      <Icon name={icon} size={16} />
+      <LucideIcon size={16} />
       <span>{label}</span>
     </button>
   );

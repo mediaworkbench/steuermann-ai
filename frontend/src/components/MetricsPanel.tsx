@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Icon } from "./Icon";
-import { Button } from "@/components/ui/Button";
+import { AlertCircle, Check, CheckCircle, ChevronDown, CircleDollarSign, Copy, Database, RefreshCw, Timer, Wrench } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
@@ -76,8 +76,7 @@ export function MetricsPanel({
           className="h-auto gap-2 p-0 text-xs text-muted-foreground hover:text-foreground"
           aria-expanded={expanded}
         >
-          <Icon
-            name="expand_more"
+          <ChevronDown
             size={14}
             className={`metrics-chevron ${expanded ? "open" : ""}`}
           />
@@ -85,7 +84,7 @@ export function MetricsPanel({
             {responseTimeSec && (
               <>
                 <span className="flex items-center gap-0.5">
-                  <Icon name="timer" size={13} className="text-primary" />
+                  <Timer size={13} className="text-primary" />
                   {responseTimeSec}s
                 </span>
                 <span className="text-muted-foreground" aria-hidden="true">
@@ -94,7 +93,7 @@ export function MetricsPanel({
               </>
             )}
             <span className="flex items-center gap-0.5">
-              <Icon name="toll" size={13} className="text-primary" />
+              <CircleDollarSign size={13} className="text-primary" />
               {formatNumber(totalTokens)} {t("charts.tokens")}
             </span>
             {toolCount > 0 && (
@@ -103,7 +102,7 @@ export function MetricsPanel({
                   ·
                 </span>
                 <span className="flex items-center gap-0.5">
-                  <Icon name="build" size={13} className="text-primary" />
+                  <Wrench size={13} className="text-primary" />
                   {toolCount} {t("chat.toolsInvoked")}
                 </span>
               </>
@@ -125,7 +124,7 @@ export function MetricsPanel({
             }`}
             aria-label={t("chat.copyMessage")}
           >
-            <Icon name={copied ? "check" : "content_copy"} size={16} />
+            {copied ? <Check size={16} /> : <Copy size={16} />}
           </Button>
           <Button
             type="button"
@@ -135,7 +134,7 @@ export function MetricsPanel({
             className="h-8 w-8 p-0 rounded text-muted-foreground hover:text-warning hover:bg-warning/10 transition-colors"
             aria-label={t("chat.regenerateResponse")}
           >
-            <Icon name="refresh" size={16} />
+            <RefreshCw size={16} />
           </Button>
         </div>
       </div>
@@ -223,7 +222,7 @@ export function MetricsPanel({
                         key={`${tool.name}-${idx}`}
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${badgeClass}`}
                       >
-                        <Icon name={isError ? "error" : "check_circle"} size={11} />
+                        {isError ? <AlertCircle size={11} /> : <CheckCircle size={11} />}
                         {tool.name}
                       </span>
                     );
@@ -239,7 +238,7 @@ export function MetricsPanel({
                   Knowledge Base
                 </span>
                 <div className="flex items-center gap-1.5 text-xs text-foreground">
-                  <Icon name="database" size={13} className="text-muted-foreground shrink-0" />
+                  <Database size={13} className="text-muted-foreground shrink-0" />
                   {evidence.ragDocCount > 0 ? (
                     <span>
                       {evidence.ragDocCount} document{evidence.ragDocCount !== 1 ? "s" : ""} retrieved

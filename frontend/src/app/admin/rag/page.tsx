@@ -1,10 +1,7 @@
 "use client";
 
 import { AdminOnly } from "@/components/AdminOnly";
-import { Icon } from "@/components/Icon";
-import { PageShell } from "@/components/product/PageShell";
-import { PageHeader } from "@/components/product/PageHeader";
-import { PageErrorAlert } from "@/components/product/PageErrorAlert";
+import { Compass, LoaderCircle, Search } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useRagSearch } from "@/hooks/useRagSearch";
 import { RagResultCard } from "./RagResultCard";
@@ -31,12 +28,20 @@ export default function RagExplorerPage() {
   const firstBelowIdx = items.findIndex((h) => !h.above_cutoff);
 
   return (
-    <PageShell contentClassName="space-y-8 lg:px-12">
-      <PageHeader title={t("ragExplorer.title")} subtitle={t("ragExplorer.subtitle")} />
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 space-y-8 lg:px-12">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">{t("ragExplorer.title")}</h1>
+          <p className="mt-1 text-muted-foreground">{t("ragExplorer.subtitle")}</p>
+        </div>
+      </div>
 
       <AdminOnly
         fallback={
-          <PageErrorAlert title={t("adminPage.accessDenied")} />
+          <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-destructive">
+            <p className="mb-1 font-semibold">{t("adminPage.accessDenied")}</p>
+          </div>
         }
       >
         {/* Search controls */}
@@ -48,8 +53,7 @@ export default function RagExplorerPage() {
           className="flex flex-col gap-4"
         >
           <div className="relative">
-            <Icon
-              name="travel_explore"
+            <Compass
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
             />
@@ -66,9 +70,9 @@ export default function RagExplorerPage() {
               className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <Icon name="progress_activity" size={16} className="animate-spin" />
+                <LoaderCircle size={16} className="animate-spin" />
               ) : (
-                <Icon name="search" size={16} />
+                <Search size={16} />
               )}
               <span className="hidden sm:inline">
                 {loading ? t("ragExplorer.searching") : t("ragExplorer.search")}
@@ -120,7 +124,10 @@ export default function RagExplorerPage() {
 
         {/* Error */}
         {error && (
-          <PageErrorAlert title={t("common.error")} message={error} />
+          <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-destructive">
+            <p className="mb-1 font-semibold">{t("common.error")}</p>
+            {error ? <p>{error}</p> : null}
+          </div>
         )}
 
         {/* Results */}
@@ -165,6 +172,7 @@ export default function RagExplorerPage() {
           </div>
         )}
       </AdminOnly>
-    </PageShell>
+      </div>
+    </main>
   );
 }

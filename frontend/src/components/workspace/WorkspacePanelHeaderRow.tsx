@@ -1,6 +1,6 @@
 import * as React from "react";
-import { Button } from "@/components/ui/Button";
-import { Icon } from "../Icon";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkspacePanelHeaderRowProps {
@@ -32,7 +32,7 @@ export function WorkspacePanelHeaderRow({
           className="p-0 text-muted-foreground hover:text-foreground"
           aria-label={closeLabel}
         >
-          <Icon name="close" size={14} />
+          <X size={14} />
         </Button>
       ) : null}
     </div>

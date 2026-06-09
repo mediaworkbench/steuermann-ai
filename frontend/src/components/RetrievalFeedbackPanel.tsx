@@ -2,7 +2,7 @@
 
 import type { MemoryRetrievalQualityData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "./Icon";
+import { MessageSquare, Star, ChartColumn } from "lucide-react";
 import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
 import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
@@ -76,23 +76,23 @@ export function RetrievalFeedbackPanel({ data, formatNumber }: Props) {
       {/* Mini-cards row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <AnalyticsStatCard
-          icon={<Icon name="forum" size={16} />}
+          icon={<MessageSquare size={16} />}
           label={t("metrics.retrievalSignalsTotal")}
           value={formatNumber(total)}
         />
         <AnalyticsStatCard
-          icon={<Icon name="star" size={16} />}
+          icon={<Star size={16} />}
           label={t("metrics.priorRatingCoverage")}
           value={priorPct}
           unit="%"
         />
         <AnalyticsStatCard
-          icon={<Icon name="star" size={16} />}
+          icon={<Star size={16} />}
           label={t("metrics.ratedAfterRetrieval")}
           value={formatNumber(data.rated_after_retrieval_total)}
         />
         <AnalyticsStatCard
-          icon={<Icon name="insert_chart" size={16} />}
+          icon={<ChartColumn size={16} />}
           label={t("metrics.feedbackCoverage")}
           value={feedbackPct}
           unit="%"

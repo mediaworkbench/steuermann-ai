@@ -322,22 +322,23 @@ Tailwind v4 uses CSS-based configuration via `@import "tailwindcss"` in `globals
   --color-atomic-tangerine: #ef7b45;
   --color-burnt-tangerine: #d84727;
 
-  --font-sans: "Open Sans", sans-serif;
-  --font-display: "Open Sans", sans-serif;
+  --font-sans: "Geist", sans-serif;
+  --font-display: "Geist", sans-serif;
 }
 ```
 
 **Icon System:**
 
-Icons use Material Symbols Outlined (local woff2 font at `public/fonts/MaterialSymbolsOutlined.woff2`) via a reusable `Icon` component:
+Icons use `lucide-react` — direct named imports in every file:
 
 ```typescript
-// frontend/src/components/Icon.tsx
-import { Icon } from './Icon';
+import { Settings, Bot } from "lucide-react";
 
-<Icon name="smart_toy" size={18} className="text-white" />
-<Icon name="settings" size={24} />
+<Bot size={18} className="text-white" />
+<Settings size={24} />
 ```
+
+Dynamic icon resolution via string key uses `lib/iconMap.ts` (maps 71 legacy Material icon names to lucide-react components). The legacy `material-symbols-outlined` font and `Icon.tsx` wrapper have been removed.
 
 **Custom Components:**
 

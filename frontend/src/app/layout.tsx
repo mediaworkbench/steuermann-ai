@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
 import { RoleProvider } from "@/context/RoleContext";
 
+
 export const metadata: Metadata = {
   title: "Steuermann",
   description: "Modern AI agent orchestration platform",
@@ -35,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className="font-sans">
       <body className="bg-background text-foreground h-screen overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
           <I18nProvider>

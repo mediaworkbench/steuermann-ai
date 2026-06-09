@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/Button";
-import { DialogCard, DialogHeader, DialogSurface } from "@/components/ui/Dialog";
-import { Icon } from "./Icon";
+import { Button } from "@/components/ui/button";
+import { Code2, Download, FileText, LoaderCircle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { exportConversation } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -50,7 +58,9 @@ export function ExportDialog({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(t("exportDialog.exportedSuccessfully"), { description: filename });
+      toast.success(t("exportDialog.exportedSuccessfully"), {
+        description: filename,
+      });
       onClose();
     } catch {
       setError(t("exportDialog.exportFailedTryAgain"));
@@ -61,35 +71,32 @@ export function ExportDialog({
   };
 
   return (
-    <DialogSurface open onClose={onClose} className="max-w-md">
-      <DialogCard>
-        <DialogHeader
-          icon="download"
-          iconClassName="text-primary"
-          title={t("exportDialog.title")}
-          onClose={onClose}
-          closeLabel={t("exportDialog.closeDialog")}
-        />
+    <AlertDialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia>
+            <Download className="size-6 text-primary" />
+          </AlertDialogMedia>
+          <AlertDialogTitle>{t("exportDialog.title")}</AlertDialogTitle>
+          <AlertDialogDescription className="truncate">
+            {conversationTitle}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
-        <p className="mb-4 truncate text-sm text-muted-foreground">
-          {conversationTitle}
-        </p>
-
-        {/* Format selector */}
-        <div className="space-y-2 mb-6">
+        <div className="space-y-2 px-2">
           <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
             {t("exportDialog.format")}
           </label>
           <div className="flex gap-3">
             <FormatOption
-              icon="description"
+              icon={FileText}
               label={t("exportDialog.markdown")}
               description={t("exportDialog.markdownDescription")}
               selected={format === "markdown"}
               onClick={() => setFormat("markdown")}
             />
             <FormatOption
-              icon="data_object"
+              icon={Code2}
               label={t("exportDialog.json")}
               description={t("exportDialog.jsonDescription")}
               selected={format === "json"}
@@ -99,50 +106,45 @@ export function ExportDialog({
         </div>
 
         {error && (
-          <p className="mb-3 text-xs text-destructive">{error}</p>
+          <p className="px-2 text-xs text-destructive">{error}</p>
         )}
 
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-3">
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={onClose}
-          >
+        <AlertDialogFooter>
+          <Button variant="secondary" size="md" onClick={onClose}>
             {t("common.cancel")}
           </Button>
           <Button
-            variant="primary"
+            variant="default"
             size="md"
             onClick={handleExport}
             disabled={exporting}
           >
             {exporting ? (
               <>
-                <Icon name="progress_activity" size={16} className="animate-spin" />
+                <LoaderCircle size={16} className="animate-spin" />
                 {t("exportDialog.exporting")}
               </>
             ) : (
               <>
-                <Icon name="download" size={16} />
+                <Download size={16} />
                 {t("common.export")}
               </>
             )}
           </Button>
-        </div>
-      </DialogCard>
-    </DialogSurface>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
 function FormatOption({
-  icon,
+  icon: Icon,
   label,
   description,
   selected,
   onClick,
 }: {
-  icon: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
   description: string;
   selected: boolean;
@@ -153,22 +155,19 @@ function FormatOption({
       type="button"
       onClick={onClick}
       variant="ghost"
-      size="sm"
-      className={`flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors
-        ${
-          selected
-            ? "border-primary bg-primary/5"
-            : "border-border hover:border-primary/30 bg-surface"
-        }`}
+      className={`flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors ${
+        selected
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/30 bg-surface"
+      }`}
     >
       <Icon
-        name={icon}
         size={24}
         className={selected ? "text-primary" : "text-foreground/30"}
       />
       <div>
         <span
-          className={`text-sm font-bold block ${
+          className={`block text-sm font-bold ${
             selected ? "text-primary" : "text-foreground/70"
           }`}
         >

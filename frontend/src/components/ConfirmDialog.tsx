@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/Button";
-import { Checkbox } from "@/components/ui/Checkbox";
-import { DialogCard, DialogHeader, DialogSurface } from "@/components/ui/Dialog";
-import { Input } from "@/components/ui/Input";
+import { useRef, useState } from "react";
+import { AlertTriangle, HelpCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useI18n } from "@/hooks/useI18n";
 
 interface ConfirmDialogBaseProps {
@@ -45,6 +54,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   const { t } = useI18n();
   const [typedValue, setTypedValue] = useState("");
   const [checked, setChecked] = useState(false);
+  const confirmedRef = useRef(false);
 
   const typed = isTypedVariant(props);
   const checkboxed = isCheckedVariant(props);
@@ -53,36 +63,49 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     (typed && typedValue.trim().toUpperCase() !== props.requireTyped.toUpperCase()) ||
     (checkboxed && !checked);
 
-  const handleCancel = () => {
+  const reset = () => {
     setTypedValue("");
     setChecked(false);
-    props.onCancel();
   };
 
   const handleConfirm = () => {
     if (confirmDisabled) return;
-    setTypedValue("");
-    setChecked(false);
+    confirmedRef.current = true;
+    reset();
     props.onConfirm();
   };
 
-  if (!props.isOpen) return null;
+  const handleCancel = () => {
+    if (confirmedRef.current) {
+      confirmedRef.current = false;
+      return;
+    }
+    reset();
+    props.onCancel();
+  };
 
   return (
-    <DialogSurface open={props.isOpen} onClose={handleCancel} className="max-w-sm">
-      <DialogCard>
-        <DialogHeader
-          icon={isDanger ? "warning" : "help_outline"}
-          iconClassName={isDanger ? "text-destructive" : "text-primary"}
-          title={props.title}
-          onClose={handleCancel}
-          closeLabel={t("common.close")}
-        />
-
-        <p className="mb-6 text-sm text-muted-foreground">{props.message}</p>
+    <AlertDialog
+      open={props.isOpen}
+      onOpenChange={(open) => {
+        if (!open) handleCancel();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia>
+            {isDanger ? (
+              <AlertTriangle className="size-6 text-destructive" />
+            ) : (
+              <HelpCircle className="size-6 text-primary" />
+            )}
+          </AlertDialogMedia>
+          <AlertDialogTitle>{props.title}</AlertDialogTitle>
+          <AlertDialogDescription>{props.message}</AlertDialogDescription>
+        </AlertDialogHeader>
 
         {typed && (
-          <div className="mb-6">
+          <div className="px-2">
             {props.inputLabel && (
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
                 {props.inputLabel}
@@ -103,9 +126,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         )}
 
         {checkboxed && (
-          <label className="flex items-center gap-3 mb-6 cursor-pointer select-none group">
+          <label className="flex items-center gap-3 px-2 cursor-pointer select-none group">
             <Checkbox
-              type="checkbox"
               checked={checked}
               onChange={(e) => setChecked(e.target.checked)}
               className="cursor-pointer"
@@ -116,7 +138,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           </label>
         )}
 
-        <div className="flex items-center justify-end gap-3">
+        <AlertDialogFooter>
           <Button
             variant="secondary"
             size="md"
@@ -132,8 +154,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           >
             {props.confirmLabel ?? t("common.confirm")}
           </Button>
-        </div>
-      </DialogCard>
-    </DialogSurface>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

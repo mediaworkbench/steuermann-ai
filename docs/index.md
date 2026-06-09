@@ -30,6 +30,7 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 
 ## Feature Guides
 
+- **[design_system_directive.md](design_system_directive.md)** - Frontend design-system usage directive: token policy, component boundaries, icon policy, accessibility baseline, and PR checklist
 - **[tools.md](tools.md)** - Full tool catalog: all built-in tools, trigger patterns, configuration, and vision vs. library split
 - **[cli.md](cli.md)** - Operations CLI reference: all `steuermann` commands, arguments, guardrail behaviour, and workflow examples
 - **[ingestion.md](ingestion.md)** - Document ingestion, watch mode, recursive discovery, and collection alignment

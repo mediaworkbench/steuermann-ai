@@ -758,6 +758,14 @@ def _validate_one_profile(profile_id: str) -> dict[str, Any]:
         result["status"] = "error"
         result["errors"].append(str(exc))
 
+    # Validate ui.yaml theme tokens against the contract
+    try:
+        ui = load_profile_ui_config(profile_id=profile_id)
+        for warning in ui.theme.unknown_token_warnings:
+            result["warnings"].append(f"ui.yaml: {warning}")
+    except Exception as exc:
+        result["warnings"].append(f"ui.yaml validation error: {exc}")
+
     return result
 
 

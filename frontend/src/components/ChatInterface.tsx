@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { Icon } from "./Icon";
+import { ArrowUp, BookOpen, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, FolderOpen, Globe, Image as ImageIcon, Mic, Minimize2, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
@@ -13,9 +13,9 @@ import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
 import type { WorkspaceTabId } from "./workspace/types";
 import { ChatMessageShell } from "./product/ChatMessageShell";
-import { Button } from "@/components/ui/Button";
-import { Select } from "@/components/ui/Select";
-import { Textarea } from "@/components/ui/Textarea";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useConversationContext } from "./LayoutShell";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import { useChatSession } from "@/context/ChatSessionContext";
@@ -78,7 +78,7 @@ function SourceBadges({ sources }: { sources?: Source[] }) {
                          bg-primary/10 text-primary border border-primary/20
                          hover:bg-primary/20 transition-colors no-underline"
           >
-            <Icon name="language" size={12} />
+            <Globe size={12} />
             {src.label}
           </a>
         ) : (
@@ -87,7 +87,7 @@ function SourceBadges({ sources }: { sources?: Source[] }) {
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
                        bg-warning/10 text-warning border border-warning/20"
           >
-            <Icon name="menu_book" size={12} />
+            <BookOpen size={12} />
             {src.label}
           </span>
         ),
@@ -112,7 +112,7 @@ function AttachmentUsedBadges({
                      bg-surface-muted text-muted-foreground border border-border"
           title={`Context from: ${att.original_name}`}
         >
-          <Icon name="description" size={12} />
+          <FileText size={12} />
           {att.original_name}
         </span>
       ))}
@@ -135,7 +135,7 @@ function DocumentUsedBadges({
                      bg-success/10 text-success border border-success/20"
           title={`Workspace context: ${doc.filename} (v${doc.version})`}
         >
-          <Icon name="folder_open" size={12} />
+          <FolderOpen size={12} />
           {doc.filename}
           <span className="text-success/75">v{doc.version}</span>
         </span>
@@ -681,7 +681,7 @@ export function ChatInterface() {
           >
         {messages.length === 0 && !loading ? (
           <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
-            <Icon name="smart_toy" size={48} className="mb-4 opacity-50" />
+            <Bot size={48} className="mb-4 opacity-50" />
             <p className="text-lg font-medium">{t("chat.noMessagesYet")}</p>
           </div>
         ) : (
@@ -723,20 +723,14 @@ export function ChatInterface() {
               {/* Node / tool status indicator */}
               {(nodeStatus || toolCallStatus?.status === "start") && (
                 <div className="mb-1 ml-1 flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
-                  <Icon
-                    name={
-                      nodeStatus?.includes("knowledge") ? "search"
-                      : nodeStatus?.includes("memor") ? "psychology"
-                      : toolCallStatus?.name?.includes("search") || toolCallStatus?.name?.includes("web") ? "travel_explore"
-                      : toolCallStatus?.name?.includes("calc") ? "calculate"
-                      : toolCallStatus?.name?.includes("date") || toolCallStatus?.name?.includes("time") ? "schedule"
-                      : toolCallStatus?.name?.includes("file") || toolCallStatus?.name?.includes("workspace") ? "edit_document"
-                      : toolCallStatus?.name?.includes("webpage") || toolCallStatus?.name?.includes("extract") ? "open_in_browser"
-                      : "settings"
-                    }
-                    size={13}
-                    className="shrink-0"
-                  />
+                  {nodeStatus?.includes("knowledge") ? <Search size={13} className="shrink-0" />
+                  : nodeStatus?.includes("memor") ? <Brain size={13} className="shrink-0" />
+                  : toolCallStatus?.name?.includes("search") || toolCallStatus?.name?.includes("web") ? <Compass size={13} className="shrink-0" />
+                  : toolCallStatus?.name?.includes("calc") ? <Calculator size={13} className="shrink-0" />
+                  : toolCallStatus?.name?.includes("date") || toolCallStatus?.name?.includes("time") ? <Clock size={13} className="shrink-0" />
+                  : toolCallStatus?.name?.includes("file") || toolCallStatus?.name?.includes("workspace") ? <FileEdit size={13} className="shrink-0" />
+                  : toolCallStatus?.name?.includes("webpage") || toolCallStatus?.name?.includes("extract") ? <ExternalLink size={13} className="shrink-0" />
+                  : <Settings size={13} className="shrink-0" />}
                   <span>{nodeStatus ?? toolCallStatus?.label}</span>
                 </div>
               )}
@@ -832,7 +826,7 @@ export function ChatInterface() {
                     className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
                     title={t("chat.insertReference")}
                   >
-                    <Icon name="description" size={14} className="text-primary" />
+                    <FileText size={14} className="text-primary" />
                     <span className="font-medium">{attachment.original_name}</span>
                   </Button>
                   <Button
@@ -844,7 +838,7 @@ export function ChatInterface() {
                     aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
                     title={t("chat.deleteAttachment")}
                   >
-                    <Icon name="close" size={14} className="text-muted-foreground" />
+                    <X size={14} className="text-muted-foreground" />
                   </Button>
                 </div>
               ))}
@@ -892,7 +886,7 @@ export function ChatInterface() {
                     className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={t("chat.addAttachment")}
                   >
-                    <Icon name="add" size={20} />
+                    <Plus size={20} />
                   </Button>
                   {attachMenuOpen && (
                     <>
@@ -905,7 +899,7 @@ export function ChatInterface() {
                           size="sm"
                           className="w-full items-center gap-2.5 px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted"
                         >
-                          <Icon name="description" size={16} className="text-muted-foreground" />
+                          <FileText size={16} className="text-muted-foreground" />
                           {t("chat.addFile")}
                         </Button>
                         <Button
@@ -915,7 +909,7 @@ export function ChatInterface() {
                           size="sm"
                           className="w-full items-center gap-2.5 px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted"
                         >
-                          <Icon name="image" size={16} className="text-muted-foreground" />
+                          <ImageIcon size={16} className="text-muted-foreground" />
                           {t("chat.addImage")}
                         </Button>
                       </div>
@@ -933,7 +927,7 @@ export function ChatInterface() {
                     className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
                     aria-label="Tools"
                   >
-                    <Icon name="build" size={20} />
+                    <Wrench size={20} />
                   </Button>
                   {toolsMenuOpen && (
                     <>
@@ -977,7 +971,7 @@ export function ChatInterface() {
                       : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                   }`}
                 >
-                  <Icon name="database" size={20} />
+                  <Database size={20} />
                 </Button>
               </div>
 
@@ -1053,7 +1047,7 @@ export function ChatInterface() {
                             size="sm"
                             className="w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            <Icon name="compress" size={16} className="text-muted-foreground" />
+                            <Minimize2 size={16} className="text-muted-foreground" />
                             {isCompacting ? "Compacting…" : "Compact Context"}
                           </Button>
                         </div>
@@ -1087,7 +1081,7 @@ export function ChatInterface() {
                   size="sm"
                   className="cursor-not-allowed rounded-lg p-1.5 text-muted-foreground"
                 >
-                  <Icon name="mic" size={20} />
+                  <Mic size={20} />
                 </Button>
 
                 {/* Send / Cancel — while busy, Stop stays reachable and a Send
@@ -1102,7 +1096,7 @@ export function ChatInterface() {
                       size="sm"
                       className="h-8 w-8 rounded-lg p-0"
                     >
-                      <Icon name="stop_circle" size={20} />
+                      <StopCircle size={20} />
                     </Button>
                     {input.trim() && (
                       <Button
@@ -1114,7 +1108,7 @@ export function ChatInterface() {
                         size="sm"
                         className="h-8 w-8 rounded-lg p-0"
                       >
-                        <Icon name="arrow_upward" size={20} />
+                        <ArrowUp size={20} />
                       </Button>
                     )}
                   </>
@@ -1128,7 +1122,7 @@ export function ChatInterface() {
                     size="sm"
                     className="h-8 w-8 rounded-lg p-0 disabled:opacity-30"
                   >
-                    <Icon name="arrow_upward" size={20} />
+                    <ArrowUp size={20} />
                   </Button>
                 )}
               </div>
@@ -1276,7 +1270,7 @@ function AssistantMessage({
               aria-label="Thumbs up"
               title={t("chat.feedbackSaved")}
             >
-              <Icon name="thumb_up" size={15} />
+              <ThumbsUp size={15} />
             </Button>
             <Button
               type="button"
@@ -1293,7 +1287,7 @@ function AssistantMessage({
               aria-label="Thumbs down"
               title="Poor response"
             >
-              <Icon name="thumb_down" size={15} />
+              <ThumbsDown size={15} />
             </Button>
           </div>
         </div>
@@ -1432,7 +1426,7 @@ function UserMessage({
                 aria-label={t("chat.copyMessage")}
                 title={t("chat.copyMessage")}
               >
-                <Icon name={copied ? "check" : "content_copy"} size={14} />
+                {copied ? <Check size={14} /> : <Copy size={14} />}
               </Button>
               <Button
                 type="button"
@@ -1448,7 +1442,7 @@ function UserMessage({
                 aria-label="Edit message"
                 title={t("workspace.edit")}
               >
-                <Icon name="edit" size={14} />
+                <Pencil size={14} />
               </Button>
             </div>
           </>
@@ -1483,7 +1477,7 @@ function QueuedMessageBubble({
     <ChatMessageShell role="user" className="opacity-60">
         {/* Queued tag */}
         <div className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon name="schedule" size={13} className="animate-pulse" />
+          <Clock size={13} className="animate-pulse" />
           <span className="font-medium">{t("chat.queued")}</span>
         </div>
 
@@ -1513,7 +1507,7 @@ function QueuedMessageBubble({
               aria-label={t("chat.sendQueuedNow")}
               title={t("chat.sendQueuedNow")}
             >
-              <Icon name="send" size={14} />
+              <Send size={14} />
             </Button>
           )}
           <Button
@@ -1526,7 +1520,7 @@ function QueuedMessageBubble({
             aria-label={t("chat.cancelQueued")}
             title={t("chat.cancelQueued")}
           >
-            <Icon name="close" size={14} />
+            <X size={14} />
           </Button>
         </div>
     </ChatMessageShell>

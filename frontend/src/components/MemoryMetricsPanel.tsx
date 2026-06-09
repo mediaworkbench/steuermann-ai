@@ -2,7 +2,7 @@
 
 import type { MetricsData } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { Icon } from "./Icon";
+import { Brain, Database, Zap, GitMerge } from "lucide-react";
 import { AnalyticsPanelSurface } from "@/components/product/AnalyticsPanelSurface";
 import { AnalyticsStatCard } from "@/components/product/AnalyticsStatCard";
 
@@ -51,41 +51,41 @@ export function MemoryMetricsPanel({ metrics, formatNumber }: Props) {
   return (
     <AnalyticsPanelSurface className="mb-6 rounded-lg">
       <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
-        <Icon name="psychology" size={18} />
+        <Brain size={18} />
         {t("metrics.memoryOperations")}
       </h3>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <AnalyticsStatCard
-          icon={<Icon name="database" size={16} />}
+          icon={<Database size={16} />}
           label={t("metrics.totalOps")}
           value={formatNumber(Math.round(totalOps))}
         />
         {avgQuality !== null && (
           <AnalyticsStatCard
-            icon={<Icon name="bolt" size={16} />}
+            icon={<Zap size={16} />}
             label={t("metrics.avgQuality")}
             value={`${Math.round(avgQuality * 100)}%`}
           />
         )}
         {coocNodes !== null && (
           <AnalyticsStatCard
-            icon={<Icon name="merge" size={16} />}
+            icon={<GitMerge size={16} />}
             label={t("metrics.coOccurrenceNodes")}
             value={formatNumber(Math.round(coocNodes))}
           />
         )}
         {coocEdges !== null && (
           <AnalyticsStatCard
-            icon={<Icon name="merge" size={16} />}
+            icon={<GitMerge size={16} />}
             label={t("metrics.coOccurrenceEdges")}
             value={formatNumber(Math.round(coocEdges))}
           />
         )}
         {rankingMs !== null && (
           <AnalyticsStatCard
-            icon={<Icon name="bolt" size={16} />}
+            icon={<Zap size={16} />}
             label={t("metrics.rankingLatency")}
             value={rankingMs.toFixed(1)}
             unit="ms"

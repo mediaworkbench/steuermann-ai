@@ -10,20 +10,19 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { Button } from "@/components/ui/button";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
-import { FormFieldLabel } from "@/components/product/FormFieldLabel";
 import { OptionChecklist } from "@/components/product/OptionChecklist";
 import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
-import { PanelLoadingState } from "@/components/product/PanelLoadingState";
-import { PrimarySaveBar } from "@/components/product/PrimarySaveBar";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
-import { SectionStateText } from "@/components/product/SectionStateText";
-import { TitledSectionCard } from "@/components/product/TitledSectionCard";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
-import { Slider } from "@/components/ui/Slider";
-import { Select } from "@/components/ui/Select";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Select } from "@/components/ui/select";
 
 export interface SettingsPanelProps {
   settings: UserSettings | null;
@@ -156,7 +155,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   }, [myDataOptions, t]);
 
   if (loading) {
-    return <PanelLoadingState label={t("common.loading")} />;
+    return <div className="space-y-3 py-4"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /><p className="text-sm text-muted-foreground">{t("common.loading")}</p></div>;
   }
 
   const chatModelOptions = (systemConfig?.model_roles || []).filter((r) =>
@@ -167,10 +166,15 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     <div className="space-y-6">
 
       {/* Language */}
-      <TitledSectionCard title={t("settingsPanel.language")}>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settingsPanel.language")}</CardTitle>
+        </CardHeader>
+        <div className="px-6 pb-6">
         <Select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
+          aria-label={t("settingsPanel.language")}
         >
           {(systemConfig?.supported_languages || ["en"]).map((code) => (
             <option key={code} value={code}>
@@ -178,10 +182,15 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             </option>
           ))}
         </Select>
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       {/* Sound */}
-      <TitledSectionCard title={t("settingsPanel.soundSection")}>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settingsPanel.soundSection")}</CardTitle>
+        </CardHeader>
+        <div className="px-6 pb-6">
         <OptionCheckboxRow
           checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
           onToggle={() =>
@@ -193,12 +202,17 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           label={t("settingsPanel.soundEnabled")}
           description={t("settingsPanel.soundEnabledDescription")}
         />
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       {/* Tool Toggles */}
-      <TitledSectionCard title={t("settingsPanel.toolSettings")}>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settingsPanel.toolSettings")}</CardTitle>
+        </CardHeader>
+        <div className="px-6 pb-6">
         {configLoading ? (
-          <SectionStateText>{t("settingsPanel.loadingTools")}</SectionStateText>
+          <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</p>
         ) : (
           <OptionChecklist
             items={(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => ({
@@ -211,11 +225,16 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             }))}
           />
         )}
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       {/* RAG — user-scoped controls: enabled toggle + top_k */}
-      <TitledSectionCard title={t("settingsPanel.ragConfiguration")}>
-        {configLoading && <SectionStateText>{t("settingsPanel.loadingDefaults")}</SectionStateText>}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settingsPanel.ragConfiguration")}</CardTitle>
+        </CardHeader>
+        <div className="px-6 pb-6">
+        {configLoading && <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingDefaults")}</p>}
         <div className="space-y-4">
           <div>
             <OptionCheckboxRow
@@ -229,21 +248,26 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
             />
           </div>
           <div>
-            <FormFieldLabel>
+            <Label className="mb-2 block">
               {t("settingsPanel.topKResults", {
                 default: systemConfig?.rag_defaults.top_k || 5,
                 value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
               })}
-            </FormFieldLabel>
+            </Label>
             <Slider
               min="1"
               max="20"
               value={(ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5}
               onChange={(e) => handleRagConfigChange("top_k", parseInt(e.target.value))}
+              aria-label={t("settingsPanel.topKResults", {
+                default: systemConfig?.rag_defaults.top_k || 5,
+                value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
+              })}
             />
           </div>
         </div>
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       {/* Chat Model Selection */}
       <RoleModelSelectionSection
@@ -262,12 +286,11 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       />
 
       {/* Save */}
-      <PrimarySaveBar
-        onSave={handleSave}
-        saving={saving}
-        label={t("settingsPanel.saveSettings")}
-        loadingLabel={t("common.saving")}
-      />
+      <div className="flex gap-3">
+      <Button onClick={handleSave} disabled={saving} className="flex-1">
+        {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
+      </Button>
+      </div>
 
       {/* Last updated */}
       {settings?.updated_at && (
@@ -277,11 +300,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       )}
 
       {/* My Data — danger zone */}
-      <TitledSectionCard
-        title={t("settingsPanel.myDataSection")}
-        description={t("settingsPanel.myDataDescription")}
-        tone="danger"
-      >
+      <Card className="!ring-destructive/30">
+        <CardHeader>
+          <CardTitle className="text-destructive">{t("settingsPanel.myDataSection")}</CardTitle>
+          <CardDescription>{t("settingsPanel.myDataDescription")}</CardDescription>
+        </CardHeader>
+        <div className="px-6 pb-6">
         <DangerOptionsList
           options={(
             [
@@ -306,7 +330,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           actionLabel={t("settingsPanel.myDataResetButton")}
           disabled={myDataResetting}
         />
-      </TitledSectionCard>
+        </div>
+      </Card>
 
       <DangerConfirmDialog
         isOpen={myDataConfirmOpen}

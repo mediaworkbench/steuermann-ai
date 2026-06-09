@@ -14,8 +14,8 @@ const config: Config = {
         'burnt-tangerine': '#d84727',
       },
       fontFamily: {
-        display: ['"Open Sans"', 'sans-serif'],
-        sans: ['"Open Sans"', 'sans-serif'],
+        display: ['"Geist"', 'sans-serif'],
+        sans: ['"Geist"', 'sans-serif'],
       },
       borderRadius: {
         DEFAULT: '0.5rem',

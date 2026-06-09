@@ -8,8 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
-import { Icon } from "@/components/Icon";
-import { PageShell } from "@/components/product/PageShell";
+import { Brain, Trash2, RefreshCw } from "lucide-react";
 
 const PAGE_SIZE = 50;
 
@@ -140,12 +139,13 @@ export default function MemoriesPage() {
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
-    <PageShell contentClassName="max-w-5xl space-y-6">
+    <main className="flex-1 overflow-y-auto bg-background">
+      <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 max-w-5xl space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Icon name="psychology" size={28} className="text-foreground" />
+          <Brain size={28} className="text-foreground" />
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t("memories.title")}</h1>
               <p className="text-sm text-muted-foreground">
@@ -161,7 +161,7 @@ export default function MemoriesPage() {
                        border border-destructive/30 text-destructive hover:bg-destructive/10
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            <Icon name="delete" size={14} className={clearing ? "animate-pulse" : ""} />
+            <Trash2 size={14} className={clearing ? "animate-pulse" : ""} />
             {t("memories.clearAll")}
           </button>
           <button
@@ -171,7 +171,7 @@ export default function MemoriesPage() {
                        bg-primary text-primary-foreground hover:bg-primary/90
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            <Icon name="refresh" size={14} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             {t("memories.refresh")}
           </button>
         </div>
@@ -247,7 +247,7 @@ export default function MemoriesPage() {
                 <tr>
                   <td colSpan={5} className="px-4 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Icon name="psychology" size={28} className="opacity-30" />
+                      <Brain size={28} className="opacity-30" />
                       <span className="text-sm">
                         {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
                       </span>
@@ -321,7 +321,7 @@ export default function MemoriesPage() {
                           className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
                           aria-label={t("memories.deleteMemory")}
                         >
-                          <Icon name="delete" size={14} />
+                          <Trash2 size={14} />
                         </button>
                       )}
                     </td>
@@ -369,6 +369,7 @@ export default function MemoriesPage() {
         onCancel={() => setClearConfirmOpen(false)}
         variant="danger"
       />
-    </PageShell>
+      </div>
+    </main>
   );
 }

@@ -1,7 +1,5 @@
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleModelSelectorCard } from "@/components/product/RoleModelSelectorCard";
-import { SectionCard } from "@/components/product/SectionCard";
-import { SectionHeader } from "@/components/product/SectionHeader";
-import { SectionStateText } from "@/components/product/SectionStateText";
 
 interface RoleModelConfig {
   role: string;
@@ -33,12 +31,14 @@ export function RoleModelSelectionSection({
   t,
 }: RoleModelSelectionSectionProps) {
   return (
-    <SectionCard>
-      <SectionHeader title={title} />
+    <Card>
+      <CardHeader className="px-0 pt-0">
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
       {loading ? (
-        <SectionStateText>{loadingLabel}</SectionStateText>
+        <p className="text-sm text-muted-foreground">{loadingLabel}</p>
       ) : roleConfigs.length === 0 ? (
-        <SectionStateText>{emptyLabel}</SectionStateText>
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
       ) : (
         <div className="space-y-4">
           {roleConfigs.map((roleConfig) => {
@@ -68,6 +68,6 @@ export function RoleModelSelectionSection({
           })}
         </div>
       )}
-    </SectionCard>
+    </Card>
   );
 }
