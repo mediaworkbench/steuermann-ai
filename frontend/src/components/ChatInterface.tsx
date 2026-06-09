@@ -11,6 +11,8 @@ import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
+import { ActiveDocumentPane } from "./workspace/ActiveDocumentPane";
+import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
 import type { WorkspaceTabId } from "./workspace/types";
 import { ChatMessageShell } from "./product/ChatMessageShell";
 import { Button } from "@/components/ui/button";
@@ -211,7 +213,7 @@ export function ChatInterface() {
     cancelStream,
   } = useChatSession();
 
-  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
+  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen, splitViewOpen, setSplitViewOpen } =
     useConversationContext();
 
   // Latest assistant answer in the active conversation. Sourced from the
@@ -666,7 +668,20 @@ export function ChatInterface() {
     : "bg-primary/70";
 
   return (
-    <>
+    <ActiveDocumentProvider
+      documents={documents}
+      conversationId={activeId}
+      writebackSavedDocId={writebackSavedDocId}
+      onActiveDocumentChange={setActiveWorkspaceDocId}
+      onDocumentsRefresh={fetchWorkspaceDocuments}
+      onAttachmentUploaded={(attachment) => {
+        setAttachments((prev) => {
+          if (prev.some((item) => item.id === attachment.id)) return prev;
+          return [...prev, attachment];
+        });
+        setWorkspaceSidebarOpen(true);
+      }}
+    >
       <div className="flex h-full min-h-0">
         {/* ─── Main chat area ─── */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
@@ -1148,6 +1163,11 @@ export function ChatInterface() {
       </div>
       </div>
 
+      {/* ─── Active document split-view pane (between chat and workspace panel) ─── */}
+      {splitViewOpen && (
+        <ActiveDocumentPane onClose={() => setSplitViewOpen(false)} isLoading={loading} />
+      )}
+
       {/* ─── Workspace sidebar ─── */}
       <WorkspaceSidebar
         isOpen={workspaceSidebarOpen}
@@ -1160,8 +1180,7 @@ export function ChatInterface() {
         documentsLoading={documentsLoading}
         documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
-        writebackSavedDocId={writebackSavedDocId}
-        onActiveDocumentChange={setActiveWorkspaceDocId}
+        splitViewActive={splitViewOpen}
         answerMetrics={latestAnswerMetrics}
         nodeTrace={inspectorNodeTrace}
         isStreaming={isStreaming}
@@ -1174,7 +1193,7 @@ export function ChatInterface() {
         }}
       />
       </div>
-    </>
+    </ActiveDocumentProvider>
   );
 }
 

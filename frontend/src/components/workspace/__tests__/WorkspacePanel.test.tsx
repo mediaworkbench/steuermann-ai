@@ -3,8 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
 import { InspectorTab } from "../InspectorTab";
+import { ActiveDocumentPane } from "../ActiveDocumentPane";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
+import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkspaceDocument } from "../types";
 import type { MessageMetrics, NodeTraceEntry } from "@/lib/types";
@@ -27,8 +29,14 @@ const baseProps = {
   documents: [],
 };
 
-// WorkspacePanel/DocumentsTab read internal view state from WorkspacePanelContext.
-const renderWithPanel = (ui: ReactElement) => render(<WorkspacePanelProvider>{ui}</WorkspacePanelProvider>);
+// WorkspacePanel/DocumentsTab read internal view state from WorkspacePanelContext
+// and the lifted editor state from ActiveDocumentContext (one shared editor).
+const renderWithPanel = (ui: ReactElement, documents: WorkspaceDocument[] = []) =>
+  render(
+    <ActiveDocumentProvider documents={documents}>
+      <WorkspacePanelProvider>{ui}</WorkspacePanelProvider>
+    </ActiveDocumentProvider>,
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -93,6 +101,21 @@ describe("WorkspacePanel", () => {
       target: { value: "zzz" },
     });
     expect(screen.getByText("workspace.noResults")).toBeInTheDocument();
+  });
+
+  test("renders the plain list at the threshold but the windowed list above it", () => {
+    // At the threshold (50): plain rendering → every row is mounted, no windowing.
+    const fifty = Array.from({ length: 50 }, (_, i) => doc(String(i), `doc-${i}.md`));
+    const { unmount } = renderWithPanel(<WorkspacePanel {...baseProps} documents={fifty} />, fifty);
+    expect(screen.queryByTestId("virtualized-doc-list")).not.toBeInTheDocument();
+    expect(screen.getByText("doc-49.md")).toBeInTheDocument();
+    unmount();
+
+    // Above the threshold (51): the list switches to the windowed container.
+    const fiftyOne = Array.from({ length: 51 }, (_, i) => doc(String(i), `doc-${i}.md`));
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={fiftyOne} />, fiftyOne);
+    expect(screen.getByRole("tab", { name: /workspace\.tabDocuments/ })).toHaveTextContent("51");
+    expect(screen.getByTestId("virtualized-doc-list")).toBeInTheDocument();
   });
 
   test("renders the loading state while documents are fetching", () => {
@@ -228,5 +251,28 @@ describe("InspectorTab", () => {
     const trace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "error" }];
     render(<InspectorTab nodeTrace={trace} />);
     expect(screen.getByText("workspace.inspectorStatusError")).toBeInTheDocument();
+  });
+});
+
+describe("ActiveDocumentPane", () => {
+  const renderPane = (onClose = jest.fn(), documents: WorkspaceDocument[] = []) => {
+    render(
+      <ActiveDocumentProvider documents={documents}>
+        <ActiveDocumentPane onClose={onClose} />
+      </ActiveDocumentProvider>,
+    );
+    return onClose;
+  };
+
+  test("shows the empty hint when no document is open", () => {
+    renderPane();
+    expect(screen.getByText("workspace.splitViewEmpty")).toBeInTheDocument();
+    expect(screen.getByText("workspace.splitViewEmptyHint")).toBeInTheDocument();
+  });
+
+  test("the close control turns split-view off", () => {
+    const onClose = renderPane();
+    fireEvent.click(screen.getByLabelText("workspace.closeSplitView"));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

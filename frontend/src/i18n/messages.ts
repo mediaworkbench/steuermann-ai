@@ -261,6 +261,8 @@ export type Messages = {
     addAttachment: string;
     toggleWorkspaceSidebar: string;
     workspace: string;
+    toggleSplitView: string;
+    splitView: string;
     newConversation: string;
     copyMessage: string;
     regenerateResponse: string;
@@ -324,6 +326,11 @@ export type Messages = {
     editor: string;
     closeEditor: string;
     resizeEditor: string;
+    splitViewTitle: string;
+    splitViewEmpty: string;
+    splitViewEmptyHint: string;
+    closeSplitView: string;
+    resizeSplitView: string;
     editDocumentPlaceholder: string;
     saveChanges: string;
     attachToChat: string;
@@ -845,6 +852,8 @@ export const messages: Record<Locale, Messages> = {
       addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
       workspace: "Workspace",
+      toggleSplitView: "Toggle split-view editor",
+      splitView: "Split view",
       newConversation: "New conversation",
       copyMessage: "Copy message",
       regenerateResponse: "Regenerate this response",
@@ -908,6 +917,11 @@ export const messages: Record<Locale, Messages> = {
       editor: "Editor",
       closeEditor: "Close editor",
       resizeEditor: "Drag to resize editor",
+      splitViewTitle: "Active document",
+      splitViewEmpty: "No document open",
+      splitViewEmptyHint: "Open a document from the Documents tab to edit it here.",
+      closeSplitView: "Close split view",
+      resizeSplitView: "Drag to resize the document pane",
       editDocumentPlaceholder: "Edit document content...",
       saveChanges: "Save Changes",
       attachToChat: "Attach to Chat",
@@ -1427,6 +1441,8 @@ export const messages: Record<Locale, Messages> = {
       addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
       workspace: "Workspace",
+      toggleSplitView: "Geteilte Editoransicht umschalten",
+      splitView: "Geteilte Ansicht",
       newConversation: "Neue Unterhaltung",
       copyMessage: "Nachricht kopieren",
       regenerateResponse: "Antwort neu generieren",
@@ -1490,6 +1506,11 @@ export const messages: Record<Locale, Messages> = {
       editor: "Editor",
       closeEditor: "Editor schließen",
       resizeEditor: "Zum Ändern der Größe ziehen",
+      splitViewTitle: "Aktives Dokument",
+      splitViewEmpty: "Kein Dokument geöffnet",
+      splitViewEmptyHint: "Öffne ein Dokument im Tab „Dokumente“, um es hier zu bearbeiten.",
+      closeSplitView: "Geteilte Ansicht schließen",
+      resizeSplitView: "Zum Ändern der Breite ziehen",
       editDocumentPlaceholder: "Dokumentinhalt bearbeiten...",
       saveChanges: "Änderungen speichern",
       attachToChat: "An Chat anhängen",

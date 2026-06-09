@@ -41,11 +41,10 @@ export function WorkspacePanel({
   onDocumentsRefresh,
   onEnsureConversation,
   onAttachmentUploaded,
-  writebackSavedDocId,
-  onActiveDocumentChange,
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
+  splitViewActive = false,
   answerMetrics = null,
   nodeTrace = [],
   isStreaming = false,
@@ -148,11 +147,10 @@ export function WorkspacePanel({
               onDocumentsRefresh={onDocumentsRefresh}
               onEnsureConversation={onEnsureConversation}
               onAttachmentUploaded={onAttachmentUploaded}
-              writebackSavedDocId={writebackSavedDocId}
-              onActiveDocumentChange={onActiveDocumentChange}
               documentsLoading={documentsLoading}
               documentsError={documentsError}
               onRetryDocuments={onRetryDocuments}
+              splitViewActive={splitViewActive}
             />
           </div>
           {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}

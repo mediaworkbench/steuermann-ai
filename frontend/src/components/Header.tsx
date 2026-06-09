@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
+import { Columns2, Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,11 @@ interface HeaderProps {
   activeConversation?: Conversation | null;
   workspaceSidebarOpen?: boolean;
   onToggleWorkspaceSidebar?: () => void;
+  splitViewOpen?: boolean;
+  onToggleSplitView?: () => void;
 }
 
-export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar }: HeaderProps) {
+export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar, splitViewOpen, onToggleSplitView }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
   const { isAdmin } = useRole();
   const [showExport, setShowExport] = useState(false);
@@ -142,6 +144,25 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               <PanelRightOpen size={18} className="group-hover:scale-110 transition-transform" />
             )}
             <span className="hidden lg:inline">{t("chat.workspace")}</span>
+          </Button>
+        )}
+
+        {/* Split-view editor pane toggle — only on chat page */}
+        {onToggleSplitView && (
+          <Button
+            type="button"
+            onClick={onToggleSplitView}
+            variant="ghost"
+            size="sm"
+            aria-pressed={splitViewOpen}
+            className={`hidden md:flex gap-1.5 hover:text-primary text-sm font-medium group min-h-11 min-w-11 justify-center ${
+              splitViewOpen ? "text-primary" : "text-foreground"
+            }`}
+            aria-label={t("chat.toggleSplitView")}
+            title={t("chat.toggleSplitView")}
+          >
+            <Columns2 size={18} className="group-hover:scale-110 transition-transform" />
+            <span className="hidden lg:inline">{t("chat.splitView")}</span>
           </Button>
         )}
 

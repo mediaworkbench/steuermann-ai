@@ -1,5 +1,26 @@
 # Changelog
 
+### [0.4.1] — workspace split-view + documents virtualization
+
+Continues the deferred workspace-panel work (`workspace-refactor.md`): Phase 3c (Documents list
+virtualization) and Phase 2 (Active Document split-view). Phases 2.1 / 3a / 3b remain deferred.
+
+**Phase 3c — Documents list virtualization**
+
+* Added `@tanstack/react-virtual`; the workspace Documents list now windows past a 50-row threshold via the new generic `VirtualizedList` (`frontend/src/components/workspace/VirtualizedList.tsx`). At or below the threshold the list renders exactly as before (zero behavior change for the common case). Dynamic measurement handles the expandable, variable-height rows.
+
+**Phase 2 — Active Document split-view**
+
+* **One editor source of truth:** lifted `useDocumentEditor` + `useVersionHistory` + the shared `processingAction` token into a new `ActiveDocumentProvider` (`frontend/src/context/ActiveDocumentContext.tsx`), mounted in `ChatInterface`. The Documents tab and the new pane share a single editor instance — never two competing editors.
+* **`DocumentEditorView`** (`frontend/src/components/workspace/DocumentEditorView.tsx`): extracted the editor + version-history UI; rendered inline in the Documents tab (split off) or in the pane (split on).
+* **`ActiveDocumentPane`** (`frontend/src/components/workspace/ActiveDocumentPane.tsx`): full-height editing pane between the chat column and the workspace panel, with a left-edge horizontal resize (mirrors the editor's vertical resize) and a full-screen overlay on mobile.
+* **Split-view toggle:** new `Columns2` Header button; state lives in `LayoutShell` and is exposed via `ConversationContext` (mirrors `workspaceSidebarOpen`), persisted to `localStorage`. When on, the inline Documents-tab editor collapses and the pane owns editing.
+* **Per-conversation restore:** the open document is remembered per conversation in a `localStorage` map (`workspace.activeDoc`) and reopened on conversation switch — no backend change.
+* i18n: new EN+DE keys (`chat.toggleSplitView`, `chat.splitView`, `workspace.splitView*`, `workspace.closeSplitView`, `workspace.resizeSplitView`).
+* Tests: extended `WorkspacePanel.test.tsx` (threshold switch to the windowed list; `ActiveDocumentPane` empty state + close); existing renders now wrap in `ActiveDocumentProvider`. Full suite: 111 passing.
+
+> **Known pre-existing blocker (not from this work):** `npm run build` (Turbopack) fails with case-sensitive `Module not found: '@/components/ui/button'` across ~43 files because the v0.4.0 shadcn migration left the `components/ui/*.tsx` files capitalized (`Button.tsx`) while imports are lowercase. Dev + `tsc` + Jest work on macOS; a production build needs the casing reconciled app-wide (separate from the workspace refactor).
+
 ### [0.4.0] — shadcn-ui-migration
 
 **CSS Module Cleanup**
