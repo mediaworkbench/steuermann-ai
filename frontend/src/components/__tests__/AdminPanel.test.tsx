@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { axe } from "jest-axe";
 import { AdminPanel } from "@/components/AdminPanel";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -112,7 +113,7 @@ describe("AdminPanel", () => {
     });
   });
 
-  test("shows model capability rows from backend", async () => {
+  test("shows model capability rows from backend — no a11y violations", async () => {
     mockFetchLLMCapabilities.mockResolvedValue({
       status: "ok",
       profile_id: "starter",
@@ -120,9 +121,10 @@ describe("AdminPanel", () => {
       items: [CAPABILITY_ITEM],
     });
 
-    render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+    const { container } = render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    expect((await screen.findAllByText("openai/test-model")).length).toBeGreaterThanOrEqual(1);
+    await screen.findAllByText("openai/test-model");
+    expect(await axe(container)).toHaveNoViolations();
     expect(screen.getByText("probe_stale_forced_structured")).toBeInTheDocument();
     expect(screen.getByText("settingsPanel.capabilitiesTtl")).toBeInTheDocument();
     expect(screen.queryByText("settingsPanel.capabilitiesLoading")).not.toBeInTheDocument();

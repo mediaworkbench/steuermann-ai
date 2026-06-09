@@ -296,6 +296,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
               step="0.1"
               value={(ragConfig.pill_score_threshold as number) || 0.72}
               onChange={(e) => handleRagConfigChange("pill_score_threshold", parseFloat(e.target.value))}
+              aria-label={t("settingsPanel.similarityThreshold")}
             />
           </div>
         </div>

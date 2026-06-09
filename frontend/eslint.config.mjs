@@ -1,10 +1,12 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import jsxA11y from "eslint-plugin-jsx-a11y";
 
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
+  jsxA11y.configs.recommended,
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

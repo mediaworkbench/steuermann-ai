@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { axe } from "jest-axe";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useI18n } from "@/hooks/useI18n";
 import { fetchSystemConfig } from "@/lib/api";
@@ -73,9 +74,10 @@ describe("SettingsPanel (user controls)", () => {
     });
   });
 
-  test("renders language, sound, tool toggles, RAG and chat model sections", async () => {
-    render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
+  test("renders language, sound, tool toggles, RAG and chat model sections — no a11y violations", async () => {
+    const { container } = render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
+    expect(await axe(container)).toHaveNoViolations();
     expect(screen.getByText("settingsPanel.language")).toBeInTheDocument();
     expect(screen.getByText("settingsPanel.soundSection")).toBeInTheDocument();
     expect(screen.getByText("settingsPanel.toolSettings")).toBeInTheDocument();
@@ -87,8 +89,8 @@ describe("SettingsPanel (user controls)", () => {
   test("shows only the chat model role, not vision or auxiliary", async () => {
     render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    await screen.findByText("settingsPanel.modelSelection");
-    expect(screen.getByText("settingsPanel.roleModelLabel")).toBeInTheDocument();
+    // Wait for model config to finish loading (cards appear after loading)
+    await screen.findByText("settingsPanel.roleModelLabel");
     // vision role should not appear — it's admin-only
     const selects = screen.getAllByRole("combobox");
     const hasVisionOption = selects.some((el) =>

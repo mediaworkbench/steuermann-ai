@@ -174,6 +174,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         <Select
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
+          aria-label={t("settingsPanel.language")}
         >
           {(systemConfig?.supported_languages || ["en"]).map((code) => (
             <option key={code} value={code}>
@@ -258,6 +259,10 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
               max="20"
               value={(ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5}
               onChange={(e) => handleRagConfigChange("top_k", parseInt(e.target.value))}
+              aria-label={t("settingsPanel.topKResults", {
+                default: systemConfig?.rag_defaults.top_k || 5,
+                value: (ragConfig.top_k as number) || systemConfig?.rag_defaults.top_k || 5,
+              })}
             />
           </div>
         </div>

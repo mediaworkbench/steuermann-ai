@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { axe } from "jest-axe";
 import { Sidebar } from "@/components/Sidebar";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
@@ -29,7 +30,7 @@ describe("Sidebar", () => {
     });
   });
 
-  test("renders profile-driven branding and settings identity", () => {
+  test("renders profile-driven branding and settings identity — no a11y violations", async () => {
     mockUseProfile.mockReturnValue({
       id: "medical",
       displayName: "Medical Assistant",
@@ -46,8 +47,9 @@ describe("Sidebar", () => {
       loading: false,
     });
 
-    render(<Sidebar isOpen={true} onClose={() => {}} conversations={[]} />);
+    const { container } = render(<Sidebar isOpen={true} onClose={() => {}} conversations={[]} />);
 
+    expect(await axe(container)).toHaveNoViolations();
     expect(screen.getByRole("heading", { name: "Med Console" })).toBeInTheDocument();
     expect(screen.getByLabelText("Open settings for Med Console")).toBeInTheDocument();
   });
