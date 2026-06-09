@@ -35,7 +35,6 @@ COLOR_TOKENS: set[str] = {
     "focus-ring",
     # Primary variants
     "primary-dark",
-    "primary-light",
     # Sidebar
     "sidebar-background",
     "sidebar-foreground",
@@ -72,23 +71,11 @@ COLOR_TOKENS: set[str] = {
     "chart-3",
     "chart-4",
     "chart-5",
-    # Map tokens
-    "map-primary",
-    "map-secondary",
-    "map-distance-line",
-    "map-success",
-    "map-warning",
-    "map-accent",
     # Login screen
     "login-dev-bg",
     "login-main-bg",
     "login-card-shadow",
     "login-panel-shadow",
-    # Shadow tokens
-    "shadow-xs",
-    "shadow-sm",
-    "shadow-md",
-    "shadow-lg",
     # shadcn compat aliases
     "card",
     "card-foreground",
@@ -105,7 +92,6 @@ COLOR_TOKENS: set[str] = {
     "bg-card",
     "text-primary",
     "text-secondary",
-    "text-muted",
     "border-color",
 }
 
