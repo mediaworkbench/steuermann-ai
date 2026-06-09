@@ -9,7 +9,7 @@ import {
   CURRENT_USER_ID,
   SINGLE_USER_DISPLAY_NAME,
 } from "@/lib/runtime";
-import styles from "./Settings.module.css";
+
 
 export default function SettingsPage() {
   const [userId] = useState(CURRENT_USER_ID);
@@ -44,9 +44,9 @@ export default function SettingsPage() {
       />
 
       {process.env.NODE_ENV === "development" && settings && (
-        <details className={styles.debug}>
-          <summary>{t("settingsPage.debugCurrentSettings")}</summary>
-          <pre>{JSON.stringify(settings, null, 2)}</pre>
+        <details className="mt-8 bg-card p-4 rounded-lg text-sm">
+          <summary className="cursor-pointer font-semibold text-accent">{t("settingsPage.debugCurrentSettings")}</summary>
+          <pre className="mt-2 overflow-auto max-h-[400px] text-xs">{JSON.stringify(settings, null, 2)}</pre>
         </details>
       )}
       </div>
