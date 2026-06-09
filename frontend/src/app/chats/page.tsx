@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { MessageSquare, RefreshCw, Search, Pin, BookmarkMinus, Trash2, MoreVertical } from "lucide-react";
+import { MessageSquare, RefreshCw, Search, Pin, BookmarkMinus, Trash2, MoreVertical, PanelRightOpen } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ConversationEvidenceDrawer } from "@/components/workspace/ConversationEvidenceDrawer";
 import { useConversationContext } from "@/components/LayoutShell";
 import { useConversationBrowser } from "@/hooks/useConversationBrowser";
 import { useI18n } from "@/hooks/useI18n";
@@ -22,6 +23,7 @@ export default function ChatsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [evidenceTarget, setEvidenceTarget] = useState<{ id: string; title: string } | null>(null);
 
   // Drop selections that no longer exist on the current page (after a delete/refetch).
   useEffect(() => {
@@ -69,6 +71,10 @@ export default function ChatsPage() {
     setActiveId(id, items.find((c) => c.id === id) ?? null);
     router.push("/");
   }, [setActiveId, items, router]);
+
+  const openEvidence = useCallback((id: string, title: string) => {
+    setEvidenceTarget({ id, title });
+  }, []);
 
   const handleRename = useCallback(async (id: string, title: string) => {
     browser.patchItem(id, { title });
@@ -204,7 +210,7 @@ export default function ChatsPage() {
                 <th className="px-4 py-3 text-left font-semibold">{t("chats.colTitle")}</th>
                 <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell w-28">{t("chats.colMessages")}</th>
                 <th className="px-4 py-3 text-left font-semibold hidden md:table-cell w-40">{t("chats.colUpdated")}</th>
-                <th className="px-4 py-3 w-12" />
+                <th className="px-4 py-3 w-20" />
               </tr>
             </thead>
             <tbody>
@@ -235,6 +241,7 @@ export default function ChatsPage() {
                   selected={selected.has(c.id)}
                   onToggleSelect={toggleSelect}
                   onOpen={openChat}
+                  onOpenEvidence={openEvidence}
                   onRename={handleRename}
                   onPin={handlePin}
                   onRequestDelete={setConfirmDeleteId}
@@ -292,6 +299,15 @@ export default function ChatsPage() {
         onConfirm={handleConfirmedDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
+
+      {/* Read-only answer-evidence drawer for the selected conversation's latest answer */}
+      {evidenceTarget && (
+        <ConversationEvidenceDrawer
+          conversationId={evidenceTarget.id}
+          title={evidenceTarget.title}
+          onClose={() => setEvidenceTarget(null)}
+        />
+      )}
       </div>
     </div>
   );
@@ -305,6 +321,7 @@ function ChatRow({
   selected,
   onToggleSelect,
   onOpen,
+  onOpenEvidence,
   onRename,
   onPin,
   onRequestDelete,
@@ -316,6 +333,7 @@ function ChatRow({
   selected: boolean;
   onToggleSelect: (id: string) => void;
   onOpen: (id: string) => void;
+  onOpenEvidence: (id: string, title: string) => void;
   onRename: (id: string, title: string) => Promise<Conversation | null>;
   onPin: (id: string, pinned: boolean) => void;
   onRequestDelete: (id: string) => void;
@@ -423,14 +441,24 @@ function ChatRow({
         {c.updated_at ? formatDate(c.updated_at) : "—"}
       </td>
       <td className="px-4 py-3 text-right">
-        <button
-          ref={triggerRef}
-          onClick={() => (menuOpen ? setMenuOpen(false) : openMenu())}
-          className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
-          aria-label={t("sidebar.moreOptions")}
-        >
-          <MoreVertical size={16} />
-        </button>
+        <div className="flex items-center justify-end gap-0.5">
+          <button
+            onClick={() => onOpenEvidence(c.id, c.title)}
+            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
+            aria-label={t("chats.viewEvidence")}
+            title={t("chats.viewEvidence")}
+          >
+            <PanelRightOpen size={16} />
+          </button>
+          <button
+            ref={triggerRef}
+            onClick={() => (menuOpen ? setMenuOpen(false) : openMenu())}
+            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-surface-muted transition-colors cursor-pointer"
+            aria-label={t("sidebar.moreOptions")}
+          >
+            <MoreVertical size={16} />
+          </button>
+        </div>
         {menuOpen && menuPos && createPortal(
           <div
             ref={menuRef}

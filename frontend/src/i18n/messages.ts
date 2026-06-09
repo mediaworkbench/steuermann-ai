@@ -101,6 +101,12 @@ export type Messages = {
     pageOfTotal: string;
     previous: string;
     next: string;
+    viewEvidence: string;
+    closeEvidence: string;
+    evidenceLoading: string;
+    evidenceError: string;
+    evidenceEmpty: string;
+    evidenceLatestHint: string;
   };
   login: {
     loginFailed: string;
@@ -404,6 +410,7 @@ export type Messages = {
     inspectorWaiting: string;
     inspectorStatusSuccess: string;
     inspectorStatusError: string;
+    answerEvidence: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -691,6 +698,12 @@ export const messages: Record<Locale, Messages> = {
       pageOfTotal: "Page {page} of {pages} · {total} chats",
       previous: "Previous",
       next: "Next",
+      viewEvidence: "View answer evidence",
+      closeEvidence: "Close evidence panel",
+      evidenceLoading: "Loading answer evidence…",
+      evidenceError: "Couldn't load this conversation.",
+      evidenceEmpty: "No assistant answer in this conversation yet.",
+      evidenceLatestHint: "Evidence from this conversation's latest answer.",
     },
     login: {
       loginFailed: "Login failed",
@@ -995,6 +1008,7 @@ export const messages: Record<Locale, Messages> = {
       inspectorWaiting: "Capturing node execution…",
       inspectorStatusSuccess: "succeeded",
       inspectorStatusError: "failed",
+      answerEvidence: "Answer evidence",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1280,6 +1294,12 @@ export const messages: Record<Locale, Messages> = {
       pageOfTotal: "Seite {page} von {pages} · {total} Chats",
       previous: "Zurück",
       next: "Weiter",
+      viewEvidence: "Antwort-Belege ansehen",
+      closeEvidence: "Belege-Panel schließen",
+      evidenceLoading: "Antwort-Belege werden geladen…",
+      evidenceError: "Diese Unterhaltung konnte nicht geladen werden.",
+      evidenceEmpty: "Noch keine Assistenten-Antwort in dieser Unterhaltung.",
+      evidenceLatestHint: "Belege aus der letzten Antwort dieser Unterhaltung.",
     },
     login: {
       loginFailed: "Anmeldung fehlgeschlagen",
@@ -1584,6 +1604,7 @@ export const messages: Record<Locale, Messages> = {
       inspectorWaiting: "Knotenausführung wird erfasst…",
       inspectorStatusSuccess: "erfolgreich",
       inspectorStatusError: "fehlgeschlagen",
+      answerEvidence: "Antwort-Belege",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

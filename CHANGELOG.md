@@ -1,5 +1,19 @@
 # Changelog
 
+### [0.4.2] — answer-evidence drawer on /chats (Phase 2.1)
+
+Continues the deferred workspace-panel work (`workspace-refactor.md`): **Phase 2.1** — read-only
+answer evidence on a non-chat route. Phases 3a / 3b remain deferred. No backend change.
+
+**Read-only evidence on /chats**
+
+* **`WorkspaceEvidenceTabs`** (`frontend/src/components/workspace/WorkspaceEvidenceTabs.tsx`): a self-contained, read-only bundle of the existing Knowledge / Memory / Outputs / Inspector tabs with a lightweight local tab switcher — **no Documents tab, no editing chrome**. Feeds the same presentational tab components the live workspace panel uses, driven by an arbitrary (e.g. persisted) answer's `metrics` + `nodeTrace`.
+* **`ConversationEvidenceDrawer`** (`frontend/src/components/workspace/ConversationEvidenceDrawer.tsx`): a right-side drawer that loads a past conversation and surfaces its **latest assistant answer's** evidence. Loading / error (with retry) / empty states; `role="dialog"` with Escape-to-dismiss, focus moved into the dialog, and an `aria-hidden` backdrop as the single AT-facing close control is the header button.
+* **`/chats` integration:** each conversation row gains a `PanelRightOpen` evidence button (next to the `⋮` menu) that opens the drawer without navigating away. The bulk-select / search UX is untouched.
+* **Shared mapping:** extracted `toUiMessage` out of `ChatSessionContext` into `frontend/src/lib/messageMapping.ts` so the live chat runtime and the drawer derive `metrics` + `nodeTrace` from persisted messages identically (restores the Inspector trace on load).
+* i18n: new EN+DE keys (`workspace.answerEvidence`, `chats.viewEvidence`, `chats.closeEvidence`, `chats.evidenceLoading`, `chats.evidenceError`, `chats.evidenceEmpty`, `chats.evidenceLatestHint`).
+* Tests: new `ConversationEvidence.test.tsx` (8 tests incl. an axe assertion) covering the bundle's tab switching/counts and the drawer's load/empty/error-retry/close paths. Full suite: **117 passing**, `npm run lint` 0 errors / 4 pre-existing warnings, `npm run build` clean.
+
 ### [0.4.1] — workspace split-view + documents virtualization
 
 Continues the deferred workspace-panel work (`workspace-refactor.md`): Phase 3c (Documents list
