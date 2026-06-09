@@ -235,3 +235,57 @@ def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:
     assert tools.tools[0].model_dump()["config"]["server_url"] == "http://base"
     assert tools.tools[0].model_dump()["config"]["default_tool"] == "fetch_content"
     assert tools.tools[1].name == "patient_lookup"
+
+
+def test_token_contract_accepts_valid_keys(tmp_path: Path) -> None:
+    from universal_agentic_framework.config.loader import load_profile_ui_config
+
+    profile_dir = _create_profile_dir(tmp_path / "config/profiles", "test-ui")
+    profile_dir.joinpath("profile.yaml").write_text("profile_id: test-ui\ndisplay_name: Test UI\n")
+    profile_dir.joinpath("ui.yaml").write_text(
+        "branding:\n"
+        "  role_label: Test\n"
+        "theme:\n"
+        "  colors:\n"
+        "    primary: '#ff0000'\n"
+        "    background: '#ffffff'\n"
+        "    foreground: '#000000'\n"
+        "  fonts: {}\n"
+        "  radius: {}\n"
+        "  custom_css_vars:\n"
+        "    my-custom-var: '#123456'\n",
+    )
+
+    ui = load_profile_ui_config(profiles_dir=tmp_path / "config/profiles", env={"PROFILE_ID": "test-ui"})
+    assert ui.theme.unknown_token_warnings == []
+
+
+def test_token_contract_warns_on_unknown_keys(tmp_path: Path) -> None:
+    from universal_agentic_framework.config.loader import load_profile_ui_config
+
+    profile_dir = _create_profile_dir(tmp_path / "config/profiles", "test-ui-warn")
+    profile_dir.joinpath("profile.yaml").write_text("profile_id: test-ui-warn\ndisplay_name: Test Warn\n")
+    profile_dir.joinpath("ui.yaml").write_text(
+        "branding:\n"
+        "  role_label: Test\n"
+        "theme:\n"
+        "  colors:\n"
+        "    primary: '#ff0000'\n"
+        "    nonexistent_color: '#333'\n"
+        "    typo-primary: '#111'\n"
+        "  fonts:\n"
+        "    font-sans: 'Arial'\n"
+        "    font-unknown: 'Comic Sans'\n"
+        "  radius: {}\n"
+        "  custom_css_vars:\n"
+        "    anything-goes: '#123'\n",
+    )
+
+    ui = load_profile_ui_config(profiles_dir=tmp_path / "config/profiles", env={"PROFILE_ID": "test-ui-warn"})
+    warnings = ui.theme.unknown_token_warnings
+    assert len(warnings) == 3
+    assert any("nonexistent_color" in w for w in warnings)
+    assert any("typo-primary" in w for w in warnings)
+    assert any("font-unknown" in w for w in warnings)
+    # custom_css_vars should never produce warnings
+    assert not any("anything-goes" in w for w in warnings)

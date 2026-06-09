@@ -2,6 +2,35 @@
 
 ### [0.4.0] — shadcn-ui-migration
 
+**CSS Module Cleanup**
+
+* **Dead module removal:** Deleted `Sidebar.module.css` and `ChatInterface.module.css` (2 dead CSS module files in `frontend/src/components/`).
+* **Active module conversion:** `Settings.module.css` content converted to Tailwind inline classes and the file deleted.
+* **No remaining CSS modules** in `frontend/src/components/`.
+
+**Accessibility — Automated Gates (Layer 1 + Layer 2)**
+
+* **Static analysis:** Wired up `eslint-plugin-jsx-a11y` in `eslint.config.mjs` for ARIA, keyboard, label, and role rules.
+* **Runtime assertions:** Installed `jest-axe`, added `toHaveNoViolations` custom matcher in Jest setup.
+* **Coverage:** Created `ui/__tests__/accessibility.test.tsx` covering all 13 interactive `ui/` primitives (Button, Checkbox, Dialog, Input, Select, Slider, Switch, Tabs, etc.); sprinkled axe assertions into `Sidebar.test.tsx`, `AdminPanel.test.tsx`, `SettingsPanel.test.tsx`.
+* **Violations caught & fixed:** 5 real violations fixed — `Slider.tsx` (missing `aria-label`), language `<Select>` (missing label), RAG top-K `<Slider>` (missing label), similarity threshold `<Input>` (missing label), model `<Select>` in `RoleModelSelectorCard` (missing label).
+* **Pre-existing race fixed:** `SettingsPanel.test.tsx` `findByText` timing issue corrected.
+
+**Profile Overlay Hardening (Phase 5)**
+
+* **Token contract defined:** `universal_agentic_framework/config/token_contract.py` (Python) + `frontend/src/lib/tokenContract.ts` (TypeScript) — single source of truth listing ~100 valid color/font/radius keys.
+* **Pydantic validation:** `ProfileThemeSettings` now validates keys against the contract and collects `unknown_token_warnings`.
+* **CLI validation:** `steuermann config validate` checks `ui.yaml` theme tokens and reports unknown keys as warnings.
+* **Frontend warnings:** `applyThemeTokens` logs `console.warn` for unknown profile token keys.
+* **Second profile:** Scaffolded `test-alt` profile with a distinct blue-forest color scheme; both starter and test-alt validate clean with no component code divergence.
+* **Tests added:** Python tests in `test_config_loader.py` (2 tests) + TypeScript tests in `tokenContract.test.ts` (7 tests) for token contract validation.
+
+**Documentation**
+
+* `design-system.md`: All open items marked done/removed; Phase 5 marked complete; CI gating removed; updated handoff to 2026-06-09.
+* `docs/design_system_directive.md`: Updated token policy, accessibility gates, ESLint + Test Enforcement sections, PR checklist.
+* `CLAUDE.md`: Added `docs/design_system_directive.md` references; updated Key Files with token contract; updated profile validation checklist.
+
 **Icon System — Material Symbols → lucide-react**
 
 * **Hard cut:** Replaced all 71 Material Symbols Outlined icon usages across 32 source files with direct `lucide-react` imports. Deleted `Icon.tsx`, the `MaterialSymbolsOutlined.woff2` font asset, and the `@font-face` / `.material-symbols-outlined` CSS. Created `lib/iconMap.ts` for dynamic string→icon resolution. Added ESLint rule blocking `material-symbols-outlined` CSS class. Updated `docs/design_system_directive.md` for the new icon policy.

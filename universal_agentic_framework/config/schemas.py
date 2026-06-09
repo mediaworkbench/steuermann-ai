@@ -422,6 +422,25 @@ class ProfileThemeSettings(BaseModel):
     fonts: Dict[str, str] = Field(default_factory=dict)
     radius: Dict[str, str] = Field(default_factory=dict)
     custom_css_vars: Dict[str, str] = Field(default_factory=dict)
+    unknown_token_warnings: List[str] = Field(default_factory=list, exclude=True)
+
+    @model_validator(mode="after")
+    def _warn_unknown_tokens(self) -> "ProfileThemeSettings":
+        from .token_contract import check_unknown_tokens
+
+        warnings: list[str] = []
+        for section, tokens in [
+            ("colors", self.colors),
+            ("fonts", self.fonts),
+            ("radius", self.radius),
+        ]:
+            unknown = check_unknown_tokens(section, set(tokens.keys()))
+            for key in unknown:
+                warnings.append(
+                    f"theme.{section}: '{key}' is not a recognized token key"
+                )
+        self.unknown_token_warnings = warnings
+        return self
 
 
 class ProfileUIConfig(BaseModel):

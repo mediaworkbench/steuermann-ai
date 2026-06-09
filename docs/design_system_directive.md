@@ -49,14 +49,15 @@ Page code must compose shared components. It must not recreate reusable primitiv
 - Use semantic token classes and CSS variables.
 - Do not introduce raw palette utility classes in shared components.
 - Do not introduce hex color literals in JSX `className` strings.
+- Profile `ui.yaml` theme tokens are validated against the token contract (`frontend/src/lib/tokenContract.ts`). Run `steuermann config validate` to check for unknown token keys; the frontend also logs `console.warn` at runtime for unknown keys.
 
 Use semantic roles such as:
 
-- `success`
-- `warning`
-- `destructive`
-- `info`
+- `success`, `warning`, `destructive`, `info`
 - `surface`, `surface-muted`, `border`, `foreground`, `muted-foreground`
+- `primary`, `secondary`, `accent`, `muted` (each with `-foreground` variant)
+
+Full token contract is documented in `universal_agentic_framework/config/token_contract.py`.
 
 ### 3) Shared-component boundaries
 
@@ -86,18 +87,32 @@ Every new or changed interactive element must support:
 - semantic roles and labels
 - predictable escape and dismiss behavior for overlays
 
-## ESLint Enforcement
+**Automated gates (must pass):**
+- Static analysis: `eslint-plugin-jsx-a11y` rules in `eslint.config.mjs`
+- Runtime assertions: `jest-axe` (`toHaveNoViolations`) in component tests covering all interactive `ui/` primitives and existing feature components. Run `npm test` to verify.
 
-The directive is enforced in `frontend/eslint.config.mjs`.
+## ESLint + Test Enforcement
 
-Current enforced checks include:
+The directive is enforced through two layers:
+
+**Layer 1 — Static analysis** (`eslint.config.mjs`):
 
 - blocked `material-symbols-outlined` CSS class
 - blocked raw status/palette class patterns in JSX class strings
 - blocked hex color literals in JSX class strings
 - import-boundary restrictions between `ui`, `product`, and `app` layers
+- `eslint-plugin-jsx-a11y` rules for common accessibility violations
 
-These checks are treated as quality gates and must pass in local lint runs and CI-equivalent enforcement.
+Run with `npm run lint`.
+
+**Layer 2 — Runtime assertions** (Jest + `jest-axe`):
+
+- `toHaveNoViolations` matcher checks every interactive `ui/` primitive and existing feature component tests for real ARIA violations
+- New interactive components should include an axe assertion in their test
+
+Run with `npm test`.
+
+Both layers must pass locally before changes are considered complete.
 
 ## Implementation Workflow For New UI
 
@@ -132,11 +147,14 @@ Every frontend PR must satisfy all items below:
 3. Only `lucide-react` icon imports (no material-symbols-outlined).
 4. Reusable UI extracted to shared layers when repeated.
 5. Keyboard and focus behavior validated for interactive changes.
-6. `npm run lint` passes.
+6. `npm run lint` passes (includes a11y static analysis).
+7. `npm test` passes (includes axe runtime assertions for interactive components).
+8. If changing `ui.yaml` theme tokens, run `steuermann config validate` to confirm no unknown keys.
 
 ## Related Docs
 
-- `design-system.md` (plan and migration history)
+- `design-system.md` (plan, migration history, and handoff status)
 - `docs/profile_creation.md` (profile overlay workflow)
 - `docs/configuration.md` (runtime configuration contract)
-- `docs/status.md` (runtime/documentation sync checkpoint
+- `docs/status.md` (runtime/documentation sync checkpoint)
+- `frontend/src/lib/tokenContract.ts` (profile theme token contract — all valid keys for `ui.yaml`)
