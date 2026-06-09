@@ -396,6 +396,9 @@ export type Messages = {
     knowledgeRetrieved: string;
     knowledgeNoResults: string;
     sourcesHeading: string;
+    sourceCitationLabel: string;
+    documentsInContext: string;
+    attachmentsInContext: string;
     mapGenerated: string;
     openFullMap: string;
     mapDistanceBadge: string;
@@ -994,6 +997,9 @@ export const messages: Record<Locale, Messages> = {
       knowledgeRetrieved: "{count} document(s) retrieved",
       knowledgeNoResults: "Searched · no relevant results",
       sourcesHeading: "Sources",
+      sourceCitationLabel: "Citation {n}",
+      documentsInContext: "Documents in context",
+      attachmentsInContext: "Attachments in context",
       mapGenerated: "Map output",
       openFullMap: "Open full map",
       mapDistanceBadge: "{km} km · {miles} mi",
@@ -1590,6 +1596,9 @@ export const messages: Record<Locale, Messages> = {
       knowledgeRetrieved: "{count} Dokument(e) abgerufen",
       knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
       sourcesHeading: "Quellen",
+      sourceCitationLabel: "Zitat {n}",
+      documentsInContext: "Dokumente im Kontext",
+      attachmentsInContext: "Anhänge im Kontext",
       mapGenerated: "Kartenausgabe",
       openFullMap: "Karte vollständig öffnen",
       mapDistanceBadge: "{km} km · {miles} mi",

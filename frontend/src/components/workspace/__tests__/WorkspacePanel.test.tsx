@@ -167,6 +167,64 @@ describe("WorkspacePanel", () => {
     expect(screen.getByText("workspace.knowledgeRetrieved")).toBeInTheDocument();
   });
 
+  test("Knowledge tab shows sources with citation index badges", () => {
+    const answerMetrics: MessageMetrics = {
+      sources: [
+        { type: "web", label: "example.com", url: "https://example.com", index: 1 },
+        { type: "rag", label: "internal-doc", url: null, index: 2 },
+      ],
+      rag_doc_count: 1,
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.sourcesHeading")).toBeInTheDocument();
+    // Citation index badges are aria-labelled; query by that to avoid matching the tab count badge.
+    const citationBadges = screen.getAllByLabelText("workspace.sourceCitationLabel");
+    expect(citationBadges).toHaveLength(2);
+    expect(citationBadges[0]).toHaveTextContent("1");
+    expect(citationBadges[1]).toHaveTextContent("2");
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.getByText("internal-doc")).toBeInTheDocument();
+  });
+
+  test("Knowledge tab falls back to positional citation numbers when index is absent", () => {
+    const answerMetrics: MessageMetrics = {
+      sources: [
+        { type: "web", label: "site-a", url: "https://a.com" },
+        { type: "web", label: "site-b", url: "https://b.com" },
+      ],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    const citationBadges = screen.getAllByLabelText("workspace.sourceCitationLabel");
+    expect(citationBadges).toHaveLength(2);
+    expect(citationBadges[0]).toHaveTextContent("1");
+    expect(citationBadges[1]).toHaveTextContent("2");
+  });
+
+  test("Knowledge tab shows Documents and Attachments in context sections", () => {
+    const answerMetrics: MessageMetrics = {
+      documents_used: [{ id: "d1", filename: "report.md", version: 2 }],
+      attachments_used: [{ id: "a1", original_name: "budget.csv" }],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.documentsInContext")).toBeInTheDocument();
+    expect(screen.getByText("report.md")).toBeInTheDocument();
+    expect(screen.getByText("v2")).toBeInTheDocument();
+    expect(screen.getByText("workspace.attachmentsInContext")).toBeInTheDocument();
+    expect(screen.getByText("budget.csv")).toBeInTheDocument();
+  });
+
+  test("Knowledge tab remains in the empty state when only Outputs/Memory evidence is present", () => {
+    const answerMetrics: MessageMetrics = {
+      tools_executed: [{ name: "calculator_tool", status: "success" }],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.knowledgeEmpty")).toBeInTheDocument();
+  });
+
   test("Inspector tab shows the node execution trace with a count badge", () => {
     const nodeTrace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "success" }];
     renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} />);

@@ -1,9 +1,26 @@
 # Changelog
 
-### [0.4.2] — answer-evidence drawer on /chats (Phase 2.1)
+### [0.4.1] — workspace split-view + documents virtualization
 
-Continues the deferred workspace-panel work (`workspace-refactor.md`): **Phase 2.1** — read-only
-answer evidence on a non-chat route. Phases 3a / 3b remain deferred. No backend change.
+**Knowledge tab enrichment**
+
+* **`[N]` citation index badges** on every source row in the Knowledge tab. The displayed number
+  uses the backend-assigned `source.index` field when present, and falls back to 1-based position
+  in the sources array (the same logic as `linkFootnotes` in `lib/markdown.ts`). Readers can now
+  cross-reference the `[N]` superscripts in the answer text with their source in the panel.
+* **Documents in context** section: when `evidence.documents` is non-empty, a new "Documents in
+  context" section lists the workspace documents the model had access to (`filename` + `v{version}`).
+* **Attachments in context** section: when `evidence.attachments` is non-empty, a new "Attachments
+  in context" section lists file attachments used as context.
+* Empty-state guard extended: the Knowledge tab now shows its empty state only when all four content
+  areas are absent (sources, documents, attachments, and the RAG knowledge-base flag).
+* Both new sections appear in `WorkspacePanel`, `WorkspaceEvidenceTabs` (the `/chats` drawer), and
+  any future reuse of `KnowledgeTab` — no call-site changes needed.
+* i18n: new EN+DE keys (`workspace.sourceCitationLabel`, `workspace.documentsInContext`,
+  `workspace.attachmentsInContext`).
+* Tests: 4 new cases in `WorkspacePanel.test.tsx` covering index badges (explicit + positional
+  fallback), documents/attachments sections, and the extended empty-state guard. Full suite:
+  **121 passing**, `npm run lint` 0 errors / 4 pre-existing warnings.
 
 **Read-only evidence on /chats**
 
@@ -13,11 +30,6 @@ answer evidence on a non-chat route. Phases 3a / 3b remain deferred. No backend 
 * **Shared mapping:** extracted `toUiMessage` out of `ChatSessionContext` into `frontend/src/lib/messageMapping.ts` so the live chat runtime and the drawer derive `metrics` + `nodeTrace` from persisted messages identically (restores the Inspector trace on load).
 * i18n: new EN+DE keys (`workspace.answerEvidence`, `chats.viewEvidence`, `chats.closeEvidence`, `chats.evidenceLoading`, `chats.evidenceError`, `chats.evidenceEmpty`, `chats.evidenceLatestHint`).
 * Tests: new `ConversationEvidence.test.tsx` (8 tests incl. an axe assertion) covering the bundle's tab switching/counts and the drawer's load/empty/error-retry/close paths. Full suite: **117 passing**, `npm run lint` 0 errors / 4 pre-existing warnings, `npm run build` clean.
-
-### [0.4.1] — workspace split-view + documents virtualization
-
-Continues the deferred workspace-panel work (`workspace-refactor.md`): Phase 3c (Documents list
-virtualization) and Phase 2 (Active Document split-view). Phases 2.1 / 3a / 3b remain deferred.
 
 **Documents list virtualization**
 
