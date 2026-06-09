@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Columns2, Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
+import { Columns2, Download, LogOut, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AUTH_ENABLED } from "@/lib/runtime";
 import { useRole } from "@/context/RoleContext";
 import type { Conversation } from "@/lib/types";
@@ -13,7 +14,6 @@ import { useI18n } from "@/hooks/useI18n";
 
 interface HeaderProps {
   chatTitle?: string;
-  onOpenSidebar?: () => void;
   activeConversation?: Conversation | null;
   workspaceSidebarOpen?: boolean;
   onToggleWorkspaceSidebar?: () => void;
@@ -21,7 +21,7 @@ interface HeaderProps {
   onToggleSplitView?: () => void;
 }
 
-export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar, splitViewOpen, onToggleSplitView }: HeaderProps) {
+export function Header({ chatTitle = "AI Agent", activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar, splitViewOpen, onToggleSplitView }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
   const { isAdmin } = useRole();
   const [showExport, setShowExport] = useState(false);
@@ -57,19 +57,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
                  justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20"
     >
       <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="md:hidden text-foreground hover:text-primary transition-colors
-                     min-h-11 min-w-11 flex items-center justify-center -ml-2"
-          onClick={onOpenSidebar}
-          aria-label={t("header.openNavigation")}
-          aria-expanded="false"
-          aria-controls="sidebar"
-        >
-          <Menu size={24} />
-        </Button>
+        <SidebarTrigger className="md:hidden -ml-2" />
         <Link href="/" className="header-title-slot flex flex-col hover:opacity-80 transition-opacity">
           <h2 className="text-foreground font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
             {chatTitle}

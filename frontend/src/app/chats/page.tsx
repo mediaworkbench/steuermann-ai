@@ -105,7 +105,7 @@ export default function ChatsPage() {
   }, [confirmDeleteId, browser, remove]);
 
   return (
-    <main className="flex-1 overflow-y-auto bg-background">
+    <div className="flex-1 overflow-y-auto bg-background">
       <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 max-w-5xl space-y-6">
 
       {/* Header */}
@@ -293,7 +293,7 @@ export default function ChatsPage() {
         onCancel={() => setConfirmDeleteId(null)}
       />
       </div>
-    </main>
+    </div>
   );
 }
 

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, createContext, useContext, useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useState, createContext, useContext, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Toaster } from "sonner";
-import { Sidebar } from "./Sidebar";
+import { AppSidebar } from "./AppSidebar";
 import { Header } from "./Header";
 import { AppShell } from "@/components/product/AppShell";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
@@ -75,17 +76,12 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
 }
 
 function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(false);
   const [splitViewOpen, setSplitViewOpen] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
   const profile = useProfile();
   const { t } = useI18n();
   const convState = useConversations();
-
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const chatTitle = convState.activeConversation?.title ?? profile.appName ?? t("chat.aiAgent");
   const isChat = pathname === "/";
@@ -133,36 +129,28 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+    <SidebarProvider>
     <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen, splitViewOpen, setSplitViewOpen }}>
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={closeSidebar}
-        conversations={convState.conversations}
-        activeId={convState.activeId}
-        onSelect={(id) => { convState.setActiveId(id); closeSidebar(); if (pathname !== "/") router.push("/"); }}
-        onNewChat={async () => { convState.setActiveId(null); closeSidebar(); if (pathname !== "/") router.push("/"); }}
-        onDelete={convState.remove}
-        onPin={async (id, pinned) => { await convState.update(id, { pinned }); }}
-        onRename={convState.rename}
-        onExport={convState.doExport}
-      />
-      <AppShell>
-        <Header
-          chatTitle={isChat ? chatTitle : undefined}
-          onOpenSidebar={openSidebar}
-          activeConversation={isChat ? convState.activeConversation : null}
-          workspaceSidebarOpen={isChat ? workspaceSidebarOpen : undefined}
-          onToggleWorkspaceSidebar={isChat ? () => setWorkspaceSidebarOpen((prev) => !prev) : undefined}
-          splitViewOpen={isChat ? splitViewOpen : undefined}
-          onToggleSplitView={isChat ? () => setSplitViewOpen((prev) => !prev) : undefined}
-        />
-        <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
-          <WorkspacePanelProvider>
-            <ChatSessionProvider>{children}</ChatSessionProvider>
-          </WorkspacePanelProvider>
-        </div>
-      </AppShell>
+      <AppSidebar />
+      <SidebarInset>
+        <AppShell>
+          <Header
+            chatTitle={isChat ? chatTitle : undefined}
+            activeConversation={isChat ? convState.activeConversation : null}
+            workspaceSidebarOpen={isChat ? workspaceSidebarOpen : undefined}
+            onToggleWorkspaceSidebar={isChat ? () => setWorkspaceSidebarOpen((prev) => !prev) : undefined}
+            splitViewOpen={isChat ? splitViewOpen : undefined}
+            onToggleSplitView={isChat ? () => setSplitViewOpen((prev) => !prev) : undefined}
+          />
+          <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
+            <WorkspacePanelProvider>
+              <ChatSessionProvider>{children}</ChatSessionProvider>
+            </WorkspacePanelProvider>
+          </div>
+        </AppShell>
+      </SidebarInset>
     </ConversationContext.Provider>
+    </SidebarProvider>
       <Toaster
         position="top-right"
         richColors
