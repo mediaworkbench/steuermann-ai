@@ -2,6 +2,31 @@
 
 ### [0.4.1] — workspace split-view + documents virtualization
 
+**Answer-scoped workspace panel + technical-only MetricsPanel**
+
+* **The workspace panel now follows the answer you click, not just the latest.** Clicking any
+  answer's evidence chip pins the panel (Knowledge/Memory/Outputs/Inspector) to *that* answer.
+  Driven by a `focusedAnswerIndex` in `ChatInterface` resolved through a new pure helper
+  `pickFocusedAnswer` (`lib/panelAnswer.ts`, unit-tested for the null/stale/out-of-bounds/non-assistant
+  /equals-latest edge cases). Evidence-tab chips pin; the Documents chip (conversation-scoped) does
+  not. Focus **auto-resets to the latest** answer on a new turn (rising edge of `isStreaming`) and on
+  conversation switch.
+* **Focus indicators:** a "Viewing an earlier answer · Jump to latest" banner on the panel's evidence
+  tabs (`WorkspacePanel`, new `historicalAnswer` / `onJumpToLatest` props), plus a subtle ring on the
+  pinned message in the chat (via `ChatMessageShell` `bodyClassName`, gated on the panel being open).
+  Every answer's chips are interactive again (this reverts the prior "static chips for older answers").
+* **`MetricsPanel` is now purely technical** — removed the "Tools invoked" and "Knowledge Base"
+  sections and the collapsed-header tool-count badge; it no longer depends on `useAnswerEvidence`.
+  Provenance lives in the chips + panel tabs. Remaining: response time / tokens / tokens-per-sec /
+  finish reason / model / temperature + copy/regenerate.
+* **Workspace toggle moved into the composer** (beside the RAG toggle, `PanelRightOpen/Close` icon) and
+  removed from the top nav; the split-view `Columns2` toggle stays in the header. All auto-open paths
+  (attachment upload, evidence-chip click) are unchanged.
+* **Wider panel:** the open workspace sidebar is now `md:w-80 lg:w-96` (was `md:w-64 lg:w-72`).
+* i18n: EN+DE `workspace.viewingEarlierAnswer`, `workspace.jumpToLatest`. Tests: new
+  `panelAnswer.test.ts` (6) + `WorkspacePanel` banner cases. Frontend **139/139**; lint 0 errors /
+  4 pre-existing warnings; build clean.
+
 **Inline provenance dedupe**
 
 * Collapsed the redundant in-stream provenance surfaces. The assistant footer used to render up to

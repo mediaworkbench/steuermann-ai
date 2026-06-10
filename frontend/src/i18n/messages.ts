@@ -419,6 +419,8 @@ export type Messages = {
     toolOutput: string;
     toolError: string;
     viewToolResults: string;
+    viewingEarlierAnswer: string;
+    jumpToLatest: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -1025,6 +1027,8 @@ export const messages: Record<Locale, Messages> = {
       toolOutput: "Result",
       toolError: "Error",
       viewToolResults: "View results in Outputs",
+      viewingEarlierAnswer: "Viewing an earlier answer",
+      jumpToLatest: "Jump to latest",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1629,6 +1633,8 @@ export const messages: Record<Locale, Messages> = {
       toolOutput: "Ergebnis",
       toolError: "Fehler",
       viewToolResults: "Ergebnisse in Ausgaben anzeigen",
+      viewingEarlierAnswer: "Frühere Antwort wird angezeigt",
+      jumpToLatest: "Zur neuesten springen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

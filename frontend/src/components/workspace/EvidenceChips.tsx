@@ -20,9 +20,9 @@ interface EvidenceChipsProps {
  * rows. The full drill-down lives in the workspace evidence tabs. Returns null
  * when the answer produced no evidence.
  *
- * Rendered on every answer; pass `onSelect` only for the in-focus (latest)
- * answer so its chips deep-link to the (latest-scoped) panel, while older
- * answers show the same counts as a static, non-interactive summary.
+ * Rendered on every answer. When `onSelect` is provided the chips are buttons
+ * that pin the workspace panel to *this* answer and open the matching tab;
+ * without it they render as a static, non-interactive count summary.
  */
 export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
   const { t } = useI18n();

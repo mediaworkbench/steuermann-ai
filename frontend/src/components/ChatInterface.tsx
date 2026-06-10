@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { ArrowUp, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, Image as ImageIcon, Mic, Minimize2, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
+import { ArrowUp, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, Image as ImageIcon, Mic, Minimize2, PanelRightClose, PanelRightOpen, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
@@ -41,6 +41,7 @@ import type {
   MessageMetrics,
   NodeTraceEntry,
 } from "@/lib/types";
+import { pickFocusedAnswer } from "@/lib/panelAnswer";
 
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
@@ -164,15 +165,38 @@ export function ChatInterface() {
       ? committedNodeTrace
       : nodeTrace;
 
-  // Clicking an evidence chip opens the workspace panel on the matching tab.
+  // Answer-scoped panel: which past answer the workspace panel is pinned to.
+  // null = follow the latest answer (default). Auto-resets on a new turn and on
+  // conversation switch; a chip click on an earlier answer pins it.
+  const [focusedAnswerIndex, setFocusedAnswerIndex] = useState<number | null>(null);
+  useEffect(() => setFocusedAnswerIndex(null), [activeId]);
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current) setFocusedAnswerIndex(null);
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  // Resolve the panel's source answer: a pinned earlier answer's committed
+  // metrics/trace, or (default) the live latest answer.
+  const focused = pickFocusedAnswer(messages, focusedAnswerIndex, lastAssistantIndex);
+  const panelMetrics = focused.isHistorical ? focused.metrics : latestAnswerMetrics;
+  const panelNodeTrace = focused.isHistorical ? focused.nodeTrace : inspectorNodeTrace;
+  const panelIsStreaming = isStreaming && !focused.isHistorical;
+
+  // Clicking an evidence chip opens the workspace panel on the matching tab and
+  // pins that answer (except the conversation-scoped Documents tab).
   const { setActiveTab: setWorkspaceTab } = useWorkspacePanel();
   const handleSelectEvidence = useCallback(
-    (tab: WorkspaceTabId) => {
+    (tab: WorkspaceTabId, index: number) => {
       setWorkspaceTab(tab);
       setWorkspaceSidebarOpen(true);
+      if (tab !== "documents") {
+        setFocusedAnswerIndex(index === lastAssistantIndex ? null : index);
+      }
     },
-    [setWorkspaceTab, setWorkspaceSidebarOpen],
+    [setWorkspaceTab, setWorkspaceSidebarOpen, lastAssistantIndex],
   );
+  const handleJumpToLatest = useCallback(() => setFocusedAnswerIndex(null), []);
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
@@ -630,7 +654,12 @@ export function ChatInterface() {
                   key={i}
                   message={msg}
                   index={i}
-                  isLatest={i === lastAssistantIndex}
+                  isFocused={
+                    workspaceSidebarOpen &&
+                    focusedAnswerIndex !== null &&
+                    i === focusedAnswerIndex &&
+                    i !== lastAssistantIndex
+                  }
                   onSelectEvidence={handleSelectEvidence}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
@@ -903,6 +932,24 @@ export function ChatInterface() {
                 >
                   <Database size={20} />
                 </Button>
+
+                {/* Workspace panel toggle (moved here from the top nav) */}
+                <Button
+                  type="button"
+                  onClick={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
+                  title={t("chat.toggleWorkspaceSidebar")}
+                  aria-label={t("chat.toggleWorkspaceSidebar")}
+                  aria-pressed={workspaceSidebarOpen}
+                  variant="ghost"
+                  size="sm"
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    workspaceSidebarOpen
+                      ? "text-primary hover:bg-primary/10"
+                      : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                  }`}
+                >
+                  {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+                </Button>
               </div>
 
               {/* Spacer */}
@@ -1096,9 +1143,11 @@ export function ChatInterface() {
         documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
         splitViewActive={splitViewOpen}
-        answerMetrics={latestAnswerMetrics}
-        nodeTrace={inspectorNodeTrace}
-        isStreaming={isStreaming}
+        answerMetrics={panelMetrics}
+        nodeTrace={panelNodeTrace}
+        isStreaming={panelIsStreaming}
+        historicalAnswer={focused.isHistorical}
+        onJumpToLatest={handleJumpToLatest}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
@@ -1119,7 +1168,7 @@ export function ChatInterface() {
 function AssistantMessage({
   message,
   index,
-  isLatest = false,
+  isFocused = false,
   onSelectEvidence,
   onRegenerate,
   onFeedback,
@@ -1127,15 +1176,19 @@ function AssistantMessage({
 }: {
   message: Message;
   index: number;
-  isLatest?: boolean;
-  onSelectEvidence?: (tab: WorkspaceTabId) => void;
+  /** True when the workspace panel is pinned to this (earlier) answer. */
+  isFocused?: boolean;
+  onSelectEvidence?: (tab: WorkspaceTabId, index: number) => void;
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
 }) {
   const { t } = useI18n();
   return (
-    <ChatMessageShell messageRole="assistant">
+    <ChatMessageShell
+      messageRole="assistant"
+      bodyClassName={isFocused ? "rounded-lg p-2 ring-1 ring-primary/30 ring-offset-2 ring-offset-background transition-all" : undefined}
+    >
         {/* Name + timestamp */}
         <div className="flex items-center gap-2 ml-1">
           <span className="text-sm font-bold text-foreground">{t("chat.aiAgent")}</span>
@@ -1164,13 +1217,13 @@ function AssistantMessage({
         )}
 
         {/* Single inline provenance summary (sources · memory · tools · attachments ·
-            docs). Shown on every answer; only the in-focus (latest) answer's chips
-            deep-link into the latest-scoped workspace panel — older answers render the
-            same counts as a static summary. Citations stay inline as [N] superscripts;
-            the full drill-down (source URLs, tool args/results, trace) lives in the tabs. */}
+            docs), interactive on every answer: clicking a chip pins the workspace
+            panel to THIS answer and opens the matching tab. Citations stay inline as
+            [N] superscripts; the full drill-down (source URLs, tool args/results,
+            trace) lives in the tabs. */}
         <EvidenceChips
           metrics={message.metrics}
-          onSelect={isLatest ? onSelectEvidence : undefined}
+          onSelect={onSelectEvidence ? (tab) => onSelectEvidence(tab, index) : undefined}
         />
 
         {/* Metrics panel + feedback row */}

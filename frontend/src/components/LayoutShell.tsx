@@ -137,8 +137,6 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
           <Header
             chatTitle={isChat ? chatTitle : undefined}
             activeConversation={isChat ? convState.activeConversation : null}
-            workspaceSidebarOpen={isChat ? workspaceSidebarOpen : undefined}
-            onToggleWorkspaceSidebar={isChat ? () => setWorkspaceSidebarOpen((prev) => !prev) : undefined}
             splitViewOpen={isChat ? splitViewOpen : undefined}
             onToggleSplitView={isChat ? () => setSplitViewOpen((prev) => !prev) : undefined}
           />

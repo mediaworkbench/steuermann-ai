@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Columns2, Download, LogOut, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
+import { Columns2, Download, LogOut, Pin } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,11 @@ import { useI18n } from "@/hooks/useI18n";
 interface HeaderProps {
   chatTitle?: string;
   activeConversation?: Conversation | null;
-  workspaceSidebarOpen?: boolean;
-  onToggleWorkspaceSidebar?: () => void;
   splitViewOpen?: boolean;
   onToggleSplitView?: () => void;
 }
 
-export function Header({ chatTitle = "AI Agent", activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar, splitViewOpen, onToggleSplitView }: HeaderProps) {
+export function Header({ chatTitle = "AI Agent", activeConversation, splitViewOpen, onToggleSplitView }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
   const { isAdmin } = useRole();
   const [showExport, setShowExport] = useState(false);
@@ -112,26 +110,6 @@ export function Header({ chatTitle = "AI Agent", activeConversation, workspaceSi
               className="group-hover:scale-110 transition-transform"
             />
             <span className="hidden lg:inline">{t("common.export")}</span>
-          </Button>
-        )}
-
-        {/* Workspace sidebar toggle — only on chat page */}
-        {onToggleWorkspaceSidebar && (
-          <Button
-            type="button"
-            onClick={onToggleWorkspaceSidebar}
-            variant="ghost"
-            size="sm"
-            className="hidden md:flex gap-1.5 text-foreground hover:text-primary text-sm font-medium group min-h-11 min-w-11 justify-center"
-            aria-label={t("chat.toggleWorkspaceSidebar")}
-            title={t("chat.toggleWorkspaceSidebar")}
-          >
-            {workspaceSidebarOpen ? (
-              <PanelRightClose size={18} className="group-hover:scale-110 transition-transform" />
-            ) : (
-              <PanelRightOpen size={18} className="group-hover:scale-110 transition-transform" />
-            )}
-            <span className="hidden lg:inline">{t("chat.workspace")}</span>
           </Button>
         )}
 

@@ -287,6 +287,24 @@ describe("WorkspacePanel", () => {
     expect(screen.getByText("Respond")).toBeInTheDocument();
   });
 
+  test("shows the historical-answer banner on an evidence tab and Jump-to-latest works", () => {
+    const onJumpToLatest = jest.fn();
+    renderWithPanel(<WorkspacePanel {...baseProps} historicalAnswer onJumpToLatest={onJumpToLatest} />);
+    // Default tab is Documents (localStorage cleared) — banner is suppressed there.
+    expect(screen.queryByText("workspace.viewingEarlierAnswer")).not.toBeInTheDocument();
+    // Switch to an evidence tab → banner appears.
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.viewingEarlierAnswer")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("workspace.jumpToLatest"));
+    expect(onJumpToLatest).toHaveBeenCalledTimes(1);
+  });
+
+  test("hides the historical banner when not viewing an earlier answer", () => {
+    renderWithPanel(<WorkspacePanel {...baseProps} historicalAnswer={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.queryByText("workspace.viewingEarlierAnswer")).not.toBeInTheDocument();
+  });
+
   test("persists the active tab across remounts", () => {
     const { unmount } = renderWithPanel(<WorkspacePanel {...baseProps} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabMemory/ }));
@@ -348,7 +366,7 @@ describe("EvidenceChips", () => {
     expect(screen.getByTitle("workspace.evidenceAttachments")).toBeInTheDocument();
   });
 
-  test("renders static (non-interactive) chips when onSelect is omitted — for older answers", () => {
+  test("renders static (non-interactive) chips when onSelect is omitted", () => {
     render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} />);
     expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();

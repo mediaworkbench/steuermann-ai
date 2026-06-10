@@ -55,4 +55,8 @@ export interface WorkspacePanelProps {
   nodeTrace?: NodeTraceEntry[];
   /** True while the active conversation's answer is streaming (drives Inspector live state). */
   isStreaming?: boolean;
+  /** True when the panel is pinned to an earlier (non-latest) answer — shows a banner. */
+  historicalAnswer?: boolean;
+  /** Returns the panel to following the latest answer (banner "Jump to latest"). */
+  onJumpToLatest?: () => void;
 }
