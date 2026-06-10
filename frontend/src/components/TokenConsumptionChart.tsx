@@ -3,8 +3,6 @@
 import { memo, useMemo } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
-import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
-import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
 import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
@@ -15,19 +13,16 @@ interface TokenConsumptionChartProps {
     avg_tokens: number;
     requests: number;
   }>;
-  loading?: boolean;
   showTotalTokens?: boolean;
   showAvgTokens?: boolean;
 }
 
 function TokenConsumptionChart({
   data,
-  loading = false,
   showTotalTokens = true,
   showAvgTokens = true,
 }: TokenConsumptionChartProps) {
   const { t, locale } = useI18n();
-  // Always call hooks at the top level
   const chartData = useMemo(
     () =>
       data?.map((d) => ({
@@ -39,63 +34,37 @@ function TokenConsumptionChart({
     [data, locale]
   );
 
-  if (loading) {
-    return (
-      <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <AnalyticsChartState message={t("charts.loading")} />
-      </AnalyticsChartCard>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <AnalyticsChartState message={t("metrics.noTokenData")} />
-      </AnalyticsChartCard>
-    );
-  }
-
-  if (!showTotalTokens && !showAvgTokens) {
-    return (
-      <AnalyticsChartCard title={t("metrics.tokenConsumption")}>
-        <AnalyticsChartState message={t("charts.selectAtLeastOneSeries")} />
-      </AnalyticsChartCard>
-    );
-  }
-
   return (
-    <AnalyticsChartCard title={t("charts.dailyTokenConsumption")}>
-      <AnalyticsChartViewport>
-        <AreaChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <Tooltip content={<CustomTooltip />} />
-          <Legend />
-          {showTotalTokens && (
-            <Area
-              yAxisId="left"
-              type="monotone"
-              dataKey="total_tokens"
-              fill="var(--chart-amber-soft)"
-              stroke="var(--chart-amber)"
-              name={t("metrics.totalTokens")}
-            />
-          )}
-          {showAvgTokens && (
-            <Area
-              yAxisId="right"
-              type="monotone"
-              dataKey="avg_tokens"
-              fill="var(--chart-blue-soft)"
-              stroke="var(--chart-blue)"
-              name={t("metrics.average")}
-            />
-          )}
-        </AreaChart>
-      </AnalyticsChartViewport>
-    </AnalyticsChartCard>
+    <AnalyticsChartViewport>
+      <AreaChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+        <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <Tooltip content={<CustomTooltip />} />
+        <Legend />
+        {showTotalTokens && (
+          <Area
+            yAxisId="left"
+            type="monotone"
+            dataKey="total_tokens"
+            fill="var(--chart-amber-soft)"
+            stroke="var(--chart-amber)"
+            name={t("metrics.totalTokens")}
+          />
+        )}
+        {showAvgTokens && (
+          <Area
+            yAxisId="right"
+            type="monotone"
+            dataKey="avg_tokens"
+            fill="var(--chart-blue-soft)"
+            stroke="var(--chart-blue)"
+            name={t("metrics.average")}
+          />
+        )}
+      </AreaChart>
+    </AnalyticsChartViewport>
   );
 }
 
