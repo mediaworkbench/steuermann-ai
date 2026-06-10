@@ -8,8 +8,6 @@ import { Button } from "@/components/ui/button";
 import { DocumentEditorView } from "./DocumentEditorView";
 
 interface ActiveDocumentPaneProps {
-  /** Closes the pane (turns split-view off). */
-  onClose: () => void;
   /** Mirrors the chat-level loading gate for save/attach buttons. */
   isLoading?: boolean;
 }
@@ -20,18 +18,18 @@ const DEFAULT_WIDTH = 460;
 
 /**
  * First-class editing pane for the active workspace document, shown between the
- * chat column and the workspace panel when split-view is on. It renders the
- * shared `DocumentEditorView` (so it edits the same single editor instance as the
- * Documents tab) and owns a horizontal resize on its left edge. On mobile it is a
- * full-screen overlay rather than a side-by-side column.
+ * chat column and the workspace panel when a document is open for editing. Owns
+ * a horizontal resize on its left edge. On mobile it is a full-screen overlay.
+ * Closing via the X calls closeEditor(), which clears editorDocId and causes the
+ * parent to unmount this pane.
  */
-export function ActiveDocumentPane({ onClose, isLoading = false }: ActiveDocumentPaneProps) {
+export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProps) {
   const { t } = useI18n();
-  const { editorDocId, getDocumentName } = useActiveDocument();
+  const { editorDocId, getDocumentName, closeEditor } = useActiveDocument();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
-  // Horizontal mirror of useDocumentEditor.onResizeStart: dragging the left edge
+  // Horizontal mirror of the old useDocumentEditor resize: dragging the left edge
   // leftwards (negative clientX delta) widens the pane.
   const onResizeStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -81,7 +79,7 @@ export function ActiveDocumentPane({ onClose, isLoading = false }: ActiveDocumen
         </p>
         <Button
           type="button"
-          onClick={onClose}
+          onClick={closeEditor}
           variant="ghost"
           size="sm"
           className="p-0 text-muted-foreground hover:text-foreground"
@@ -92,15 +90,8 @@ export function ActiveDocumentPane({ onClose, isLoading = false }: ActiveDocumen
         </Button>
       </div>
 
-      {/* Body */}
-      {editorDocId ? (
-        <DocumentEditorView variant="pane" isLoading={isLoading} />
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <p className="text-sm font-medium text-foreground">{t("workspace.splitViewEmpty")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t("workspace.splitViewEmptyHint")}</p>
-        </div>
-      )}
+      {/* Body — guard against the brief null window during close batching */}
+      {editorDocId && <DocumentEditorView isLoading={isLoading} />}
     </div>
   );
 }

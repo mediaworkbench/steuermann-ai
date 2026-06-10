@@ -129,7 +129,7 @@ export function ChatInterface() {
     cancelStream,
   } = useChatSession();
 
-  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen, splitViewOpen, setSplitViewOpen } =
+  const { activeId, refresh, workspaceSidebarOpen, setWorkspaceSidebarOpen } =
     useConversationContext();
 
   // Latest assistant answer in the active conversation. Sourced from the
@@ -1129,8 +1129,8 @@ export function ChatInterface() {
       </div>
 
       {/* ─── Active document split-view pane (between chat and workspace panel) ─── */}
-      {splitViewOpen && (
-        <ActiveDocumentPane onClose={() => setSplitViewOpen(false)} isLoading={loading} />
+      {activeWorkspaceDocId && (
+        <ActiveDocumentPane isLoading={loading} />
       )}
 
       {/* ─── Workspace sidebar ─── */}
@@ -1145,7 +1145,6 @@ export function ChatInterface() {
         documentsLoading={documentsLoading}
         documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
-        splitViewActive={splitViewOpen}
         answerMetrics={panelMetrics}
         nodeTrace={panelNodeTrace}
         isStreaming={panelIsStreaming}

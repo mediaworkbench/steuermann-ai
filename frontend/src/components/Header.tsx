@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Columns2, Download, LogOut, Pin } from "lucide-react";
+import { Download, LogOut, Pin } from "lucide-react";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -13,11 +13,9 @@ import { useI18n } from "@/hooks/useI18n";
 interface HeaderProps {
   chatTitle?: string;
   activeConversation?: Conversation | null;
-  splitViewOpen?: boolean;
-  onToggleSplitView?: () => void;
 }
 
-export function Header({ chatTitle = "AI Agent", activeConversation, splitViewOpen, onToggleSplitView }: HeaderProps) {
+export function Header({ chatTitle = "AI Agent", activeConversation }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
   const [showExport, setShowExport] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -98,26 +96,7 @@ export function Header({ chatTitle = "AI Agent", activeConversation, splitViewOp
               size={18}
               className="group-hover:scale-110 transition-transform"
             />
-            <span className="hidden lg:inline">{t("common.export")}</span>
-          </Button>
-        )}
-
-        {/* Split-view editor pane toggle — only on chat page */}
-        {onToggleSplitView && (
-          <Button
-            type="button"
-            onClick={onToggleSplitView}
-            variant="ghost"
-            size="sm"
-            aria-pressed={splitViewOpen}
-            className={`hidden md:flex gap-1.5 hover:text-primary text-sm font-medium group min-h-11 min-w-11 justify-center ${
-              splitViewOpen ? "text-primary" : "text-foreground"
-            }`}
-            aria-label={t("chat.toggleSplitView")}
-            title={t("chat.toggleSplitView")}
-          >
-            <Columns2 size={18} className="group-hover:scale-110 transition-transform" />
-            <span className="hidden lg:inline">{t("chat.splitView")}</span>
+            <span className="hidden lg:inline">{t("header.exportChat")}</span>
           </Button>
         )}
 

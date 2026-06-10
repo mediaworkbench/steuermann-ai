@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Check, Download, Eraser, FileText, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash, Trash2, Upload, X } from "lucide-react";
+import { Check, Download, Eraser, FileText, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
@@ -23,7 +23,7 @@ import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useActiveDocument } from "@/context/ActiveDocumentContext";
-import { DocumentEditorView } from "./DocumentEditorView";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { VirtualizedList } from "./VirtualizedList";
@@ -41,8 +41,6 @@ interface DocumentsTabProps {
   documentsLoading?: boolean;
   documentsError?: string | null;
   onRetryDocuments?: () => void;
-  /** When true the split-view pane owns the editor; the inline editor collapses. */
-  splitViewActive?: boolean;
 }
 
 export function DocumentsTab({
@@ -55,11 +53,10 @@ export function DocumentsTab({
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
-  splitViewActive = false,
 }: DocumentsTabProps) {
   const { t } = useI18n();
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [nukePending, setNukePending] = useState(false);
+  const [nukeConfirmOpen, setNukeConfirmOpen] = useState(false);
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
@@ -225,7 +222,7 @@ export function DocumentsTab({
   );
 
   const handleClearAllDocuments = useCallback(async () => {
-    setNukePending(false);
+    setNukeConfirmOpen(false);
     setUploadingFile(true);
     try {
       const count = await clearAllWorkspaceDocuments();
@@ -410,10 +407,7 @@ export function DocumentsTab({
         <div className="flex gap-1.5">
           <Button
             type="button"
-            onClick={() => {
-              setNukePending(false);
-              fileInputRef.current?.click();
-            }}
+            onClick={() => fileInputRef.current?.click()}
             disabled={uploadingFile || isLoading}
             variant="secondary"
             size="sm"
@@ -422,43 +416,19 @@ export function DocumentsTab({
             <Upload size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
           </Button>
-          {documents.length > 0 &&
-            (nukePending ? (
-              <div className="flex-1 flex gap-1">
-                <Button
-                  type="button"
-                  onClick={() => setNukePending(false)}
-                  variant="secondary"
-                  size="sm"
-                  className="flex-1 px-2 py-2 text-xs"
-                >
-                  <X size={14} className="mx-auto" />
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleClearAllDocuments}
-                  disabled={uploadingFile}
-                  variant="destructive"
-                  size="sm"
-                  className="flex-1 px-2 py-2 text-xs font-medium"
-                  title={t("workspace.nukeConfirm")}
-                >
-                  <Trash size={14} className="mx-auto" />
-                </Button>
-              </div>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => setNukePending(true)}
-                disabled={uploadingFile || isLoading}
-                variant="destructive"
-                size="sm"
-                className="flex-1 px-2 py-2 text-xs font-medium"
-                title={t("workspace.nukeAll")}
-              >
-                <Eraser size={16} />
-              </Button>
-            ))}
+          {documents.length > 0 && (
+            <Button
+              type="button"
+              onClick={() => setNukeConfirmOpen(true)}
+              disabled={uploadingFile || isLoading}
+              variant="destructive"
+              size="sm"
+              className="flex-1 px-2 py-2 text-xs font-medium"
+              title={t("workspace.nukeAll")}
+            >
+              <Eraser size={16} />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -520,10 +490,6 @@ export function DocumentsTab({
           )}
         </div>
       )}
-
-      {/* Editor + version history. When split-view is on, the pane owns the
-          editor instead (one shared instance, so they never both render). */}
-      {!splitViewActive && <DocumentEditorView isLoading={isLoading} />}
 
       {/* Empty / loading / error state (only when there is nothing to list) */}
       {documents.length === 0 &&
@@ -601,6 +567,18 @@ export function DocumentsTab({
           </div>,
           document.body,
         )}
+
+      <ConfirmDialog
+        isOpen={nukeConfirmOpen}
+        variant="danger"
+        requireChecked
+        checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
+        title={t("workspace.nukeAll")}
+        message={t("workspace.nukeMessage", { count: documents.length })}
+        confirmLabel={t("common.delete")}
+        onConfirm={handleClearAllDocuments}
+        onCancel={() => setNukeConfirmOpen(false)}
+      />
     </>
   );
 }

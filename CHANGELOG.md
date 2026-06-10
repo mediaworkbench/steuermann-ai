@@ -161,6 +161,39 @@
 * i18n: new EN+DE keys (`chat.toggleSplitView`, `chat.splitView`, `workspace.splitView*`, `workspace.closeSplitView`, `workspace.resizeSplitView`).
 * Tests: extended `WorkspacePanel.test.tsx` (threshold switch to the windowed list; `ActiveDocumentPane` empty state + close); existing renders now wrap in `ActiveDocumentProvider`. Full suite: 111 passing.
 
+**Workspace editor model simplification + design-system compliance**
+
+* **Split-view pane is now the only editor.** The Documents-tab inline editor (`DocumentEditorView`
+  `variant="inline"`) is removed; the split-view pane is the sole editing surface. Clicking **Edit**
+  in the kebab menu opens the pane automatically (gated on `activeWorkspaceDocId` in `ChatInterface`);
+  closing the pane (X button) calls `closeEditor()` which clears the editor and unmounts the pane.
+  No separate toggle button — the pane is visible if and only if a document is open.
+* **Header split-view toggle removed.** The `Columns2` Header button, the `splitViewOpen` state in
+  `LayoutShell`, its `ConversationContext` fields, and its localStorage key are all gone.
+* **`DocumentEditorView` collapsed to pane-only.** The `variant` prop and the inline layout branch
+  are removed; the component always renders the pane layout. The redundant editor-section header
+  (duplicate doc name + close) is gone — the pane header owns the single title + close.
+* **`useDocumentEditor` dead state removed.** `editorHeight`, `setEditorHeight`, `isDraggingRef`, and
+  `onResizeStart` (the old vertical resize that only existed for the inline editor) are deleted.
+  The pane's own horizontal resize is unaffected.
+* **"Clear all documents" follows the design-system `ConfirmDialog` pattern.** The ad-hoc
+  two-button inline swap (`nukePending`) is replaced with `ConfirmDialog` (`variant="danger"`,
+  `requireChecked`) — matching the "Clear All Memories" flow. A `requireChecked` checkbox must be
+  ticked before the Delete button enables.
+* **"Export" top-nav label renamed "Export Chat".** New `header.exportChat` i18n key; `common.export`
+  (used inside `ExportDialog`) is unchanged.
+* i18n: added `header.exportChat` (EN/DE), `workspace.nukeMessage` (EN/DE, with `{count}` interpolation).
+  Pruned orphaned keys: `chat.toggleSplitView`, `chat.splitView`, `workspace.editor`,
+  `workspace.closeEditor`, `workspace.resizeEditor`, `workspace.splitViewEmpty`,
+  `workspace.splitViewEmptyHint`, `workspace.nukeConfirm`. Fixed pre-existing invalid-character
+  ESLint error in DE locale (curly quotes in `splitViewTitle`/`closeSplitView` values).
+* Defensive null guard added to `ActiveDocumentPane`: body only renders `DocumentEditorView` when
+  `editorDocId` is non-null, guarding against any batching edge case during close.
+* Tests: reworked `ActiveDocumentPane` block in `WorkspacePanel.test.tsx` (dropped `onClose` prop;
+  replaced removed empty-state case with a "region mounts without crashing" assertion; close button
+  is present and clickable). Frontend **141/141**; `npm run lint` 0 errors / 4 pre-existing
+  warnings; `npm run build` clean.
+
 **Build hygiene — fixed a v0.4.0 case-sensitivity regression**
 
 * The shadcn migration switched `components/ui` imports to lowercase but left six files PascalCase (`Button.tsx`, `Checkbox.tsx`, `Input.tsx`, `Select.tsx`, `Slider.tsx`, `Textarea.tsx`), so `npm run build` (Turbopack, case-sensitive) failed app-wide with `Module not found: '@/components/ui/button'` (~43 errors) — dev/`tsc`/Jest passed on macOS's case-insensitive FS only. Renamed all six to lowercase (`git mv`, all 49 imports were already lowercase). **`npm run build` now compiles cleanly** and `tsc` has no remaining `forceConsistentCasingInFileNames` errors.

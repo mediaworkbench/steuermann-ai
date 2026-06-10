@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { uploadConversationAttachment } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
@@ -38,8 +38,6 @@ export function useDocumentEditor({
   const { t } = useI18n();
   const [editorDocId, setEditorDocIdRaw] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState("");
-  const [editorHeight, setEditorHeight] = useState(220);
-  const isDraggingRef = useRef(false);
 
   const setEditorDocId = useCallback(
     (docId: string | null) => {
@@ -90,31 +88,6 @@ export function useDocumentEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [writebackSavedDocId]);
-
-  const onResizeStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      isDraggingRef.current = true;
-      const startY = e.clientY;
-      const startHeight = editorHeight;
-
-      const onMouseMove = (moveEvent: MouseEvent) => {
-        if (!isDraggingRef.current) return;
-        const delta = moveEvent.clientY - startY;
-        setEditorHeight(Math.min(420, Math.max(120, startHeight + delta)));
-      };
-
-      const onMouseUp = () => {
-        isDraggingRef.current = false;
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
-      };
-
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
-    },
-    [editorHeight],
-  );
 
   const saveEditor = useCallback(async () => {
     if (!editorDocId || !editorContent.trim()) return;
@@ -188,11 +161,9 @@ export function useDocumentEditor({
     editorDocId,
     editorContent,
     setEditorContent,
-    editorHeight,
     getDocumentName,
     openEditor,
     closeEditor,
-    onResizeStart,
     saveEditor,
     reattachEditor,
     downloadEditor,

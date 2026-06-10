@@ -44,7 +44,6 @@ export function WorkspacePanel({
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
-  splitViewActive = false,
   answerMetrics = null,
   nodeTrace = [],
   isStreaming = false,
@@ -173,7 +172,6 @@ export function WorkspacePanel({
               documentsLoading={documentsLoading}
               documentsError={documentsError}
               onRetryDocuments={onRetryDocuments}
-              splitViewActive={splitViewActive}
             />
           </div>
           {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}

@@ -15,7 +15,6 @@ import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import type { Conversation } from "@/lib/types";
 
 const WORKSPACE_OPEN_KEY = "workspace.panelOpen";
-const SPLITVIEW_OPEN_KEY = "workspace.splitView";
 
 // ── Context so any child can access conversation state ───────────────
 
@@ -36,8 +35,6 @@ interface ConversationContextValue {
   loading: boolean;
   workspaceSidebarOpen: boolean;
   setWorkspaceSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  splitViewOpen: boolean;
-  setSplitViewOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const ConversationContext = createContext<ConversationContextValue | null>(null);
@@ -77,7 +74,6 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
 
 function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(false);
-  const [splitViewOpen, setSplitViewOpen] = useState(false);
   const pathname = usePathname();
   const profile = useProfile();
   const { t } = useI18n();
@@ -111,34 +107,16 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     }
   }, [workspaceSidebarOpen]);
 
-  // Same restore-then-persist dance for the split-view editor pane preference.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(SPLITVIEW_OPEN_KEY) === "true") setSplitViewOpen(true);
-    } catch {
-      /* localStorage unavailable */
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(SPLITVIEW_OPEN_KEY, String(splitViewOpen));
-    } catch {
-      /* ignore persistence failures */
-    }
-  }, [splitViewOpen]);
-
   return (
     <>
     <SidebarProvider>
-    <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen, splitViewOpen, setSplitViewOpen }}>
+    <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen }}>
       <AppSidebar />
       <SidebarInset>
         <AppShell>
           <Header
             chatTitle={isChat ? chatTitle : undefined}
             activeConversation={isChat ? convState.activeConversation : null}
-            splitViewOpen={isChat ? splitViewOpen : undefined}
-            onToggleSplitView={isChat ? () => setSplitViewOpen((prev) => !prev) : undefined}
           />
           <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
             <WorkspacePanelProvider>

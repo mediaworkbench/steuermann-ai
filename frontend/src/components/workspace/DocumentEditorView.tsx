@@ -12,29 +12,20 @@ import { WorkspacePanelSection } from "./WorkspacePanelSection";
 interface DocumentEditorViewProps {
   /** Disables save/attach while the parent is busy (mirrors the old inline gate). */
   isLoading?: boolean;
-  /**
-   * `inline` (Documents tab): fixed-height textarea + vertical resize handle.
-   * `pane` (split-view): fills the pane height; the pane owns the horizontal resize.
-   */
-  variant?: "inline" | "pane";
 }
 
 /**
  * The document editor + version-history UI, driven entirely by
- * `useActiveDocument()`. Rendered inline in the Documents tab (when split-view is
- * off) and inside `ActiveDocumentPane` (when split-view is on) — both share the
- * single editor instance, so there are never two competing editors.
+ * `useActiveDocument()`. Rendered inside `ActiveDocumentPane` — the single
+ * editing surface. The pane header owns the doc name and close control.
  */
-export function DocumentEditorView({ isLoading = false, variant = "inline" }: DocumentEditorViewProps) {
+export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProps) {
   const { t } = useI18n();
   const {
     editorDocId,
     editorContent,
     setEditorContent,
-    editorHeight,
     getDocumentName,
-    closeEditor,
-    onResizeStart,
     saveEditor,
     reattachEditor,
     downloadEditor,
@@ -49,10 +40,8 @@ export function DocumentEditorView({ isLoading = false, variant = "inline" }: Do
     closeHistory,
   } = useActiveDocument();
 
-  const pane = variant === "pane";
-
   const versionHistory = historyDocId ? (
-    <WorkspacePanelSection className={pane ? "border-t-0" : undefined}>
+    <WorkspacePanelSection className="border-t-0">
       <WorkspacePanelHeaderRow
         title={t("workspace.versionHistoryTitle", { name: getDocumentName(historyDocId) })}
         onClose={closeHistory}
@@ -112,30 +101,11 @@ export function DocumentEditorView({ isLoading = false, variant = "inline" }: Do
   ) : null;
 
   const editor = editorDocId ? (
-    <WorkspacePanelSection className={pane ? "flex min-h-0 flex-1 flex-col border-t-0" : undefined}>
-      <WorkspacePanelHeaderRow
-        title={t("workspace.editor")}
-        onClose={closeEditor}
-        closeLabel={t("workspace.closeEditor")}
-      />
-      <p className="mb-2 truncate text-xs text-muted-foreground">{getDocumentName(editorDocId)}</p>
-      {!pane && (
-        <div
-          aria-hidden="true"
-          onMouseDown={onResizeStart}
-          className="mb-2 h-2 cursor-row-resize flex items-center justify-center"
-          title={t("workspace.resizeEditor")}
-        >
-          <div className="h-1 w-14 rounded-full bg-border hover:bg-border-strong" />
-        </div>
-      )}
+    <WorkspacePanelSection className="flex min-h-0 flex-1 flex-col border-t-0">
       <Textarea
         value={editorContent}
         onChange={(e) => setEditorContent(e.target.value)}
-        style={pane ? undefined : { height: `${editorHeight}px` }}
-        className={`w-full resize-none rounded-md border border-border px-2 py-2 text-xs text-foreground shadow-none focus:border-primary focus:ring-0${
-          pane ? " min-h-0 flex-1" : ""
-        }`}
+        className="w-full min-h-0 flex-1 resize-none rounded-md border border-border px-2 py-2 text-xs text-foreground shadow-none focus:border-primary focus:ring-0"
         placeholder={t("workspace.editDocumentPlaceholder")}
       />
       <Button
@@ -173,19 +143,10 @@ export function DocumentEditorView({ isLoading = false, variant = "inline" }: Do
     </WorkspacePanelSection>
   ) : null;
 
-  if (pane) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {versionHistory}
-        {editor}
-      </div>
-    );
-  }
-
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col">
       {versionHistory}
       {editor}
-    </>
+    </div>
   );
 }

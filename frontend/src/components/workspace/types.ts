@@ -40,8 +40,6 @@ export interface WorkspacePanelProps {
   documentsError?: string | null;
   /** Retry handler for a failed document-list fetch. */
   onRetryDocuments?: () => void;
-  /** True when the split-view pane owns the editor; the inline editor collapses. */
-  splitViewActive?: boolean;
   /**
    * Metrics of the latest assistant answer in the active conversation. Drives
    * the read-only evidence tabs (Knowledge/Memory/Outputs). Null when there is

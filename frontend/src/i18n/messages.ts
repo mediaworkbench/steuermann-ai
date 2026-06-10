@@ -28,6 +28,7 @@ export type Messages = {
     openNavigation: string;
     activeSession: string;
     exportConversation: string;
+    exportChat: string;
     signOut: string;
     signingOut: string;
     justNow: string;
@@ -267,8 +268,6 @@ export type Messages = {
     addAttachment: string;
     toggleWorkspaceSidebar: string;
     workspace: string;
-    toggleSplitView: string;
-    splitView: string;
     newConversation: string;
     copyMessage: string;
     regenerateResponse: string;
@@ -329,12 +328,7 @@ export type Messages = {
     reference: string;
     download: string;
     delete: string;
-    editor: string;
-    closeEditor: string;
-    resizeEditor: string;
     splitViewTitle: string;
-    splitViewEmpty: string;
-    splitViewEmptyHint: string;
     closeSplitView: string;
     resizeSplitView: string;
     editDocumentPlaceholder: string;
@@ -353,7 +347,7 @@ export type Messages = {
     attachSuccess: string;
     attachFailed: string;
     nukeAll: string;
-    nukeConfirm: string;
+    nukeMessage: string;
     nukeSuccess: string;
     nukeFailed: string;
     uploadAriaLabel: string;
@@ -635,6 +629,7 @@ export const messages: Record<Locale, Messages> = {
       openNavigation: "Open navigation",
       activeSession: "Active session",
       exportConversation: "Export conversation",
+      exportChat: "Export Chat",
       signOut: "Sign out",
       signingOut: "Signing out...",
       justNow: "just now",
@@ -876,8 +871,6 @@ export const messages: Record<Locale, Messages> = {
       addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
       workspace: "Workspace",
-      toggleSplitView: "Toggle split-view editor",
-      splitView: "Split view",
       newConversation: "New conversation",
       copyMessage: "Copy message",
       regenerateResponse: "Regenerate this response",
@@ -938,12 +931,7 @@ export const messages: Record<Locale, Messages> = {
       reference: "Reference",
       download: "Download",
       delete: "Delete",
-      editor: "Editor",
-      closeEditor: "Close editor",
-      resizeEditor: "Drag to resize editor",
       splitViewTitle: "Active document",
-      splitViewEmpty: "No document open",
-      splitViewEmptyHint: "Open a document from the Documents tab to edit it here.",
       closeSplitView: "Close split view",
       resizeSplitView: "Drag to resize the document pane",
       editDocumentPlaceholder: "Edit document content...",
@@ -962,7 +950,7 @@ export const messages: Record<Locale, Messages> = {
       attachSuccess: "Attached to conversation",
       attachFailed: "Could not attach file",
       nukeAll: "Clear all",
-      nukeConfirm: "Delete all?",
+      nukeMessage: "This permanently deletes all {count} document(s). This cannot be undone.",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
       uploadAriaLabel: "Upload document or image",
@@ -1242,6 +1230,7 @@ export const messages: Record<Locale, Messages> = {
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
       exportConversation: "Unterhaltung exportieren",
+      exportChat: "Chat exportieren",
       signOut: "Abmelden",
       signingOut: "Melde ab...",
       justNow: "gerade eben",
@@ -1483,8 +1472,6 @@ export const messages: Record<Locale, Messages> = {
       addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
       workspace: "Workspace",
-      toggleSplitView: "Geteilte Editoransicht umschalten",
-      splitView: "Geteilte Ansicht",
       newConversation: "Neue Unterhaltung",
       copyMessage: "Nachricht kopieren",
       regenerateResponse: "Antwort neu generieren",
@@ -1545,12 +1532,7 @@ export const messages: Record<Locale, Messages> = {
       reference: "Referenz",
       download: "Herunterladen",
       delete: "Löschen",
-      editor: "Editor",
-      closeEditor: "Editor schließen",
-      resizeEditor: "Zum Ändern der Größe ziehen",
       splitViewTitle: "Aktives Dokument",
-      splitViewEmpty: "Kein Dokument geöffnet",
-      splitViewEmptyHint: "Öffne ein Dokument im Tab „Dokumente“, um es hier zu bearbeiten.",
       closeSplitView: "Geteilte Ansicht schließen",
       resizeSplitView: "Zum Ändern der Breite ziehen",
       editDocumentPlaceholder: "Dokumentinhalt bearbeiten...",
@@ -1569,7 +1551,7 @@ export const messages: Record<Locale, Messages> = {
       attachSuccess: "Zur Konversation hinzugefügt",
       attachFailed: "Datei konnte nicht angehängt werden",
       nukeAll: "Alle löschen",
-      nukeConfirm: "Alle löschen?",
+      nukeMessage: "Dies löscht dauerhaft alle {count} Dokument(e). Dies kann nicht rückgängig gemacht werden.",
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
       uploadAriaLabel: "Dokument oder Bild hochladen",
