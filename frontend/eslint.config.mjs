@@ -20,13 +20,14 @@ export default defineConfig([
    * These rules enforce the locked choices from design-system.md:
    *   1. Icon system: direct lucide-react imports are the canonical path.
    *      The legacy `material-symbols-outlined` CSS class is blocked.
-   *   2. Token policy: raw Tailwind palette status-color utilities are blocked
-   *      in shared components and pages. Use the semantic token classes instead:
-   *        emerald-*  →  success
-   *        amber-*    →  warning
-   *        red-*      →  destructive  (bg-red-*, text-red-*)
-   *        green-*    →  success
-   *        blue-100   →  info/10
+   *   2. Token policy: raw Tailwind palette utilities (any color family with a
+   *      numeric shade, e.g. bg-blue-500, text-yellow-500) are blocked across
+   *      all of src/. Use the semantic token classes instead:
+   *        emerald, green  →  success
+   *        amber, yellow   →  warning
+   *        red             →  destructive
+   *        blue            →  info
+   *      Semantic chart tokens (text-chart-amber etc.) are unaffected.
    * ───────────────────────────────────────────────────────────────────────── */
   {
     files: ["src/**/*.{ts,tsx}"],
@@ -44,15 +45,10 @@ export default defineConfig([
         },
         {
           selector:
-            "Literal[value=/\\b(bg|text|border)-(emerald|amber|red|green)-(\\d+|\\w+)\\b/]",
+            "Literal[value=/\\b(bg|text|border|ring|stroke|fill|from|to|via)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d{1,3}(\\/\\d{1,3})?\\b/]",
           message:
-            "Raw palette status-color utilities are not allowed. " +
-            "Use semantic tokens instead: success / warning / destructive / info.",
-        },
-        {
-          selector: "Literal[value=/\\bbg-blue-100\\b/]",
-          message:
-            "Raw palette utility bg-blue-100 is not allowed. Use bg-info/10 instead.",
+            "Raw Tailwind palette utilities are not allowed. " +
+            "Use semantic tokens instead: success / warning / destructive / info / surface / muted.",
         },
         {
           selector:
@@ -106,15 +102,6 @@ export default defineConfig([
                 "Product components must not import from app-layer modules. Lift shared logic to product/ui/lib and keep pages as composition only.",
             },
           ],
-        },
-      ],
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "Literal[value=/\\b(bg|text|border|ring|stroke|fill|from|to|via)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\\d{1,3}(\\/\\d{1,3})?\\b/]",
-          message:
-            "Raw Tailwind palette classes are not allowed in shared product components. Use semantic token classes instead.",
         },
       ],
     },

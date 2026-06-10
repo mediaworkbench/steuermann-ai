@@ -84,12 +84,12 @@ export function MemoryRating({
             title={label}
             className={[
               "cursor-pointer rounded p-0.5 transition-colors",
-              isFilled ? "text-yellow-500" : "text-muted-foreground",
-              "hover:text-yellow-500",
+              isFilled ? "text-warning" : "text-muted-foreground",
+              "hover:text-warning",
               "disabled:cursor-not-allowed disabled:opacity-60",
             ].join(" ")}
           >
-            <Star size={compact ? 13 : 15} className={isFilled ? "text-yellow-500" : "text-muted-foreground"} />
+            <Star size={compact ? 13 : 15} className={isFilled ? "text-warning" : "text-muted-foreground"} />
           </Button>
         );
       })}

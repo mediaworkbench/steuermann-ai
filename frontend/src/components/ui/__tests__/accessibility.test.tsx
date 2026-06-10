@@ -14,6 +14,88 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardTitle, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
+import { Slider } from "@/components/ui/slider";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+beforeAll(() => {
+  // jsdom lacks matchMedia (needed by sidebar's useIsMobile and sonner) and
+  // scrollIntoView (used by base-ui menu focus management).
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }),
+  });
+  Element.prototype.scrollIntoView = jest.fn();
+});
 
 describe("ui/ component accessibility", () => {
   test("Button has no violations", async () => {
@@ -103,5 +185,156 @@ describe("ui/ component accessibility", () => {
       </Tabs>
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  // Overlay primitives render into portals, so axe runs on baseElement.
+  // Two rules are disabled for these tests only:
+  // - aria-command-name: base-ui's internal focus-guard spans (role="button",
+  //   data-base-ui-focus-guard) have no accessible name by design; native
+  //   buttons remain covered by the separate button-name rule.
+  // - region: a component test is not a full page, so portal content is
+  //   never inside a landmark.
+  const overlayAxeOptions = {
+    rules: {
+      "aria-command-name": { enabled: false },
+      region: { enabled: false },
+    },
+  };
+  test("AlertDialog (open) has no violations", async () => {
+    const { baseElement } = render(
+      <AlertDialog open>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
+  });
+
+  test("Avatar with fallback has no violations", async () => {
+    const { container } = render(
+      <Avatar>
+        <AvatarFallback>AB</AvatarFallback>
+      </Avatar>
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  test("DropdownMenu (open) has no violations", async () => {
+    const { baseElement } = render(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>Options</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem>Edit</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>Delete</DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
+  });
+
+  test("Popover (open) has no violations", async () => {
+    const { baseElement } = render(
+      <Popover open>
+        <PopoverTrigger>Show details</PopoverTrigger>
+        <PopoverContent>
+          <PopoverHeader>
+            <PopoverTitle>Details</PopoverTitle>
+            <PopoverDescription>More information.</PopoverDescription>
+          </PopoverHeader>
+        </PopoverContent>
+      </Popover>
+    );
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
+  });
+
+  test("Sheet (open) has no violations", async () => {
+    const { baseElement } = render(
+      <Sheet open>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Panel</SheetTitle>
+            <SheetDescription>Side panel content.</SheetDescription>
+          </SheetHeader>
+        </SheetContent>
+      </Sheet>
+    );
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
+  });
+
+  test("Sidebar has no violations", async () => {
+    const { container } = render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton>Home</SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+      </SidebarProvider>
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  test("Slider with aria-label has no violations", async () => {
+    const { container } = render(<Slider aria-label="Volume" defaultValue={50} />);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  test("Toaster has no violations", async () => {
+    const { baseElement } = render(<Toaster />);
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
+  });
+
+  test("Table has no violations", async () => {
+    const { container } = render(
+      <Table>
+        <TableCaption>Monthly usage</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Value</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell>Tokens</TableCell>
+            <TableCell>1200</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  test("Tooltip (open) has no violations", async () => {
+    const { baseElement } = render(
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>Info</TooltipTrigger>
+          <TooltipContent>Helpful hint</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+    expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
   });
 });
