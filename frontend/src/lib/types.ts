@@ -3,6 +3,24 @@ export interface ToolExecution {
   status: "success" | "error";
 }
 
+/**
+ * A single tool invocation's bounded provenance: sanitized args + a truncated
+ * result preview. Built server-side (`build_tool_results_detail`) so payloads
+ * stay small and secret-free. Surfaced in the workspace Outputs tab.
+ */
+export interface ToolResultDetail {
+  name: string;
+  status: "success" | "error";
+  /** One-line result summary (≤300 chars). */
+  summary?: string;
+  /** Truncated full result text (≤1500 chars). */
+  output?: string;
+  /** Sanitized, redacted invocation arguments. */
+  args?: Record<string, unknown>;
+  /** Error message when status === "error". */
+  error?: string;
+}
+
 export interface MemoryReference {
   memory_id: string;
   text?: string;
@@ -46,6 +64,7 @@ export interface MessageMetrics {
   model?: string;
   temperature?: number;
   tools_executed?: ToolExecution[];
+  tool_results_detail?: ToolResultDetail[];
   sources?: Source[];
   attachments_used?: Array<{ id: string; original_name: string }>;
   documents_used?: Array<{ id: string; filename: string; version: number }>;
@@ -83,6 +102,7 @@ export interface ChatResponse {
     output_tokens?: number;
     model_used?: string;
     tools_executed: string[];
+    tool_results_detail?: ToolResultDetail[];
     sources?: Source[];
     attachments_used?: Array<{
       id: string;

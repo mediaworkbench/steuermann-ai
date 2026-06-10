@@ -1,4 +1,4 @@
-import type { MapData, Message, PersistedMessage, Source } from "./types";
+import type { MapData, Message, PersistedMessage, Source, ToolResultDetail } from "./types";
 
 /**
  * Convert a persisted (DB) message into the local UI `Message` shape.
@@ -40,6 +40,7 @@ export function toUiMessage(
           ? [{ name: "knowledge_base" as const, status: "success" as const }]
           : []),
       ],
+      tool_results_detail: pm.metadata?.tool_results_detail as ToolResultDetail[] | undefined,
       sources: pm.metadata?.sources as Source[] | undefined,
       rag_attempted: (pm.metadata?.rag_attempted as boolean | undefined) ?? undefined,
       rag_doc_count: (pm.metadata?.rag_doc_count as number | undefined) ?? undefined,

@@ -48,6 +48,7 @@ function buildMetadataFromSSE(parsed: Record<string, unknown>): ChatResponse["me
     output_tokens: parsed.output_tokens as number | undefined,
     model_used: parsed.model_used as string | undefined,
     tools_executed: toolKeys,
+    tool_results_detail: parsed.tool_results_detail as ChatResponse["metadata"]["tool_results_detail"],
     sources: parsed.sources as ChatResponse["metadata"]["sources"],
     rag_attempted: parsed.rag_attempted as boolean | undefined,
     rag_doc_count: parsed.rag_doc_count as number | undefined,

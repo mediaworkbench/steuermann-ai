@@ -34,6 +34,24 @@ describe("deriveAnswerEvidence", () => {
     expect(withDocs.ragSources).toHaveLength(1);
   });
 
+  test("carries tool_results_detail into toolResults, excluding knowledge_base", () => {
+    const metrics: MessageMetrics = {
+      tools_executed: [{ name: "web_search_mcp", status: "success" }],
+      tool_results_detail: [
+        { name: "web_search_mcp", status: "success", summary: "3 hits", args: { query: "x" }, output: "..." },
+        { name: "knowledge_base", status: "success", summary: "rag" },
+      ],
+    };
+    const e = deriveAnswerEvidence(metrics);
+    expect(e.toolResults.map((t) => t.name)).toEqual(["web_search_mcp"]);
+    expect(e.toolResults[0].args).toEqual({ query: "x" });
+  });
+
+  test("toolResults defaults to an empty array when no detail is present", () => {
+    const e = deriveAnswerEvidence({ tools_executed: [{ name: "calculator_tool", status: "success" }] });
+    expect(e.toolResults).toEqual([]);
+  });
+
   test("derives memory and document counts and a map flag", () => {
     const metrics: MessageMetrics = {
       memories_used: [{ memory_id: "1", text: "x" }],

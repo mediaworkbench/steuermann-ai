@@ -95,7 +95,14 @@ export function WorkspaceEvidenceTabs({
         {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}
         {activeTab === "memory" && <MemoryTab evidence={evidence} />}
         {activeTab === "outputs" && <OutputsTab evidence={evidence} />}
-        {activeTab === "inspector" && <InspectorTab nodeTrace={nodeTrace} isStreaming={false} />}
+        {activeTab === "inspector" && (
+          <InspectorTab
+            nodeTrace={nodeTrace}
+            isStreaming={false}
+            // Only offer the Outputs deep-link when there's tool output to view.
+            onOpenOutputs={evidence.tools.length > 0 ? () => setActiveTab("outputs") : undefined}
+          />
+        )}
       </div>
     </div>
   );

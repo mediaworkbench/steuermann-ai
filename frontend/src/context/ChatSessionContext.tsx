@@ -246,6 +246,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
                     name,
                     status: "success" as const,
                   })),
+                  tool_results_detail: finalMetadata.tool_results_detail,
                   sources: finalMetadata.sources,
                   memories_used: finalMetadata.memories_used,
                   rag_attempted: finalMetadata.rag_attempted,

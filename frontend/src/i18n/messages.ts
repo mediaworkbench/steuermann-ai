@@ -414,6 +414,10 @@ export type Messages = {
     inspectorStatusSuccess: string;
     inspectorStatusError: string;
     answerEvidence: string;
+    toolArgs: string;
+    toolOutput: string;
+    toolError: string;
+    viewToolResults: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -1015,6 +1019,10 @@ export const messages: Record<Locale, Messages> = {
       inspectorStatusSuccess: "succeeded",
       inspectorStatusError: "failed",
       answerEvidence: "Answer evidence",
+      toolArgs: "Arguments",
+      toolOutput: "Result",
+      toolError: "Error",
+      viewToolResults: "View results in Outputs",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1614,6 +1622,10 @@ export const messages: Record<Locale, Messages> = {
       inspectorStatusSuccess: "erfolgreich",
       inspectorStatusError: "fehlgeschlagen",
       answerEvidence: "Antwort-Belege",
+      toolArgs: "Argumente",
+      toolOutput: "Ergebnis",
+      toolError: "Fehler",
+      viewToolResults: "Ergebnisse in Ausgaben anzeigen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

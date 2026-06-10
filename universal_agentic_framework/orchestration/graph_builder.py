@@ -663,6 +663,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                                 tool_results=tool_results,
                                 tool_execution_results=tool_execution_results,
                                 routing_metadata=routing_metadata,
+                                args={"request_url": url_in_query, "save_to_rag": wants_save_to_rag},
                             )
                             logger.info(
                                 "Native fallback executed",
@@ -675,6 +676,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                                 error=fallback_err,
                                 tool_results=tool_results,
                                 tool_execution_results=tool_execution_results,
+                                args={"request_url": url_in_query, "save_to_rag": wants_save_to_rag},
                             )
                             logger.error(
                                 "Native fallback execution failed",
@@ -751,6 +753,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                             tool_results=tool_results,
                             tool_execution_results=tool_execution_results,
                             routing_metadata=routing_metadata,
+                            args=tool_args,
                         )
                         logger.info("Tool executed (native)", tool=tool_name, result_length=len(str(result)))
                     except Exception as exec_err:
@@ -759,6 +762,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                             error=exec_err,
                             tool_results=tool_results,
                             tool_execution_results=tool_execution_results,
+                            args=tool_args,
                         )
                         logger.error("Tool execution failed (native)", tool=tool_name, error=str(exec_err))
 
@@ -1012,6 +1016,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                         tool_results=tool_results,
                         tool_execution_results=tool_execution_results,
                         routing_metadata=routing_metadata,
+                        args=tool_args,
                     )
                     logger.info("Tool executed (structured)", tool=tool_name, result_length=len(str(result)))
                 except Exception as exec_err:
@@ -1020,6 +1025,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                         error=exec_err,
                         tool_results=tool_results,
                         tool_execution_results=tool_execution_results,
+                        args=tool_args,
                     )
                     logger.error("Tool execution failed (structured)", tool=tool_name, error=str(exec_err))
                 break
@@ -1173,6 +1179,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                         tool_results=tool_results,
                         tool_execution_results=tool_execution_results,
                         routing_metadata=routing_metadata,
+                        args=tool_args,
                     )
                     observation = str(result)
                     logger.info("Tool executed (react)", tool=tool_name, iteration=iteration)
@@ -1182,6 +1189,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                         error=exec_err,
                         tool_results=tool_results,
                         tool_execution_results=tool_execution_results,
+                        args=tool_args,
                     )
                     observation = f"Error: {exec_err}"
 

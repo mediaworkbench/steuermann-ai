@@ -160,6 +160,59 @@ describe("WorkspacePanel", () => {
     expect(screen.queryByText("knowledge_base")).not.toBeInTheDocument();
   });
 
+  test("Outputs tab renders tool result detail with expandable args and output", () => {
+    const answerMetrics: MessageMetrics = {
+      tools_executed: [{ name: "web_search_mcp", status: "success" }],
+      tool_results_detail: [
+        {
+          name: "web_search_mcp",
+          status: "success",
+          summary: "3 results found",
+          args: { query: "weather" },
+          output: "Sunny, 21C",
+        },
+      ],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabOutputs/ }));
+    // Collapsed: name + one-line summary visible, args/output hidden.
+    expect(screen.getByText("web_search_mcp")).toBeInTheDocument();
+    expect(screen.getByText("3 results found")).toBeInTheDocument();
+    expect(screen.queryByText("workspace.toolArgs")).not.toBeInTheDocument();
+    // Expand the row → args + output reveal.
+    fireEvent.click(screen.getByRole("button", { name: /web_search_mcp/ }));
+    expect(screen.getByText("workspace.toolArgs")).toBeInTheDocument();
+    expect(screen.getByText("query:")).toBeInTheDocument();
+    expect(screen.getByText("weather")).toBeInTheDocument();
+    expect(screen.getByText("workspace.toolOutput")).toBeInTheDocument();
+    expect(screen.getByText("Sunny, 21C")).toBeInTheDocument();
+  });
+
+  test("Inspector tool-calling node deep-links to the Outputs tab when tools ran", () => {
+    const nodeTrace: NodeTraceEntry[] = [
+      { node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 100, status: "success" },
+    ];
+    const answerMetrics: MessageMetrics = { tools_executed: [{ name: "web_search_mcp", status: "success" }] };
+    renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    fireEvent.click(screen.getByRole("button", { name: /workspace\.viewToolResults/ }));
+    expect(screen.getByRole("tab", { name: /workspace\.tabOutputs/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  test("Inspector tool-calling node is not a deep-link when no tools ran", () => {
+    const nodeTrace: NodeTraceEntry[] = [
+      { node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 100, status: "success" },
+    ];
+    renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    expect(screen.queryByRole("button", { name: /workspace\.viewToolResults/ })).not.toBeInTheDocument();
+  });
+
   test("Knowledge tab shows the RAG retrieval summary", () => {
     const answerMetrics: MessageMetrics = { rag_attempted: true, rag_doc_count: 3 };
     renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
@@ -309,6 +362,17 @@ describe("InspectorTab", () => {
     const trace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "error" }];
     render(<InspectorTab nodeTrace={trace} />);
     expect(screen.getByText("workspace.inspectorStatusError")).toBeInTheDocument();
+  });
+
+  test("makes a tool-calling node a deep-link only when onOpenOutputs is provided", () => {
+    const trace: NodeTraceEntry[] = [{ node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" }];
+    const { rerender } = render(<InspectorTab nodeTrace={trace} />);
+    // Without the callback the row is plain — no deep-link affordance.
+    expect(screen.queryByRole("button", { name: /workspace\.viewToolResults/ })).not.toBeInTheDocument();
+    const onOpenOutputs = jest.fn();
+    rerender(<InspectorTab nodeTrace={trace} onOpenOutputs={onOpenOutputs} />);
+    fireEvent.click(screen.getByRole("button", { name: /workspace\.viewToolResults/ }));
+    expect(onOpenOutputs).toHaveBeenCalledTimes(1);
   });
 });
 

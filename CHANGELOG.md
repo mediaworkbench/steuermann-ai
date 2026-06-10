@@ -2,6 +2,63 @@
 
 ### [0.4.1] — workspace split-view + documents virtualization
 
+**Tool invocation provenance (args + results) in the Outputs tab**
+
+* **Backend now forwards real tool invocations, not just names.** Previously only tool *names*
+  reached the client (`tools_executed`); the structured per-tool envelope
+  (`tool_execution_results`) was discarded except for `map_tool`'s map data. The streaming
+  `metadata` event now carries a bounded, sanitized `tool_results_detail` array
+  (`{name, status, summary, args?, output?, error?}`), built by the new
+  `build_tool_results_detail()` in `orchestration/helpers/tool_payload.py` and captured from the
+  tool-calling node the same way `map_data` is.
+* **Invocation arguments are captured** through `record_tool_success` / `record_tool_error`
+  (native, structured, and react tool-calling paths) into the envelope. Args are **sanitized**
+  before they leave the graph: secret-looking keys (`api_key`, `token`, `authorization`, …) are
+  redacted, string values truncated, and oversized arg blobs collapsed. Result text is truncated
+  to 1500 chars; the heavy `data` / full `output_text` fields are dropped from the client payload.
+* **Persistence:** `tool_results_detail` is stored in the assistant message metadata
+  (`chat.py` `_run_persistence`) alongside `node_trace`, so the detail survives a conversation
+  reload (restored via `toUiMessage`).
+* **Outputs tab** (`OutputsTab.tsx`) now renders each tool as an expandable card: name + status
+  with a one-line summary collapsed, revealing the sanitized **Arguments** and the **Result**
+  (or **Error**) preview on expand. Older persisted answers with no detail payload fall back to the
+  previous compact name badges. Flows automatically into `WorkspacePanel` and the `/chats`
+  `WorkspaceEvidenceTabs` drawer via `deriveAnswerEvidence` (new `toolResults` field).
+* **Inspector → Outputs deep-link:** tool-calling node rows (`call_tools_*`) in the Inspector are
+  now clickable (`onOpenOutputs`), switching the panel to the Outputs tab to inspect the actual
+  args/results. Wired in both `WorkspacePanel` and `WorkspaceEvidenceTabs`.
+* i18n: new EN+DE keys (`workspace.toolArgs`, `workspace.toolOutput`, `workspace.toolError`,
+  `workspace.viewToolResults`).
+* Tests: new backend `tests/test_tool_payload_detail.py` (9 cases — redaction, truncation, builder
+  shape, arg threading); frontend `deriveAnswerEvidence` toolResults derivation and `WorkspacePanel`
+  Outputs-detail + Inspector-deep-link cases. **127 frontend tests passing**, `npm run lint` 0
+  errors / 4 pre-existing warnings, `npm run build` clean.
+
+**Knowledge tab provenance**
+
+* Enriched the Knowledge tab in `WorkspacePanel` / `WorkspaceEvidenceTabs` with three provenance
+  surfaces (no backend change): **`[N]` citation index badges** on every source row (uses the
+  backend `source.index`, falls back to 1-based position — same logic as `linkFootnotes`);
+  a **Documents in context** section (`filename` + `v{version}`); and an **Attachments in context**
+  section. The empty-state guard now fires only when all four content areas are absent.
+* i18n: EN+DE `workspace.sourceCitationLabel`, `workspace.documentsInContext`,
+  `workspace.attachmentsInContext`. Frontend Jest **121/121**; lint 0 errors; build clean.
+
+**answer-evidence drawer on /chats**
+
+* Read-only answer evidence on a non-chat route (no backend change). New `WorkspaceEvidenceTabs`
+  (`frontend/src/components/workspace/WorkspaceEvidenceTabs.tsx`): a self-contained, read-only bundle
+  of the Knowledge / Memory / Outputs / Inspector tabs with a lightweight local tab switcher (no
+  Documents tab, no editing chrome). New `ConversationEvidenceDrawer` opens from a per-row
+  `PanelRightOpen` button on `/chats`, fetches the conversation, and surfaces its **latest assistant
+  answer's** evidence (loading / error-with-retry / empty states; `role="dialog"`, Escape-to-dismiss,
+  focus into the dialog, `aria-hidden` backdrop).
+* `toUiMessage` was extracted from `ChatSessionContext` into `frontend/src/lib/messageMapping.ts` so
+  the live runtime and the drawer derive `metrics` + `nodeTrace` from persisted messages identically.
+* i18n: EN+DE `workspace.answerEvidence`, `chats.viewEvidence`/`closeEvidence`/`evidenceLoading`/
+  `evidenceError`/`evidenceEmpty`/`evidenceLatestHint`. Frontend Jest **117/117**; lint 0 errors /
+  4 pre-existing warnings; build clean.
+
 **Knowledge tab enrichment**
 
 * **`[N]` citation index badges** on every source row in the Knowledge tab. The displayed number
