@@ -203,7 +203,10 @@ export function ChatInterface() {
     setDocumentsLoading(true);
     setDocumentsError(null);
     try {
-      const response = await fetch("/api/proxy/api/workspace/documents", {
+      // limit=1000 is the backend cap; the list is virtualized + client-side
+      // searched, so loading the full set keeps search + active-doc restore
+      // working. (True server-side pagination is deferred — see workspace-refactor.md.)
+      const response = await fetch("/api/proxy/api/workspace/documents?limit=1000", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
