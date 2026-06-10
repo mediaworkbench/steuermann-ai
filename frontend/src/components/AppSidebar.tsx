@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
+  BarChart3,
+  Brain,
+  Compass,
   Download,
   LogOut,
   MessageCircle,
@@ -12,6 +15,7 @@ import {
   Pin,
   Plus,
   Settings,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 
@@ -28,7 +32,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -45,6 +48,7 @@ import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useProfile } from "@/hooks/useProfile";
+import { useRole } from "@/context/RoleContext";
 import { useConversationContext } from "./LayoutShell";
 import { AUTH_ENABLED, SINGLE_USER_DISPLAY_NAME } from "@/lib/runtime";
 import type { Conversation } from "@/lib/types";
@@ -65,6 +69,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
+  const { isAdmin } = useRole();
   const {
     conversations,
     activeId,
@@ -107,6 +112,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     router.push("/settings");
   }, [router]);
 
+  const memoryLink = useCallback(() => {
+    router.push("/memories");
+  }, [router]);
+
   const handleLogout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.assign("/login");
@@ -114,13 +123,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <>
-      <Sidebar collapsible="icon" {...props}>
+      <Sidebar collapsible="offcanvas" {...props}>
         <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-1">
-            <div className="flex flex-col min-w-0">
-              <span className="text-sidebar-foreground text-sm font-bold truncate">{appTitle}</span>
-              <span className="text-sidebar-foreground/50 text-xs font-mono">{t("sidebar.platformSubtitle")} {frameworkVersion !== "unknown" ? `v${frameworkVersion}` : ""}</span>
-            </div>
+          <div className="flex flex-col p-2">
+            <span className="text-sidebar-foreground text-sm font-bold truncate">{appTitle}</span>
+            {frameworkVersion !== "unknown" && (
+              <span className="text-sidebar-foreground/50 text-xs font-mono">v{frameworkVersion}</span>
+            )}
           </div>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -128,6 +137,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 size="lg"
                 tooltip={t("sidebar.newChat")}
                 onClick={handleNewChat}
+                className="justify-start"
               >
                 <Plus />
                 <span>{t("sidebar.newChat")}</span>
@@ -187,23 +197,62 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </p>
           )}
 
-          <SidebarSeparator className="my-2" />
-
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    tooltip={t("sidebar.seeAllChats")}
+                    tooltip={t("sidebar.seeAll")}
                     onClick={() => router.push("/chats")}
+                    className="justify-start"
                   >
                     <MessageSquare />
-                    <span>{t("sidebar.seeAllChats")}</span>
+                    <span>{t("sidebar.seeAll")}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          {isAdmin && (
+            <SidebarGroup>
+              <SidebarGroupLabel>{t("sidebar.administration")}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip={t("header.metrics")}
+                      onClick={() => router.push("/metrics")}
+                      className="justify-start"
+                    >
+                      <BarChart3 />
+                      <span>{t("header.metrics")}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip={t("header.ragExplorer")}
+                      onClick={() => router.push("/admin/rag")}
+                      className="justify-start"
+                    >
+                      <Compass />
+                      <span>{t("header.ragExplorer")}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip={t("header.admin")}
+                      onClick={() => router.push("/admin")}
+                      className="justify-start"
+                    >
+                      <ShieldCheck />
+                      <span>{t("header.admin")}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
         </SidebarContent>
 
         <SidebarFooter>
@@ -214,7 +263,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   render={
                     <SidebarMenuButton
                       size="lg"
-                      className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
+                      className="justify-start data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
                     >
                       <Avatar size="sm">
                         <AvatarFallback>{initials}</AvatarFallback>
@@ -233,6 +282,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   sideOffset={8}
                   className="w-48"
                 >
+                  <DropdownMenuItem onClick={memoryLink}>
+                    <Brain />
+                    <span>{t("header.memory")}</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={settingsLink}>
                     <Settings />
                     <span>{t("header.settings")}</span>
@@ -336,6 +389,7 @@ function ConversationRow({
             e.preventDefault();
             startRename();
           }}
+          className="justify-start"
         >
           {c.pinned ? <Pin /> : <MessageCircle />}
           <span className="truncate">{c.title}</span>

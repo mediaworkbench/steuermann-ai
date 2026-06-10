@@ -58,7 +58,6 @@ export type Messages = {
     showLess: string;
   };
   sidebar: {
-    platformSubtitle: string;
     closeNavigation: string;
     startNewChat: string;
     newChat: string;
@@ -66,7 +65,8 @@ export type Messages = {
     pinned: string;
     recentChats: string;
     noConversations: string;
-    seeAllChats: string;
+    seeAll: string;
+    administration: string;
     settingsForUser: string;
     moreOptions: string;
     rename: string;
@@ -666,7 +666,6 @@ export const messages: Record<Locale, Messages> = {
       showLess: "Show less",
     },
     sidebar: {
-      platformSubtitle: "Universal Agentic Orchestration Platform",
       closeNavigation: "Close navigation",
       startNewChat: "Start a new chat",
       newChat: "New Chat",
@@ -674,7 +673,8 @@ export const messages: Record<Locale, Messages> = {
       pinned: "Pinned",
       recentChats: "Recent Chats",
       noConversations: "No conversations yet",
-      seeAllChats: "See all chats",
+      seeAll: "See all",
+      administration: "Administration",
       settingsForUser: "Open settings for {name}",
       moreOptions: "More options",
       rename: "Rename",
@@ -1273,7 +1273,6 @@ export const messages: Record<Locale, Messages> = {
       showLess: "Weniger anzeigen",
     },
     sidebar: {
-      platformSubtitle: "Universelle Agenten-Orchestrierungsplattform",
       closeNavigation: "Navigation schließen",
       startNewChat: "Neuen Chat starten",
       newChat: "Neuer Chat",
@@ -1281,7 +1280,8 @@ export const messages: Record<Locale, Messages> = {
       pinned: "Angeheftet",
       recentChats: "Letzte Chats",
       noConversations: "Noch keine Unterhaltungen",
-      seeAllChats: "Alle Chats anzeigen",
+      seeAll: "Alle anzeigen",
+      administration: "Verwaltung",
       settingsForUser: "Einstellungen für {name} öffnen",
       moreOptions: "Weitere Optionen",
       rename: "Umbenennen",
