@@ -325,6 +325,44 @@ describe("EvidenceChips", () => {
     fireEvent.click(screen.getByTitle("workspace.evidenceMemory"));
     expect(onSelect).toHaveBeenCalledWith("memory");
   });
+
+  test("attachments chip routes to the Knowledge tab; docs chip to the Documents tab", () => {
+    const onSelect = jest.fn();
+    render(
+      <EvidenceChips
+        metrics={{
+          attachments_used: [{ id: "a1", original_name: "budget.csv" }],
+          documents_used: [{ id: "d1", filename: "report.md", version: 2 }],
+        }}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByTitle("workspace.evidenceAttachments"));
+    expect(onSelect).toHaveBeenCalledWith("knowledge");
+    fireEvent.click(screen.getByTitle("workspace.evidenceDocs"));
+    expect(onSelect).toHaveBeenCalledWith("documents");
+  });
+
+  test("renders attachment-only answers (added to hasEvidence)", () => {
+    render(<EvidenceChips metrics={{ attachments_used: [{ id: "a1", original_name: "x.csv" }] }} />);
+    expect(screen.getByTitle("workspace.evidenceAttachments")).toBeInTheDocument();
+  });
+
+  test("renders static (non-interactive) chips when onSelect is omitted — for older answers", () => {
+    render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} />);
+    expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test("no longer renders a separate map chip (the inline MapWidget is the artifact)", () => {
+    render(
+      <EvidenceChips
+        metrics={{ map_data: { type: "location", zoom: 10, osm_url: "https://osm" } }}
+        onSelect={jest.fn()}
+      />,
+    );
+    expect(screen.queryByTitle("workspace.mapGenerated")).not.toBeInTheDocument();
+  });
 });
 
 describe("InspectorTab", () => {

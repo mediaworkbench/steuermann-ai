@@ -393,6 +393,7 @@ export type Messages = {
     evidenceMemory: string;
     evidenceTools: string;
     evidenceSources: string;
+    evidenceAttachments: string;
     knowledgeRetrieved: string;
     knowledgeNoResults: string;
     sourcesHeading: string;
@@ -998,6 +999,7 @@ export const messages: Record<Locale, Messages> = {
       evidenceMemory: "Memories recalled",
       evidenceTools: "Tools used",
       evidenceSources: "Sources",
+      evidenceAttachments: "Attachments used",
       knowledgeRetrieved: "{count} document(s) retrieved",
       knowledgeNoResults: "Searched · no relevant results",
       sourcesHeading: "Sources",
@@ -1601,6 +1603,7 @@ export const messages: Record<Locale, Messages> = {
       evidenceMemory: "Abgerufene Erinnerungen",
       evidenceTools: "Verwendete Tools",
       evidenceSources: "Quellen",
+      evidenceAttachments: "Verwendete Anhänge",
       knowledgeRetrieved: "{count} Dokument(e) abgerufen",
       knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
       sourcesHeading: "Quellen",

@@ -2,6 +2,26 @@
 
 ### [0.4.1] — workspace split-view + documents virtualization
 
+**Inline provenance dedupe**
+
+* Collapsed the redundant in-stream provenance surfaces. The assistant footer used to render up to
+  three separate badge rows (`SourceBadges`, `AttachmentUsedBadges`, `DocumentUsedBadges`) **plus**
+  `EvidenceChips` (latest answer only) — the same sources/docs/attachments shown two or three ways,
+  and again in the Knowledge tab. Those three badge components (and their now-unused imports) were
+  removed from `ChatInterface`; **`EvidenceChips` is now the single inline provenance summary**.
+* **Rendered on every answer, interactive only on the latest.** `EvidenceChips` now receives
+  `onSelect` only for the in-focus (latest) answer — its chips deep-link into the latest-scoped
+  workspace panel — while older answers render the same counts as a static, non-interactive summary
+  (no misleading deep-link into a different answer's panel). Inline `[N]` superscripts and the
+  `MapWidget` artifact stay in the stream; `MetricsPanel` (tokens · model · latency) is unchanged.
+* **Added an `attachments` chip** (📎 → Knowledge tab) so attachment provenance isn't lost when the
+  `AttachmentUsedBadges` row is removed; `attachments` is now part of `deriveAnswerEvidence`'s
+  `hasEvidence`. The `docs` chip still points at the **Documents** tab (the persistent upload/edit
+  surface). **Dropped the separate `map` chip** — the map is already rendered inline by `MapWidget`.
+* i18n: new EN+DE `workspace.evidenceAttachments`. Tests: EvidenceChips cases for attachments/docs
+  routing, attachment-only `hasEvidence`, static (older-answer) chips, and the dropped map chip.
+  Frontend **131/131**; `npm run lint` 0 errors / 4 pre-existing warnings; `npm run build` clean.
+
 **Tool invocation provenance (args + results) in the Outputs tab**
 
 * **Backend now forwards real tool invocations, not just names.** Previously only tool *names*

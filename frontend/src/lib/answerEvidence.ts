@@ -81,6 +81,7 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
     memories.length > 0 ||
     sources.length > 0 ||
     documents.length > 0 ||
+    attachments.length > 0 ||
     knowledgeBaseUsed ||
     Boolean(mapData);
 

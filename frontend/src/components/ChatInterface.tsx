@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { ArrowUp, BookOpen, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, FolderOpen, Globe, Image as ImageIcon, Mic, Minimize2, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
+import { ArrowUp, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, Image as ImageIcon, Mic, Minimize2, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
@@ -40,7 +40,6 @@ import type {
   Message,
   MessageMetrics,
   NodeTraceEntry,
-  Source,
 } from "@/lib/types";
 
 const FALLBACK_TOOLS = [
@@ -63,90 +62,6 @@ function formatModelName(model: string | null | undefined, fallback = "Model"): 
   const parts = m.split("/");
   return parts.length > 1 ? parts.slice(1).join("/") : m;
 }
-
-/** Render source badges below a message — blue for web (clickable), amber for RAG */
-function SourceBadges({ sources }: { sources?: Source[] }) {
-  if (!sources || sources.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-2">
-      {sources.map((src, idx) =>
-        src.type === "web" && src.url ? (
-          <a
-            key={`${src.label}-${idx}`}
-            href={src.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                         bg-primary/10 text-primary border border-primary/20
-                         hover:bg-primary/20 transition-colors no-underline"
-          >
-            <Globe size={12} />
-            {src.label}
-          </a>
-        ) : (
-          <span
-            key={`${src.label}-${idx}`}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                       bg-warning/10 text-warning border border-warning/20"
-          >
-            <BookOpen size={12} />
-            {src.label}
-          </span>
-        ),
-      )}
-    </div>
-  );
-}
-
-/** Render small file chips below an assistant message for each document used as context. */
-function AttachmentUsedBadges({
-  attachments,
-}: {
-  attachments?: Array<{ id: string; original_name: string }>;
-}) {
-  if (!attachments || attachments.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-1.5">
-      {attachments.map((att) => (
-        <span
-          key={att.id}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-surface-muted text-muted-foreground border border-border"
-          title={`Context from: ${att.original_name}`}
-        >
-          <FileText size={12} />
-          {att.original_name}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function DocumentUsedBadges({
-  documents,
-}: {
-  documents?: Array<{ id: string; filename: string; version: number }>;
-}) {
-  if (!documents || documents.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-1.5">
-      {documents.map((doc) => (
-        <span
-          key={doc.id}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-success/10 text-success border border-success/20"
-          title={`Workspace context: ${doc.filename} (v${doc.version})`}
-        >
-          <FolderOpen size={12} />
-          {doc.filename}
-          <span className="text-success/75">v{doc.version}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-
 
 function CtxRow({ label, value }: { label: string; value: number }) {
   return (
@@ -1248,21 +1163,15 @@ function AssistantMessage({
           </div>
         )}
 
-        {/* Source badges — only show RAG sources when docs were actually injected */}
-        <SourceBadges
-          sources={message.metrics?.sources?.filter(
-            (s) => s.type !== "rag" || (message.metrics?.rag_doc_count ?? 0) > 0,
-          )}
+        {/* Single inline provenance summary (sources · memory · tools · attachments ·
+            docs). Shown on every answer; only the in-focus (latest) answer's chips
+            deep-link into the latest-scoped workspace panel — older answers render the
+            same counts as a static summary. Citations stay inline as [N] superscripts;
+            the full drill-down (source URLs, tool args/results, trace) lives in the tabs. */}
+        <EvidenceChips
+          metrics={message.metrics}
+          onSelect={isLatest ? onSelectEvidence : undefined}
         />
-
-        {/* Attachment context badges */}
-        <AttachmentUsedBadges attachments={message.metrics?.attachments_used} />
-
-        {/* Workspace document context badges */}
-        <DocumentUsedBadges documents={message.metrics?.documents_used} />
-
-        {/* Latest-answer evidence summary — glanceable bridge to the workspace tabs */}
-        {isLatest && <EvidenceChips metrics={message.metrics} onSelect={onSelectEvidence} />}
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">
