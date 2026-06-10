@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { AlertCircle, Check, CheckCircle, ChevronDown, CircleDollarSign, Copy, Database, RefreshCw, Timer, Wrench } from "lucide-react";
+import { Check, ChevronDown, CircleDollarSign, Copy, RefreshCw, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { MessageMetrics } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
-import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 
 interface MetricsPanelProps {
   metrics?: MessageMetrics;
@@ -40,11 +39,6 @@ export function MetricsPanel({
       ? (metrics.output_tokens / metrics.response_time_ms) * 1000
       : null;
   const tpsDisplay = tps == null ? null : tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
-  // Shared evidence source — keeps tool/RAG derivation identical to the in-stream
-  // chips and the workspace evidence tabs. Memories are intentionally not shown
-  // per-message; they live in the workspace Memory tab + latest-answer chip.
-  const evidence = useAnswerEvidence(metrics);
-  const toolCount = evidence.toolCount;
 
   const handleCopy = useCallback(() => {
     const doCopy = () => {
@@ -96,17 +90,6 @@ export function MetricsPanel({
               <CircleDollarSign size={13} className="text-primary" />
               {formatNumber(totalTokens)} {t("charts.tokens")}
             </span>
-            {toolCount > 0 && (
-              <>
-                <span className="text-muted-foreground" aria-hidden="true">
-                  ·
-                </span>
-                <span className="flex items-center gap-0.5">
-                  <Wrench size={13} className="text-primary" />
-                  {toolCount} {t("chat.toolsInvoked")}
-                </span>
-              </>
-            )}
           </span>
         </Button>
 
@@ -204,52 +187,6 @@ export function MetricsPanel({
                 )}
               </div>
             )}
-
-            {/* Tools (RAG is shown separately under Knowledge Base, not here) */}
-            {evidence.tools.length > 0 && (
-              <div className="pt-2 border-t border-border/60">
-                <span className="text-muted-foreground uppercase tracking-wider text-[10px] block mb-1.5">
-                  {t("chat.toolsInvoked")}
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {evidence.tools.map((tool, idx) => {
-                    const isError = tool.status === "error";
-                    const badgeClass = isError
-                      ? "bg-destructive/10 text-destructive border border-destructive/20"
-                      : "bg-primary/15 text-primary border border-primary/20";
-                    return (
-                      <span
-                        key={`${tool.name}-${idx}`}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${badgeClass}`}
-                      >
-                        {isError ? <AlertCircle size={11} /> : <CheckCircle size={11} />}
-                        {tool.name}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Knowledge Base */}
-            {evidence.ragAttempted && (
-              <div className="pt-2 border-t border-border/60">
-                <span className="text-muted-foreground uppercase tracking-wider text-[10px] block mb-1.5">
-                  Knowledge Base
-                </span>
-                <div className="flex items-center gap-1.5 text-xs text-foreground">
-                  <Database size={13} className="text-muted-foreground shrink-0" />
-                  {evidence.ragDocCount > 0 ? (
-                    <span>
-                      {evidence.ragDocCount} document{evidence.ragDocCount !== 1 ? "s" : ""} retrieved
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">searched · no relevant results</span>
-                  )}
-                </div>
-              </div>
-            )}
-
           </div>
         </div>
       </div>

@@ -1,5 +1,204 @@
 # Changelog
 
+### [0.4.1] — workspace split-view + documents virtualization
+
+**Documents tab — kebab actions menu (replaces the expandable row)**
+
+* Each document row in the workspace Documents tab now consolidates its actions
+  (Edit · Attach · Download · History · Rename · Delete) into a single **kebab menu** (`MoreVertical`,
+  right-aligned) built on the shadcn `DropdownMenu` (`ui/dropdown-menu`, base-ui). The old
+  click-to-expand row + inline action button row are gone; rename still happens inline (seeded with
+  the filename, Enter/Save · Escape/Cancel). Delete is the destructive menu item.
+* Rows got a bit more breathing room (`px-3 py-2.5`, `gap-2.5`) — they were cramped. Removed the now
+  dead `WorkspaceDocActionButton` component.
+* i18n: new EN+DE `workspace.documentActions` (menu trigger label); rename Save/Cancel reuse
+  `common.save`/`common.cancel`. Tests: 2 new `WorkspacePanel` cases (menu opens + lists actions;
+  Rename reveals the inline input). Frontend **141/141**; lint 0 errors / 4 pre-existing warnings;
+  build clean.
+
+**Answer-scoped workspace panel + technical-only MetricsPanel**
+
+* **The workspace panel now follows the answer you click, not just the latest.** Clicking any
+  answer's evidence chip pins the panel (Knowledge/Memory/Outputs/Inspector) to *that* answer.
+  Driven by a `focusedAnswerIndex` in `ChatInterface` resolved through a new pure helper
+  `pickFocusedAnswer` (`lib/panelAnswer.ts`, unit-tested for the null/stale/out-of-bounds/non-assistant
+  /equals-latest edge cases). Evidence-tab chips pin; the Documents chip (conversation-scoped) does
+  not. Focus **auto-resets to the latest** answer on a new turn (rising edge of `isStreaming`) and on
+  conversation switch.
+* **Focus indicators:** a "Viewing an earlier answer · Jump to latest" banner on the panel's evidence
+  tabs (`WorkspacePanel`, new `historicalAnswer` / `onJumpToLatest` props), plus a subtle ring on the
+  pinned message in the chat (via `ChatMessageShell` `bodyClassName`, gated on the panel being open).
+  Every answer's chips are interactive again (this reverts the prior "static chips for older answers").
+* **`MetricsPanel` is now purely technical** — removed the "Tools invoked" and "Knowledge Base"
+  sections and the collapsed-header tool-count badge; it no longer depends on `useAnswerEvidence`.
+  Provenance lives in the chips + panel tabs. Remaining: response time / tokens / tokens-per-sec /
+  finish reason / model / temperature + copy/regenerate.
+* **Workspace toggle moved into the composer** (beside the RAG toggle, `PanelRightOpen/Close` icon) and
+  removed from the top nav; the split-view `Columns2` toggle stays in the header. All auto-open paths
+  (attachment upload, evidence-chip click) are unchanged.
+* **Wider panel:** the open workspace sidebar is now `md:w-80 lg:w-96` (was `md:w-64 lg:w-72`).
+* i18n: EN+DE `workspace.viewingEarlierAnswer`, `workspace.jumpToLatest`. Tests: new
+  `panelAnswer.test.ts` (6) + `WorkspacePanel` banner cases. Frontend **139/139**; lint 0 errors /
+  4 pre-existing warnings; build clean.
+
+**Inline provenance dedupe**
+
+* Collapsed the redundant in-stream provenance surfaces. The assistant footer used to render up to
+  three separate badge rows (`SourceBadges`, `AttachmentUsedBadges`, `DocumentUsedBadges`) **plus**
+  `EvidenceChips` (latest answer only) — the same sources/docs/attachments shown two or three ways,
+  and again in the Knowledge tab. Those three badge components (and their now-unused imports) were
+  removed from `ChatInterface`; **`EvidenceChips` is now the single inline provenance summary**.
+* **Rendered on every answer, interactive only on the latest.** `EvidenceChips` now receives
+  `onSelect` only for the in-focus (latest) answer — its chips deep-link into the latest-scoped
+  workspace panel — while older answers render the same counts as a static, non-interactive summary
+  (no misleading deep-link into a different answer's panel). Inline `[N]` superscripts and the
+  `MapWidget` artifact stay in the stream; `MetricsPanel` (tokens · model · latency) is unchanged.
+* **Added an `attachments` chip** (📎 → Knowledge tab) so attachment provenance isn't lost when the
+  `AttachmentUsedBadges` row is removed; `attachments` is now part of `deriveAnswerEvidence`'s
+  `hasEvidence`. The `docs` chip still points at the **Documents** tab (the persistent upload/edit
+  surface). **Dropped the separate `map` chip** — the map is already rendered inline by `MapWidget`.
+* i18n: new EN+DE `workspace.evidenceAttachments`. Tests: EvidenceChips cases for attachments/docs
+  routing, attachment-only `hasEvidence`, static (older-answer) chips, and the dropped map chip.
+  Frontend **131/131**; `npm run lint` 0 errors / 4 pre-existing warnings; `npm run build` clean.
+
+**Tool invocation provenance (args + results) in the Outputs tab**
+
+* **Backend now forwards real tool invocations, not just names.** Previously only tool *names*
+  reached the client (`tools_executed`); the structured per-tool envelope
+  (`tool_execution_results`) was discarded except for `map_tool`'s map data. The streaming
+  `metadata` event now carries a bounded, sanitized `tool_results_detail` array
+  (`{name, status, summary, args?, output?, error?}`), built by the new
+  `build_tool_results_detail()` in `orchestration/helpers/tool_payload.py` and captured from the
+  tool-calling node the same way `map_data` is.
+* **Invocation arguments are captured** through `record_tool_success` / `record_tool_error`
+  (native, structured, and react tool-calling paths) into the envelope. Args are **sanitized**
+  before they leave the graph: secret-looking keys (`api_key`, `token`, `authorization`, …) are
+  redacted, string values truncated, and oversized arg blobs collapsed. Result text is truncated
+  to 1500 chars; the heavy `data` / full `output_text` fields are dropped from the client payload.
+* **Persistence:** `tool_results_detail` is stored in the assistant message metadata
+  (`chat.py` `_run_persistence`) alongside `node_trace`, so the detail survives a conversation
+  reload (restored via `toUiMessage`).
+* **Outputs tab** (`OutputsTab.tsx`) now renders each tool as an expandable card: name + status
+  with a one-line summary collapsed, revealing the sanitized **Arguments** and the **Result**
+  (or **Error**) preview on expand. Older persisted answers with no detail payload fall back to the
+  previous compact name badges. Flows automatically into `WorkspacePanel` and the `/chats`
+  `WorkspaceEvidenceTabs` drawer via `deriveAnswerEvidence` (new `toolResults` field).
+* **Inspector → Outputs deep-link:** tool-calling node rows (`call_tools_*`) in the Inspector are
+  now clickable (`onOpenOutputs`), switching the panel to the Outputs tab to inspect the actual
+  args/results. Wired in both `WorkspacePanel` and `WorkspaceEvidenceTabs`.
+* i18n: new EN+DE keys (`workspace.toolArgs`, `workspace.toolOutput`, `workspace.toolError`,
+  `workspace.viewToolResults`).
+* Tests: new backend `tests/test_tool_payload_detail.py` (9 cases — redaction, truncation, builder
+  shape, arg threading); frontend `deriveAnswerEvidence` toolResults derivation and `WorkspacePanel`
+  Outputs-detail + Inspector-deep-link cases. **127 frontend tests passing**, `npm run lint` 0
+  errors / 4 pre-existing warnings, `npm run build` clean.
+
+**Knowledge tab provenance**
+
+* Enriched the Knowledge tab in `WorkspacePanel` / `WorkspaceEvidenceTabs` with three provenance
+  surfaces (no backend change): **`[N]` citation index badges** on every source row (uses the
+  backend `source.index`, falls back to 1-based position — same logic as `linkFootnotes`);
+  a **Documents in context** section (`filename` + `v{version}`); and an **Attachments in context**
+  section. The empty-state guard now fires only when all four content areas are absent.
+* i18n: EN+DE `workspace.sourceCitationLabel`, `workspace.documentsInContext`,
+  `workspace.attachmentsInContext`. Frontend Jest **121/121**; lint 0 errors; build clean.
+
+**answer-evidence drawer on /chats**
+
+* Read-only answer evidence on a non-chat route (no backend change). New `WorkspaceEvidenceTabs`
+  (`frontend/src/components/workspace/WorkspaceEvidenceTabs.tsx`): a self-contained, read-only bundle
+  of the Knowledge / Memory / Outputs / Inspector tabs with a lightweight local tab switcher (no
+  Documents tab, no editing chrome). New `ConversationEvidenceDrawer` opens from a per-row
+  `PanelRightOpen` button on `/chats`, fetches the conversation, and surfaces its **latest assistant
+  answer's** evidence (loading / error-with-retry / empty states; `role="dialog"`, Escape-to-dismiss,
+  focus into the dialog, `aria-hidden` backdrop).
+* `toUiMessage` was extracted from `ChatSessionContext` into `frontend/src/lib/messageMapping.ts` so
+  the live runtime and the drawer derive `metrics` + `nodeTrace` from persisted messages identically.
+* i18n: EN+DE `workspace.answerEvidence`, `chats.viewEvidence`/`closeEvidence`/`evidenceLoading`/
+  `evidenceError`/`evidenceEmpty`/`evidenceLatestHint`. Frontend Jest **117/117**; lint 0 errors /
+  4 pre-existing warnings; build clean.
+
+**Knowledge tab enrichment**
+
+* **`[N]` citation index badges** on every source row in the Knowledge tab. The displayed number
+  uses the backend-assigned `source.index` field when present, and falls back to 1-based position
+  in the sources array (the same logic as `linkFootnotes` in `lib/markdown.ts`). Readers can now
+  cross-reference the `[N]` superscripts in the answer text with their source in the panel.
+* **Documents in context** section: when `evidence.documents` is non-empty, a new "Documents in
+  context" section lists the workspace documents the model had access to (`filename` + `v{version}`).
+* **Attachments in context** section: when `evidence.attachments` is non-empty, a new "Attachments
+  in context" section lists file attachments used as context.
+* Empty-state guard extended: the Knowledge tab now shows its empty state only when all four content
+  areas are absent (sources, documents, attachments, and the RAG knowledge-base flag).
+* Both new sections appear in `WorkspacePanel`, `WorkspaceEvidenceTabs` (the `/chats` drawer), and
+  any future reuse of `KnowledgeTab` — no call-site changes needed.
+* i18n: new EN+DE keys (`workspace.sourceCitationLabel`, `workspace.documentsInContext`,
+  `workspace.attachmentsInContext`).
+* Tests: 4 new cases in `WorkspacePanel.test.tsx` covering index badges (explicit + positional
+  fallback), documents/attachments sections, and the extended empty-state guard. Full suite:
+  **121 passing**, `npm run lint` 0 errors / 4 pre-existing warnings.
+
+**Read-only evidence on /chats**
+
+* **`WorkspaceEvidenceTabs`** (`frontend/src/components/workspace/WorkspaceEvidenceTabs.tsx`): a self-contained, read-only bundle of the existing Knowledge / Memory / Outputs / Inspector tabs with a lightweight local tab switcher — **no Documents tab, no editing chrome**. Feeds the same presentational tab components the live workspace panel uses, driven by an arbitrary (e.g. persisted) answer's `metrics` + `nodeTrace`.
+* **`ConversationEvidenceDrawer`** (`frontend/src/components/workspace/ConversationEvidenceDrawer.tsx`): a right-side drawer that loads a past conversation and surfaces its **latest assistant answer's** evidence. Loading / error (with retry) / empty states; `role="dialog"` with Escape-to-dismiss, focus moved into the dialog, and an `aria-hidden` backdrop as the single AT-facing close control is the header button.
+* **`/chats` integration:** each conversation row gains a `PanelRightOpen` evidence button (next to the `⋮` menu) that opens the drawer without navigating away. The bulk-select / search UX is untouched.
+* **Shared mapping:** extracted `toUiMessage` out of `ChatSessionContext` into `frontend/src/lib/messageMapping.ts` so the live chat runtime and the drawer derive `metrics` + `nodeTrace` from persisted messages identically (restores the Inspector trace on load).
+* i18n: new EN+DE keys (`workspace.answerEvidence`, `chats.viewEvidence`, `chats.closeEvidence`, `chats.evidenceLoading`, `chats.evidenceError`, `chats.evidenceEmpty`, `chats.evidenceLatestHint`).
+* Tests: new `ConversationEvidence.test.tsx` (8 tests incl. an axe assertion) covering the bundle's tab switching/counts and the drawer's load/empty/error-retry/close paths. Full suite: **117 passing**, `npm run lint` 0 errors / 4 pre-existing warnings, `npm run build` clean.
+
+**Documents list virtualization**
+
+* Added `@tanstack/react-virtual`; the workspace Documents list now windows past a 50-row threshold via the new generic `VirtualizedList` (`frontend/src/components/workspace/VirtualizedList.tsx`). At or below the threshold the list renders exactly as before (zero behavior change for the common case). Dynamic measurement handles the expandable, variable-height rows.
+
+**Active Document split-view**
+
+* **One editor source of truth:** lifted `useDocumentEditor` + `useVersionHistory` + the shared `processingAction` token into a new `ActiveDocumentProvider` (`frontend/src/context/ActiveDocumentContext.tsx`), mounted in `ChatInterface`. The Documents tab and the new pane share a single editor instance — never two competing editors.
+* **`DocumentEditorView`** (`frontend/src/components/workspace/DocumentEditorView.tsx`): extracted the editor + version-history UI; rendered inline in the Documents tab (split off) or in the pane (split on).
+* **`ActiveDocumentPane`** (`frontend/src/components/workspace/ActiveDocumentPane.tsx`): full-height editing pane between the chat column and the workspace panel, with a left-edge horizontal resize (mirrors the editor's vertical resize) and a full-screen overlay on mobile.
+* **Split-view toggle:** new `Columns2` Header button; state lives in `LayoutShell` and is exposed via `ConversationContext` (mirrors `workspaceSidebarOpen`), persisted to `localStorage`. When on, the inline Documents-tab editor collapses and the pane owns editing.
+* **Per-conversation restore:** the open document is remembered per conversation in a `localStorage` map (`workspace.activeDoc`) and reopened on conversation switch — no backend change.
+* i18n: new EN+DE keys (`chat.toggleSplitView`, `chat.splitView`, `workspace.splitView*`, `workspace.closeSplitView`, `workspace.resizeSplitView`).
+* Tests: extended `WorkspacePanel.test.tsx` (threshold switch to the windowed list; `ActiveDocumentPane` empty state + close); existing renders now wrap in `ActiveDocumentProvider`. Full suite: 111 passing.
+
+**Workspace editor model simplification + design-system compliance**
+
+* **Split-view pane is now the only editor.** The Documents-tab inline editor (`DocumentEditorView`
+  `variant="inline"`) is removed; the split-view pane is the sole editing surface. Clicking **Edit**
+  in the kebab menu opens the pane automatically (gated on `activeWorkspaceDocId` in `ChatInterface`);
+  closing the pane (X button) calls `closeEditor()` which clears the editor and unmounts the pane.
+  No separate toggle button — the pane is visible if and only if a document is open.
+* **Header split-view toggle removed.** The `Columns2` Header button, the `splitViewOpen` state in
+  `LayoutShell`, its `ConversationContext` fields, and its localStorage key are all gone.
+* **`DocumentEditorView` collapsed to pane-only.** The `variant` prop and the inline layout branch
+  are removed; the component always renders the pane layout. The redundant editor-section header
+  (duplicate doc name + close) is gone — the pane header owns the single title + close.
+* **`useDocumentEditor` dead state removed.** `editorHeight`, `setEditorHeight`, `isDraggingRef`, and
+  `onResizeStart` (the old vertical resize that only existed for the inline editor) are deleted.
+  The pane's own horizontal resize is unaffected.
+* **"Clear all documents" follows the design-system `ConfirmDialog` pattern.** The ad-hoc
+  two-button inline swap (`nukePending`) is replaced with `ConfirmDialog` (`variant="danger"`,
+  `requireChecked`) — matching the "Clear All Memories" flow. A `requireChecked` checkbox must be
+  ticked before the Delete button enables.
+* **"Export" top-nav label renamed "Export Chat".** New `header.exportChat` i18n key; `common.export`
+  (used inside `ExportDialog`) is unchanged.
+* i18n: added `header.exportChat` (EN/DE), `workspace.nukeMessage` (EN/DE, with `{count}` interpolation).
+  Pruned orphaned keys: `chat.toggleSplitView`, `chat.splitView`, `workspace.editor`,
+  `workspace.closeEditor`, `workspace.resizeEditor`, `workspace.splitViewEmpty`,
+  `workspace.splitViewEmptyHint`, `workspace.nukeConfirm`. Fixed pre-existing invalid-character
+  ESLint error in DE locale (curly quotes in `splitViewTitle`/`closeSplitView` values).
+* Defensive null guard added to `ActiveDocumentPane`: body only renders `DocumentEditorView` when
+  `editorDocId` is non-null, guarding against any batching edge case during close.
+* Tests: reworked `ActiveDocumentPane` block in `WorkspacePanel.test.tsx` (dropped `onClose` prop;
+  replaced removed empty-state case with a "region mounts without crashing" assertion; close button
+  is present and clickable). Frontend **141/141**; `npm run lint` 0 errors / 4 pre-existing
+  warnings; `npm run build` clean.
+
+**Build hygiene — fixed a v0.4.0 case-sensitivity regression**
+
+* The shadcn migration switched `components/ui` imports to lowercase but left six files PascalCase (`Button.tsx`, `Checkbox.tsx`, `Input.tsx`, `Select.tsx`, `Slider.tsx`, `Textarea.tsx`), so `npm run build` (Turbopack, case-sensitive) failed app-wide with `Module not found: '@/components/ui/button'` (~43 errors) — dev/`tsc`/Jest passed on macOS's case-insensitive FS only. Renamed all six to lowercase (`git mv`, all 49 imports were already lowercase). **`npm run build` now compiles cleanly** and `tsc` has no remaining `forceConsistentCasingInFileNames` errors.
+* Still broken (separate, pre-existing): `npm run lint` (`eslint .`) errors under ESLint 9 flat-config because `eslint-config-next` passes a top-level `parserOptions`. Linting currently rides on `next build`.
+
 ### [0.4.0] — shadcn-ui-migration
 
 **CSS Module Cleanup**

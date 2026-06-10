@@ -1,4 +1,4 @@
-import type { MessageMetrics, ToolExecution, MemoryReference, Source, MapData } from "./types";
+import type { MessageMetrics, ToolExecution, ToolResultDetail, MemoryReference, Source, MapData } from "./types";
 
 /**
  * Normalized, render-ready evidence for a single assistant answer. Derived once
@@ -14,6 +14,8 @@ import type { MessageMetrics, ToolExecution, MemoryReference, Source, MapData } 
 export interface AnswerEvidence {
   tools: ToolExecution[];
   toolCount: number;
+  /** Per-tool args + result preview (Outputs tab). Excludes `knowledge_base`. */
+  toolResults: ToolResultDetail[];
   memories: MemoryReference[];
   memoryCount: number;
   knowledgeBaseUsed: boolean;
@@ -33,6 +35,7 @@ export interface AnswerEvidence {
 export const EMPTY_ANSWER_EVIDENCE: AnswerEvidence = {
   tools: [],
   toolCount: 0,
+  toolResults: [],
   memories: [],
   memoryCount: 0,
   knowledgeBaseUsed: false,
@@ -54,6 +57,9 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
 
   const rawTools = metrics.tools_executed ?? [];
   const tools = rawTools.filter((tool) => tool.name !== "knowledge_base");
+  const toolResults = (metrics.tool_results_detail ?? []).filter(
+    (tr) => tr.name !== "knowledge_base",
+  );
 
   const memories = metrics.memories_used ?? [];
   const ragAttempted = Boolean(metrics.rag_attempted);
@@ -75,12 +81,14 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
     memories.length > 0 ||
     sources.length > 0 ||
     documents.length > 0 ||
+    attachments.length > 0 ||
     knowledgeBaseUsed ||
     Boolean(mapData);
 
   return {
     tools,
     toolCount: tools.length,
+    toolResults,
     memories,
     memoryCount: memories.length,
     knowledgeBaseUsed,

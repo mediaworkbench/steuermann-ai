@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
-import { AlertCircle, CheckCircle } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
@@ -46,9 +46,12 @@ function humanizeNode(id: string): string {
 export function InspectorTab({
   nodeTrace,
   isStreaming,
+  onOpenOutputs,
 }: {
   nodeTrace: NodeTraceEntry[];
   isStreaming?: boolean;
+  /** When provided, tool-calling node rows become deep-links into the Outputs tab. */
+  onOpenOutputs?: () => void;
 }) {
   const { t } = useI18n();
 
@@ -100,25 +103,47 @@ export function InspectorTab({
         {nodeTrace.map((n, idx) => {
           const isError = n.status === "error";
           const pct = n.durationMs != null ? Math.round((n.durationMs / maxMs) * 100) : 0;
+          const isToolNode = CALL_TOOLS_SET.has(n.node);
+          const linkToOutputs = isToolNode && Boolean(onOpenOutputs);
+          const rowContent = (
+            <>
+              <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
+              {isError
+                ? <AlertCircle size={13} className="shrink-0 text-destructive" />
+                : <CheckCircle size={13} className="shrink-0 text-primary" />
+              }
+              <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
+              <span className="sr-only">
+                {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
+              </span>
+              {n.durationMs != null && (
+                <span className="font-mono text-[10px] text-muted-foreground shrink-0">{n.durationMs} ms</span>
+              )}
+              {linkToOutputs && (
+                <>
+                  <ArrowRight size={12} className="shrink-0 text-muted-foreground group-hover/row:text-primary" />
+                  <span className="sr-only">{t("workspace.viewToolResults")}</span>
+                </>
+              )}
+            </>
+          );
           return (
             <li
               key={`${n.node}-${n.sequence}-${idx}`}
               className="rounded-lg border border-border bg-surface-muted px-2.5 py-1.5"
             >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
-                {isError
-                  ? <AlertCircle size={13} className="shrink-0 text-destructive" />
-                  : <CheckCircle size={13} className="shrink-0 text-primary" />
-                }
-                <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
-                <span className="sr-only">
-                  {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
-                </span>
-                {n.durationMs != null && (
-                  <span className="font-mono text-[10px] text-muted-foreground shrink-0">{n.durationMs} ms</span>
-                )}
-              </div>
+              {linkToOutputs ? (
+                <button
+                  type="button"
+                  onClick={onOpenOutputs}
+                  title={t("workspace.viewToolResults")}
+                  className="group/row flex w-full items-center gap-2 text-left"
+                >
+                  {rowContent}
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">{rowContent}</div>
+              )}
               <div className="mt-1 ml-7 h-1 rounded-full bg-border overflow-hidden">
                 <div
                   className={`h-full rounded-full ${isError ? "bg-destructive/50" : "bg-primary/40"}`}

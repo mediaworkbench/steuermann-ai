@@ -3,8 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
 import { InspectorTab } from "../InspectorTab";
+import { ActiveDocumentPane } from "../ActiveDocumentPane";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
+import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkspaceDocument } from "../types";
 import type { MessageMetrics, NodeTraceEntry } from "@/lib/types";
@@ -27,8 +29,14 @@ const baseProps = {
   documents: [],
 };
 
-// WorkspacePanel/DocumentsTab read internal view state from WorkspacePanelContext.
-const renderWithPanel = (ui: ReactElement) => render(<WorkspacePanelProvider>{ui}</WorkspacePanelProvider>);
+// WorkspacePanel/DocumentsTab read internal view state from WorkspacePanelContext
+// and the lifted editor state from ActiveDocumentContext (one shared editor).
+const renderWithPanel = (ui: ReactElement, documents: WorkspaceDocument[] = []) =>
+  render(
+    <ActiveDocumentProvider documents={documents}>
+      <WorkspacePanelProvider>{ui}</WorkspacePanelProvider>
+    </ActiveDocumentProvider>,
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -87,12 +95,50 @@ describe("WorkspacePanel", () => {
     expect(screen.queryByText("beta.txt")).not.toBeInTheDocument();
   });
 
+  test("each document row exposes a kebab actions menu (no expandable view)", () => {
+    const docs = [doc("1", "alpha.md")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    // Single actions trigger per row; no chevron/expand toggle.
+    const trigger = screen.getByRole("button", { name: "workspace.documentActions" });
+    fireEvent.click(trigger);
+    // Consolidated actions appear in the menu.
+    expect(screen.getByText("workspace.edit")).toBeInTheDocument();
+    expect(screen.getByText("workspace.rename")).toBeInTheDocument();
+    expect(screen.getByText("workspace.delete")).toBeInTheDocument();
+  });
+
+  test("the Rename menu action reveals the inline rename input", () => {
+    const docs = [doc("1", "alpha.md")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    fireEvent.click(screen.getByRole("button", { name: "workspace.documentActions" }));
+    fireEvent.click(screen.getByText("workspace.rename"));
+    // Inline rename input is seeded with the current filename; Save/Cancel appear.
+    expect(screen.getByDisplayValue("alpha.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.save" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.cancel" })).toBeInTheDocument();
+  });
+
   test("shows the no-results state when search matches nothing", () => {
     renderWithPanel(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md")]} />);
     fireEvent.change(screen.getByLabelText("workspace.searchDocuments"), {
       target: { value: "zzz" },
     });
     expect(screen.getByText("workspace.noResults")).toBeInTheDocument();
+  });
+
+  test("renders the plain list at the threshold but the windowed list above it", () => {
+    // At the threshold (50): plain rendering → every row is mounted, no windowing.
+    const fifty = Array.from({ length: 50 }, (_, i) => doc(String(i), `doc-${i}.md`));
+    const { unmount } = renderWithPanel(<WorkspacePanel {...baseProps} documents={fifty} />, fifty);
+    expect(screen.queryByTestId("virtualized-doc-list")).not.toBeInTheDocument();
+    expect(screen.getByText("doc-49.md")).toBeInTheDocument();
+    unmount();
+
+    // Above the threshold (51): the list switches to the windowed container.
+    const fiftyOne = Array.from({ length: 51 }, (_, i) => doc(String(i), `doc-${i}.md`));
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={fiftyOne} />, fiftyOne);
+    expect(screen.getByRole("tab", { name: /workspace\.tabDocuments/ })).toHaveTextContent("51");
+    expect(screen.getByTestId("virtualized-doc-list")).toBeInTheDocument();
   });
 
   test("renders the loading state while documents are fetching", () => {
@@ -137,11 +183,122 @@ describe("WorkspacePanel", () => {
     expect(screen.queryByText("knowledge_base")).not.toBeInTheDocument();
   });
 
+  test("Outputs tab renders tool result detail with expandable args and output", () => {
+    const answerMetrics: MessageMetrics = {
+      tools_executed: [{ name: "web_search_mcp", status: "success" }],
+      tool_results_detail: [
+        {
+          name: "web_search_mcp",
+          status: "success",
+          summary: "3 results found",
+          args: { query: "weather" },
+          output: "Sunny, 21C",
+        },
+      ],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabOutputs/ }));
+    // Collapsed: name + one-line summary visible, args/output hidden.
+    expect(screen.getByText("web_search_mcp")).toBeInTheDocument();
+    expect(screen.getByText("3 results found")).toBeInTheDocument();
+    expect(screen.queryByText("workspace.toolArgs")).not.toBeInTheDocument();
+    // Expand the row → args + output reveal.
+    fireEvent.click(screen.getByRole("button", { name: /web_search_mcp/ }));
+    expect(screen.getByText("workspace.toolArgs")).toBeInTheDocument();
+    expect(screen.getByText("query:")).toBeInTheDocument();
+    expect(screen.getByText("weather")).toBeInTheDocument();
+    expect(screen.getByText("workspace.toolOutput")).toBeInTheDocument();
+    expect(screen.getByText("Sunny, 21C")).toBeInTheDocument();
+  });
+
+  test("Inspector tool-calling node deep-links to the Outputs tab when tools ran", () => {
+    const nodeTrace: NodeTraceEntry[] = [
+      { node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 100, status: "success" },
+    ];
+    const answerMetrics: MessageMetrics = { tools_executed: [{ name: "web_search_mcp", status: "success" }] };
+    renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    fireEvent.click(screen.getByRole("button", { name: /workspace\.viewToolResults/ }));
+    expect(screen.getByRole("tab", { name: /workspace\.tabOutputs/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  test("Inspector tool-calling node is not a deep-link when no tools ran", () => {
+    const nodeTrace: NodeTraceEntry[] = [
+      { node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" },
+      { node: "respond", sequence: 2, durationMs: 100, status: "success" },
+    ];
+    renderWithPanel(<WorkspacePanel {...baseProps} nodeTrace={nodeTrace} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabInspector/ }));
+    expect(screen.queryByRole("button", { name: /workspace\.viewToolResults/ })).not.toBeInTheDocument();
+  });
+
   test("Knowledge tab shows the RAG retrieval summary", () => {
     const answerMetrics: MessageMetrics = { rag_attempted: true, rag_doc_count: 3 };
     renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
     fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
     expect(screen.getByText("workspace.knowledgeRetrieved")).toBeInTheDocument();
+  });
+
+  test("Knowledge tab shows sources with citation index badges", () => {
+    const answerMetrics: MessageMetrics = {
+      sources: [
+        { type: "web", label: "example.com", url: "https://example.com", index: 1 },
+        { type: "rag", label: "internal-doc", url: null, index: 2 },
+      ],
+      rag_doc_count: 1,
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.sourcesHeading")).toBeInTheDocument();
+    // Citation index badges are aria-labelled; query by that to avoid matching the tab count badge.
+    const citationBadges = screen.getAllByLabelText("workspace.sourceCitationLabel");
+    expect(citationBadges).toHaveLength(2);
+    expect(citationBadges[0]).toHaveTextContent("1");
+    expect(citationBadges[1]).toHaveTextContent("2");
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.getByText("internal-doc")).toBeInTheDocument();
+  });
+
+  test("Knowledge tab falls back to positional citation numbers when index is absent", () => {
+    const answerMetrics: MessageMetrics = {
+      sources: [
+        { type: "web", label: "site-a", url: "https://a.com" },
+        { type: "web", label: "site-b", url: "https://b.com" },
+      ],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    const citationBadges = screen.getAllByLabelText("workspace.sourceCitationLabel");
+    expect(citationBadges).toHaveLength(2);
+    expect(citationBadges[0]).toHaveTextContent("1");
+    expect(citationBadges[1]).toHaveTextContent("2");
+  });
+
+  test("Knowledge tab shows Documents and Attachments in context sections", () => {
+    const answerMetrics: MessageMetrics = {
+      documents_used: [{ id: "d1", filename: "report.md", version: 2 }],
+      attachments_used: [{ id: "a1", original_name: "budget.csv" }],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.documentsInContext")).toBeInTheDocument();
+    expect(screen.getByText("report.md")).toBeInTheDocument();
+    expect(screen.getByText("v2")).toBeInTheDocument();
+    expect(screen.getByText("workspace.attachmentsInContext")).toBeInTheDocument();
+    expect(screen.getByText("budget.csv")).toBeInTheDocument();
+  });
+
+  test("Knowledge tab remains in the empty state when only Outputs/Memory evidence is present", () => {
+    const answerMetrics: MessageMetrics = {
+      tools_executed: [{ name: "calculator_tool", status: "success" }],
+    };
+    renderWithPanel(<WorkspacePanel {...baseProps} answerMetrics={answerMetrics} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.knowledgeEmpty")).toBeInTheDocument();
   });
 
   test("Inspector tab shows the node execution trace with a count badge", () => {
@@ -151,6 +308,24 @@ describe("WorkspacePanel", () => {
     // Count shows on the active tab.
     expect(screen.getByRole("tab", { name: /workspace\.tabInspector/ })).toHaveTextContent("1");
     expect(screen.getByText("Respond")).toBeInTheDocument();
+  });
+
+  test("shows the historical-answer banner on an evidence tab and Jump-to-latest works", () => {
+    const onJumpToLatest = jest.fn();
+    renderWithPanel(<WorkspacePanel {...baseProps} historicalAnswer onJumpToLatest={onJumpToLatest} />);
+    // Default tab is Documents (localStorage cleared) — banner is suppressed there.
+    expect(screen.queryByText("workspace.viewingEarlierAnswer")).not.toBeInTheDocument();
+    // Switch to an evidence tab → banner appears.
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.getByText("workspace.viewingEarlierAnswer")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("workspace.jumpToLatest"));
+    expect(onJumpToLatest).toHaveBeenCalledTimes(1);
+  });
+
+  test("hides the historical banner when not viewing an earlier answer", () => {
+    renderWithPanel(<WorkspacePanel {...baseProps} historicalAnswer={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: /workspace\.tabKnowledge/ }));
+    expect(screen.queryByText("workspace.viewingEarlierAnswer")).not.toBeInTheDocument();
   });
 
   test("persists the active tab across remounts", () => {
@@ -191,6 +366,44 @@ describe("EvidenceChips", () => {
     fireEvent.click(screen.getByTitle("workspace.evidenceMemory"));
     expect(onSelect).toHaveBeenCalledWith("memory");
   });
+
+  test("attachments chip routes to the Knowledge tab; docs chip to the Documents tab", () => {
+    const onSelect = jest.fn();
+    render(
+      <EvidenceChips
+        metrics={{
+          attachments_used: [{ id: "a1", original_name: "budget.csv" }],
+          documents_used: [{ id: "d1", filename: "report.md", version: 2 }],
+        }}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByTitle("workspace.evidenceAttachments"));
+    expect(onSelect).toHaveBeenCalledWith("knowledge");
+    fireEvent.click(screen.getByTitle("workspace.evidenceDocs"));
+    expect(onSelect).toHaveBeenCalledWith("documents");
+  });
+
+  test("renders attachment-only answers (added to hasEvidence)", () => {
+    render(<EvidenceChips metrics={{ attachments_used: [{ id: "a1", original_name: "x.csv" }] }} />);
+    expect(screen.getByTitle("workspace.evidenceAttachments")).toBeInTheDocument();
+  });
+
+  test("renders static (non-interactive) chips when onSelect is omitted", () => {
+    render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} />);
+    expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test("no longer renders a separate map chip (the inline MapWidget is the artifact)", () => {
+    render(
+      <EvidenceChips
+        metrics={{ map_data: { type: "location", zoom: 10, osm_url: "https://osm" } }}
+        onSelect={jest.fn()}
+      />,
+    );
+    expect(screen.queryByTitle("workspace.mapGenerated")).not.toBeInTheDocument();
+  });
 });
 
 describe("InspectorTab", () => {
@@ -228,5 +441,40 @@ describe("InspectorTab", () => {
     const trace: NodeTraceEntry[] = [{ node: "respond", sequence: 1, durationMs: 100, status: "error" }];
     render(<InspectorTab nodeTrace={trace} />);
     expect(screen.getByText("workspace.inspectorStatusError")).toBeInTheDocument();
+  });
+
+  test("makes a tool-calling node a deep-link only when onOpenOutputs is provided", () => {
+    const trace: NodeTraceEntry[] = [{ node: "call_tools_native", sequence: 1, durationMs: 50, status: "success" }];
+    const { rerender } = render(<InspectorTab nodeTrace={trace} />);
+    // Without the callback the row is plain — no deep-link affordance.
+    expect(screen.queryByRole("button", { name: /workspace\.viewToolResults/ })).not.toBeInTheDocument();
+    const onOpenOutputs = jest.fn();
+    rerender(<InspectorTab nodeTrace={trace} onOpenOutputs={onOpenOutputs} />);
+    fireEvent.click(screen.getByRole("button", { name: /workspace\.viewToolResults/ }));
+    expect(onOpenOutputs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ActiveDocumentPane", () => {
+  const renderPane = (documents: WorkspaceDocument[] = []) =>
+    render(
+      <ActiveDocumentProvider documents={documents}>
+        <ActiveDocumentPane />
+      </ActiveDocumentProvider>,
+    );
+
+  test("renders the pane region without crashing when no document is open", () => {
+    renderPane();
+    expect(
+      screen.getByRole("region", { name: "workspace.splitViewTitle" }),
+    ).toBeInTheDocument();
+  });
+
+  test("the close button is present and clickable", () => {
+    renderPane();
+    const closeBtn = screen.getByLabelText("workspace.closeSplitView");
+    expect(closeBtn).toBeInTheDocument();
+    // Clicking while no doc is open should not throw
+    fireEvent.click(closeBtn);
   });
 });

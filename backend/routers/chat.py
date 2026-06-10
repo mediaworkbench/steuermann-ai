@@ -1790,6 +1790,9 @@ async def chat_stream(
                         **({
                             "node_trace": _metadata["node_trace"]
                         } if _metadata.get("node_trace") else {}),
+                        **({
+                            "tool_results_detail": _metadata["tool_results_detail"]
+                        } if _metadata.get("tool_results_detail") else {}),
                     },
                 )
             except Exception as exc:

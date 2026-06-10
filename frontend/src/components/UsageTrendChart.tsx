@@ -3,8 +3,6 @@
 import { memo, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { useI18n } from "@/hooks/useI18n";
-import { AnalyticsChartCard } from "@/components/product/AnalyticsChartCard";
-import { AnalyticsChartState } from "@/components/product/AnalyticsChartState";
 import { AnalyticsChartViewport } from "@/components/product/AnalyticsChartViewport";
 import { ChartTooltipCard } from "@/components/product/ChartTooltipCard";
 
@@ -14,19 +12,16 @@ interface UsageTrendChartProps {
     requests: number;
     users: number;
   }>;
-  loading?: boolean;
   showRequests?: boolean;
   showUsers?: boolean;
 }
 
 function UsageTrendChart({
   data,
-  loading = false,
   showRequests = true,
   showUsers = true,
 }: UsageTrendChartProps) {
   const { t, locale } = useI18n();
-  // Always call hooks at the top level
   const chartData = useMemo(
     () =>
       data?.map((d) => ({
@@ -38,49 +33,23 @@ function UsageTrendChart({
     [data, locale]
   );
 
-  if (loading) {
-    return (
-      <AnalyticsChartCard title={t("metrics.usageTrends")}>
-        <AnalyticsChartState message={t("charts.loading")} />
-      </AnalyticsChartCard>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <AnalyticsChartCard title={t("metrics.usageTrends")}>
-        <AnalyticsChartState message={t("metrics.noUsageData")} />
-      </AnalyticsChartCard>
-    );
-  }
-
-  if (!showRequests && !showUsers) {
-    return (
-      <AnalyticsChartCard title={t("metrics.usageTrends")}>
-        <AnalyticsChartState message={t("charts.selectAtLeastOneSeries")} />
-      </AnalyticsChartCard>
-    );
-  }
-
   return (
-    <AnalyticsChartCard title={t("charts.dailyUsageTrends")}>
-      <AnalyticsChartViewport>
-        <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-          <Tooltip content={<CustomTooltip />} />
-          <Legend />
-          {showRequests && (
-            <Line yAxisId="left" type="monotone" dataKey="requests" stroke="var(--chart-blue)" name={t("metrics.requests")} />
-          )}
-          {showUsers && (
-            <Line yAxisId="right" type="monotone" dataKey="users" stroke="var(--chart-green)" name={t("metrics.users")} />
-          )}
-        </LineChart>
-      </AnalyticsChartViewport>
-    </AnalyticsChartCard>
+    <AnalyticsChartViewport>
+      <LineChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+        <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+        <Tooltip content={<CustomTooltip />} />
+        <Legend />
+        {showRequests && (
+          <Line yAxisId="left" type="monotone" dataKey="requests" stroke="var(--chart-blue)" name={t("metrics.requests")} />
+        )}
+        {showUsers && (
+          <Line yAxisId="right" type="monotone" dataKey="users" stroke="var(--chart-green)" name={t("metrics.users")} />
+        )}
+      </LineChart>
+    </AnalyticsChartViewport>
   );
 }
 

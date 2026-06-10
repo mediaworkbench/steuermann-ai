@@ -15,9 +15,14 @@ interface EvidenceChipsProps {
 
 /**
  * Compact, glanceable evidence summary for a single answer (sources · memory ·
- * tools · docs · map). Rendered at the chat-stream level for the latest answer
- * only; the full drill-down lives in the workspace evidence tabs. Returns null
+ * tools · attachments · docs). This is the single inline provenance surface in
+ * the chat stream — it replaces the standalone source/attachment/document badge
+ * rows. The full drill-down lives in the workspace evidence tabs. Returns null
  * when the answer produced no evidence.
+ *
+ * Rendered on every answer. When `onSelect` is provided the chips are buttons
+ * that pin the workspace panel to *this* answer and open the matching tab;
+ * without it they render as a static, non-interactive count summary.
  */
 export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
   const { t } = useI18n();
@@ -28,13 +33,12 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
     { key: "sources", icon: "menu_book", count: evidence.sourceCount, label: t("workspace.evidenceSources"), tab: "knowledge" },
     { key: "memory", icon: "memory", count: evidence.memoryCount, label: t("workspace.evidenceMemory"), tab: "memory" },
     { key: "tools", icon: "build", count: evidence.toolCount, label: t("workspace.evidenceTools"), tab: "outputs" },
+    // Attachments-in-context provenance lives in the Knowledge tab.
+    { key: "attachments", icon: "attach_file", count: evidence.attachments.length, label: t("workspace.evidenceAttachments"), tab: "knowledge" },
+    // Documents chip points at the Documents tab (the persistent upload/edit surface), not provenance.
     { key: "docs", icon: "folder_open", count: evidence.documentCount, label: t("workspace.evidenceDocs"), tab: "documents" },
   ];
   const chips = allChips.filter((c) => c.count > 0);
-
-  if (evidence.mapData) {
-    chips.push({ key: "map", icon: "map", count: 1, label: t("workspace.mapGenerated"), tab: "outputs" });
-  }
   if (chips.length === 0) return null;
 
   const baseClass =
@@ -47,7 +51,7 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
         const body = (
           <>
             <ChipIcon size={12} className="text-muted-foreground" />
-            {c.key === "map" ? c.label : c.count}
+            {c.count}
           </>
         );
         return onSelect ? (

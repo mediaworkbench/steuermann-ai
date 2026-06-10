@@ -28,6 +28,7 @@ export type Messages = {
     openNavigation: string;
     activeSession: string;
     exportConversation: string;
+    exportChat: string;
     signOut: string;
     signingOut: string;
     justNow: string;
@@ -58,7 +59,6 @@ export type Messages = {
     showLess: string;
   };
   sidebar: {
-    platformSubtitle: string;
     closeNavigation: string;
     startNewChat: string;
     newChat: string;
@@ -66,7 +66,8 @@ export type Messages = {
     pinned: string;
     recentChats: string;
     noConversations: string;
-    seeAllChats: string;
+    seeAll: string;
+    administration: string;
     settingsForUser: string;
     moreOptions: string;
     rename: string;
@@ -101,6 +102,12 @@ export type Messages = {
     pageOfTotal: string;
     previous: string;
     next: string;
+    viewEvidence: string;
+    closeEvidence: string;
+    evidenceLoading: string;
+    evidenceError: string;
+    evidenceEmpty: string;
+    evidenceLatestHint: string;
   };
   login: {
     loginFailed: string;
@@ -321,9 +328,9 @@ export type Messages = {
     reference: string;
     download: string;
     delete: string;
-    editor: string;
-    closeEditor: string;
-    resizeEditor: string;
+    splitViewTitle: string;
+    closeSplitView: string;
+    resizeSplitView: string;
     editDocumentPlaceholder: string;
     saveChanges: string;
     attachToChat: string;
@@ -340,11 +347,12 @@ export type Messages = {
     attachSuccess: string;
     attachFailed: string;
     nukeAll: string;
-    nukeConfirm: string;
+    nukeMessage: string;
     nukeSuccess: string;
     nukeFailed: string;
     uploadAriaLabel: string;
     thumbnailClickHint: string;
+    documentActions: string;
     tabDocuments: string;
     tabKnowledge: string;
     tabMemory: string;
@@ -380,9 +388,13 @@ export type Messages = {
     evidenceMemory: string;
     evidenceTools: string;
     evidenceSources: string;
+    evidenceAttachments: string;
     knowledgeRetrieved: string;
     knowledgeNoResults: string;
     sourcesHeading: string;
+    sourceCitationLabel: string;
+    documentsInContext: string;
+    attachmentsInContext: string;
     mapGenerated: string;
     openFullMap: string;
     mapDistanceBadge: string;
@@ -397,6 +409,13 @@ export type Messages = {
     inspectorWaiting: string;
     inspectorStatusSuccess: string;
     inspectorStatusError: string;
+    answerEvidence: string;
+    toolArgs: string;
+    toolOutput: string;
+    toolError: string;
+    viewToolResults: string;
+    viewingEarlierAnswer: string;
+    jumpToLatest: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -610,6 +629,7 @@ export const messages: Record<Locale, Messages> = {
       openNavigation: "Open navigation",
       activeSession: "Active session",
       exportConversation: "Export conversation",
+      exportChat: "Export Chat",
       signOut: "Sign out",
       signingOut: "Signing out...",
       justNow: "just now",
@@ -641,7 +661,6 @@ export const messages: Record<Locale, Messages> = {
       showLess: "Show less",
     },
     sidebar: {
-      platformSubtitle: "Universal Agentic Orchestration Platform",
       closeNavigation: "Close navigation",
       startNewChat: "Start a new chat",
       newChat: "New Chat",
@@ -649,7 +668,8 @@ export const messages: Record<Locale, Messages> = {
       pinned: "Pinned",
       recentChats: "Recent Chats",
       noConversations: "No conversations yet",
-      seeAllChats: "See all chats",
+      seeAll: "See all",
+      administration: "Administration",
       settingsForUser: "Open settings for {name}",
       moreOptions: "More options",
       rename: "Rename",
@@ -684,6 +704,12 @@ export const messages: Record<Locale, Messages> = {
       pageOfTotal: "Page {page} of {pages} · {total} chats",
       previous: "Previous",
       next: "Next",
+      viewEvidence: "View answer evidence",
+      closeEvidence: "Close evidence panel",
+      evidenceLoading: "Loading answer evidence…",
+      evidenceError: "Couldn't load this conversation.",
+      evidenceEmpty: "No assistant answer in this conversation yet.",
+      evidenceLatestHint: "Evidence from this conversation's latest answer.",
     },
     login: {
       loginFailed: "Login failed",
@@ -905,9 +931,9 @@ export const messages: Record<Locale, Messages> = {
       reference: "Reference",
       download: "Download",
       delete: "Delete",
-      editor: "Editor",
-      closeEditor: "Close editor",
-      resizeEditor: "Drag to resize editor",
+      splitViewTitle: "Active document",
+      closeSplitView: "Close split view",
+      resizeSplitView: "Drag to resize the document pane",
       editDocumentPlaceholder: "Edit document content...",
       saveChanges: "Save Changes",
       attachToChat: "Attach to Chat",
@@ -924,11 +950,12 @@ export const messages: Record<Locale, Messages> = {
       attachSuccess: "Attached to conversation",
       attachFailed: "Could not attach file",
       nukeAll: "Clear all",
-      nukeConfirm: "Delete all?",
+      nukeMessage: "This permanently deletes all {count} document(s). This cannot be undone.",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
       uploadAriaLabel: "Upload document or image",
       thumbnailClickHint: "Click to preview",
+      documentActions: "Document actions",
       tabDocuments: "Documents",
       tabKnowledge: "Knowledge",
       tabMemory: "Memory",
@@ -964,9 +991,13 @@ export const messages: Record<Locale, Messages> = {
       evidenceMemory: "Memories recalled",
       evidenceTools: "Tools used",
       evidenceSources: "Sources",
+      evidenceAttachments: "Attachments used",
       knowledgeRetrieved: "{count} document(s) retrieved",
       knowledgeNoResults: "Searched · no relevant results",
       sourcesHeading: "Sources",
+      sourceCitationLabel: "Citation {n}",
+      documentsInContext: "Documents in context",
+      attachmentsInContext: "Attachments in context",
       mapGenerated: "Map output",
       openFullMap: "Open full map",
       mapDistanceBadge: "{km} km · {miles} mi",
@@ -981,6 +1012,13 @@ export const messages: Record<Locale, Messages> = {
       inspectorWaiting: "Capturing node execution…",
       inspectorStatusSuccess: "succeeded",
       inspectorStatusError: "failed",
+      answerEvidence: "Answer evidence",
+      toolArgs: "Arguments",
+      toolOutput: "Result",
+      toolError: "Error",
+      viewToolResults: "View results in Outputs",
+      viewingEarlierAnswer: "Viewing an earlier answer",
+      jumpToLatest: "Jump to latest",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1192,6 +1230,7 @@ export const messages: Record<Locale, Messages> = {
       openNavigation: "Navigation öffnen",
       activeSession: "Aktive Sitzung",
       exportConversation: "Unterhaltung exportieren",
+      exportChat: "Chat exportieren",
       signOut: "Abmelden",
       signingOut: "Melde ab...",
       justNow: "gerade eben",
@@ -1223,7 +1262,6 @@ export const messages: Record<Locale, Messages> = {
       showLess: "Weniger anzeigen",
     },
     sidebar: {
-      platformSubtitle: "Universelle Agenten-Orchestrierungsplattform",
       closeNavigation: "Navigation schließen",
       startNewChat: "Neuen Chat starten",
       newChat: "Neuer Chat",
@@ -1231,7 +1269,8 @@ export const messages: Record<Locale, Messages> = {
       pinned: "Angeheftet",
       recentChats: "Letzte Chats",
       noConversations: "Noch keine Unterhaltungen",
-      seeAllChats: "Alle Chats anzeigen",
+      seeAll: "Alle anzeigen",
+      administration: "Verwaltung",
       settingsForUser: "Einstellungen für {name} öffnen",
       moreOptions: "Weitere Optionen",
       rename: "Umbenennen",
@@ -1266,6 +1305,12 @@ export const messages: Record<Locale, Messages> = {
       pageOfTotal: "Seite {page} von {pages} · {total} Chats",
       previous: "Zurück",
       next: "Weiter",
+      viewEvidence: "Antwort-Belege ansehen",
+      closeEvidence: "Belege-Panel schließen",
+      evidenceLoading: "Antwort-Belege werden geladen…",
+      evidenceError: "Diese Unterhaltung konnte nicht geladen werden.",
+      evidenceEmpty: "Noch keine Assistenten-Antwort in dieser Unterhaltung.",
+      evidenceLatestHint: "Belege aus der letzten Antwort dieser Unterhaltung.",
     },
     login: {
       loginFailed: "Anmeldung fehlgeschlagen",
@@ -1487,9 +1532,9 @@ export const messages: Record<Locale, Messages> = {
       reference: "Referenz",
       download: "Herunterladen",
       delete: "Löschen",
-      editor: "Editor",
-      closeEditor: "Editor schließen",
-      resizeEditor: "Zum Ändern der Größe ziehen",
+      splitViewTitle: "Aktives Dokument",
+      closeSplitView: "Geteilte Ansicht schließen",
+      resizeSplitView: "Zum Ändern der Breite ziehen",
       editDocumentPlaceholder: "Dokumentinhalt bearbeiten...",
       saveChanges: "Änderungen speichern",
       attachToChat: "An Chat anhängen",
@@ -1506,11 +1551,12 @@ export const messages: Record<Locale, Messages> = {
       attachSuccess: "Zur Konversation hinzugefügt",
       attachFailed: "Datei konnte nicht angehängt werden",
       nukeAll: "Alle löschen",
-      nukeConfirm: "Alle löschen?",
+      nukeMessage: "Dies löscht dauerhaft alle {count} Dokument(e). Dies kann nicht rückgängig gemacht werden.",
       nukeSuccess: "{count} Datei(en) gelöscht",
       nukeFailed: "Workspace konnte nicht geleert werden",
       uploadAriaLabel: "Dokument oder Bild hochladen",
       thumbnailClickHint: "Klicken zum Vergrößern",
+      documentActions: "Dokumentaktionen",
       tabDocuments: "Dokumente",
       tabKnowledge: "Wissen",
       tabMemory: "Erinnerungen",
@@ -1546,9 +1592,13 @@ export const messages: Record<Locale, Messages> = {
       evidenceMemory: "Abgerufene Erinnerungen",
       evidenceTools: "Verwendete Tools",
       evidenceSources: "Quellen",
+      evidenceAttachments: "Verwendete Anhänge",
       knowledgeRetrieved: "{count} Dokument(e) abgerufen",
       knowledgeNoResults: "Durchsucht · keine relevanten Treffer",
       sourcesHeading: "Quellen",
+      sourceCitationLabel: "Zitat {n}",
+      documentsInContext: "Dokumente im Kontext",
+      attachmentsInContext: "Anhänge im Kontext",
       mapGenerated: "Kartenausgabe",
       openFullMap: "Karte vollständig öffnen",
       mapDistanceBadge: "{km} km · {miles} mi",
@@ -1563,6 +1613,13 @@ export const messages: Record<Locale, Messages> = {
       inspectorWaiting: "Knotenausführung wird erfasst…",
       inspectorStatusSuccess: "erfolgreich",
       inspectorStatusError: "fehlgeschlagen",
+      answerEvidence: "Antwort-Belege",
+      toolArgs: "Argumente",
+      toolOutput: "Ergebnis",
+      toolError: "Fehler",
+      viewToolResults: "Ergebnisse in Ausgaben anzeigen",
+      viewingEarlierAnswer: "Frühere Antwort wird angezeigt",
+      jumpToLatest: "Zur neuesten springen",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

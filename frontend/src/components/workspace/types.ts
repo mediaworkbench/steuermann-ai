@@ -34,8 +34,6 @@ export interface WorkspacePanelProps {
   onDocumentsRefresh?: () => void;
   onEnsureConversation?: () => Promise<string | null>;
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
-  writebackSavedDocId?: string | null;
-  onActiveDocumentChange?: (docId: string | null) => void;
   /** True while the document list is being (re)fetched by the parent. */
   documentsLoading?: boolean;
   /** Non-null when the last document-list fetch failed (message for display). */
@@ -55,4 +53,8 @@ export interface WorkspacePanelProps {
   nodeTrace?: NodeTraceEntry[];
   /** True while the active conversation's answer is streaming (drives Inspector live state). */
   isStreaming?: boolean;
+  /** True when the panel is pinned to an earlier (non-latest) answer — shows a banner. */
+  historicalAnswer?: boolean;
+  /** Returns the panel to following the latest answer (banner "Jump to latest"). */
+  onJumpToLatest?: () => void;
 }

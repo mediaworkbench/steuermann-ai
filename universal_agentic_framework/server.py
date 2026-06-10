@@ -21,6 +21,7 @@ from fastapi.responses import Response, StreamingResponse
 from universal_agentic_framework.config import get_active_profile_id, load_core_config
 from universal_agentic_framework.orchestration.graph_builder import build_graph, GraphState
 from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
+from universal_agentic_framework.orchestration.helpers.tool_payload import build_tool_results_detail
 from universal_agentic_framework.orchestration.performance_nodes import compress_state
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
@@ -411,6 +412,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
         _captured_map_data = None  # populated from tool-call node output, not respond node
+        _captured_tool_exec: dict = {}  # full tool envelope (args+results); respond node drops it
         _in_thinking = False   # currently inside a <think> block
         _close_tag = ""        # matching close tag for the current block
         _pending_buf = ""      # guards against tags split across chunk boundaries
@@ -627,6 +629,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "thinking_content": _full_thinking if _full_thinking else None,
                                         "map_data": _map_data,
                                         "node_trace": _node_trace_list,
+                                        "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -646,6 +649,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                 t_name = tool_names[0] if tool_names else name
                                 yield f"event: tool_call\ndata: {json.dumps({'name': t_name, 'status': 'end', 'label': _tool_label(t_name)})}\n\n"
                                 _tool_exec = output.get("tool_execution_results") or {}
+                                if _tool_exec:
+                                    _captured_tool_exec = _tool_exec
                                 if "map_tool" in _tool_exec:
                                     _captured_map_data = _tool_exec["map_tool"].get("data")
 
@@ -696,6 +701,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "thinking_content": _full_thinking if _full_thinking else None,
                     "map_data": _map_data,
                     "node_trace": _node_trace_list,
+                    "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

@@ -2,37 +2,24 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Download, LogOut, Menu, PanelRightClose, PanelRightOpen, Pin } from "lucide-react";
-import { iconMap } from "@/lib/iconMap";
+import { Download, LogOut, Pin } from "lucide-react";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AUTH_ENABLED } from "@/lib/runtime";
-import { useRole } from "@/context/RoleContext";
 import type { Conversation } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
 interface HeaderProps {
   chatTitle?: string;
-  onOpenSidebar?: () => void;
   activeConversation?: Conversation | null;
-  workspaceSidebarOpen?: boolean;
-  onToggleWorkspaceSidebar?: () => void;
 }
 
-export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversation, workspaceSidebarOpen, onToggleWorkspaceSidebar }: HeaderProps) {
+export function Header({ chatTitle = "AI Agent", activeConversation }: HeaderProps) {
   const { t, formatRelativeTime } = useI18n();
-  const { isAdmin } = useRole();
   const [showExport, setShowExport] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const navLinks = [
-    ...(isAdmin ? [{ href: "/metrics", label: t("header.metrics"), icon: "bar_chart" }] : []),
-    { href: "/chats", label: t("header.chats"), icon: "forum" },
-    { href: "/memories", label: t("header.memory"), icon: "psychology" },
-    { href: "/settings", label: t("header.settings"), icon: "settings" },
-    ...(isAdmin ? [{ href: "/admin/rag", label: t("header.ragExplorer"), icon: "travel_explore" }] : []),
-    ...(isAdmin ? [{ href: "/admin", label: t("header.admin"), icon: "admin_panel_settings" }] : []),
-  ];
   const hasMeta = activeConversation != null;
   const msgCount = activeConversation?.message_count;
   const createdLabel = activeConversation?.created_at
@@ -55,19 +42,7 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
                  justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20"
     >
       <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="md:hidden text-foreground hover:text-primary transition-colors
-                     min-h-11 min-w-11 flex items-center justify-center -ml-2"
-          onClick={onOpenSidebar}
-          aria-label={t("header.openNavigation")}
-          aria-expanded="false"
-          aria-controls="sidebar"
-        >
-          <Menu size={24} />
-        </Button>
+        <SidebarTrigger className="-ml-2" />
         <Link href="/" className="header-title-slot flex flex-col hover:opacity-80 transition-opacity">
           <h2 className="text-foreground font-bold text-base leading-tight truncate max-w-50 md:max-w-none">
             {chatTitle}
@@ -121,45 +96,9 @@ export function Header({ chatTitle = "AI Agent", onOpenSidebar, activeConversati
               size={18}
               className="group-hover:scale-110 transition-transform"
             />
-            <span className="hidden lg:inline">{t("common.export")}</span>
+            <span className="hidden lg:inline">{t("header.exportChat")}</span>
           </Button>
         )}
-
-        {/* Workspace sidebar toggle — only on chat page */}
-        {onToggleWorkspaceSidebar && (
-          <Button
-            type="button"
-            onClick={onToggleWorkspaceSidebar}
-            variant="ghost"
-            size="sm"
-            className="hidden md:flex gap-1.5 text-foreground hover:text-primary text-sm font-medium group min-h-11 min-w-11 justify-center"
-            aria-label={t("chat.toggleWorkspaceSidebar")}
-            title={t("chat.toggleWorkspaceSidebar")}
-          >
-            {workspaceSidebarOpen ? (
-              <PanelRightClose size={18} className="group-hover:scale-110 transition-transform" />
-            ) : (
-              <PanelRightOpen size={18} className="group-hover:scale-110 transition-transform" />
-            )}
-            <span className="hidden lg:inline">{t("chat.workspace")}</span>
-          </Button>
-        )}
-
-        <nav className="flex items-center gap-2 md:gap-6" aria-label="Main navigation">
-        {navLinks.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            prefetch={false}
-            className="flex items-center gap-1.5 text-foreground hover:text-primary
-                       transition-colors text-sm font-medium group min-h-11 min-w-11
-                       justify-center md:justify-start"
-          >
-            {(() => { const LucideIcon = iconMap[link.icon]; return <LucideIcon size={18} className="group-hover:scale-110 transition-transform" />; })()}
-            <span className="hidden sm:inline">{link.label}</span>
-          </Link>
-        ))}
-        </nav>
 
         {AUTH_ENABLED && (
           <Button

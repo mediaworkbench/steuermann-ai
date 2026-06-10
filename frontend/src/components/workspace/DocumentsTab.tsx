@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Check, ChevronDown, ChevronUp, Eraser, FileText, ScrollText, Search, Trash, Upload, X } from "lucide-react";
+import { Check, Download, Eraser, FileText, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
@@ -12,18 +12,24 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
-import { useDocumentEditor } from "./useDocumentEditor";
-import { useVersionHistory } from "./useVersionHistory";
-import { WorkspaceDocActionButton } from "./WorkspaceDocActionButton";
-import { WorkspaceMutedCard } from "./WorkspaceMutedCard";
-import { WorkspacePanelHeaderRow } from "./WorkspacePanelHeaderRow";
-import { WorkspacePanelSection } from "./WorkspacePanelSection";
+import { useActiveDocument } from "@/context/ActiveDocumentContext";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import { WorkspaceTabState } from "./WorkspaceTabState";
+import { VirtualizedList } from "./VirtualizedList";
+
+/** Above this many (filtered) rows the list switches to windowed rendering. */
+const VIRTUALIZE_THRESHOLD = 50;
 
 interface DocumentsTabProps {
   conversationId?: string | null;
@@ -32,8 +38,6 @@ interface DocumentsTabProps {
   onDocumentsRefresh?: () => void;
   onEnsureConversation?: () => Promise<string | null>;
   onAttachmentUploaded?: (attachment: ConversationAttachment) => void;
-  writebackSavedDocId?: string | null;
-  onActiveDocumentChange?: (docId: string | null) => void;
   documentsLoading?: boolean;
   documentsError?: string | null;
   onRetryDocuments?: () => void;
@@ -46,17 +50,13 @@ export function DocumentsTab({
   onDocumentsRefresh,
   onEnsureConversation,
   onAttachmentUploaded,
-  writebackSavedDocId,
-  onActiveDocumentChange,
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
 }: DocumentsTabProps) {
   const { t } = useI18n();
-  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
-  const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [nukePending, setNukePending] = useState(false);
+  const [nukeConfirmOpen, setNukeConfirmOpen] = useState(false);
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [lightboxDoc, setLightboxDoc] = useState<WorkspaceDocument | null>(null);
@@ -73,45 +73,17 @@ export function DocumentsTab({
     return documents.filter((d) => d.filename.toLowerCase().includes(q));
   }, [documents, query]);
 
+  // Editor + version-history + the shared processing token now live in the
+  // ActiveDocumentProvider (one source of truth, shared with the split-view pane).
   const {
     editorDocId,
-    editorContent,
-    setEditorContent,
-    editorHeight,
+    closeEditor,
     getDocumentName,
     openEditor,
-    closeEditor,
-    onResizeStart,
-    saveEditor,
-    reattachEditor,
-    downloadEditor,
-  } = useDocumentEditor({
-    documents,
-    conversationId,
-    writebackSavedDocId,
-    onActiveDocumentChange,
-    onAttachmentUploaded,
-    onDocumentsRefresh,
-    setProcessingAction,
-  });
-
-  const {
-    historyDocId,
-    historyVersions,
-    historyLoading,
-    previewVersionId,
-    previewContent,
     loadHistory,
-    previewVersion,
-    restoreVersion,
-    closeHistory,
-  } = useVersionHistory({
-    onDocumentsRefresh,
+    processingAction,
     setProcessingAction,
-    onAfterRestore: (docId) => {
-      if (editorDocId === docId) openEditor(docId);
-    },
-  });
+  } = useActiveDocument();
 
   useEffect(() => setMounted(true), []);
 
@@ -137,7 +109,6 @@ export function DocumentsTab({
           throw new Error(`Failed to delete document: ${response.statusText}`);
         }
         if (editorDocId === docId) closeEditor();
-        setExpandedDoc(null);
         toast.success(t("workspace.delete"), { description: docName });
         onDocumentsRefresh?.();
       } catch (err) {
@@ -251,7 +222,7 @@ export function DocumentsTab({
   );
 
   const handleClearAllDocuments = useCallback(async () => {
-    setNukePending(false);
+    setNukeConfirmOpen(false);
     setUploadingFile(true);
     try {
       const count = await clearAllWorkspaceDocuments();
@@ -263,6 +234,162 @@ export function DocumentsTab({
       setUploadingFile(false);
     }
   }, [onDocumentsRefresh, t]);
+
+  const renderDocRow = (doc: WorkspaceDocument) => {
+    const isImage = doc.mime_type?.startsWith("image/");
+    const busy = processingAction === doc.id || isLoading;
+    const isRenaming = renamingDocId === doc.id;
+    return (
+      <div
+        key={doc.id}
+        className="flex items-center gap-2.5 rounded-lg border border-border bg-surface-muted px-3 py-2.5 transition-colors hover:bg-surface-elevated"
+      >
+        {/* Thumbnail (images) or file-type icon */}
+        {isImage ? (
+          <button
+            type="button"
+            className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
+            onClick={() => setLightboxDoc(doc)}
+            title={t("workspace.thumbnailClickHint")}
+            aria-label={t("workspace.thumbnailClickHint")}
+          >
+            <Image
+              src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
+              alt={doc.filename}
+              fill
+              sizes="64px"
+              unoptimized
+              className="object-cover"
+            />
+            <span
+              className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
+              style={{ fontSize: "8px", lineHeight: "13px" }}
+            >
+              {formatFileSize(doc.size_bytes)}
+            </span>
+          </button>
+        ) : (
+          doc.filename.endsWith(".md")
+            ? <FileText size={16} className="shrink-0 text-muted-foreground" />
+            : <ScrollText size={16} className="shrink-0 text-muted-foreground" />
+        )}
+
+        {isRenaming ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <Input
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRenameDocument(doc.id, renameValue);
+                if (e.key === "Escape") {
+                  setRenamingDocId(null);
+                  setRenameValue("");
+                }
+              }}
+              className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
+              placeholder={doc.filename}
+            />
+            <Button
+              type="button"
+              onClick={() => handleRenameDocument(doc.id, renameValue)}
+              disabled={!renameValue.trim() || processingAction === doc.id}
+              variant="primary"
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t("common.save")}
+            >
+              <Check size={14} />
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setRenamingDocId(null);
+                setRenameValue("");
+              }}
+              variant="secondary"
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0 text-xs"
+              aria-label={t("common.cancel")}
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatFileSize(doc.size_bytes)}
+                {doc.updated_at && !isImage && <> • v{doc.version}</>}
+              </p>
+            </div>
+
+            {/* Consolidated actions — kebab menu aligned to the right */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={processingAction === doc.id}
+                    className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                    aria-label={t("workspace.documentActions")}
+                  >
+                    <MoreVertical size={16} />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4}>
+                {!isImage && (
+                  <DropdownMenuItem onClick={() => openEditor(doc.id)} disabled={busy}>
+                    <SquarePen />
+                    <span>{t("workspace.edit")}</span>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => handleAttachFromWorkspace(doc)} disabled={busy}>
+                  <Paperclip />
+                  <span>{t("workspace.attach")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleDownloadDocument(doc.id)} disabled={busy}>
+                  <Download />
+                  <span>{t("workspace.download")}</span>
+                </DropdownMenuItem>
+                {!isImage && (
+                  <DropdownMenuItem onClick={() => loadHistory(doc.id)} disabled={busy}>
+                    <History />
+                    <span>{t("workspace.history")}</span>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() => {
+                    setRenamingDocId(doc.id);
+                    setRenameValue(doc.filename);
+                  }}
+                  disabled={busy}
+                >
+                  <PenLine />
+                  <span>{t("workspace.rename")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => handleDeleteDocument(doc.id)}
+                  disabled={busy}
+                >
+                  <Trash2 />
+                  <span>{t("workspace.delete")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -280,10 +407,7 @@ export function DocumentsTab({
         <div className="flex gap-1.5">
           <Button
             type="button"
-            onClick={() => {
-              setNukePending(false);
-              fileInputRef.current?.click();
-            }}
+            onClick={() => fileInputRef.current?.click()}
             disabled={uploadingFile || isLoading}
             variant="secondary"
             size="sm"
@@ -292,43 +416,19 @@ export function DocumentsTab({
             <Upload size={16} />
             {uploadingFile ? t("workspace.uploading") : t("workspace.uploadDocument")}
           </Button>
-          {documents.length > 0 &&
-            (nukePending ? (
-              <div className="flex-1 flex gap-1">
-                <Button
-                  type="button"
-                  onClick={() => setNukePending(false)}
-                  variant="secondary"
-                  size="sm"
-                  className="flex-1 px-2 py-2 text-xs"
-                >
-                  <X size={14} className="mx-auto" />
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleClearAllDocuments}
-                  disabled={uploadingFile}
-                  variant="destructive"
-                  size="sm"
-                  className="flex-1 px-2 py-2 text-xs font-medium"
-                  title={t("workspace.nukeConfirm")}
-                >
-                  <Trash size={14} className="mx-auto" />
-                </Button>
-              </div>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => setNukePending(true)}
-                disabled={uploadingFile || isLoading}
-                variant="destructive"
-                size="sm"
-                className="flex-1 px-2 py-2 text-xs font-medium"
-                title={t("workspace.nukeAll")}
-              >
-                <Eraser size={16} />
-              </Button>
-            ))}
+          {documents.length > 0 && (
+            <Button
+              type="button"
+              onClick={() => setNukeConfirmOpen(true)}
+              disabled={uploadingFile || isLoading}
+              variant="destructive"
+              size="sm"
+              className="flex-1 px-2 py-2 text-xs font-medium"
+              title={t("workspace.nukeAll")}
+            >
+              <Eraser size={16} />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -376,293 +476,19 @@ export function DocumentsTab({
               title={t("workspace.noResults")}
               hint={t("workspace.noResultsHint")}
             />
+          ) : filteredDocuments.length > VIRTUALIZE_THRESHOLD ? (
+            <VirtualizedList
+              items={filteredDocuments}
+              getKey={(doc) => doc.id}
+              renderItem={renderDocRow}
+              testId="virtualized-doc-list"
+            />
           ) : (
           <div className="space-y-1.5">
-            {filteredDocuments.map((doc) => (
-              <div
-                key={doc.id}
-                className="rounded-lg border border-border bg-surface-muted transition-colors hover:bg-surface-elevated"
-              >
-                <Button
-                  type="button"
-                  onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-between px-3 py-2 text-left"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {doc.mime_type?.startsWith("image/") ? (
-                      <div
-                        className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLightboxDoc(doc);
-                        }}
-                        title={t("workspace.thumbnailClickHint")}
-                      >
-                        <Image
-                          src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
-                          alt={doc.filename}
-                          fill
-                          sizes="64px"
-                          unoptimized
-                          className="object-cover"
-                        />
-                        <span
-                          className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
-                          style={{ fontSize: "8px", lineHeight: "13px" }}
-                        >
-                          {formatFileSize(doc.size_bytes)}
-                        </span>
-                      </div>
-                    ) : (
-                      doc.filename.endsWith(".md")
-                        ? <FileText size={16} className="shrink-0 text-muted-foreground" />
-                        : <ScrollText size={16} className="shrink-0 text-muted-foreground" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFileSize(doc.size_bytes)}
-                        {doc.updated_at && !doc.mime_type?.startsWith("image/") && (
-                          <> • v{doc.version}</>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  {expandedDoc === doc.id
-                    ? <ChevronUp size={16} className="ml-1 shrink-0 text-muted-foreground" />
-                    : <ChevronDown size={16} className="ml-1 shrink-0 text-muted-foreground" />
-                  }
-                </Button>
-
-                {/* Expanded actions */}
-                {expandedDoc === doc.id && (
-                  <div className="flex flex-wrap gap-1.5 border-t border-border bg-surface px-3 py-2">
-                    {renamingDocId === doc.id ? (
-                      <div className="w-full flex gap-1.5">
-                        <Input
-                          autoFocus
-                          type="text"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRenameDocument(doc.id, renameValue);
-                            if (e.key === "Escape") {
-                              setRenamingDocId(null);
-                              setRenameValue("");
-                            }
-                          }}
-                          className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
-                          placeholder={doc.filename}
-                        />
-                        <Button
-                          type="button"
-                          onClick={() => handleRenameDocument(doc.id, renameValue)}
-                          disabled={!renameValue.trim() || processingAction === doc.id}
-                          variant="primary"
-                          size="sm"
-                          className="px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Check size={14} />
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            setRenamingDocId(null);
-                            setRenameValue("");
-                          }}
-                          variant="secondary"
-                          size="sm"
-                          className="px-2 py-1 text-xs"
-                        >
-                          <X size={14} />
-                        </Button>
-                      </div>
-                    ) : null}
-                    {!doc.mime_type?.startsWith("image/") && (
-                      <WorkspaceDocActionButton
-                        onClick={() => openEditor(doc.id)}
-                        disabled={processingAction === doc.id || isLoading}
-                        variant="ghost"
-                        icon="edit"
-                        label={t("workspace.edit")}
-                        title={t("workspace.edit")}
-                      />
-                    )}
-                    <WorkspaceDocActionButton
-                      onClick={() => handleAttachFromWorkspace(doc)}
-                      disabled={processingAction === doc.id || isLoading}
-                      variant="ghost"
-                      icon="attach_file"
-                      label={t("workspace.attach")}
-                      title={t("workspace.attach")}
-                    />
-                    <WorkspaceDocActionButton
-                      onClick={() => handleDownloadDocument(doc.id)}
-                      disabled={processingAction === doc.id || isLoading}
-                      variant="ghost"
-                      icon="download"
-                      label={t("workspace.download")}
-                      title={t("workspace.download")}
-                    />
-                    {!doc.mime_type?.startsWith("image/") && (
-                      <WorkspaceDocActionButton
-                        onClick={() => loadHistory(doc.id)}
-                        disabled={processingAction === doc.id || isLoading}
-                        variant="secondary"
-                        icon="history"
-                        label={t("workspace.history")}
-                        title={t("workspace.versionHistoryTooltip")}
-                      />
-                    )}
-                    <WorkspaceDocActionButton
-                      onClick={() => {
-                        setRenamingDocId(doc.id);
-                        setRenameValue(doc.filename);
-                      }}
-                      disabled={processingAction === doc.id || isLoading}
-                      variant="secondary"
-                      icon="drive_file_rename_outline"
-                      label={t("workspace.rename")}
-                      title={t("workspace.rename")}
-                    />
-                    <WorkspaceDocActionButton
-                      onClick={() => handleDeleteDocument(doc.id)}
-                      disabled={processingAction === doc.id || isLoading}
-                      variant="destructive"
-                      icon="delete"
-                      label={t("workspace.delete")}
-                      title={t("workspace.delete")}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
+            {filteredDocuments.map((doc) => renderDocRow(doc))}
           </div>
           )}
         </div>
-      )}
-
-      {/* Version history panel */}
-      {historyDocId && (
-        <WorkspacePanelSection>
-          <WorkspacePanelHeaderRow
-            title={t("workspace.versionHistoryTitle", { name: getDocumentName(historyDocId) })}
-            onClose={closeHistory}
-            closeLabel={t("common.close")}
-          />
-          {historyLoading ? (
-            <p className="py-2 text-xs text-muted-foreground">{t("workspace.loadingVersions")}</p>
-          ) : historyVersions.length === 0 ? (
-            <p className="py-2 text-xs text-muted-foreground">{t("workspace.noSavedVersions")}</p>
-          ) : (
-            <div className="space-y-1.5">
-              {historyVersions.map((v) => (
-                <WorkspaceMutedCard key={v.id} className="rounded border">
-                  <div className="flex items-center justify-between px-2 py-1.5">
-                    <div>
-                      <span className="text-xs font-medium text-foreground">v{v.version}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {formatFileSize(v.size_bytes)}
-                        {v.created_at && ` · ${new Date(v.created_at).toLocaleDateString()}`}
-                      </span>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        type="button"
-                        onClick={() => previewVersion(historyDocId, v.version, v.id)}
-                        variant="secondary"
-                        size="sm"
-                        className="px-1.5 py-0.5 text-xs"
-                      >
-                        {previewVersionId === v.id ? t("workspace.hidePreview") : t("workspace.preview")}
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={() => restoreVersion(historyDocId, v.version)}
-                        disabled={processingAction === `restore-${historyDocId}-${v.version}`}
-                        variant="ghost"
-                        size="sm"
-                        className="px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10 disabled:opacity-40"
-                      >
-                        {t("workspace.restore")}
-                      </Button>
-                    </div>
-                  </div>
-                  {previewVersionId === v.id && previewContent && (
-                    <div className="px-2 pb-2">
-                      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-xs">
-                        {previewContent.slice(0, 2000)}
-                        {previewContent.length > 2000 ? "\n…" : ""}
-                      </pre>
-                    </div>
-                  )}
-                </WorkspaceMutedCard>
-              ))}
-            </div>
-          )}
-        </WorkspacePanelSection>
-      )}
-
-      {/* Document editor */}
-      {editorDocId && (
-        <WorkspacePanelSection>
-          <WorkspacePanelHeaderRow
-            title={t("workspace.editor")}
-            onClose={closeEditor}
-            closeLabel={t("workspace.closeEditor")}
-          />
-          <p className="mb-2 truncate text-xs text-muted-foreground">{getDocumentName(editorDocId)}</p>
-          <div
-            role="separator"
-            aria-label={t("workspace.resizeEditor")}
-            onMouseDown={onResizeStart}
-            className="mb-2 h-2 cursor-row-resize flex items-center justify-center"
-            title={t("workspace.resizeEditor")}
-          >
-            <div className="h-1 w-14 rounded-full bg-border hover:bg-border-strong" />
-          </div>
-          <Textarea
-            value={editorContent}
-            onChange={(e) => setEditorContent(e.target.value)}
-            style={{ height: `${editorHeight}px` }}
-            className="w-full resize-none rounded-md border border-border px-2 py-2 text-xs text-foreground shadow-none focus:border-primary focus:ring-0"
-            placeholder={t("workspace.editDocumentPlaceholder")}
-          />
-          <Button
-            type="button"
-            onClick={saveEditor}
-            disabled={!editorContent.trim() || isLoading || processingAction === editorDocId}
-            variant="primary"
-            size="sm"
-            className="mt-2 w-full rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {processingAction === editorDocId ? t("common.saving") : t("workspace.saveChanges")}
-          </Button>
-          <div className="mt-2 flex gap-2">
-            <Button
-              type="button"
-              onClick={reattachEditor}
-              disabled={!editorContent.trim() || isLoading}
-              variant="primary"
-              size="sm"
-              className="flex-1 rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("workspace.attachToChat")}
-            </Button>
-            <Button
-              type="button"
-              onClick={downloadEditor}
-              disabled={!editorContent.trim()}
-              variant="secondary"
-              size="sm"
-              className="flex-1 rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("workspace.download")}
-            </Button>
-          </div>
-        </WorkspacePanelSection>
       )}
 
       {/* Empty / loading / error state (only when there is nothing to list) */}
@@ -697,13 +523,27 @@ export function DocumentsTab({
         lightboxDoc &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-            onClick={() => setLightboxDoc(null)}
             role="dialog"
             aria-modal
             aria-label={lightboxDoc.filename}
+            className="fixed inset-0 z-50 flex items-center justify-center"
           >
-            <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            {/* Backdrop — click to dismiss */}
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              className="absolute inset-0 bg-black/80"
+              onClick={() => setLightboxDoc(null)}
+              onKeyDown={(e) => { if (e.key === "Escape") setLightboxDoc(null); }}
+            />
+            {/* Content — stops backdrop click from propagating */}
+            <div
+              role="presentation"
+              className="relative z-10 max-w-[90vw] max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               <Image
                 src={`/api/proxy/api/workspace/documents/${lightboxDoc.id}/download`}
                 alt={lightboxDoc.filename}
@@ -727,6 +567,18 @@ export function DocumentsTab({
           </div>,
           document.body,
         )}
+
+      <ConfirmDialog
+        isOpen={nukeConfirmOpen}
+        variant="danger"
+        requireChecked
+        checkboxLabel={t("confirmDialog.resetCheckboxLabel")}
+        title={t("workspace.nukeAll")}
+        message={t("workspace.nukeMessage", { count: documents.length })}
+        confirmLabel={t("common.delete")}
+        onConfirm={handleClearAllDocuments}
+        onCancel={() => setNukeConfirmOpen(false)}
+      />
     </>
   );
 }

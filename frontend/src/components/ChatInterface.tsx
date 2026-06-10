@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { ArrowUp, BookOpen, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, FolderOpen, Globe, Image as ImageIcon, Mic, Minimize2, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
+import { ArrowUp, Bot, Brain, Calculator, Check, Clock, Compass, Copy, Database, ExternalLink, FileEdit, FileText, Image as ImageIcon, Mic, Minimize2, PanelRightClose, PanelRightOpen, Pencil, Plus, Search, Send, Settings, StopCircle, ThumbsDown, ThumbsUp, Wrench, X } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ContextRingIndicator } from "./ContextRingIndicator";
 import { MetricsPanel } from "./MetricsPanel";
@@ -11,6 +11,8 @@ import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), { ssr: false });
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
+import { ActiveDocumentPane } from "./workspace/ActiveDocumentPane";
+import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
 import type { WorkspaceTabId } from "./workspace/types";
 import { ChatMessageShell } from "./product/ChatMessageShell";
 import { Button } from "@/components/ui/button";
@@ -38,8 +40,8 @@ import type {
   Message,
   MessageMetrics,
   NodeTraceEntry,
-  Source,
 } from "@/lib/types";
+import { pickFocusedAnswer } from "@/lib/panelAnswer";
 
 const FALLBACK_TOOLS = [
   { id: "web_search_mcp", label: "Web Search" },
@@ -61,90 +63,6 @@ function formatModelName(model: string | null | undefined, fallback = "Model"): 
   const parts = m.split("/");
   return parts.length > 1 ? parts.slice(1).join("/") : m;
 }
-
-/** Render source badges below a message — blue for web (clickable), amber for RAG */
-function SourceBadges({ sources }: { sources?: Source[] }) {
-  if (!sources || sources.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-2">
-      {sources.map((src, idx) =>
-        src.type === "web" && src.url ? (
-          <a
-            key={`${src.label}-${idx}`}
-            href={src.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                         bg-primary/10 text-primary border border-primary/20
-                         hover:bg-primary/20 transition-colors no-underline"
-          >
-            <Globe size={12} />
-            {src.label}
-          </a>
-        ) : (
-          <span
-            key={`${src.label}-${idx}`}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                       bg-warning/10 text-warning border border-warning/20"
-          >
-            <BookOpen size={12} />
-            {src.label}
-          </span>
-        ),
-      )}
-    </div>
-  );
-}
-
-/** Render small file chips below an assistant message for each document used as context. */
-function AttachmentUsedBadges({
-  attachments,
-}: {
-  attachments?: Array<{ id: string; original_name: string }>;
-}) {
-  if (!attachments || attachments.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-1.5">
-      {attachments.map((att) => (
-        <span
-          key={att.id}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-surface-muted text-muted-foreground border border-border"
-          title={`Context from: ${att.original_name}`}
-        >
-          <FileText size={12} />
-          {att.original_name}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function DocumentUsedBadges({
-  documents,
-}: {
-  documents?: Array<{ id: string; filename: string; version: number }>;
-}) {
-  if (!documents || documents.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 px-1 mt-1.5">
-      {documents.map((doc) => (
-        <span
-          key={doc.id}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-                     bg-success/10 text-success border border-success/20"
-          title={`Workspace context: ${doc.filename} (v${doc.version})`}
-        >
-          <FolderOpen size={12} />
-          {doc.filename}
-          <span className="text-success/75">v{doc.version}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-
 
 function CtxRow({ label, value }: { label: string; value: number }) {
   return (
@@ -247,22 +165,48 @@ export function ChatInterface() {
       ? committedNodeTrace
       : nodeTrace;
 
-  // Clicking an evidence chip opens the workspace panel on the matching tab.
+  // Answer-scoped panel: which past answer the workspace panel is pinned to.
+  // null = follow the latest answer (default). Auto-resets on a new turn and on
+  // conversation switch; a chip click on an earlier answer pins it.
+  const [focusedAnswerIndex, setFocusedAnswerIndex] = useState<number | null>(null);
+  useEffect(() => setFocusedAnswerIndex(null), [activeId]);
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current) setFocusedAnswerIndex(null);
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  // Resolve the panel's source answer: a pinned earlier answer's committed
+  // metrics/trace, or (default) the live latest answer.
+  const focused = pickFocusedAnswer(messages, focusedAnswerIndex, lastAssistantIndex);
+  const panelMetrics = focused.isHistorical ? focused.metrics : latestAnswerMetrics;
+  const panelNodeTrace = focused.isHistorical ? focused.nodeTrace : inspectorNodeTrace;
+  const panelIsStreaming = isStreaming && !focused.isHistorical;
+
+  // Clicking an evidence chip opens the workspace panel on the matching tab and
+  // pins that answer (except the conversation-scoped Documents tab).
   const { setActiveTab: setWorkspaceTab } = useWorkspacePanel();
   const handleSelectEvidence = useCallback(
-    (tab: WorkspaceTabId) => {
+    (tab: WorkspaceTabId, index: number) => {
       setWorkspaceTab(tab);
       setWorkspaceSidebarOpen(true);
+      if (tab !== "documents") {
+        setFocusedAnswerIndex(index === lastAssistantIndex ? null : index);
+      }
     },
-    [setWorkspaceTab, setWorkspaceSidebarOpen],
+    [setWorkspaceTab, setWorkspaceSidebarOpen, lastAssistantIndex],
   );
+  const handleJumpToLatest = useCallback(() => setFocusedAnswerIndex(null), []);
 
   // ── Load workspace documents ─────────────────
   const fetchWorkspaceDocuments = useCallback(async () => {
     setDocumentsLoading(true);
     setDocumentsError(null);
     try {
-      const response = await fetch("/api/proxy/api/workspace/documents", {
+      // limit=1000 is the backend cap; the list is virtualized + client-side
+      // searched, so loading the full set keeps search + active-doc restore
+      // working. (True server-side pagination is deferred — see workspace-refactor.md.)
+      const response = await fetch("/api/proxy/api/workspace/documents?limit=1000", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -666,7 +610,20 @@ export function ChatInterface() {
     : "bg-primary/70";
 
   return (
-    <>
+    <ActiveDocumentProvider
+      documents={documents}
+      conversationId={activeId}
+      writebackSavedDocId={writebackSavedDocId}
+      onActiveDocumentChange={setActiveWorkspaceDocId}
+      onDocumentsRefresh={fetchWorkspaceDocuments}
+      onAttachmentUploaded={(attachment) => {
+        setAttachments((prev) => {
+          if (prev.some((item) => item.id === attachment.id)) return prev;
+          return [...prev, attachment];
+        });
+        setWorkspaceSidebarOpen(true);
+      }}
+    >
       <div className="flex h-full min-h-0">
         {/* ─── Main chat area ─── */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
@@ -700,7 +657,12 @@ export function ChatInterface() {
                   key={i}
                   message={msg}
                   index={i}
-                  isLatest={i === lastAssistantIndex}
+                  isFocused={
+                    workspaceSidebarOpen &&
+                    focusedAnswerIndex !== null &&
+                    i === focusedAnswerIndex &&
+                    i !== lastAssistantIndex
+                  }
                   onSelectEvidence={handleSelectEvidence}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
@@ -713,7 +675,7 @@ export function ChatInterface() {
 
         {/* ─── Streaming / Typing indicator ─── */}
         {(isStreaming || (loading && !isStreaming)) && (
-          <ChatMessageShell role="assistant">
+          <ChatMessageShell messageRole="assistant">
               <div className="flex items-center gap-2 ml-1">
                 <span className="text-sm font-bold text-foreground">
                   {t("chat.aiAgent")}
@@ -890,7 +852,7 @@ export function ChatInterface() {
                   </Button>
                   {attachMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
                       <div className="absolute bottom-full left-0 z-20 mb-2 min-w-40 rounded-xl border border-border bg-surface py-1 shadow-lg">
                         <Button
                           type="button"
@@ -931,7 +893,7 @@ export function ChatInterface() {
                   </Button>
                   {toolsMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setToolsMenuOpen(false)} />
                       <div className="absolute bottom-full left-0 z-20 mb-2 min-w-50 rounded-xl border border-border bg-surface py-2 shadow-lg">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
                         {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
@@ -973,6 +935,24 @@ export function ChatInterface() {
                 >
                   <Database size={20} />
                 </Button>
+
+                {/* Workspace panel toggle (moved here from the top nav) */}
+                <Button
+                  type="button"
+                  onClick={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
+                  title={t("chat.toggleWorkspaceSidebar")}
+                  aria-label={t("chat.toggleWorkspaceSidebar")}
+                  aria-pressed={workspaceSidebarOpen}
+                  variant="ghost"
+                  size="sm"
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    workspaceSidebarOpen
+                      ? "text-primary hover:bg-primary/10"
+                      : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                  }`}
+                >
+                  {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+                </Button>
               </div>
 
               {/* Spacer */}
@@ -999,7 +979,7 @@ export function ChatInterface() {
 
                   {contextMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
+                      <button type="button" aria-hidden="true" tabIndex={-1} className="fixed inset-0 z-10" onClick={() => setContextMenuOpen(false)} />
                       <div className="absolute bottom-full right-0 z-20 mb-2 min-w-60 rounded-xl border border-border bg-surface py-2 shadow-lg">
                         <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Context Window
@@ -1148,6 +1128,11 @@ export function ChatInterface() {
       </div>
       </div>
 
+      {/* ─── Active document split-view pane (between chat and workspace panel) ─── */}
+      {activeWorkspaceDocId && (
+        <ActiveDocumentPane isLoading={loading} />
+      )}
+
       {/* ─── Workspace sidebar ─── */}
       <WorkspaceSidebar
         isOpen={workspaceSidebarOpen}
@@ -1160,11 +1145,11 @@ export function ChatInterface() {
         documentsLoading={documentsLoading}
         documentsError={documentsError}
         onEnsureConversation={() => ensureConversation()}
-        writebackSavedDocId={writebackSavedDocId}
-        onActiveDocumentChange={setActiveWorkspaceDocId}
-        answerMetrics={latestAnswerMetrics}
-        nodeTrace={inspectorNodeTrace}
-        isStreaming={isStreaming}
+        answerMetrics={panelMetrics}
+        nodeTrace={panelNodeTrace}
+        isStreaming={panelIsStreaming}
+        historicalAnswer={focused.isHistorical}
+        onJumpToLatest={handleJumpToLatest}
         onAttachmentUploaded={(attachment) => {
           setAttachments((prev) => {
             if (prev.some((item) => item.id === attachment.id)) return prev;
@@ -1174,7 +1159,7 @@ export function ChatInterface() {
         }}
       />
       </div>
-    </>
+    </ActiveDocumentProvider>
   );
 }
 
@@ -1185,7 +1170,7 @@ export function ChatInterface() {
 function AssistantMessage({
   message,
   index,
-  isLatest = false,
+  isFocused = false,
   onSelectEvidence,
   onRegenerate,
   onFeedback,
@@ -1193,15 +1178,19 @@ function AssistantMessage({
 }: {
   message: Message;
   index: number;
-  isLatest?: boolean;
-  onSelectEvidence?: (tab: WorkspaceTabId) => void;
+  /** True when the workspace panel is pinned to this (earlier) answer. */
+  isFocused?: boolean;
+  onSelectEvidence?: (tab: WorkspaceTabId, index: number) => void;
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
 }) {
   const { t } = useI18n();
   return (
-    <ChatMessageShell role="assistant">
+    <ChatMessageShell
+      messageRole="assistant"
+      bodyClassName={isFocused ? "rounded-lg p-2 ring-1 ring-primary/30 ring-offset-2 ring-offset-background transition-all" : undefined}
+    >
         {/* Name + timestamp */}
         <div className="flex items-center gap-2 ml-1">
           <span className="text-sm font-bold text-foreground">{t("chat.aiAgent")}</span>
@@ -1229,21 +1218,15 @@ function AssistantMessage({
           </div>
         )}
 
-        {/* Source badges — only show RAG sources when docs were actually injected */}
-        <SourceBadges
-          sources={message.metrics?.sources?.filter(
-            (s) => s.type !== "rag" || (message.metrics?.rag_doc_count ?? 0) > 0,
-          )}
+        {/* Single inline provenance summary (sources · memory · tools · attachments ·
+            docs), interactive on every answer: clicking a chip pins the workspace
+            panel to THIS answer and opens the matching tab. Citations stay inline as
+            [N] superscripts; the full drill-down (source URLs, tool args/results,
+            trace) lives in the tabs. */}
+        <EvidenceChips
+          metrics={message.metrics}
+          onSelect={onSelectEvidence ? (tab) => onSelectEvidence(tab, index) : undefined}
         />
-
-        {/* Attachment context badges */}
-        <AttachmentUsedBadges attachments={message.metrics?.attachments_used} />
-
-        {/* Workspace document context badges */}
-        <DocumentUsedBadges documents={message.metrics?.documents_used} />
-
-        {/* Latest-answer evidence summary — glanceable bridge to the workspace tabs */}
-        {isLatest && <EvidenceChips metrics={message.metrics} onSelect={onSelectEvidence} />}
 
         {/* Metrics panel + feedback row */}
         <div className="w-full flex flex-col gap-1">
@@ -1343,7 +1326,7 @@ function UserMessage({
   };
 
   return (
-    <ChatMessageShell role="user">
+    <ChatMessageShell messageRole="user">
         <div className="flex items-center gap-2 mr-1">
           {message.timestamp && (
             <span className="msg-timestamp font-mono text-xs text-muted-foreground">
@@ -1474,7 +1457,7 @@ function QueuedMessageBubble({
 }) {
   const { t } = useI18n();
   return (
-    <ChatMessageShell role="user" className="opacity-60">
+    <ChatMessageShell messageRole="user" className="opacity-60">
         {/* Queued tag */}
         <div className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock size={13} className="animate-pulse" />

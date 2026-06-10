@@ -1,6 +1,6 @@
 "use client";
 
-import { Folder, X } from "lucide-react";
+import { Folder, Info, X } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
@@ -41,18 +41,21 @@ export function WorkspacePanel({
   onDocumentsRefresh,
   onEnsureConversation,
   onAttachmentUploaded,
-  writebackSavedDocId,
-  onActiveDocumentChange,
   documentsLoading = false,
   documentsError = null,
   onRetryDocuments,
   answerMetrics = null,
   nodeTrace = [],
   isStreaming = false,
+  historicalAnswer = false,
+  onJumpToLatest,
 }: WorkspacePanelProps) {
   const { t } = useI18n();
   const { activeTab, setActiveTab } = useWorkspacePanel();
   const evidence = useAnswerEvidence(answerMetrics);
+  // The banner only applies to the per-answer evidence tabs; Documents is
+  // conversation-scoped, so a "viewing an earlier answer" note there is misleading.
+  const showHistoricalBanner = historicalAnswer && activeTab !== "documents";
 
   const tabCounts: Record<WorkspaceTabId, number> = {
     documents: documents.length,
@@ -139,6 +142,24 @@ export function WorkspacePanel({
 
         {/* Content area */}
         <div className="flex-1 overflow-y-auto flex flex-col">
+          {/* Pinned to an earlier answer — the evidence tabs describe that answer. */}
+          {showHistoricalBanner && (
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-border bg-surface-muted text-muted-foreground shrink-0">
+              <Info size={13} className="shrink-0 text-primary" />
+              <span className="flex-1 truncate">{t("workspace.viewingEarlierAnswer")}</span>
+              {onJumpToLatest && (
+                <Button
+                  type="button"
+                  onClick={onJumpToLatest}
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10"
+                >
+                  {t("workspace.jumpToLatest")}
+                </Button>
+              )}
+            </div>
+          )}
           {/* Documents stays mounted (display:contents) to preserve editor/active-doc state. */}
           <div className={activeTab === "documents" ? "contents" : "hidden"}>
             <DocumentsTab
@@ -148,8 +169,6 @@ export function WorkspacePanel({
               onDocumentsRefresh={onDocumentsRefresh}
               onEnsureConversation={onEnsureConversation}
               onAttachmentUploaded={onAttachmentUploaded}
-              writebackSavedDocId={writebackSavedDocId}
-              onActiveDocumentChange={onActiveDocumentChange}
               documentsLoading={documentsLoading}
               documentsError={documentsError}
               onRetryDocuments={onRetryDocuments}
@@ -158,7 +177,14 @@ export function WorkspacePanel({
           {activeTab === "knowledge" && <KnowledgeTab evidence={evidence} />}
           {activeTab === "memory" && <MemoryTab evidence={evidence} />}
           {activeTab === "outputs" && <OutputsTab evidence={evidence} />}
-          {activeTab === "inspector" && <InspectorTab nodeTrace={nodeTrace} isStreaming={isStreaming} />}
+          {activeTab === "inspector" && (
+            <InspectorTab
+              nodeTrace={nodeTrace}
+              isStreaming={isStreaming}
+              // Only offer the Outputs deep-link when there's tool output to view.
+              onOpenOutputs={evidence.tools.length > 0 ? () => setActiveTab("outputs") : undefined}
+            />
+          )}
         </div>
       </WorkspacePanelShell>
     </>

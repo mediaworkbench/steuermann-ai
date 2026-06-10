@@ -57,19 +57,23 @@ export function ThemeProvider({
   initialTheme = "auto",
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
-  const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">(
-    getEffectiveTheme(initialTheme)
-  );
+  // Always start with "light" to match SSR (server has no window/matchMedia).
+  // The mount effect below immediately resolves the real effective theme.
+  const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">("light");
   const [mounted, setMounted] = useState(false);
 
-  // On mount, load saved theme from localStorage
+  // On mount, load saved theme from localStorage and resolve system preference.
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as Theme | null;
     if (savedTheme && ["light", "dark", "auto"].includes(savedTheme)) {
       setThemeState(savedTheme);
-      applyTheme(getEffectiveTheme(savedTheme));
+      const effective = getEffectiveTheme(savedTheme);
+      setEffectiveTheme(effective);
+      applyTheme(effective);
     } else {
-      applyTheme(getEffectiveTheme(initialTheme));
+      const effective = getEffectiveTheme(initialTheme);
+      setEffectiveTheme(effective);
+      applyTheme(effective);
     }
     setMounted(true);
   }, [initialTheme]);

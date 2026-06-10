@@ -187,7 +187,7 @@ export default function MetricsPage() {
     : t("metrics.na");
 
   return (
-    <main className="flex-1 overflow-y-auto bg-background">
+    <div className="flex-1 overflow-y-auto bg-background">
       <div className="mx-auto w-full px-4 py-6 md:px-8 md:py-8 space-y-8 lg:px-12">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -392,7 +392,7 @@ export default function MetricsPage() {
         </section>
       )}
       </div>
-    </main>
+    </div>
   );
 }
 
