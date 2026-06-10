@@ -2,6 +2,20 @@
 
 ### [0.4.1] — workspace split-view + documents virtualization
 
+**Documents tab — kebab actions menu (replaces the expandable row)**
+
+* Each document row in the workspace Documents tab now consolidates its actions
+  (Edit · Attach · Download · History · Rename · Delete) into a single **kebab menu** (`MoreVertical`,
+  right-aligned) built on the shadcn `DropdownMenu` (`ui/dropdown-menu`, base-ui). The old
+  click-to-expand row + inline action button row are gone; rename still happens inline (seeded with
+  the filename, Enter/Save · Escape/Cancel). Delete is the destructive menu item.
+* Rows got a bit more breathing room (`px-3 py-2.5`, `gap-2.5`) — they were cramped. Removed the now
+  dead `WorkspaceDocActionButton` component.
+* i18n: new EN+DE `workspace.documentActions` (menu trigger label); rename Save/Cancel reuse
+  `common.save`/`common.cancel`. Tests: 2 new `WorkspacePanel` cases (menu opens + lists actions;
+  Rename reveals the inline input). Frontend **141/141**; lint 0 errors / 4 pre-existing warnings;
+  build clean.
+
 **Answer-scoped workspace panel + technical-only MetricsPanel**
 
 * **The workspace panel now follows the answer you click, not just the latest.** Clicking any

@@ -95,6 +95,29 @@ describe("WorkspacePanel", () => {
     expect(screen.queryByText("beta.txt")).not.toBeInTheDocument();
   });
 
+  test("each document row exposes a kebab actions menu (no expandable view)", () => {
+    const docs = [doc("1", "alpha.md")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    // Single actions trigger per row; no chevron/expand toggle.
+    const trigger = screen.getByRole("button", { name: "workspace.documentActions" });
+    fireEvent.click(trigger);
+    // Consolidated actions appear in the menu.
+    expect(screen.getByText("workspace.edit")).toBeInTheDocument();
+    expect(screen.getByText("workspace.rename")).toBeInTheDocument();
+    expect(screen.getByText("workspace.delete")).toBeInTheDocument();
+  });
+
+  test("the Rename menu action reveals the inline rename input", () => {
+    const docs = [doc("1", "alpha.md")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    fireEvent.click(screen.getByRole("button", { name: "workspace.documentActions" }));
+    fireEvent.click(screen.getByText("workspace.rename"));
+    // Inline rename input is seeded with the current filename; Save/Cancel appear.
+    expect(screen.getByDisplayValue("alpha.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.save" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.cancel" })).toBeInTheDocument();
+  });
+
   test("shows the no-results state when search matches nothing", () => {
     renderWithPanel(<WorkspacePanel {...baseProps} documents={[doc("1", "alpha.md")]} />);
     fireEvent.change(screen.getByLabelText("workspace.searchDocuments"), {

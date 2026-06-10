@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Check, ChevronDown, ChevronUp, Eraser, FileText, ScrollText, Search, Trash, Upload, X } from "lucide-react";
+import { Check, Download, Eraser, FileText, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash, Trash2, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
@@ -12,12 +12,18 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { formatFileSize, workspaceAuthHeaders } from "./utils";
 import { useActiveDocument } from "@/context/ActiveDocumentContext";
 import { DocumentEditorView } from "./DocumentEditorView";
-import { WorkspaceDocActionButton } from "./WorkspaceDocActionButton";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { VirtualizedList } from "./VirtualizedList";
@@ -52,7 +58,6 @@ export function DocumentsTab({
   splitViewActive = false,
 }: DocumentsTabProps) {
   const { t } = useI18n();
-  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [nukePending, setNukePending] = useState(false);
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
@@ -107,7 +112,6 @@ export function DocumentsTab({
           throw new Error(`Failed to delete document: ${response.statusText}`);
         }
         if (editorDocId === docId) closeEditor();
-        setExpandedDoc(null);
         toast.success(t("workspace.delete"), { description: docName });
         onDocumentsRefresh?.();
       } catch (err) {
@@ -234,170 +238,161 @@ export function DocumentsTab({
     }
   }, [onDocumentsRefresh, t]);
 
-  const renderDocRow = (doc: WorkspaceDocument) => (
-    <div
-      key={doc.id}
-      className="rounded-lg border border-border bg-surface-muted transition-colors hover:bg-surface-elevated"
-    >
-      <Button
-        type="button"
-        onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
-        variant="ghost"
-        size="sm"
-        className="w-full justify-between px-3 py-2 text-left"
+  const renderDocRow = (doc: WorkspaceDocument) => {
+    const isImage = doc.mime_type?.startsWith("image/");
+    const busy = processingAction === doc.id || isLoading;
+    const isRenaming = renamingDocId === doc.id;
+    return (
+      <div
+        key={doc.id}
+        className="flex items-center gap-2.5 rounded-lg border border-border bg-surface-muted px-3 py-2.5 transition-colors hover:bg-surface-elevated"
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          {doc.mime_type?.startsWith("image/") ? (
-            <button
-              type="button"
-              className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxDoc(doc);
-              }}
-              title={t("workspace.thumbnailClickHint")}
-              aria-label={t("workspace.thumbnailClickHint")}
+        {/* Thumbnail (images) or file-type icon */}
+        {isImage ? (
+          <button
+            type="button"
+            className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
+            onClick={() => setLightboxDoc(doc)}
+            title={t("workspace.thumbnailClickHint")}
+            aria-label={t("workspace.thumbnailClickHint")}
+          >
+            <Image
+              src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
+              alt={doc.filename}
+              fill
+              sizes="64px"
+              unoptimized
+              className="object-cover"
+            />
+            <span
+              className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
+              style={{ fontSize: "8px", lineHeight: "13px" }}
             >
-              <Image
-                src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
-                alt={doc.filename}
-                fill
-                sizes="64px"
-                unoptimized
-                className="object-cover"
-              />
-              <span
-                className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
-                style={{ fontSize: "8px", lineHeight: "13px" }}
-              >
-                {formatFileSize(doc.size_bytes)}
-              </span>
-            </button>
-          ) : (
-            doc.filename.endsWith(".md")
-              ? <FileText size={16} className="shrink-0 text-muted-foreground" />
-              : <ScrollText size={16} className="shrink-0 text-muted-foreground" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
-            <p className="text-xs text-muted-foreground">
               {formatFileSize(doc.size_bytes)}
-              {doc.updated_at && !doc.mime_type?.startsWith("image/") && (
-                <> • v{doc.version}</>
-              )}
-            </p>
-          </div>
-        </div>
-        {expandedDoc === doc.id
-          ? <ChevronUp size={16} className="ml-1 shrink-0 text-muted-foreground" />
-          : <ChevronDown size={16} className="ml-1 shrink-0 text-muted-foreground" />
-        }
-      </Button>
+            </span>
+          </button>
+        ) : (
+          doc.filename.endsWith(".md")
+            ? <FileText size={16} className="shrink-0 text-muted-foreground" />
+            : <ScrollText size={16} className="shrink-0 text-muted-foreground" />
+        )}
 
-      {/* Expanded actions */}
-      {expandedDoc === doc.id && (
-        <div className="flex flex-wrap gap-1.5 border-t border-border bg-surface px-3 py-2">
-          {renamingDocId === doc.id ? (
-            <div className="w-full flex gap-1.5">
-              <Input
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRenameDocument(doc.id, renameValue);
-                  if (e.key === "Escape") {
-                    setRenamingDocId(null);
-                    setRenameValue("");
-                  }
-                }}
-                className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
-                placeholder={doc.filename}
-              />
-              <Button
-                type="button"
-                onClick={() => handleRenameDocument(doc.id, renameValue)}
-                disabled={!renameValue.trim() || processingAction === doc.id}
-                variant="primary"
-                size="sm"
-                className="px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Check size={14} />
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
+        {isRenaming ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <Input
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRenameDocument(doc.id, renameValue);
+                if (e.key === "Escape") {
                   setRenamingDocId(null);
                   setRenameValue("");
-                }}
-                variant="secondary"
-                size="sm"
-                className="px-2 py-1 text-xs"
-              >
-                <X size={14} />
-              </Button>
-            </div>
-          ) : null}
-          {!doc.mime_type?.startsWith("image/") && (
-            <WorkspaceDocActionButton
-              onClick={() => openEditor(doc.id)}
-              disabled={processingAction === doc.id || isLoading}
-              variant="ghost"
-              icon="edit"
-              label={t("workspace.edit")}
-              title={t("workspace.edit")}
+                }
+              }}
+              className="h-8 flex-1 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-none"
+              placeholder={doc.filename}
             />
-          )}
-          <WorkspaceDocActionButton
-            onClick={() => handleAttachFromWorkspace(doc)}
-            disabled={processingAction === doc.id || isLoading}
-            variant="ghost"
-            icon="attach_file"
-            label={t("workspace.attach")}
-            title={t("workspace.attach")}
-          />
-          <WorkspaceDocActionButton
-            onClick={() => handleDownloadDocument(doc.id)}
-            disabled={processingAction === doc.id || isLoading}
-            variant="ghost"
-            icon="download"
-            label={t("workspace.download")}
-            title={t("workspace.download")}
-          />
-          {!doc.mime_type?.startsWith("image/") && (
-            <WorkspaceDocActionButton
-              onClick={() => loadHistory(doc.id)}
-              disabled={processingAction === doc.id || isLoading}
+            <Button
+              type="button"
+              onClick={() => handleRenameDocument(doc.id, renameValue)}
+              disabled={!renameValue.trim() || processingAction === doc.id}
+              variant="primary"
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t("common.save")}
+            >
+              <Check size={14} />
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setRenamingDocId(null);
+                setRenameValue("");
+              }}
               variant="secondary"
-              icon="history"
-              label={t("workspace.history")}
-              title={t("workspace.versionHistoryTooltip")}
-            />
-          )}
-          <WorkspaceDocActionButton
-            onClick={() => {
-              setRenamingDocId(doc.id);
-              setRenameValue(doc.filename);
-            }}
-            disabled={processingAction === doc.id || isLoading}
-            variant="secondary"
-            icon="drive_file_rename_outline"
-            label={t("workspace.rename")}
-            title={t("workspace.rename")}
-          />
-          <WorkspaceDocActionButton
-            onClick={() => handleDeleteDocument(doc.id)}
-            disabled={processingAction === doc.id || isLoading}
-            variant="destructive"
-            icon="delete"
-            label={t("workspace.delete")}
-            title={t("workspace.delete")}
-          />
-        </div>
-      )}
-    </div>
-  );
+              size="sm"
+              className="h-8 w-8 shrink-0 p-0 text-xs"
+              aria-label={t("common.cancel")}
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatFileSize(doc.size_bytes)}
+                {doc.updated_at && !isImage && <> • v{doc.version}</>}
+              </p>
+            </div>
+
+            {/* Consolidated actions — kebab menu aligned to the right */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={processingAction === doc.id}
+                    className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                    aria-label={t("workspace.documentActions")}
+                  >
+                    <MoreVertical size={16} />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4}>
+                {!isImage && (
+                  <DropdownMenuItem onClick={() => openEditor(doc.id)} disabled={busy}>
+                    <SquarePen />
+                    <span>{t("workspace.edit")}</span>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => handleAttachFromWorkspace(doc)} disabled={busy}>
+                  <Paperclip />
+                  <span>{t("workspace.attach")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleDownloadDocument(doc.id)} disabled={busy}>
+                  <Download />
+                  <span>{t("workspace.download")}</span>
+                </DropdownMenuItem>
+                {!isImage && (
+                  <DropdownMenuItem onClick={() => loadHistory(doc.id)} disabled={busy}>
+                    <History />
+                    <span>{t("workspace.history")}</span>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() => {
+                    setRenamingDocId(doc.id);
+                    setRenameValue(doc.filename);
+                  }}
+                  disabled={busy}
+                >
+                  <PenLine />
+                  <span>{t("workspace.rename")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => handleDeleteDocument(doc.id)}
+                  disabled={busy}
+                >
+                  <Trash2 />
+                  <span>{t("workspace.delete")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>

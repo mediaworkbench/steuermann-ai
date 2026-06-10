@@ -358,6 +358,7 @@ export type Messages = {
     nukeFailed: string;
     uploadAriaLabel: string;
     thumbnailClickHint: string;
+    documentActions: string;
     tabDocuments: string;
     tabKnowledge: string;
     tabMemory: string;
@@ -966,6 +967,7 @@ export const messages: Record<Locale, Messages> = {
       nukeFailed: "Could not clear workspace",
       uploadAriaLabel: "Upload document or image",
       thumbnailClickHint: "Click to preview",
+      documentActions: "Document actions",
       tabDocuments: "Documents",
       tabKnowledge: "Knowledge",
       tabMemory: "Memory",
@@ -1572,6 +1574,7 @@ export const messages: Record<Locale, Messages> = {
       nukeFailed: "Workspace konnte nicht geleert werden",
       uploadAriaLabel: "Dokument oder Bild hochladen",
       thumbnailClickHint: "Klicken zum Vergrößern",
+      documentActions: "Dokumentaktionen",
       tabDocuments: "Dokumente",
       tabKnowledge: "Wissen",
       tabMemory: "Erinnerungen",
