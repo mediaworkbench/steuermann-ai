@@ -47,12 +47,12 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface-muted px-5 py-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
+      <p className="text-sm font-medium text-muted-foreground mb-4">
         {label}
       </p>
-      <p className="text-2xl font-bold text-foreground">{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+      <p className="text-3xl font-bold text-foreground">{value}</p>
+      {sub && <p className="text-xs text-muted-foreground mt-2">{sub}</p>}
     </div>
   );
 }
@@ -197,7 +197,7 @@ export default function MemoriesPage() {
 
         {/* Stats strip */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-5 mb-8">
             <StatCard label={t("memories.total")} value={stats.totals.memories} />
             <StatCard label={t("memories.recent7d")} value={stats.totals.recent_7d} />
             <StatCard
@@ -246,7 +246,7 @@ export default function MemoriesPage() {
         )}
 
         {!loading && filtered.length > 0 && (
-          <div className="rounded-xl border border-border overflow-hidden">
+          <div className="rounded-xl border border-border bg-surface shadow-sm overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="bg-surface-muted text-xs uppercase tracking-wider">

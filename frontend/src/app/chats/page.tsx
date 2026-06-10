@@ -423,17 +423,19 @@ function ChatRow({
           >
             <PanelRightOpen size={16} />
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t("sidebar.moreOptions")}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <MoreVertical size={16} />
-              </Button>
-            </DropdownMenuTrigger>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("sidebar.moreOptions")}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <MoreVertical size={16} />
+                  </Button>
+                }
+              />
             <DropdownMenuContent align="end" sideOffset={4} className="w-44">
               <DropdownMenuItem onClick={() => { setEditValue(c.title); setEditing(true); }}>
                 <Pencil size={16} />
