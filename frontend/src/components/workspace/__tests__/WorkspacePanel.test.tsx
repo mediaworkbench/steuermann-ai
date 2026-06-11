@@ -15,10 +15,10 @@ jest.mock("@/hooks/useI18n");
 
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 
-const doc = (id: string, filename: string): WorkspaceDocument => ({
+const doc = (id: string, filename: string, mimeType = "text/plain"): WorkspaceDocument => ({
   id,
   filename,
-  mime_type: "text/plain",
+  mime_type: mimeType,
   size_bytes: 100,
   version: 1,
 });
@@ -93,6 +93,25 @@ describe("WorkspacePanel", () => {
     });
     expect(screen.getByText("alpha.md")).toBeInTheDocument();
     expect(screen.queryByText("beta.txt")).not.toBeInTheDocument();
+  });
+
+  test("renders the CSV icon (Grid3x3) for a text/csv document", () => {
+    const docs = [doc("1", "data.csv", "text/csv")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    expect(screen.getByText("data.csv")).toBeInTheDocument();
+    expect(screen.getByTestId("csv-icon")).toBeInTheDocument();
+  });
+
+  test("renders the CSV icon when doc has no mime_type but .csv extension", () => {
+    const csvDocNoMime: WorkspaceDocument = { id: "2", filename: "export.csv", mime_type: "", size_bytes: 50, version: 1 };
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={[csvDocNoMime]} />, [csvDocNoMime]);
+    expect(screen.getByTestId("csv-icon")).toBeInTheDocument();
+  });
+
+  test("does not render the CSV icon for a non-CSV document", () => {
+    const docs = [doc("1", "notes.md")];
+    renderWithPanel(<WorkspacePanel {...baseProps} documents={docs} />, docs);
+    expect(screen.queryByTestId("csv-icon")).not.toBeInTheDocument();
   });
 
   test("each document row exposes a kebab actions menu (no expandable view)", () => {

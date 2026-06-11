@@ -747,3 +747,151 @@ class TestTopKScoredToolsHelper:
         assert _apply_top_k_scored_tools(tools, None) == tools
         assert _apply_top_k_scored_tools(tools, 0) == tools
         assert _apply_top_k_scored_tools(tools, -1) == tools
+
+
+# ── CSV tool routing ───────────────────────────────────────────────────────────
+
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_csv_boost_requires_workspace_doc(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    """csv_analyze_tool boost must NOT fire unless a text/csv workspace doc is present."""
+    # Base score 0.50: fails threshold (0.50 < 0.55) without boost.
+    # With boost: 0.50 + 0.20 = 0.70 — passes both threshold and min_top_score gate.
+    set_mock_config(mock_config, similarity_threshold=0.55, top_k=5)
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.1, 0.2, 0.3])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+    mock_score_similarity.return_value = 0.50
+
+    csv_tool = FakeTool("csv_analyze_tool", "Analyze a CSV spreadsheet sum average count")
+
+    # Without a CSV workspace doc — boost must not fire, tool must not be a candidate.
+    state_no_doc = {
+        "messages": [{"role": "user", "content": "sum the amount column"}],
+        "loaded_tools": [csv_tool],
+        "language": "en",
+        "workspace_documents": [],
+    }
+    result = node_prefilter_tools(state_no_doc)
+    candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
+    assert "csv_analyze_tool" not in candidate_names
+
+    # With a CSV workspace doc — boost fires, tool becomes a candidate.
+    state_with_doc = {
+        "messages": [{"role": "user", "content": "sum the amount column"}],
+        "loaded_tools": [csv_tool],
+        "language": "en",
+        "workspace_documents": [
+            {"filename": "data.csv", "mime_type": "text/csv", "stored_path": "/tmp/ws/data.csv"}
+        ],
+    }
+    result2 = node_prefilter_tools(state_with_doc)
+    candidate_names2 = [c["name"] for c in result2.get("candidate_tools", [])]
+    assert "csv_analyze_tool" in candidate_names2
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_node_injects_csv_stored_path(mock_config, mock_model_factory):
+    """node_call_tools_structured must inject the CSV stored_path into the system prompt (C0)."""
+    set_mock_config(mock_config)
+
+    captured_messages: list = []
+
+    class CapturingModel:
+        def invoke(self, messages):
+            captured_messages.extend(messages)
+            return SimpleNamespace(content='{"tool": "csv_analyze_tool", "args": {"file_path": "/tmp/ws/sales.csv", "operation": "aggregate", "column": "amount", "aggregation": "sum"}}')
+
+    mock_model_factory.return_value = CapturingModel()
+
+    csv_tool = FakeTool("csv_analyze_tool", "Analyze CSV")
+    state = {
+        "messages": [{"role": "user", "content": "sum the amount column"}],
+        "candidate_tools": [{"tool": csv_tool, "name": "csv_analyze_tool", "score": 0.85}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "tool_calling_mode": "structured",
+        "tool_calling_mode_reason": "model_config_non_native_mode",
+        "language": "en",
+        "workspace_documents": [
+            {"filename": "sales.csv", "mime_type": "text/csv", "stored_path": "/tmp/ws/sales.csv"}
+        ],
+    }
+
+    node_call_tools_structured(state)
+
+    system_content = next(
+        (m.content for m in captured_messages if hasattr(m, "content") and "/tmp/ws/sales.csv" in str(m.content)),
+        None,
+    )
+    assert system_content is not None, "CSV stored_path not found in structured node system prompt"
+    assert "sales.csv" in system_content
+    assert "csv_analyze_tool" in system_content
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_respond_writeback_prompt_includes_raw_csv_instruction(mock_config, mock_model_factory):
+    """node_generate_response must append the raw-CSV-only instruction when writeback target is a CSV."""
+    config = SimpleNamespace(
+        profile=SimpleNamespace(language="en", name="test-fork", timezone="UTC"),
+        tokens=SimpleNamespace(default_budget=1000, per_node_budgets={"response_node": 1000}),
+        llm=SimpleNamespace(providers=SimpleNamespace(primary=SimpleNamespace(type="ollama", models={"en": "llama"}))),
+    )
+    mock_config.return_value = config
+
+    fake_model = DummyModel()
+    mock_model_factory.return_value = fake_model
+
+    state = {
+        "messages": [{"role": "user", "content": "rewrite this spreadsheet"}],
+        "tool_results": {},
+        "knowledge_context": [],
+        "workspace_writeback_requested": True,
+        "workspace_writeback_document": {
+            "id": "doc-1",
+            "filename": "budget.csv",
+            "mime_type": "text/csv",
+            "content_text": "name,amount\nAlice,100\nBob,200",
+            "version": 1,
+        },
+    }
+
+    node_generate_response(state)
+
+    system_prompt = fake_model.invocations[0][0].content
+    assert "WORKSPACE WRITEBACK MODE" in system_prompt
+    assert "raw CSV only" in system_prompt
+    assert "header row" in system_prompt
+
+    # Non-CSV writeback must NOT include the CSV instruction.
+    fake_model2 = DummyModel()
+    mock_model_factory.return_value = fake_model2
+
+    state_md = {
+        "messages": [{"role": "user", "content": "rewrite this doc"}],
+        "tool_results": {},
+        "knowledge_context": [],
+        "workspace_writeback_requested": True,
+        "workspace_writeback_document": {
+            "id": "doc-2",
+            "filename": "notes.md",
+            "mime_type": "text/markdown",
+            "content_text": "# Notes",
+            "version": 1,
+        },
+    }
+
+    node_generate_response(state_md)
+
+    system_prompt_md = fake_model2.invocations[0][0].content
+    assert "WORKSPACE WRITEBACK MODE" in system_prompt_md
+    assert "raw CSV only" not in system_prompt_md

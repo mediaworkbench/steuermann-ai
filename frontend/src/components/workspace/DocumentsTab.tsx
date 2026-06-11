@@ -270,7 +270,7 @@ export function DocumentsTab({
             </span>
           </button>
         ) : isCsv ? (
-          <Grid3x3 size={16} className="shrink-0 text-muted-foreground" />
+          <Grid3x3 size={16} className="shrink-0 text-muted-foreground" data-testid="csv-icon" />
         ) : (
           doc.filename.endsWith(".md")
             ? <FileText size={16} className="shrink-0 text-muted-foreground" />

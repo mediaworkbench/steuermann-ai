@@ -9,9 +9,11 @@ jest.mock("@/hooks/useI18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));
 jest.mock("@/lib/runtime", () => ({ CURRENT_USER_ID: "u1" }));
+const mockMimeTypeForFilename = jest.fn((_name: string) => "text/plain");
+
 jest.mock("@/components/workspace/utils", () => ({
   workspaceAuthHeaders: (extra?: Record<string, string>) => ({ ...(extra ?? {}) }),
-  mimeTypeForFilename: () => "text/plain",
+  mimeTypeForFilename: (name: string) => mockMimeTypeForFilename(name),
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -244,6 +246,49 @@ describe("useDocumentEditor", () => {
       });
 
       expect(capturedFormData[0].get("expected_version")).toBe("2");
+    });
+
+    it("uses text/csv MIME type when saving a .csv document", async () => {
+      mockMimeTypeForFilename.mockImplementation((name: string) =>
+        name.endsWith(".csv") ? "text/csv" : "text/plain"
+      );
+
+      const csvDoc = { id: "doc-csv", filename: "data.csv", mime_type: "text/csv", size_bytes: 200, version: 1 };
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ content_text: "col1,col2\n1,2", version: 1, filename: "data.csv" }),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ document: { version: 2 } }),
+        } as unknown as Response);
+
+      const { result } = renderHook(() =>
+        useDocumentEditor(makeHookArgs({ documents: [csvDoc] }))
+      );
+
+      await act(async () => { await result.current.openEditor("doc-csv"); });
+      act(() => { result.current.setEditorContent("col1,col2\n1,99"); });
+
+      const capturedFormData: FormData[] = [];
+      const putFetch = jest.fn().mockImplementation((_url: string, opts: RequestInit) => {
+        if (opts.method === "PUT") capturedFormData.push(opts.body as FormData);
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: async () => ({ document: { version: 2 } }),
+        } as unknown as Response);
+      });
+      global.fetch = putFetch;
+
+      await act(async () => { await result.current.flushSave(); });
+
+      expect(capturedFormData).toHaveLength(1);
+      const uploadedFile = capturedFormData[0].get("file") as File;
+      expect(uploadedFile.type).toBe("text/csv");
+
+      mockMimeTypeForFilename.mockReset();
+      mockMimeTypeForFilename.mockImplementation((_name: string) => "text/plain");
     });
   });
 

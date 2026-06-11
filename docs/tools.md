@@ -33,6 +33,7 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `analyze_chart_tool` | Vision | **Yes** | Yes — "analyze chart", "Diagramm", "chart" |
 | `image_metadata_tool` | Image Library | No | No |
 | `read_barcodes_tool` | Image Library | No | Yes — "scan barcode", "QR-Code", "barcode" |
+| `csv_analyze_tool` | Spreadsheet | No | Yes — "sum/total/average/count/group by/filter" on a CSV workspace doc |
 
 ---
 
@@ -122,6 +123,37 @@ Reads and writes files within a sandboxed workspace directory.
 | `sandbox_dir` | `/tmp/steuermann-ai` | Absolute path of the sandboxed workspace |
 | `max_read_size_bytes` | `1048576` (1 MB) | Maximum file size for read operations |
 | `allowed_extensions` | `[.txt, .md, .json, .yaml, .csv]` | File extensions the tool will read/write |
+
+---
+
+## Spreadsheet Tools
+
+### `csv_analyze_tool`
+
+Computes exact aggregates over workspace CSV/spreadsheet files using Python's stdlib `csv` module — no pandas required. Operates over the **full file** on disk, bypassing the LLM context window limit.
+
+**Operations:**
+
+| Operation | Description | Example trigger |
+| --- | --- | --- |
+| `summary` | Row count, column names, inferred numeric vs text per column | "Describe this spreadsheet", "what columns are there?" |
+| `aggregate` | `sum` / `mean` / `min` / `max` / `count` over a column; optional `group_by` | "sum the amount column", "average price per category" |
+| `filter` | Rows where `column <op> value`; ops: `== != > >= < <= contains` | "filter where status == active" |
+| `head` / `tail` | First / last N rows (default 20) | "show the first 10 rows" |
+| `unique` | Distinct values in a column | "unique values in the status column" |
+| `value_counts` | Top-N value frequencies | "most common categories" |
+
+**Delimiter detection:** `csv.Sniffer` automatically detects `,` `;` `\t` `|`  — handles German `;`-delimited exports. Falls back to `,`.
+
+**Numeric coercion:** Tolerant of `1.234,56` (DE) and `1,234.56` (EN) formats, plus leading currency symbols (`€`, `$`, `£`).
+
+**File access:** The tool receives the CSV's absolute `stored_path` via the structured tool-calling node's system prompt (C0 injection). It validates the path is inside the workspace root (`CHAT_WORKSPACE_ROOT`) before reading — paths outside are rejected. **Structured mode only** in v1 (native/react don't inject the path; known limitation).
+
+**Intent boost triggers (gated on a `text/csv` workspace doc being present):** "sum", "total", "average", "mean", "count", "group by", "filter", "how many rows", "how many entries", "value counts", "head", "tail", "unique", "Summe", "Durchschnitt", "Mittelwert", "wie viele Zeilen", "Spalte auswerten", "CSV auswerten", "Tabelle auswerten", "gruppieren", "filtern".
+
+**Returns:** Compact human-readable text (not JSON). Errors start with `"Error: …"`.
+
+**No configuration required** — reads from the same workspace root as all other workspace documents.
 
 ---
 
