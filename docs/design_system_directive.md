@@ -156,5 +156,4 @@ Every frontend PR must satisfy all items below:
 - `design-system.md` (plan, migration history, and handoff status)
 - `docs/profile_creation.md` (profile overlay workflow)
 - `docs/configuration.md` (runtime configuration contract)
-- `docs/status.md` (runtime/documentation sync checkpoint)
 - `frontend/src/lib/tokenContract.ts` (profile theme token contract — all valid keys for `ui.yaml`)

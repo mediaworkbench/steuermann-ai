@@ -113,7 +113,7 @@ This repository is the shared template codebase. Domain behavior is added throug
 
 ### **3.2 Versioning**
 
-- The package metadata currently reports version `0.4.0` in `pyproject.toml`.
+- The package metadata currently reports version `0.4.2` in `pyproject.toml`.
 - Public release positioning is still experimental beta.
 - Treat profile overlays as configuration compatibility surfaces that should be validated against the exact repository revision you deploy.
 
@@ -452,7 +452,7 @@ The `useStreamingChat` hook is instantiated inside a persistent `ChatSessionProv
 
 The provider also owns the **single-slot follow-up queue** (`queuedMessage` / `enqueueMessage` / `clearQueue`): the composer stays enabled during streaming and a follow-up typed mid-stream is queued instead of sent. The same commit effect that appends the assistant bubble on the `isStreaming` true→false transition auto-fires the queued message — but **only on a normal completion**. "Normal" is decided by a provider-owned `manualStopRef` (set before the hook's `cancel`, because the hook's `wasCancelled` flips asynchronously in `catch`/`finally` and is not yet true at the commit-effect render) plus `streamError` (which _is_ reliable there); the fire is deferred with `setTimeout(0)` to avoid a `loading` race with the finishing turn, and gated on `streamConversationRef === activeId`. The queue is preserved while its stream is backgrounded (`if (!isStreamingRef.current) clearQueue()`) and cleared only on an idle conversation switch. The pending bubble is rendered by `ChatInterface` outside the `messages` array (like the live streaming indicator) so it can't disturb ordering or the persisted-id backfill.
 
-**Synchronous path (fallback / writeback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`.
+**Synchronous path (fallback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`. Writeback is no longer routed here — it runs inline on the streaming path (see §4.5).
 
 ### **4.6 Async Execution Reliability**
 
