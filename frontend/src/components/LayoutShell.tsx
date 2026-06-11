@@ -30,7 +30,6 @@ interface ConversationContextValue {
   rename: (id: string, title: string) => Promise<Conversation | null>;
   bulkDelete: (ids: string[]) => Promise<void>;
   bulkPin: (ids: string[], pinned: boolean) => Promise<void>;
-  doExport: (id: string, format: "json" | "markdown") => Promise<void>;
   refresh: () => Promise<void>;
   loading: boolean;
   workspaceSidebarOpen: boolean;

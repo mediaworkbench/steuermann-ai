@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ExportDialog } from "./ExportDialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useProfile } from "@/hooks/useProfile";
 import { useRole } from "@/context/RoleContext";
@@ -77,7 +78,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     update,
     remove,
     rename,
-    doExport,
   } = useConversationContext();
 
   const pinned = conversations.filter((c) => c.pinned);
@@ -161,7 +161,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       onPin={handlePin}
                       onDelete={remove}
                       onRename={rename}
-                      onExport={doExport}
                     />
                   ))}
                 </SidebarMenu>
@@ -183,7 +182,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       onPin={handlePin}
                       onDelete={remove}
                       onRename={rename}
-                      onExport={doExport}
                     />
                   ))}
                 </SidebarMenu>
@@ -322,7 +320,6 @@ function ConversationRow({
   onPin,
   onDelete,
   onRename,
-  onExport,
 }: {
   conversation: Conversation;
   isActive: boolean;
@@ -330,12 +327,12 @@ function ConversationRow({
   onPin: (id: string, pinned: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<boolean>;
   onRename: (id: string, title: string) => Promise<Conversation | null>;
-  onExport: (id: string, format: "json" | "markdown") => void;
 }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(c.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -418,13 +415,9 @@ function ConversationRow({
               </span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onExport(c.id, "json")}>
+            <DropdownMenuItem onClick={() => setShowExport(true)}>
               <Download />
-              <span>{t("sidebar.exportJson")}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExport(c.id, "markdown")}>
-              <Download />
-              <span>{t("sidebar.exportMarkdown")}</span>
+              <span>{t("common.export")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -450,6 +443,13 @@ function ConversationRow({
         }}
         onCancel={() => setConfirmDelete(false)}
       />
+      {showExport && (
+        <ExportDialog
+          conversationId={c.id}
+          conversationTitle={c.title}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </SidebarMenuItem>
   );
 }

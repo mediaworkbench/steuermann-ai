@@ -73,8 +73,6 @@ export type Messages = {
     rename: string;
     pin: string;
     unpin: string;
-    exportJson: string;
-    exportMarkdown: string;
     delete: string;
     deleteConversationConfirm: string;
   };
@@ -683,8 +681,6 @@ export const messages: Record<Locale, Messages> = {
       rename: "Rename",
       pin: "Pin",
       unpin: "Unpin",
-      exportJson: "Export JSON",
-      exportMarkdown: "Export Markdown",
       delete: "Delete",
       deleteConversationConfirm: "Delete this conversation?",
     },
@@ -1292,8 +1288,6 @@ export const messages: Record<Locale, Messages> = {
       rename: "Umbenennen",
       pin: "Anheften",
       unpin: "Lösen",
-      exportJson: "JSON exportieren",
-      exportMarkdown: "Markdown exportieren",
       delete: "Löschen",
       deleteConversationConfirm: "Diese Unterhaltung löschen?",
     },

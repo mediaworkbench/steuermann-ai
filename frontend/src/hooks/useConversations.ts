@@ -9,7 +9,6 @@ import {
   fetchConversation,
   updateConversation,
   deleteConversation,
-  exportConversation,
 } from "@/lib/api";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 
@@ -192,28 +191,6 @@ export function useConversations() {
     [bump],
   );
 
-  // ── Export ────────────────────────────────────────────────────────
-
-  const doExport = useCallback(
-    async (id: string, format: "json" | "markdown") => {
-      const result = await exportConversation(id, format);
-      if (!result) return;
-      // Download as file
-      const blob = new Blob(
-        [typeof result === "string" ? result : JSON.stringify(result, null, 2)],
-        { type: format === "markdown" ? "text/markdown" : "application/json" },
-      );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `conversation-${id}.${format === "markdown" ? "md" : "json"}`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Conversation exported");
-    },
-    [],
-  );
-
   return {
     conversations,
     total,
@@ -228,7 +205,6 @@ export function useConversations() {
     rename,
     bulkDelete,
     bulkPin,
-    doExport,
     refresh,
   };
 }

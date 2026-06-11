@@ -114,7 +114,7 @@ export function ExportDialog({
             {t("common.cancel")}
           </Button>
           <Button
-            variant="default"
+            variant="primary"
             size="md"
             onClick={handleExport}
             disabled={exporting}
@@ -151,19 +151,18 @@ function FormatOption({
   onClick: () => void;
 }) {
   return (
-    <Button
+    <button
       type="button"
       onClick={onClick}
-      variant="ghost"
-      className={`flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors ${
+      className={`flex flex-1 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 ${
         selected
           ? "border-primary bg-primary/5"
-          : "border-border hover:border-primary/30 bg-surface"
+          : "border-border bg-surface hover:border-primary/30"
       }`}
     >
       <Icon
         size={24}
-        className={selected ? "text-primary" : "text-foreground/30"}
+        className={selected ? "shrink-0 text-primary" : "shrink-0 text-foreground/30"}
       />
       <div>
         <span
@@ -175,6 +174,6 @@ function FormatOption({
         </span>
         <span className="text-[11px] text-foreground/40">{description}</span>
       </div>
-    </Button>
+    </button>
   );
 }

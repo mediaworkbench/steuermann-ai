@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ExportDialog } from "@/components/ExportDialog";
 import { ConversationEvidenceDrawer } from "@/components/workspace/ConversationEvidenceDrawer";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,7 +43,7 @@ import type { Conversation } from "@/lib/types";
 export default function ChatsPage() {
   const { t, formatDate } = useI18n();
   const router = useRouter();
-  const { revision, remove, rename, update, bulkDelete, bulkPin, doExport, setActiveId } =
+  const { revision, remove, rename, update, bulkDelete, bulkPin, setActiveId } =
     useConversationContext();
   const browser = useConversationBrowser(revision);
   const { items, total, offset, query, loading, pageSize } = browser;
@@ -250,7 +251,6 @@ export default function ChatsPage() {
                     onRename={handleRename}
                     onPin={handlePin}
                     onRequestDelete={setConfirmDeleteId}
-                    onExport={doExport}
                     formatDate={formatDate}
                   />
                 ))}
@@ -328,7 +328,6 @@ function ChatRow({
   onRename,
   onPin,
   onRequestDelete,
-  onExport,
   formatDate,
 }: {
   conversation: Conversation;
@@ -340,12 +339,12 @@ function ChatRow({
   onRename: (id: string, title: string) => Promise<Conversation | null>;
   onPin: (id: string, pinned: boolean) => void;
   onRequestDelete: (id: string) => void;
-  onExport: (id: string, format: "json" | "markdown") => void;
   formatDate: (value: string) => string;
 }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(c.title);
+  const [showExport, setShowExport] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -446,13 +445,9 @@ function ChatRow({
                 <span>{c.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onExport(c.id, "json")}>
+              <DropdownMenuItem onClick={() => setShowExport(true)}>
                 <Download size={16} />
-                <span>{t("sidebar.exportJson")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onExport(c.id, "markdown")}>
-                <Download size={16} />
-                <span>{t("sidebar.exportMarkdown")}</span>
+                <span>{t("common.export")}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={() => onRequestDelete(c.id)}>
@@ -463,6 +458,13 @@ function ChatRow({
           </DropdownMenu>
         </div>
       </TableCell>
+      {showExport && (
+        <ExportDialog
+          conversationId={c.id}
+          conversationTitle={c.title}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </TableRow>
   );
 }
