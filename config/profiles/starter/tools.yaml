@@ -70,6 +70,10 @@ tools:
     path: universal_agentic_framework/tools/read_barcodes
     enabled: true
 
+  - name: csv_analyze_tool
+    path: universal_agentic_framework/tools/csv_analyze
+    enabled: true
+
   - name: mcp_stub
     path: universal_agentic_framework/tools/mcp_stub
     enabled: false

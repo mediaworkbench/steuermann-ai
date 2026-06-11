@@ -147,8 +147,9 @@ export function useDocumentEditor({
     setProcessingAction(editorDocId);
     try {
       const docName = getDocumentName(editorDocId);
-      const blob = new Blob([contentAtSave], { type: "text/plain;charset=utf-8" });
-      const file = new File([blob], docName, { type: "text/plain" });
+      const mime = mimeTypeForFilename(docName);
+      const blob = new Blob([contentAtSave], { type: `${mime};charset=utf-8` });
+      const file = new File([blob], docName, { type: mime });
       const formData = new FormData();
       formData.append("file", file);
       if (editorDocVersion != null) {

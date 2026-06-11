@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Check, Download, Eraser, FileText, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
+import { Check, Download, Eraser, FileText, Grid3x3, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
@@ -237,6 +237,7 @@ export function DocumentsTab({
 
   const renderDocRow = (doc: WorkspaceDocument) => {
     const isImage = doc.mime_type?.startsWith("image/");
+    const isCsv = doc.mime_type === "text/csv" || doc.filename.endsWith(".csv");
     const busy = processingAction === doc.id || isLoading;
     const isRenaming = renamingDocId === doc.id;
     return (
@@ -268,6 +269,8 @@ export function DocumentsTab({
               {formatFileSize(doc.size_bytes)}
             </span>
           </button>
+        ) : isCsv ? (
+          <Grid3x3 size={16} className="shrink-0 text-muted-foreground" />
         ) : (
           doc.filename.endsWith(".md")
             ? <FileText size={16} className="shrink-0 text-muted-foreground" />

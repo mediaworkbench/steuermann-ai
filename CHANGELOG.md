@@ -2,6 +2,56 @@
 
 ### [0.4.2] — workspace document editing, versioning & writeback hardening
 
+**CSV analysis tool (`csv_analyze_tool`)**
+
+* New `csv_analyze_tool` backed by Python stdlib `csv` — no pandas/numpy dependency.
+  Operations: `summary`, `aggregate` (sum/mean/min/max/count, optional group-by), `filter`,
+  `head`, `tail`, `unique`, `value_counts`.
+* German `;`-delimited files detected automatically via `csv.Sniffer`; fallback `,`.
+* Numeric coercion handles DE (`1.234,56`) and EN (`1,234.56`) formats and currency prefixes
+  (`€`, `$`).
+* File access is confined to the workspace root (`CHAT_WORKSPACE_ROOT`); path-traversal
+  attempts return an error without crashing.
+* Tool results appear in the workspace **Outputs tab** via the existing `tool_results_detail`
+  pipeline — no extra wiring.
+
+**Routing (Layer 1 prefilter)**
+
+* `mentions_csv_analysis` intent added to `detect_tool_routing_intents` (EN + DE trigger
+  words: sum, average, count, group by, filter, wie viele Zeilen, CSV auswerten, …).
+* Intent boost (+0.2) applied to `csv_analyze_tool` **only when** a `text/csv` workspace
+  document is present in state — avoids false positives on unrelated queries.
+
+**Structured tool-calling node (C0 — path surfacing)**
+
+* `node_call_tools_structured` now injects a `=== SPREADSHEET WORKSPACE DOCUMENTS ===`
+  section with the `stored_path` of each CSV workspace doc so the model can pass the correct
+  `file_path` argument to `csv_analyze_tool`.
+* Native/react path surfacing is a documented follow-up (same limitation the vision tools have).
+
+**Backend model-reading fidelity (CSV context block)**
+
+* `truncate_tabular_by_rows` — row-aware truncation that never cuts mid-row; always preserves
+  the header; appends `(showing first N of M rows)` when rows are dropped.
+* `build_workspace_document_context_block` uses a 1500-token per-doc budget (vs. 600 for plain
+  text) and `truncate_tabular_by_rows` for CSV files; total block budget raised by 1000 tokens
+  when any CSV is present.
+* A one-line path hint is appended to the CSV context block pointing the answering model to
+  `csv_analyze_tool` for exact full-file computation.
+
+**Writeback guard (B3)**
+
+* When the writeback target is a `.csv` file, the writeback prompt now includes: *"Output raw
+  CSV only — preserve the exact delimiter, the header row, and every column; do not convert to
+  a markdown table or add code fences."*
+
+**Frontend**
+
+* Documents list shows a `Grid3X3` icon for CSV files (`.csv` or `text/csv` MIME) instead of
+  the generic `ScrollText` icon.
+* Editor `flushSave` now sends the correct `text/csv` MIME type for `.csv` files instead of
+  always `text/plain`.
+
 **Dirty tracking + auto-save-before-send**
 
 * The document editor now tracks whether local edits diverge from the last server-confirmed

@@ -7,6 +7,27 @@ from pathlib import Path
 from typing import Optional
 
 
+def _resolve_local_file(file_path: str, base_dir: str) -> Path:
+    """Resolve a local file path and validate it is confined inside base_dir.
+
+    Unlike _resolve_local_image this does not assert an image MIME type, making
+    it suitable for arbitrary file types (e.g. CSV workspace documents).
+
+    Security assumption: confinement is per workspace root, not per user — the
+    app uses a single effective user and the model only ever sees its own user's
+    stored_path.
+    """
+    path = Path(file_path).resolve()
+    base = Path(base_dir).resolve()
+    if not str(path).startswith(str(base) + os.sep) and path != base:
+        raise ValueError(
+            f"Path '{file_path}' is outside the allowed workspace directory."
+        )
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {path}")
+    return path
+
+
 def _resolve_local_image(image_source: str, base_dir: str) -> tuple[bytes, str]:
     """Read a local image file and validate it is inside base_dir."""
     path = Path(image_source).resolve()

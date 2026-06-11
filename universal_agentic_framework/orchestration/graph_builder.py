@@ -102,6 +102,7 @@ from universal_agentic_framework.orchestration.helpers import (
     record_tool_error,
     build_attachment_context_block,
     build_workspace_document_context_block,
+    build_workspace_tool_paths,
     detect_tool_routing_intents,
     score_tool_similarity,
     apply_top_k_scored_tools,
@@ -402,6 +403,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 str(a.get("mime_type", "")).startswith("image/")
                 for a in (state.get("attachments") or [])
             )
+            csv_workspace_doc_present = any(
+                str(d.get("mime_type", "")) == "text/csv" or str(d.get("filename", "")).endswith(".csv")
+                for d in (state.get("workspace_documents") or [])
+            )
 
             if intents["asks_about_tools"]:
                 logger.info("Meta-question detected: skipping tool pre-filter")
@@ -459,6 +464,12 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 ) and intents.get("mentions_barcode"):
                     similarity += intent_boost
                 elif tool_name == "map_tool" and intents.get("mentions_map"):
+                    similarity += intent_boost
+                elif (
+                    tool_name == "csv_analyze_tool"
+                    and intents.get("mentions_csv_analysis")
+                    and csv_workspace_doc_present
+                ):
                     similarity += intent_boost
 
                 # Hard intent override: when user explicitly asks for web search,
@@ -890,6 +901,9 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
             attachment_block, _ = build_attachment_context_block(state.get("attachments") or [])
             attachment_section = f"\n\n{attachment_block}" if attachment_block else ""
 
+            csv_paths_block = build_workspace_tool_paths(state.get("workspace_documents") or [])
+            csv_paths_section = f"\n\n{csv_paths_block}" if csv_paths_block else ""
+
             system_content = (
                 "You are a helpful assistant with access to tools.\n"
                 "If a tool would help answer the user's question, respond with ONLY a JSON object:\n"
@@ -897,6 +911,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 f"{tool_footer}\n\n"
                 f"Available tools:\n{tool_block}"
                 f"{attachment_section}"
+                f"{csv_paths_section}"
             )
 
             messages = [
@@ -1563,6 +1578,14 @@ def node_generate_response(state: GraphState) -> GraphState:
     writeback_doc_state = state.get("workspace_writeback_document")
     if state.get("workspace_writeback_requested") and writeback_doc_state:
         filename = writeback_doc_state.get("filename") or "document.txt"
+        writeback_mime = str(writeback_doc_state.get("mime_type") or "")
+        is_csv_writeback = writeback_mime == "text/csv" or filename.endswith(".csv")
+        csv_extra = (
+            "\nOutput raw CSV only — preserve the exact delimiter, the header row, and every column; "
+            "do not convert to a markdown table or add code fences."
+            if is_csv_writeback
+            else ""
+        )
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"
@@ -1571,7 +1594,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             "<One or two sentences describing what you changed and why.>\n\n"
             "DOCUMENT:\n"
             "<Complete revised file content — no code fences, no preamble, no commentary.>\n\n"
-            "IMPORTANT: The DOCUMENT section is saved verbatim. Do not wrap it in code fences.\n"
+            f"IMPORTANT: The DOCUMENT section is saved verbatim. Do not wrap it in code fences.{csv_extra}\n"
             "=== END WORKSPACE WRITEBACK MODE ==="
         )
     

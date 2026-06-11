@@ -318,6 +318,14 @@ _TOOL_LABELS: dict[str, str] = {
     "file_read_tool": "Reading file...",
     "file_write_tool": "Writing file...",
     "workspace_file_ops_tool": "Editing workspace document...",
+    "csv_analyze_tool": "Analyzing spreadsheet...",
+    "analyze_image_tool": "Analyzing image...",
+    "ocr_tool": "Reading text from image...",
+    "analyze_document_tool": "Analyzing document...",
+    "analyze_chart_tool": "Analyzing chart...",
+    "image_metadata_tool": "Reading image metadata...",
+    "read_barcodes_tool": "Reading barcodes...",
+    "map_tool": "Looking up map data...",
 }
 
 

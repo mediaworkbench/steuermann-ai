@@ -21,8 +21,10 @@ from .tool_payload import (
 # Text processing
 from .text_processing import (
     truncate_text_by_tokens,
+    truncate_tabular_by_rows,
     build_attachment_context_block,
     build_workspace_document_context_block,
+    build_workspace_tool_paths,
     extract_json_object,
 )
 
@@ -78,8 +80,10 @@ __all__ = [
     "record_tool_error",
     # Text processing
     "truncate_text_by_tokens",
+    "truncate_tabular_by_rows",
     "build_attachment_context_block",
     "build_workspace_document_context_block",
+    "build_workspace_tool_paths",
     "extract_json_object",
     # Intent detection
     "detect_tool_routing_intents",

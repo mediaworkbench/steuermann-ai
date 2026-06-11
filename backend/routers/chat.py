@@ -1398,6 +1398,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
             {
                 "id": eligible_writeback_docs[0]["id"],
                 "filename": eligible_writeback_docs[0]["filename"],
+                "mime_type": eligible_writeback_docs[0].get("mime_type", ""),
                 "content_text": eligible_writeback_docs[0]["content_text"],
                 "version": eligible_writeback_docs[0]["version"],
             }
@@ -1757,6 +1758,7 @@ async def chat_stream(
             {
                 "id": eligible_writeback_docs[0]["id"],
                 "filename": eligible_writeback_docs[0]["filename"],
+                "mime_type": eligible_writeback_docs[0].get("mime_type", ""),
                 "content_text": eligible_writeback_docs[0]["content_text"],
                 "version": eligible_writeback_docs[0]["version"],
             }

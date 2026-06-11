@@ -198,6 +198,25 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         ])
     )
 
+    # CSV / spreadsheet analysis: user wants to compute over tabular data
+    mentions_csv_analysis = bool(
+        re.search(
+            r"\b(sum|total|average|mean|count|min|max|group\s*by|filter|value.?count|head|tail|unique)\b",
+            user_msg_lower,
+        )
+        or any(k in user_msg_lower for k in [
+            # English
+            "how many rows", "how many entries", "how many records",
+            "sum the", "total the", "average of", "mean of",
+            "aggregate", "pivot", "sort by column",
+            # German
+            "summe", "gesamtbetrag", "durchschnitt", "mittelwert",
+            "wie viele zeilen", "wie viele einträge", "einträge zählen",
+            "spalte auswerten", "csv auswerten", "tabelle auswerten",
+            "gruppieren", "nach spalte", "zeilen filtern",
+        ])
+    )
+
     # Map / geocoding: user wants to see a location or measure distance
     mentions_map = bool(
         re.search(r"\b(locate|karte)\b", user_msg_lower)
@@ -278,6 +297,7 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_image_metadata": mentions_image_metadata,
         "mentions_barcode": mentions_barcode,
         "mentions_map": mentions_map,
+        "mentions_csv_analysis": mentions_csv_analysis,
         "asks_about_tools": asks_about_tools,
         "wants_save_to_rag": wants_save_to_rag,
         "enhanced_web_query": enhanced_web_query,

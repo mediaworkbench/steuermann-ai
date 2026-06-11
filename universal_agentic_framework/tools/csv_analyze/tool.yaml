@@ -1,0 +1,20 @@
+name: "csv_analyze_tool"
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.csv_analyze.tool:CsvAnalyzeTool"
+descriptions:
+  en: >
+    Analyze a CSV or spreadsheet file from the workspace. Compute sum, total, average,
+    mean, min, max, count over a column; group by a category; filter rows by value;
+    show first or last rows (head/tail); list unique values or value counts.
+    Use when user asks: sum column, total amount, average price, how many rows,
+    how many entries, group by category, filter where value, show first rows of CSV.
+  de: >
+    CSV- oder Tabellendatei aus dem Arbeitsbereich analysieren. Summe, Gesamt, Durchschnitt,
+    Mittelwert, Minimum, Maximum oder Anzahl über eine Spalte berechnen; nach Kategorie
+    gruppieren; Zeilen nach Wert filtern; erste oder letzte Zeilen anzeigen;
+    eindeutige Werte oder Häufigkeiten ausgeben.
+    Verwenden wenn: Summe Spalte, Gesamtbetrag, Durchschnittspreis, wie viele Zeilen,
+    Einträge zählen, nach Spalte gruppieren, filtern wo Wert, CSV auswerten, Tabelle auswerten.
+permissions:
+  - "system:compute"
+  - "filesystem:read"
