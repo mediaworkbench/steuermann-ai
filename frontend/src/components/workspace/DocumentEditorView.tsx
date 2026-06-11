@@ -25,6 +25,7 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
     editorDocId,
     editorContent,
     setEditorContent,
+    isDirty,
     getDocumentName,
     saveEditor,
     reattachEditor,
@@ -39,6 +40,13 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
     restoreVersion,
     closeHistory,
   } = useActiveDocument();
+
+  const versionSourceLabel = (source?: string | null): string | null => {
+    if (source === "user") return t("workspace.versionSourceUser");
+    if (source === "assistant") return t("workspace.versionSourceAssistant");
+    if (source === "restore") return t("workspace.versionSourceRestored");
+    return null;
+  };
 
   const versionHistory = historyDocId ? (
     <WorkspacePanelSection className="border-t-0">
@@ -56,9 +64,14 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
           {historyVersions.map((v) => (
             <WorkspaceMutedCard key={v.id} className="rounded border">
               <div className="flex items-center justify-between px-2 py-1.5">
-                <div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-xs font-medium text-foreground">v{v.version}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">
+                  {versionSourceLabel(v.source) && (
+                    <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {versionSourceLabel(v.source)}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground">
                     {formatFileSize(v.size_bytes)}
                     {v.created_at && ` · ${new Date(v.created_at).toLocaleDateString()}`}
                   </span>
@@ -89,7 +102,7 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
                 <div className="px-2 pb-2">
                   <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface p-2 font-mono text-xs">
                     {previewContent.slice(0, 2000)}
-                    {previewContent.length > 2000 ? "\n…" : ""}
+                    {previewContent.length > 2000 ? `\n… ${t("workspace.previewTruncated")}` : ""}
                   </pre>
                 </div>
               )}
@@ -111,12 +124,16 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
       <Button
         type="button"
         onClick={saveEditor}
-        disabled={!editorContent.trim() || isLoading || processingAction === editorDocId}
+        disabled={!editorContent.trim() || !isDirty || isLoading || processingAction === editorDocId}
         variant="primary"
         size="sm"
         className="mt-2 w-full rounded-md px-3 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {processingAction === editorDocId ? t("common.saving") : t("workspace.saveChanges")}
+        {processingAction === editorDocId
+          ? t("common.saving")
+          : isDirty
+            ? `${t("workspace.saveChanges")} • ${t("workspace.unsavedChanges")}`
+            : t("workspace.saveChanges")}
       </Button>
       <div className="mt-2 flex gap-2">
         <Button

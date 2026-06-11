@@ -25,7 +25,7 @@ const DEFAULT_WIDTH = 460;
  */
 export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProps) {
   const { t } = useI18n();
-  const { editorDocId, getDocumentName, closeEditor } = useActiveDocument();
+  const { editorDocId, getDocumentName, closeEditor, isDirty } = useActiveDocument();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -74,12 +74,23 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
 
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 shrink-0">
-        <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {editorDocId ? getDocumentName(editorDocId) : t("workspace.splitViewTitle")}
+        <p className="flex min-w-0 items-center gap-1.5 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="truncate">
+            {editorDocId ? getDocumentName(editorDocId) : t("workspace.splitViewTitle")}
+          </span>
+          {isDirty && (
+            <span
+              className="shrink-0 text-warning"
+              title={t("workspace.unsavedChanges")}
+              aria-label={t("workspace.unsavedChanges")}
+            >
+              ●
+            </span>
+          )}
         </p>
         <Button
           type="button"
-          onClick={closeEditor}
+          onClick={() => closeEditor()}
           variant="ghost"
           size="sm"
           className="p-0 text-muted-foreground hover:text-foreground"

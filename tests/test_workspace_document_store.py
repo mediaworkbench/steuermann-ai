@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import pytest
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from backend.db import WorkspaceDocumentStore, _normalize_workspace_document_row
+from backend.db import WorkspaceDocumentStore, WorkspaceVersionConflictError, _normalize_workspace_document_row
 
 
 class FakeCursor:
-    def __init__(self, *, fetchone_result=None, fetchall_result=None, rowcount: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        fetchone_result=None,
+        fetchone_results: list | None = None,
+        fetchall_result=None,
+        rowcount: int = 0,
+    ) -> None:
         self.fetchone_result = fetchone_result
+        # Queue of results for multi-call fetchone (e.g. SELECT FOR UPDATE then UPDATE RETURNING).
+        # When set, pops from the front on each call; falls back to fetchone_result when exhausted.
+        self._fetchone_queue: list | None = list(fetchone_results) if fetchone_results is not None else None
         self.fetchall_result = fetchall_result or []
         self.rowcount = rowcount
         self.executed: list[tuple[str, tuple | None]] = []
@@ -18,6 +29,8 @@ class FakeCursor:
         self.executed.append((statement, params))
 
     def fetchone(self):
+        if self._fetchone_queue is not None:
+            return self._fetchone_queue.pop(0) if self._fetchone_queue else None
         return self.fetchone_result
 
     def fetchall(self):
@@ -34,12 +47,16 @@ class FakeConnection:
     def __init__(self, cursor: FakeCursor) -> None:
         self._cursor = cursor
         self.committed = False
+        self.rolled_back = False
 
     def cursor(self, cursor_factory=None):
         return self._cursor
 
     def commit(self) -> None:
         self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
 
 
 class FakeDbPool:
@@ -150,7 +167,8 @@ def test_get_documents_by_ids_preserves_requested_order() -> None:
     assert "id = ANY(%s)" in cursor.executed[0][0]
 
 
-def test_update_document_content_with_expected_version_returns_none_on_mismatch() -> None:
+def test_update_document_content_returns_none_when_document_not_found() -> None:
+    # SELECT FOR UPDATE finds no row → return None without committing.
     cursor = FakeCursor(fetchone_result=None)
     connection = FakeConnection(cursor)
     store = WorkspaceDocumentStore(cast(Any, FakeDbPool(connection)))
@@ -161,14 +179,80 @@ def test_update_document_content_with_expected_version_returns_none_on_mismatch(
         content_text="new",
         size_bytes=3,
         sha256="newhash",
-        expected_version=3,
     )
 
     assert updated is None
+    assert connection.committed is False
+    assert connection.rolled_back is True
+    lock_sqls = [sql for sql, _ in cursor.executed if "FOR UPDATE" in sql]
+    assert lock_sqls, "Expected a SELECT … FOR UPDATE query"
+
+
+def test_update_document_content_raises_conflict_on_version_mismatch() -> None:
+    # SELECT FOR UPDATE returns version=5, but caller expects version=3 → conflict.
+    cursor = FakeCursor(fetchone_result={"version": 5})
+    connection = FakeConnection(cursor)
+    store = WorkspaceDocumentStore(cast(Any, FakeDbPool(connection)))
+
+    with pytest.raises(WorkspaceVersionConflictError) as exc_info:
+        store.update_document_content(
+            document_id="doc-1",
+            user_id="u1",
+            content_text="new",
+            size_bytes=3,
+            sha256="newhash",
+            expected_version=3,
+        )
+
+    assert exc_info.value.current_version == 5
+    assert exc_info.value.expected_version == 3
+    assert connection.committed is False
+    assert connection.rolled_back is True
+
+
+def test_update_document_content_success_sets_source_and_commits() -> None:
+    # SELECT FOR UPDATE returns version=1, no mismatch → snapshot + update + commit.
+    doc_row = {
+        "id": "doc-1",
+        "user_id": "u1",
+        "filename": "notes.md",
+        "stored_path": "/tmp/u1/notes.md",
+        "mime_type": "text/markdown",
+        "size_bytes": 11,
+        "sha256": "newhash",
+        "content_text": "updated",
+        "version": 2,
+        "last_source": "assistant",
+        "created_at": datetime(2026, 4, 7, 8, 0, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 4, 7, 9, 0, tzinfo=timezone.utc),
+    }
+    # Two fetchone calls: (1) FOR UPDATE lock row, (2) UPDATE RETURNING row.
+    cursor = FakeCursor(fetchone_results=[{"version": 1}, doc_row])
+    connection = FakeConnection(cursor)
+    store = WorkspaceDocumentStore(cast(Any, FakeDbPool(connection)))
+
+    updated = store.update_document_content(
+        document_id="doc-1",
+        user_id="u1",
+        content_text="updated",
+        size_bytes=11,
+        sha256="newhash",
+        expected_version=1,
+        source="assistant",
+    )
+
+    assert updated is not None
+    assert updated["id"] == "doc-1"
+    assert updated["last_source"] == "assistant"
     assert connection.committed is True
-    # The snapshot INSERT runs first (executed[0]), the version-filtered UPDATE is executed[1]
-    update_sqls = [sql for sql, _ in cursor.executed if "AND version = %s" in sql]
-    assert update_sqls, "Expected UPDATE with AND version = %s to be executed"
+    assert connection.rolled_back is False
+    # Snapshot INSERT should precede the UPDATE
+    sqls = [sql for sql, _ in cursor.executed]
+    snapshot_idx = next((i for i, s in enumerate(sqls) if "INSERT INTO workspace_document_versions" in s), None)
+    update_idx = next((i for i, s in enumerate(sqls) if "UPDATE workspace_documents" in s), None)
+    assert snapshot_idx is not None, "Snapshot INSERT expected"
+    assert update_idx is not None, "UPDATE expected"
+    assert snapshot_idx < update_idx, "Snapshot must precede the UPDATE"
 
 
 def test_delete_document_returns_true_when_row_updated() -> None:

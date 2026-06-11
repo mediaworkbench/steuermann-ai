@@ -285,6 +285,7 @@ export type Messages = {
     feedbackSaved: string;
     feedbackRemoved: string;
     workspaceDocumentSaved: string;
+    updatingDocument: string;
     messageFailed: string;
     failedToSendMessage: string;
     couldNotCreateConversationForAttachment: string;
@@ -416,6 +417,13 @@ export type Messages = {
     viewToolResults: string;
     viewingEarlierAnswer: string;
     jumpToLatest: string;
+    unsavedChanges: string;
+    saveConflict: string;
+    writebackWhileDirty: string;
+    previewTruncated: string;
+    versionSourceUser: string;
+    versionSourceAssistant: string;
+    versionSourceRestored: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -888,6 +896,7 @@ export const messages: Record<Locale, Messages> = {
       feedbackSaved: "Feedback saved",
       feedbackRemoved: "Feedback removed",
       workspaceDocumentSaved: "Workspace document saved",
+      updatingDocument: "Updating {name}…",
       messageFailed: "Message failed",
       failedToSendMessage: "Failed to send message",
       couldNotCreateConversationForAttachment: "Could not create conversation for attachment",
@@ -1019,6 +1028,13 @@ export const messages: Record<Locale, Messages> = {
       viewToolResults: "View results in Outputs",
       viewingEarlierAnswer: "Viewing an earlier answer",
       jumpToLatest: "Jump to latest",
+      unsavedChanges: "Unsaved changes",
+      saveConflict: "The document changed elsewhere — the latest version was reloaded",
+      writebackWhileDirty: "The assistant saved a new version, but you have unsaved edits — save to see the conflict, or close to load the new version",
+      previewTruncated: "(truncated)",
+      versionSourceUser: "You",
+      versionSourceAssistant: "AI",
+      versionSourceRestored: "Restored",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1489,6 +1505,7 @@ export const messages: Record<Locale, Messages> = {
       feedbackSaved: "Feedback gespeichert",
       feedbackRemoved: "Feedback entfernt",
       workspaceDocumentSaved: "Workspace-Dokument gespeichert",
+      updatingDocument: "Aktualisiere {name}…",
       messageFailed: "Nachricht fehlgeschlagen",
       failedToSendMessage: "Senden der Nachricht fehlgeschlagen",
       couldNotCreateConversationForAttachment: "Unterhaltung für Anhang konnte nicht erstellt werden",
@@ -1620,6 +1637,13 @@ export const messages: Record<Locale, Messages> = {
       viewToolResults: "Ergebnisse in Ausgaben anzeigen",
       viewingEarlierAnswer: "Frühere Antwort wird angezeigt",
       jumpToLatest: "Zur neuesten springen",
+      unsavedChanges: "Ungespeicherte Änderungen",
+      saveConflict: "Das Dokument wurde an anderer Stelle geändert — die neueste Version wurde neu geladen",
+      writebackWhileDirty: "Die KI hat eine neue Version gespeichert, aber du hast ungespeicherte Änderungen — speichere, um den Konflikt zu sehen, oder schließe, um die neue Version zu laden",
+      previewTruncated: "(gekürzt)",
+      versionSourceUser: "Du",
+      versionSourceAssistant: "KI",
+      versionSourceRestored: "Wiederhergestellt",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

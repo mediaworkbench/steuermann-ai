@@ -12,7 +12,7 @@ const MapWidget = dynamic(() => import("./MapWidget").then((m) => m.MapWidget), 
 import { WorkspaceSidebar, type WorkspaceDocument } from "./WorkspaceSidebar";
 import { EvidenceChips } from "./workspace/EvidenceChips";
 import { ActiveDocumentPane } from "./workspace/ActiveDocumentPane";
-import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
+import { ActiveDocumentProvider, type ActiveDocumentEditorApi } from "@/context/ActiveDocumentContext";
 import type { WorkspaceTabId } from "./workspace/types";
 import { ChatMessageShell } from "./product/ChatMessageShell";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import {
   uploadConversationAttachment,
 } from "@/lib/api";
 import type { SystemConfig } from "@/lib/api";
+import { splitWritebackStream, looksLikeWriteback } from "@/lib/writeback";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type {
   ConversationAttachment,
@@ -101,6 +102,10 @@ export function ChatInterface() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
   const plopAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Live editor API from ActiveDocumentProvider (rendered below) — lets the
+  // composer auto-save unsaved document edits before sending a chat message, so
+  // the model always works on the latest content.
+  const activeDocEditorRef = useRef<ActiveDocumentEditorApi | null>(null);
 
   // Live chat runtime lives in a persistent provider so it survives in-app
   // navigation (the stream keeps running while the user is on another page).
@@ -115,6 +120,7 @@ export function ChatInterface() {
     nodeStatus,
     nodeTrace,
     finalMetadata,
+    writebackPending,
     wasCancelled,
     thinkingContent,
     isThinking,
@@ -182,6 +188,20 @@ export function ChatInterface() {
   const panelMetrics = focused.isHistorical ? focused.metrics : latestAnswerMetrics;
   const panelNodeTrace = focused.isHistorical ? focused.nodeTrace : inspectorNodeTrace;
   const panelIsStreaming = isStreaming && !focused.isHistorical;
+
+  // Compact writeback view: when the model is saving a document, show the SUMMARY
+  // plus an "Updating …" indicator instead of streaming the whole document body.
+  // `writebackPending` (backend SSE) is the deterministic switch; the SUMMARY:
+  // prefix sniff is a fallback if that event is missed.
+  const compactWritebackDoc = writebackPending
+    ? writebackPending.filename
+    : isStreaming && looksLikeWriteback(streamingContent) && activeWorkspaceDocId
+      ? documents.find((d) => d.id === activeWorkspaceDocId)?.filename ?? null
+      : null;
+  // Compute once to avoid calling splitWritebackStream twice in the render.
+  const writebackSummary = compactWritebackDoc
+    ? splitWritebackStream(streamingContent).summary
+    : "";
 
   // Clicking an evidence chip opens the workspace panel on the matching tab and
   // pins that answer (except the conversation-scoped Documents tab).
@@ -470,8 +490,18 @@ export function ChatInterface() {
     });
   }, []);
 
-  function handleSend() {
+  // Auto-save any unsaved active-document edits before a turn so the model reads
+  // the latest content. Returns false (caller aborts) only if the save fails.
+  const flushActiveDocBeforeSend = useCallback(async (): Promise<boolean> => {
+    const api = activeDocEditorRef.current;
+    if (api?.isDirty) return api.flushSave();
+    return true;
+  }, []);
+
+  async function handleSend() {
     if (!input.trim()) return;
+    // Flush first so a failed save preserves the typed message (input not cleared).
+    if (!(await flushActiveDocBeforeSend())) return;
     const userMessage = input;
     setInput("");
     setTimeout(() => autoResize(), 0);
@@ -486,22 +516,24 @@ export function ChatInterface() {
 
   // ── Regenerate: resend the last user message ───────────────────────
 
-  const handleRegenerate = useCallback(() => {
+  const handleRegenerate = useCallback(async () => {
+    if (!(await flushActiveDocBeforeSend())) return;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
         sendMessage(messages[i].content, { ...buildSendOptions(), replaceFromIndex: i });
         return;
       }
     }
-  }, [messages, sendMessage, buildSendOptions]);
+  }, [messages, sendMessage, buildSendOptions, flushActiveDocBeforeSend]);
 
   // ── Edit user message & resend ─────────────────────────────────────
 
   const handleEditAndResend = useCallback(
-    (index: number, newContent: string) => {
+    async (index: number, newContent: string) => {
+      if (!(await flushActiveDocBeforeSend())) return;
       sendMessage(newContent, { ...buildSendOptions(), replaceFromIndex: index });
     },
-    [sendMessage, buildSendOptions],
+    [sendMessage, buildSendOptions, flushActiveDocBeforeSend],
   );
 
   // ── Feedback handler ───────────────────────────────────────────────
@@ -614,6 +646,7 @@ export function ChatInterface() {
       documents={documents}
       conversationId={activeId}
       writebackSavedDocId={writebackSavedDocId}
+      editorApiRef={activeDocEditorRef}
       onActiveDocumentChange={setActiveWorkspaceDocId}
       onDocumentsRefresh={fetchWorkspaceDocuments}
       onAttachmentUploaded={(attachment) => {
@@ -701,7 +734,23 @@ export function ChatInterface() {
                 <ReasoningBox content={thinkingContent} isStreaming={isThinking} />
               )}
 
-              {isStreaming && streamingContent ? (
+              {isStreaming && streamingContent && compactWritebackDoc ? (
+                /* Compact writeback view: SUMMARY + "Updating document…" — the
+                   full DOCUMENT body is saved, not streamed into the chat. */
+                <div
+                  className="px-1 text-base leading-relaxed text-foreground"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  {writebackSummary && (
+                    <MarkdownMessage content={writebackSummary} />
+                  )}
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+                    <FileEdit size={13} className="shrink-0" />
+                    <span>{t("chat.updatingDocument", { name: compactWritebackDoc })}</span>
+                  </div>
+                </div>
+              ) : isStreaming && streamingContent ? (
                 /* Live streaming text with cursor */
                 <div
                   className="px-1 text-base leading-relaxed text-foreground"

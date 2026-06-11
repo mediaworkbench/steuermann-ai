@@ -51,6 +51,14 @@ function sseError(message: string): string {
   return `event: error\ndata: ${JSON.stringify({ message })}\n\n`;
 }
 
+function sseWritebackPending(documentId: string, filename: string, version = 1): string {
+  return `event: writeback_pending\ndata: ${JSON.stringify({ document_id: documentId, filename, version })}\n\n`;
+}
+
+function sseWriteback(payload: Record<string, unknown>): string {
+  return `event: writeback\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
 function mockFetch(sseEvents: string[], status = 200): void {
   const stream = makeSseStream(sseEvents);
   global.fetch = jest.fn().mockResolvedValue({
@@ -248,5 +256,140 @@ describe("useStreamingChat", () => {
 
     expect(result.current.streamingContent).toBe("Partial");
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("sets writebackPending state on writeback_pending event", async () => {
+    mockFetch([
+      sseWritebackPending("doc-1", "notes.md", 3),
+      sseToken("SUMMARY:\nUpdated.\n\nDOCUMENT:\nNew content."),
+      sseMetadata(),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    // After stream ends, writebackPending remains set (reset only on next sendMessage/reset).
+    expect(result.current.writebackPending).not.toBeNull();
+    expect(result.current.writebackPending?.documentId).toBe("doc-1");
+    expect(result.current.writebackPending?.filename).toBe("notes.md");
+  });
+
+  it("resets writebackPending at the start of a new sendMessage", async () => {
+    // First message sets writebackPending
+    mockFetch([
+      sseWritebackPending("doc-1", "notes.md"),
+      sseToken("SUMMARY:\nX.\n\nDOCUMENT:\nY."),
+      sseMetadata(),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.writebackPending).not.toBeNull();
+
+    // Second message — writebackPending clears on send start
+    mockFetch([sseToken("Hello"), sseMetadata(), sseDone()]);
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.writebackPending).toBeNull();
+  });
+
+  it("writeback event merges workspace_document_writeback into finalMetadata", async () => {
+    const writebackPayload = {
+      status: "saved",
+      document_id: "doc-2",
+      filename: "report.md",
+      version: 4,
+      size_bytes: 200,
+      summary: "Made it clearer.",
+      persisted_content: "Saved `report.md` as version 4.",
+    };
+
+    // Real backend order: token → metadata → writeback → done.
+    // The writeback must merge into (not overwrite) the existing metadata.
+    mockFetch([
+      sseToken("SUMMARY:\nMade it clearer.\n\nDOCUMENT:\nContent."),
+      sseMetadata({ tokens_used: 30 }),
+      sseWriteback(writebackPayload),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.finalMetadata).not.toBeNull();
+    const wb = result.current.finalMetadata?.workspace_document_writeback;
+    expect(wb).not.toBeNull();
+    expect((wb as Record<string, unknown>)?.status).toBe("saved");
+    expect((wb as Record<string, unknown>)?.document_id).toBe("doc-2");
+    expect((wb as Record<string, unknown>)?.summary).toBe("Made it clearer.");
+    // tokens_used from the metadata event must survive the writeback merge
+    expect(result.current.finalMetadata?.tokens_used).toBe(30);
+  });
+
+  it("writeback event seeds minimal finalMetadata when metadata has not yet arrived", async () => {
+    // Defensive: writeback arrives before metadata (edge case, not normal backend order).
+    const writebackPayload = {
+      status: "saved",
+      document_id: "doc-3",
+      filename: "notes.md",
+      version: 2,
+      size_bytes: 50,
+      summary: "Fixed typos.",
+      persisted_content: "Saved `notes.md` as version 2.",
+    };
+
+    mockFetch([
+      sseToken("x"),
+      sseWriteback(writebackPayload),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    const wb = result.current.finalMetadata?.workspace_document_writeback;
+    expect(wb).not.toBeNull();
+    expect((wb as Record<string, unknown>)?.document_id).toBe("doc-3");
+  });
+
+  it("reset() clears writebackPending", async () => {
+    mockFetch([
+      sseWritebackPending("doc-1", "doc.md"),
+      sseToken("X"),
+      sseMetadata(),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.writebackPending).not.toBeNull();
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.writebackPending).toBeNull();
   });
 });

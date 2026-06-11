@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 from backend.attachments import UserWorkspaceFileManager, WorkspaceManagerConfig
+from backend.db import WorkspaceVersionConflictError
 from backend.rate_limit import limiter
 from backend.routers import chat as chat_module
 from backend.routers.chat import router as chat_router
@@ -53,6 +54,8 @@ class FakeAttachmentStore:
 class FakeWorkspaceDocumentStore:
     def __init__(self) -> None:
         self._docs: Dict[str, Dict[str, Any]] = {}
+        # document_id -> list of version snapshots (pre-update content)
+        self._versions: Dict[str, list[Dict[str, Any]]] = {}
 
     def create_document(
         self,
@@ -76,10 +79,12 @@ class FakeWorkspaceDocumentStore:
             "sha256": sha256,
             "content_text": content_text,
             "version": 1,
+            "last_source": "user",
             "created_at": now,
             "updated_at": now,
         }
         self._docs[document_id] = row
+        self._versions[document_id] = []
         return dict(row)
 
     def get_document(self, document_id: str, user_id: str) -> Optional[Dict[str, Any]]:
@@ -92,6 +97,9 @@ class FakeWorkspaceDocumentStore:
         docs = [dict(row) for row in self._docs.values() if row["user_id"] == user_id]
         docs.sort(key=lambda row: row["updated_at"], reverse=True)
         return docs[offset : offset + limit]
+
+    def count_documents(self, user_id: str) -> int:
+        return sum(1 for row in self._docs.values() if row["user_id"] == user_id)
 
     def get_documents_by_ids(self, user_id: str, document_ids: list[str]) -> list[Dict[str, Any]]:
         docs: list[Dict[str, Any]] = []
@@ -109,25 +117,58 @@ class FakeWorkspaceDocumentStore:
         size_bytes: int,
         sha256: str,
         expected_version: Optional[int] = None,
+        source: str = "user",
     ) -> Optional[Dict[str, Any]]:
         row = self._docs.get(document_id)
         if not row or row["user_id"] != user_id:
             return None
         if expected_version is not None and row["version"] != expected_version:
-            return None
+            raise WorkspaceVersionConflictError(row["version"], expected_version)
+
+        # Snapshot the PRE-update state, tagging it with the document's current author.
+        self._versions.setdefault(document_id, []).append(
+            {
+                "id": f"ver-{document_id}-{row['version']}",
+                "document_id": document_id,
+                "version": row["version"],
+                "content_text": row["content_text"],
+                "size_bytes": row["size_bytes"],
+                "sha256": row["sha256"],
+                "source": row.get("last_source", "user"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         row["content_text"] = content_text
         row["size_bytes"] = size_bytes
         row["sha256"] = sha256
         row["version"] += 1
+        row["last_source"] = source
         row["updated_at"] = datetime.now(timezone.utc).isoformat()
         return dict(row)
+
+    def list_document_versions(self, *, document_id: str, user_id: str, limit: int = 50) -> list[Dict[str, Any]]:
+        row = self._docs.get(document_id)
+        if not row or row["user_id"] != user_id:
+            return []
+        versions = sorted(self._versions.get(document_id, []), key=lambda v: v["version"], reverse=True)
+        return [dict(v) for v in versions[:limit]]
+
+    def get_document_version(self, *, document_id: str, user_id: str, version: int) -> Optional[Dict[str, Any]]:
+        row = self._docs.get(document_id)
+        if not row or row["user_id"] != user_id:
+            return None
+        for v in self._versions.get(document_id, []):
+            if v["version"] == version:
+                return dict(v)
+        return None
 
     def delete_document(self, document_id: str, user_id: str) -> bool:
         row = self._docs.get(document_id)
         if not row or row["user_id"] != user_id:
             return False
         del self._docs[document_id]
+        self._versions.pop(document_id, None)
         return True
 
 
@@ -391,3 +432,94 @@ def test_workspace_update_recreates_missing_file_from_existing_metadata(client) 
     assert update_response.json()["document"]["version"] == 2
     assert stored_path.exists()
     assert stored_path.read_text(encoding="utf-8") == "Recovered content"
+
+
+def _upload_text_doc(test_client, filename: str = "notes.md", content: bytes = b"Original") -> str:
+    response = test_client.post(
+        "/api/workspace/documents",
+        files={"file": (filename, content, "text/markdown")},
+    )
+    assert response.status_code == 201
+    return response.json()["document"]["id"]
+
+
+def test_put_with_stale_expected_version_returns_409(client) -> None:
+    test_client, _ = client
+    document_id = _upload_text_doc(test_client)
+
+    # First edit succeeds (doc is at v1, we pass expected_version=1 → v2).
+    ok = test_client.put(
+        f"/api/workspace/documents/{document_id}",
+        files={"file": ("notes.md", b"first edit", "text/markdown")},
+        data={"expected_version": "1"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["document"]["version"] == 2
+
+    # Second edit with the now-stale version 1 must conflict.
+    conflict = test_client.put(
+        f"/api/workspace/documents/{document_id}",
+        files={"file": ("notes.md", b"stale edit", "text/markdown")},
+        data={"expected_version": "1"},
+    )
+    assert conflict.status_code == 409
+
+
+def test_put_on_image_document_is_rejected(client) -> None:
+    test_client, _ = client
+    upload = test_client.post(
+        "/api/workspace/documents",
+        files={"file": ("photo.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")},
+    )
+    assert upload.status_code == 201
+    document_id = upload.json()["document"]["id"]
+
+    response = test_client.put(
+        f"/api/workspace/documents/{document_id}",
+        files={"file": ("photo.png", b"text pretending to be png", "text/markdown")},
+    )
+    assert response.status_code == 400
+    assert "Images cannot be edited" in response.json()["detail"]
+
+
+def test_rename_cannot_change_type_category(client) -> None:
+    test_client, _ = client
+    document_id = _upload_text_doc(test_client, filename="notes.md")
+
+    response = test_client.patch(
+        f"/api/workspace/documents/{document_id}",
+        json={"filename": "notes.png"},
+    )
+    assert response.status_code == 400
+    assert "text and image" in response.json()["detail"]
+
+
+def test_versions_list_includes_source(client) -> None:
+    test_client, _ = client
+    document_id = _upload_text_doc(test_client)
+
+    # Two edits create two pre-update snapshots (v1 and v2), both authored by 'user'.
+    for body in (b"edit one", b"edit two"):
+        resp = test_client.put(
+            f"/api/workspace/documents/{document_id}",
+            files={"file": ("notes.md", body, "text/markdown")},
+        )
+        assert resp.status_code == 200
+
+    versions = test_client.get(f"/api/workspace/documents/{document_id}/versions")
+    assert versions.status_code == 200
+    rows = versions.json()
+    assert [r["version"] for r in rows] == [2, 1]
+    assert all(r["source"] == "user" for r in rows)
+
+
+def test_list_total_reflects_full_count(client) -> None:
+    test_client, _ = client
+    _upload_text_doc(test_client, filename="a.md")
+    _upload_text_doc(test_client, filename="b.md")
+
+    listed = test_client.get("/api/workspace/documents?limit=1")
+    assert listed.status_code == 200
+    body = listed.json()
+    assert len(body["documents"]) == 1
+    assert body["total"] == 2

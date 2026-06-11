@@ -789,6 +789,7 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             sha256 TEXT NOT NULL,
             content_text TEXT NOT NULL,
             version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+            last_source TEXT NOT NULL DEFAULT 'user',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -802,6 +803,7 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
             content_text TEXT NOT NULL,
             size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
             sha256 TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'user',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_doc_versions_doc_version
@@ -845,6 +847,15 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
         CREATE INDEX IF NOT EXISTS idx_chat_document_refs_document_id ON chat_document_refs(document_id);
         CREATE INDEX IF NOT EXISTS idx_chat_document_refs_user_id ON chat_document_refs(user_id);
     """
+    # Additive column migrations for tables that may have been created by an earlier
+    # version of the schema. ADD COLUMN IF NOT EXISTS is a no-op on new tables.
+    schema_migrations = """
+        ALTER TABLE workspace_documents
+            ADD COLUMN IF NOT EXISTS last_source TEXT NOT NULL DEFAULT 'user';
+        ALTER TABLE workspace_document_versions
+            ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user';
+    """
+
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(conversations_statement)
@@ -858,6 +869,9 @@ def _ensure_conversation_tables(db_pool: DatabasePool) -> None:
                     cur.execute(sql)
             cur.execute(chat_document_refs_statement)
             for sql in indices_statement.split(';'):
+                if sql.strip():
+                    cur.execute(sql)
+            for sql in schema_migrations.split(';'):
                 if sql.strip():
                     cur.execute(sql)
         conn.commit()
@@ -1674,6 +1688,20 @@ class ConversationWorkspaceStore:
         return [_normalize_workspace_operation_row(row) for row in rows]
 
 
+class WorkspaceVersionConflictError(Exception):
+    """Raised when expected_version does not match the current document version.
+
+    Carries the current (server-side) version so callers can surface it to the UI.
+    """
+
+    def __init__(self, current_version: int, expected_version: int) -> None:
+        self.current_version = current_version
+        self.expected_version = expected_version
+        super().__init__(
+            f"Version conflict: expected v{expected_version}, but document is at v{current_version}"
+        )
+
+
 class WorkspaceDocumentStore:
     """Manage persistent user-scoped workspace documents."""
 
@@ -1694,11 +1722,11 @@ class WorkspaceDocumentStore:
         statement = """
             INSERT INTO workspace_documents (
                 id, user_id, filename, stored_path, mime_type,
-                size_bytes, sha256, content_text, version
+                size_bytes, sha256, content_text, version, last_source
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 'user')
             RETURNING id, user_id, filename, stored_path, mime_type,
-                      size_bytes, sha256, content_text, version,
+                      size_bytes, sha256, content_text, version, last_source,
                       created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
@@ -1723,7 +1751,7 @@ class WorkspaceDocumentStore:
     def get_document(self, document_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         statement = """
             SELECT id, user_id, filename, stored_path, mime_type,
-                   size_bytes, sha256, content_text, version,
+                   size_bytes, sha256, content_text, version, last_source,
                    created_at, updated_at
             FROM workspace_documents
             WHERE id = %s AND user_id = %s;
@@ -1737,7 +1765,7 @@ class WorkspaceDocumentStore:
     def list_documents(self, user_id: str, limit: int = 200, offset: int = 0) -> list[Dict[str, Any]]:
         statement = """
             SELECT id, user_id, filename, stored_path, mime_type,
-                   size_bytes, sha256, content_text, version,
+                   size_bytes, sha256, content_text, version, last_source,
                    created_at, updated_at
             FROM workspace_documents
             WHERE user_id = %s
@@ -1756,7 +1784,7 @@ class WorkspaceDocumentStore:
 
         statement = """
             SELECT id, user_id, filename, stored_path, mime_type,
-                   size_bytes, sha256, content_text, version,
+                   size_bytes, sha256, content_text, version, last_source,
                    created_at, updated_at
             FROM workspace_documents
             WHERE user_id = %s AND id = ANY(%s);
@@ -1777,44 +1805,78 @@ class WorkspaceDocumentStore:
         size_bytes: int,
         sha256: str,
         expected_version: Optional[int] = None,
+        source: str = "user",
     ) -> Optional[Dict[str, Any]]:
+        """Overwrite a document's content, snapshotting the prior state into versions.
+
+        The snapshot records the PRE-update content; its `source` is the document's
+        current `last_source` (the author of that prior content). The new content's
+        author is recorded as `last_source = source`.
+
+        With `expected_version` set, the current version is checked under a row lock
+        (`FOR UPDATE`) before any write — a mismatch raises
+        `WorkspaceVersionConflictError` and writes nothing (no spurious snapshot).
+        Returns None only when the document does not exist.
+        """
         import uuid as _uuid
 
-        if expected_version is None:
-            where_version = ""
-            params: list[Any] = [content_text, size_bytes, sha256, document_id, user_id]
-        else:
-            where_version = " AND version = %s"
-            params = [content_text, size_bytes, sha256, document_id, user_id, expected_version]
-
-        update_statement = f"""
+        lock_statement = """
+            SELECT version FROM workspace_documents
+            WHERE id = %s AND user_id = %s
+            FOR UPDATE;
+        """
+        snapshot_statement = """
+            INSERT INTO workspace_document_versions
+                (id, document_id, user_id, version, content_text, size_bytes, sha256, source, created_at)
+            SELECT %s, id, user_id, version, content_text, size_bytes, sha256, last_source, NOW()
+            FROM workspace_documents
+            WHERE id = %s AND user_id = %s
+            ON CONFLICT (document_id, version) DO NOTHING;
+        """
+        update_statement = """
             UPDATE workspace_documents
             SET content_text = %s,
                 size_bytes = %s,
                 sha256 = %s,
                 version = version + 1,
+                last_source = %s,
                 updated_at = NOW()
-            WHERE id = %s AND user_id = %s{where_version}
-            RETURNING id, user_id, filename, stored_path, mime_type,
-                      size_bytes, sha256, content_text, version,
-                      created_at, updated_at;
-        """
-        snapshot_statement = """
-            INSERT INTO workspace_document_versions
-                (id, document_id, user_id, version, content_text, size_bytes, sha256, created_at)
-            SELECT %s, id, user_id, version, content_text, size_bytes, sha256, NOW()
-            FROM workspace_documents
             WHERE id = %s AND user_id = %s
-            ON CONFLICT (document_id, version) DO NOTHING;
+            RETURNING id, user_id, filename, stored_path, mime_type,
+                      size_bytes, sha256, content_text, version, last_source,
+                      created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                # Lock the row and read the current version before any write so the
+                # version check is race-free (check-then-write under FOR UPDATE).
+                cur.execute(lock_statement, (document_id, user_id))
+                locked = cur.fetchone()
+                if not locked:
+                    conn.rollback()
+                    return None
+                current_version = int(locked["version"])
+                if expected_version is not None and current_version != expected_version:
+                    conn.rollback()
+                    raise WorkspaceVersionConflictError(current_version, expected_version)
                 # Snapshot CURRENT state before overwriting
                 cur.execute(snapshot_statement, (str(_uuid.uuid4()), document_id, user_id))
-                cur.execute(update_statement, tuple(params))
+                cur.execute(
+                    update_statement,
+                    (content_text, size_bytes, sha256, source, document_id, user_id),
+                )
                 row = cur.fetchone()
             conn.commit()
         return _normalize_workspace_document_row(row) if row else None
+
+    def count_documents(self, user_id: str) -> int:
+        """Total number of workspace documents for a user (for accurate list pagination)."""
+        statement = "SELECT COUNT(*) AS n FROM workspace_documents WHERE user_id = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id,))
+                row = cur.fetchone()
+        return int(row["n"]) if row else 0
 
     def save_document_version_snapshot(
         self,
@@ -1825,23 +1887,24 @@ class WorkspaceDocumentStore:
         content_text: str,
         size_bytes: int,
         sha256: str,
+        source: str = "user",
     ) -> None:
         import uuid as _uuid
 
         statement = """
             INSERT INTO workspace_document_versions
-                (id, document_id, user_id, version, content_text, size_bytes, sha256, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                (id, document_id, user_id, version, content_text, size_bytes, sha256, source, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (document_id, version) DO NOTHING;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(statement, (str(_uuid.uuid4()), document_id, user_id, version, content_text, size_bytes, sha256))
+                cur.execute(statement, (str(_uuid.uuid4()), document_id, user_id, version, content_text, size_bytes, sha256, source))
             conn.commit()
 
     def list_document_versions(self, *, document_id: str, user_id: str, limit: int = 50) -> list[Dict[str, Any]]:
         statement = """
-            SELECT v.id, v.document_id, v.version, v.size_bytes, v.sha256, v.created_at
+            SELECT v.id, v.document_id, v.version, v.size_bytes, v.sha256, v.source, v.created_at
             FROM workspace_document_versions v
             JOIN workspace_documents d ON d.id = v.document_id
             WHERE v.document_id = %s AND d.user_id = %s
@@ -1856,7 +1919,7 @@ class WorkspaceDocumentStore:
 
     def get_document_version(self, *, document_id: str, user_id: str, version: int) -> Optional[Dict[str, Any]]:
         statement = """
-            SELECT v.id, v.document_id, v.version, v.content_text, v.size_bytes, v.sha256, v.created_at
+            SELECT v.id, v.document_id, v.version, v.content_text, v.size_bytes, v.sha256, v.source, v.created_at
             FROM workspace_document_versions v
             JOIN workspace_documents d ON d.id = v.document_id
             WHERE v.document_id = %s AND d.user_id = %s AND v.version = %s;
@@ -1874,7 +1937,7 @@ class WorkspaceDocumentStore:
                 updated_at = NOW()
             WHERE id = %s AND user_id = %s
             RETURNING id, user_id, filename, stored_path, mime_type,
-                      size_bytes, sha256, content_text, version,
+                      size_bytes, sha256, content_text, version, last_source,
                       created_at, updated_at;
         """
         with self._db_pool.connection() as conn:
@@ -2072,6 +2135,7 @@ def _normalize_workspace_document_row(row: Optional[Dict[str, Any]]) -> Dict[str
         "sha256": row.get("sha256"),
         "content_text": row.get("content_text"),
         "version": row.get("version", 1),
+        "last_source": row.get("last_source", "user"),
         "created_at": created.isoformat() if isinstance(created, datetime) else str(created) if created else None,
         "updated_at": updated.isoformat() if isinstance(updated, datetime) else str(updated) if updated else None,
     }

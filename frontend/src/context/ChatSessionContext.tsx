@@ -14,6 +14,7 @@ import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { fetchConversation } from "@/lib/api";
 import { toUiMessage } from "@/lib/messageMapping";
 import { CURRENT_USER_ID } from "@/lib/runtime";
+import type { WritebackPending } from "@/hooks/useStreamingChat";
 import type { ChatResponse, Message, NodeTraceEntry } from "@/lib/types";
 
 // ── Helpers (moved from ChatInterface) ──────────────────────────────────
@@ -58,6 +59,7 @@ interface ChatSessionValue {
   streamError: string | null;
   streamWarning: string | null;
   finalMetadata: ChatResponse["metadata"] | null;
+  writebackPending: WritebackPending | null;
   wasCancelled: boolean;
   contextTokens: number;
   setContextTokens: React.Dispatch<React.SetStateAction<number>>;
@@ -108,6 +110,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     nodeStatus,
     nodeTrace,
     finalMetadata,
+    writebackPending,
     wasCancelled,
     thinkingContent,
     isThinking,
@@ -226,13 +229,21 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     if (was && !isStreaming) {
       const belongsToActive = streamConversationRef.current === activeId;
       if (belongsToActive && (streamingContent || wasCancelled)) {
+        // On a successful writeback, commit the clean confirmation the backend
+        // persisted (not the raw SUMMARY:/DOCUMENT: blob) so the bubble survives
+        // a reload unchanged. A cancelled stream never wrote back.
+        const wb = finalMetadata?.workspace_document_writeback;
+        const committedContent =
+          !wasCancelled && wb?.status === "saved" && wb.persisted_content
+            ? wb.persisted_content
+            : streamingContent;
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant" as const,
             content: wasCancelled
               ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
-              : streamingContent,
+              : committedContent,
             thinking: thinkingContent || undefined,
             timestamp: formatTime(new Date()),
             metrics: finalMetadata
@@ -448,6 +459,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     streamError: streamOnActive ? streamError : null,
     streamWarning: streamOnActive ? streamWarning : null,
     finalMetadata: streamOnActive ? finalMetadata : null,
+    writebackPending: streamOnActive ? writebackPending : null,
     wasCancelled: streamOnActive && wasCancelled,
     contextTokens,
     setContextTokens,

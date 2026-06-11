@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -9,12 +10,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.attachments import AttachmentValidationError, UserWorkspaceFileManager, WorkspaceValidationError
-from backend.db import WorkspaceDocumentStore
+from backend.db import WorkspaceDocumentStore, WorkspaceVersionConflictError
 from backend.single_user import get_effective_user_id, require_api_access
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class WorkspaceDocumentResponse(BaseModel):
     size_bytes: int
     sha256: str
     version: int
+    last_source: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -54,6 +56,7 @@ class WorkspaceDocumentWithContentResponse(BaseModel):
     sha256: str
     content_text: str
     version: int
+    last_source: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -91,6 +94,7 @@ class WorkspaceDocumentVersionResponse(BaseModel):
     version: int
     size_bytes: int
     sha256: str
+    source: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -103,6 +107,7 @@ class WorkspaceDocumentVersionWithContentResponse(BaseModel):
     content_text: str
     size_bytes: int
     sha256: str
+    source: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -341,7 +346,7 @@ async def list_documents(
         )
         return {
             "documents": documents,
-            "total": len(documents),  # Note: accurate within limit; full count requires separate query
+            "total": document_store.count_documents(user_id=effective_user_id),
         }
     except Exception as exc:
         logger.error(f"Failed to list documents: {exc}", exc_info=True)
@@ -377,50 +382,70 @@ async def update_document(
     request: Request,
     document_id: str,
     file: UploadFile = File(...),
+    expected_version: Optional[int] = Form(default=None),
 ) -> Dict[str, Any]:
-    """Overwrite a document with new content.
-    
+    """Overwrite a text document with new content.
+
     Updates the file on disk, increments version, and returns updated metadata.
+    Images are immutable (cannot be re-uploaded as text). Pass `expected_version`
+    to detect concurrent edits — a mismatch returns 409.
     """
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
     effective_user_id = get_effective_user_id()
-    
+
     try:
         # Verify document exists and belongs to user
         existing_doc = document_store.get_document(document_id=document_id, user_id=effective_user_id)
         if not existing_doc:
             raise HTTPException(status_code=404, detail="Document not found")
-        
+
+        # Images are immutable — they cannot be meaningfully edited as text.
+        if str(existing_doc.get("mime_type") or "").startswith("image/"):
+            raise HTTPException(status_code=400, detail="Images cannot be edited")
+
         # Read and validate new content
         content = await file.read()
         normalized_mime_type = _validate_text_file(file.filename or existing_doc["filename"], file.content_type)
         content_text = _validate_utf8_text(content)
-        
-        # Update file on disk
-        updated_metadata = file_manager.update_document_file(
+
+        # Compute metadata from content directly so we can do the DB write (with its
+        # version check) BEFORE touching the filesystem. This prevents a conflict 409
+        # from leaving the on-disk file ahead of the DB record.
+        size_bytes = len(content)
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        # Update database record first — acquires row lock + checks expected_version.
+        # Only touches disk on success, so a stale-version reject leaves files intact.
+        updated_doc = document_store.update_document_content(
+            document_id=document_id,
+            user_id=effective_user_id,
+            content_text=content_text,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            expected_version=expected_version,
+            source="user",
+        )
+
+        if not updated_doc:
+            raise HTTPException(status_code=500, detail="Failed to update document")
+
+        file_manager.update_document_file(
             user_id=effective_user_id,
             document_id=document_id,
             stored_path=existing_doc["stored_path"],
             content=content,
         )
-        
-        # Update database record (overwrite + version increment)
-        updated_doc = document_store.update_document_content(
-            document_id=document_id,
-            user_id=effective_user_id,
-            content_text=content_text,
-            size_bytes=int(updated_metadata["size_bytes"]),
-            sha256=str(updated_metadata["sha256"]),
-        )
-        
-        if not updated_doc:
-            raise HTTPException(status_code=500, detail="Failed to update document")
-        
+
         return {"document": updated_doc}
-    
+
     except HTTPException:
         raise
+    except WorkspaceVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document was modified elsewhere (now at version {exc.current_version}). Reload and retry.",
+        ) from exc
     except AttachmentValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except WorkspaceValidationError as exc:
@@ -460,6 +485,15 @@ async def patch_document(
     existing = document_store.get_document(document_id=document_id, user_id=effective_user_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # A rename must not change the document's type category (text ↔ image) — the
+    # stored mime_type and bytes wouldn't match the new extension.
+    old_ext = Path(existing["filename"]).suffix.lower()
+    if (ext in _IMAGE_EXTENSIONS) != (old_ext in _IMAGE_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot change a document between text and image types via rename",
+        )
 
     updated = document_store.rename_document(
         document_id=document_id,
@@ -691,6 +725,10 @@ async def restore_document_version(
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # Images are immutable and never versioned, so there is nothing to restore.
+    if str(existing.get("mime_type") or "").startswith("image/"):
+        raise HTTPException(status_code=400, detail="Images cannot be edited")
+
     old_version = document_store.get_document_version(
         document_id=document_id, user_id=effective_user_id, version=version
     )
@@ -714,6 +752,7 @@ async def restore_document_version(
         content_text=old_version["content_text"],
         size_bytes=int(updated_metadata["size_bytes"]),
         sha256=str(updated_metadata["sha256"]),
+        source="restore",
     )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to restore version")

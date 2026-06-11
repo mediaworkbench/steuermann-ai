@@ -1,11 +1,15 @@
 import type { ConversationAttachment, MessageMetrics, NodeTraceEntry } from "@/lib/types";
 
+export type VersionSource = "user" | "assistant" | "restore";
+
 export interface VersionEntry {
   id: string;
   document_id: string;
   version: number;
   size_bytes: number;
   sha256: string;
+  /** Who created this version's content: a user edit, the assistant, or a restore. */
+  source?: VersionSource | null;
   created_at?: string;
 }
 

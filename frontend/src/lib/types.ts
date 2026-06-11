@@ -115,11 +115,15 @@ export interface ChatResponse {
     }>;
     memories_used?: MemoryReference[];
     workspace_document_writeback?: {
-      status: "saved";
+      status: "saved" | "conflict";
       document_id: string;
       filename: string;
-      version: number;
-      size_bytes: number;
+      version?: number;
+      size_bytes?: number;
+      /** SUMMARY section of the writeback response (compact view). */
+      summary?: string | null;
+      /** Exact assistant-message text the backend persisted (commit-consistency). */
+      persisted_content?: string | null;
     } | null;
     workspace_action?: {
       operation: "copy_to_workspace" | "read_workspace_file" | "write_workspace_file" | "write_revised_copy";

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 from backend.attachments import AttachmentManagerConfig, ChatAttachmentManager, ChatWorkspaceManager, UserWorkspaceFileManager, WorkspaceManagerConfig
+from backend.db import WorkspaceVersionConflictError
 from backend.rate_limit import limiter
 from backend.routers import chat as chat_module
 from backend.routers.chat import router as chat_router
@@ -157,16 +158,22 @@ class FakeWorkspaceDocumentStore:
         size_bytes: int,
         sha256: str,
         expected_version: Optional[int] = None,
+        source: str = "user",
     ):
-        _ = expected_version
         for row in self._documents:
             if row["id"] == document_id and row["user_id"] == user_id:
+                if expected_version is not None and int(row.get("version", 0)) != expected_version:
+                    raise WorkspaceVersionConflictError(int(row.get("version", 0)), expected_version)
                 row["content_text"] = content_text
                 row["size_bytes"] = size_bytes
                 row["sha256"] = sha256
                 row["version"] = int(row.get("version", 0)) + 1
+                row["last_source"] = source
                 return row
         return None
+
+    def count_documents(self, user_id: str) -> int:
+        return sum(1 for row in self._documents if row["user_id"] == user_id)
 
 
 class FakeLLMCapabilityProbeStore:
@@ -960,6 +967,138 @@ def test_workspace_edit_intent_detection_examples() -> None:
 
     assert not chat_module._has_explicit_workspace_edit_intent("summarize this document")
     assert not chat_module._has_explicit_workspace_edit_intent("what does this attachment say?")
+
+
+def test_writeback_records_assistant_source(client) -> None:
+    test_client, _conversation_store, fake_async_client = client
+    fake_async_client.response_content = "# Flat split\nImproved by AI"
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": 'Improve workspace document "flatsplit.md" and save it back to the workspace',
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["metadata"]["workspace_document_writeback"]["status"] == "saved"
+    stored = test_client.app.state.workspace_document_store.get_document(
+        "916f651c-fbe5-4df6-a7c9-f156fb96e9fa", "u1"
+    )
+    assert stored["last_source"] == "assistant"
+
+
+def test_save_intent_with_only_image_document_warns_and_skips_writeback(client) -> None:
+    test_client, _conversation_store, fake_async_client = client
+    fake_async_client.response_content = "Here is a description of the image."
+
+    # An image document is in context — images are immutable, so a save must not fire.
+    test_client.app.state.workspace_document_store._documents.append(
+        {
+            "id": "img-1",
+            "user_id": "u1",
+            "filename": "diagram.png",
+            "stored_path": "/tmp/diagram.png",
+            "mime_type": "image/png",
+            "size_bytes": 100,
+            "sha256": "img",
+            "content_text": "",
+            "version": 1,
+        }
+    )
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "Please save the updated version of this document",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+            "document_ids": ["img-1"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metadata"]["workspace_document_writeback"] is None
+    assert body["metadata"]["workspace_warning"]
+
+
+def test_save_intent_with_two_text_documents_warns_and_skips_writeback(client) -> None:
+    test_client, _conversation_store, fake_async_client = client
+    fake_async_client.response_content = "Some answer."
+
+    test_client.app.state.workspace_document_store._documents.append(
+        {
+            "id": "doc-2",
+            "user_id": "u1",
+            "filename": "second.md",
+            "stored_path": "/tmp/second.md",
+            "mime_type": "text/markdown",
+            "size_bytes": 10,
+            "sha256": "two",
+            "content_text": "# Second",
+            "version": 1,
+        }
+    )
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "Please save the updated version of this document",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+            "document_ids": ["916f651c-fbe5-4df6-a7c9-f156fb96e9fa", "doc-2"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metadata"]["workspace_document_writeback"] is None
+    assert body["metadata"]["workspace_warning"]
+
+
+def test_writeback_version_conflict_keeps_raw_answer(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    test_client, conversation_store, fake_async_client = client
+    raw_answer = "SUMMARY:\nImproved it\n\nDOCUMENT:\n# Flat split\nConflict path"
+    fake_async_client.response_content = raw_answer
+
+    store = test_client.app.state.workspace_document_store
+
+    def _raise_conflict(**kwargs):
+        raise WorkspaceVersionConflictError(99, kwargs.get("expected_version") or 1)
+
+    monkeypatch.setattr(store, "update_document_content", _raise_conflict)
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": 'Improve workspace document "flatsplit.md" and save it back to the workspace',
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metadata"]["workspace_document_writeback"] == {
+        "status": "conflict",
+        "document_id": "916f651c-fbe5-4df6-a7c9-f156fb96e9fa",
+        "filename": "flatsplit.md",
+    }
+    # The model's raw answer is preserved (no "Saved ..." confirmation) and persisted.
+    assert body["response"] == raw_answer
+    assert conversation_store.messages[1]["content"] == raw_answer
+
+
+def test_extract_writeback_summary_tolerates_single_newline() -> None:
+    content = "SUMMARY:\nTightened the intro.\nDOCUMENT:\n# Doc\nBody"
+    assert chat_module._extract_writeback_summary(content) == "Tightened the intro."
 
 
 def test_workspace_write_revised_requires_explicit_intent(client, monkeypatch: pytest.MonkeyPatch) -> None:

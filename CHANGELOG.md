@@ -1,5 +1,97 @@
 # Changelog
 
+### [0.4.2] — workspace document editing, versioning & writeback hardening
+
+**Dirty tracking + auto-save-before-send**
+
+* The document editor now tracks whether local edits diverge from the last server-confirmed
+  baseline (`savedContent` / `editorDocVersion`). `isDirty` is a derived boolean; a `●` marker
+  appears in the `ActiveDocumentPane` header and the History Save button is disabled when clean.
+* `flushSave()` sends `expected_version` for optimistic concurrency. A 409 from the server toasts
+  a conflict message and reloads the document — no silent overwrite.
+* `ChatInterface.handleSend` / `handleRegenerate` / `handleEditAndResend` are now async and all
+  call `flushSave()` via an `activeDocEditorRef` bridge before sending the chat message, so the
+  model always operates on the saved (not in-memory) version.
+* `closeEditor()` auto-saves a dirty editor before closing; `force: true` discards cleanly.
+
+**Optimistic locking / version conflict (409)**
+
+* `db.update_document_content` now does `SELECT … FOR UPDATE` first, checks the version in
+  Python, then runs the snapshot INSERT + UPDATE — no spurious snapshots on conflict.
+* New `WorkspaceVersionConflictError(current_version, expected_version)` exception propagates
+  conflicts cleanly to the router (409 response) and to the streaming writeback path (conflict
+  warning SSE, no `writeback` event emitted).
+* The `PUT /api/workspace/documents/{id}` endpoint accepts an optional `expected_version` form
+  field and returns 409 on mismatch.
+
+**Version origin tracking**
+
+* `workspace_documents.last_source` and `workspace_document_versions.source` columns now record
+  the author of each save: `'user'`, `'assistant'`, or `'restore'`.
+* History panel shows source badges per version entry ("You" / "AI" / "Restored") in
+  `DocumentEditorView`.
+* Preview rows show a `(truncated)` hint when content is cut at 2 000 chars.
+
+**Compact live writeback view + committed-message consistency**
+
+* New `event: writeback_pending` SSE emitted before the upstream stream opens (when a text-doc
+  save is eligible). The chat bubble switches to a compact view: SUMMARY section + pulsing
+  "Updating {filename}…" indicator while the DOCUMENT body streams silently.
+* The `writeback` SSE payload is enriched with `summary` and `persisted_content`
+  (the exact clean confirmation the backend persisted). `ChatSessionContext` commits
+  `persisted_content` instead of the raw `SUMMARY:/DOCUMENT:` blob so the visible message
+  matches the DB after a page reload.
+* `_extract_writeback_summary` regex is now single-newline-tolerant (`\n+DOCUMENT:` instead of
+  `\n\nDOCUMENT:`).
+* New `lib/writeback.ts`: `looksLikeWriteback()` + `splitWritebackStream()` (unit-tested).
+
+**Image immutability**
+
+* `PUT /documents/{id}` rejects image mime types with a 400 ("Images cannot be edited").
+* `POST /documents/{id}/restore` rejects image documents.
+* Chat writeback gate (`_writeback_eligible_documents`) filters out `image/*` docs — a
+  save intent with only an image in context emits a warning SSE, no writeback attempt.
+
+**Multi-doc save warning**
+
+* When save intent fires but more than one eligible text document is present, a `warning` SSE
+  is emitted ("attach exactly one to save"); no `writeback_pending` or `writeback` event.
+
+**History staleness fixes**
+
+* `onAfterSave` callback reloads an open version-history panel when `historyDocId` matches.
+* Restore closes the panel to current state (calls `loadHistory()`) instead of hiding it.
+* `writebackSavedDocId` triggers a history reload in `ActiveDocumentContext`.
+
+**Other fixes**
+
+* `GET /workspace/documents` `total` field now returns the true document count
+  (`count_documents()`), not the page length.
+* `PATCH /workspace/documents/{id}` (rename) rejects extension category changes
+  (text ↔ image).
+* `useStreamingChat`: `writeback` event merges into `finalMetadata` even when `metadata` has
+  not yet arrived (seeds a minimal object); `writebackPending` resets on each new `sendMessage`.
+
+**Tests**
+
+* Backend: 5 new `test_workspace_router.py` cases; 5 new `test_chat_router.py` cases;
+  5 new `test_streaming.py` cases (writeback_pending ordering, enriched payload, multi-doc
+  warning, image warning, conflict path); 3 new `test_workspace_document_store.py` cases
+  (no-row → rollback, version conflict, success with source). **1 093 passed** (excluding
+  analytics tests that require a live DB).
+* Frontend: 16 new Jest cases across `useStreamingChat.test.ts` (+5),
+  `lib/writeback.test.ts` (new, 13), `useDocumentEditor.test.ts` (new, 18).
+  Frontend **180/180**; lint 0 errors / 4 pre-existing warnings; build clean.
+
+**Schema change (dev only)**
+
+* `workspace_documents.last_source TEXT NOT NULL DEFAULT 'user'` and
+  `workspace_document_versions.source TEXT NOT NULL DEFAULT 'user'` added to the `CREATE TABLE`
+  statements. Requires a dev DB reset (`docker compose down -v` or the admin reset endpoint) —
+  no migration, by design (pre-production).
+
+---
+
 ### [0.4.1] — workspace split-view + documents virtualization
 
 **Documents tab — kebab actions menu (replaces the expandable row)**

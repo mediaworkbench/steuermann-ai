@@ -1558,8 +1558,11 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
-    if state.get("workspace_writeback_requested") and len(workspace_docs_raw) == 1:
-        filename = workspace_docs_raw[0].get("filename") or "document.txt"
+    # Key off the document the adapter actually selected for writeback (exactly one
+    # eligible text doc) so the prompt injection and the adapter's save gate agree.
+    writeback_doc_state = state.get("workspace_writeback_document")
+    if state.get("workspace_writeback_requested") and writeback_doc_state:
+        filename = writeback_doc_state.get("filename") or "document.txt"
         system_prompt += (
             "\n\n=== WORKSPACE WRITEBACK MODE ===\n"
             f"The user asked you to update and save the workspace document '{filename}'.\n"

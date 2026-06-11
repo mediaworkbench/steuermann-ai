@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -20,7 +21,7 @@ from backend.circuit_breaker import (
     config_from_env,
 )
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
-from backend.db import SettingsStore
+from backend.db import SettingsStore, WorkspaceVersionConflictError
 from backend.rate_limit import limiter
 from backend.single_user import get_effective_user_id, require_api_access
 from universal_agentic_framework.config import load_core_config
@@ -499,6 +500,34 @@ def _should_check_workspace_intent(
     return any(a.get("mime_type") in _WORKSPACE_MIME_TYPES for a in attachments)
 
 
+def _writeback_eligible_documents(documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Documents the model may write back to — text only.
+
+    Images are immutable (never edited, never versioned), so a writeback must
+    target exactly one *text* document. Used by both the sync and streaming chat
+    paths to gate the writeback and pick the target document.
+    """
+    return [d for d in documents if not str(d.get("mime_type") or "").startswith("image/")]
+
+
+def _writeback_ineligible_warning(eligible_count: int) -> Optional[str]:
+    """User-facing warning when a save was requested but no single text doc applies.
+
+    Returns None when exactly one eligible document is present (writeback proceeds).
+    """
+    if eligible_count == 1:
+        return None
+    if eligible_count == 0:
+        return (
+            "You asked to save a document, but no editable text document is attached "
+            "(images can't be edited). Responding without saving."
+        )
+    return (
+        "You asked to save a document, but several text documents are attached — "
+        "attach exactly one to save. Responding without saving."
+    )
+
+
 async def _classify_workspace_intent_llm(message: str, language: str = "en") -> Dict[str, bool]:
     """Classify workspace intent via a direct HTTP call to the auxiliary LLM provider.
 
@@ -594,13 +623,31 @@ async def _generate_conversation_title(
 def _extract_writeback_summary(content: str) -> Optional[str]:
     """Extract the SUMMARY: section from a structured writeback response."""
     m = re.search(
-        r"SUMMARY:\s*\n(.*?)(?:\n\nDOCUMENT:|\Z)",
+        r"SUMMARY:\s*\n(.*?)(?:\n+DOCUMENT:|\Z)",
         (content or "").strip(),
         flags=re.DOTALL,
     )
     if m:
         return m.group(1).strip() or None
     return None
+
+
+def _build_writeback_chat_message(writeback: Dict[str, Any], assistant_content: str) -> str:
+    """Compose the clean chat message shown/persisted after a successful writeback.
+
+    Replaces the raw SUMMARY:/DOCUMENT: blob with a concise confirmation plus the
+    model's SUMMARY text (when present). Both the sync path and the streamed
+    `writeback` SSE payload use this so the visible bubble matches what is stored.
+    """
+    wb_filename = writeback.get("filename", "document")
+    wb_version = writeback.get("version")
+    wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
+    summary = _extract_writeback_summary(assistant_content)
+    summary_line = f"\n\n{summary}" if summary else ""
+    return (
+        f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
+        "You can view and restore previous versions in the sidebar History tab."
+    )
 
 
 def _normalize_workspace_writeback_content(content: str) -> str:
@@ -651,6 +698,7 @@ def _write_response_back_to_workspace_document(
     effective_user_id: str,
     document: dict[str, Any],
     content_text: str,
+    expected_version: Optional[int] = None,
 ) -> dict[str, Any]:
     document_store = getattr(request.app.state, "workspace_document_store", None)
     if document_store is None:
@@ -662,19 +710,29 @@ def _write_response_back_to_workspace_document(
         raise HTTPException(status_code=400, detail="Refusing to save empty workspace document content")
 
     try:
-        updated_metadata = file_manager.update_document_file(
-            user_id=effective_user_id,
-            document_id=str(document["id"]),
-            stored_path=str(document["stored_path"]),
-            content=normalized_content.encode("utf-8"),
-        )
         updated_document = document_store.update_document_content(
             document_id=str(document["id"]),
             user_id=effective_user_id,
             content_text=normalized_content,
-            size_bytes=int(updated_metadata["size_bytes"]),
-            sha256=str(updated_metadata["sha256"]),
+            size_bytes=len(normalized_content.encode("utf-8")),
+            sha256=hashlib.sha256(normalized_content.encode("utf-8")).hexdigest(),
+            expected_version=expected_version,
+            source="assistant",
         )
+        # Only touch the file on disk once the DB write (and its version check) wins,
+        # so a stale-version conflict cannot leave the file ahead of the record.
+        if updated_document:
+            file_manager.update_document_file(
+                user_id=effective_user_id,
+                document_id=str(document["id"]),
+                stored_path=str(document["stored_path"]),
+                content=normalized_content.encode("utf-8"),
+            )
+    except WorkspaceVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document changed during generation (now at version {exc.current_version}).",
+        ) from exc
     except WorkspaceValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1297,10 +1355,13 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
     effective_language = user_settings.get("language") or request_body.language or "en"
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
     documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
+    eligible_writeback_docs = _writeback_eligible_documents(documents)
     workspace_writeback_requested = False
     if _should_check_workspace_intent(documents, attachments):
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
+    # A writeback can only target exactly one text document.
+    workspace_writeback_eligible = workspace_writeback_requested and len(eligible_writeback_docs) == 1
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     state = {
         "messages": [{"role": "user", "content": request_body.message}],
@@ -1335,11 +1396,12 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
         "workspace_writeback_requested": workspace_writeback_requested,
         "workspace_writeback_document": (
             {
-                "filename": documents[0]["filename"],
-                "content_text": documents[0]["content_text"],
-                "version": documents[0]["version"],
+                "id": eligible_writeback_docs[0]["id"],
+                "filename": eligible_writeback_docs[0]["filename"],
+                "content_text": eligible_writeback_docs[0]["content_text"],
+                "version": eligible_writeback_docs[0]["version"],
             }
-            if workspace_writeback_requested and len(documents) == 1
+            if workspace_writeback_eligible
             else None
         ),
     }
@@ -1444,36 +1506,36 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
 
     workspace_document_writeback = None
 
-    if workspace_writeback_requested and len(documents) == 1:
+    if workspace_writeback_eligible:
+        target_doc = eligible_writeback_docs[0]
         original_assistant_msg = assistant_msg
-        workspace_document_writeback = _write_response_back_to_workspace_document(
-            request,
-            effective_user_id=effective_user_id,
-            document=documents[0],
-            content_text=assistant_msg,
-        )
-        if workspace_document_writeback:
-            wb_filename = workspace_document_writeback.get("filename", "document")
-            wb_version = workspace_document_writeback.get("version")
-            wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
-            wb_summary = _extract_writeback_summary(original_assistant_msg)
-            logger.info(
-                "Writeback summary extraction",
-                has_summary=bool(wb_summary),
-                model_response_preview=original_assistant_msg[:200],
+        try:
+            workspace_document_writeback = _write_response_back_to_workspace_document(
+                request,
+                effective_user_id=effective_user_id,
+                document=target_doc,
+                content_text=assistant_msg,
+                expected_version=target_doc.get("version"),
             )
-            summary_line = f"\n\n{wb_summary}" if wb_summary else ""
-            assistant_msg = (
-                f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
-                "You can view and restore previous versions in the sidebar History tab."
-            )
-        documents_used = [
-            {
-                "id": workspace_document_writeback["document_id"],
-                "filename": workspace_document_writeback["filename"],
-                "version": workspace_document_writeback["version"],
-            }
-        ]
+        except HTTPException as exc:
+            # Conflict (409) or other writeback failure: keep the model's answer,
+            # surface the failure in metadata, and don't fabricate a save message.
+            if exc.status_code == 409:
+                workspace_document_writeback = {
+                    "status": "conflict",
+                    "document_id": target_doc["id"],
+                    "filename": target_doc["filename"],
+                }
+            logger.warning("chat: workspace writeback failed: %s", exc.detail)
+        if workspace_document_writeback and workspace_document_writeback.get("status") == "saved":
+            assistant_msg = _build_writeback_chat_message(workspace_document_writeback, original_assistant_msg)
+            documents_used = [
+                {
+                    "id": workspace_document_writeback["document_id"],
+                    "filename": workspace_document_writeback["filename"],
+                    "version": workspace_document_writeback["version"],
+                }
+            ]
 
     logger.info("Chat request completed successfully", extra={
         "tokens_used": tokens_used,
@@ -1574,6 +1636,11 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
             "memories_used": memories_used,
             "workspace_document_writeback": workspace_document_writeback,
             "model_warning": model_warning,
+            "workspace_warning": (
+                _writeback_ineligible_warning(len(eligible_writeback_docs))
+                if workspace_writeback_requested
+                else None
+            ),
             "circuit_breakers": {
                 "langgraph_invoke": LANGGRAPH_CIRCUIT_BREAKER.status(),
                 "llm_model_validation": MODEL_VALIDATION_CIRCUIT_BREAKER.status(),
@@ -1590,11 +1657,12 @@ async def chat_stream(
 ):
     """Stream a chat request to LangGraph as Server-Sent Events.
 
-    Workspace writeback requests fall back to the synchronous /api/chat path
-    because writeback requires guaranteed delivery that cannot be done mid-stream.
+    Workspace writeback is performed inline once the stream completes: tokens are
+    accumulated, and on ``[DONE]`` the document is saved and a ``writeback`` event
+    is emitted before the terminator.
 
-    SSE event types: token, tool_call, node, metadata, error.
-    Terminates with ``data: [DONE]``.
+    SSE event types: token, tool_call, node, metadata, warning,
+    writeback_pending, writeback, error. Terminates with ``data: [DONE]``.
     """
     start_time = time.time()
     effective_user_id = get_effective_user_id(request_body.user_id)
@@ -1638,10 +1706,18 @@ async def chat_stream(
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
     documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
 
+    eligible_writeback_docs = _writeback_eligible_documents(documents)
     workspace_writeback_requested = False
     if _should_check_workspace_intent(documents, attachments):
         _intent = await _classify_workspace_intent_llm(request_body.message, effective_language)
         workspace_writeback_requested = bool(_intent.get("save", False))
+    # A writeback can only target exactly one text document.
+    workspace_writeback_eligible = workspace_writeback_requested and len(eligible_writeback_docs) == 1
+    workspace_writeback_warning = (
+        _writeback_ineligible_warning(len(eligible_writeback_docs))
+        if workspace_writeback_requested
+        else None
+    )
 
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     conversation_id = request_body.conversation_id
@@ -1679,11 +1755,12 @@ async def chat_stream(
         "workspace_writeback_requested": workspace_writeback_requested,
         "workspace_writeback_document": (
             {
-                "filename": documents[0]["filename"],
-                "content_text": documents[0]["content_text"],
-                "version": documents[0]["version"],
+                "id": eligible_writeback_docs[0]["id"],
+                "filename": eligible_writeback_docs[0]["filename"],
+                "content_text": eligible_writeback_docs[0]["content_text"],
+                "version": eligible_writeback_docs[0]["version"],
             }
-            if workspace_writeback_requested and len(documents) == 1
+            if workspace_writeback_eligible
             else None
         ),
     }
@@ -1711,24 +1788,42 @@ async def chat_stream(
         _writeback_result: dict | None = None
 
         def _do_writeback() -> dict | None:
-            """Perform workspace writeback after stream completes. Returns result dict or None."""
-            if not (workspace_writeback_requested and len(documents) == 1):
+            """Perform workspace writeback after stream completes. Returns result dict or None.
+
+            On a version conflict (the document changed during generation) returns a
+            ``{"status": "conflict", …}`` marker so the caller can warn the user; the
+            model's answer is still streamed and persisted unchanged.
+            """
+            if not workspace_writeback_eligible:
                 return None
+            target_doc = eligible_writeback_docs[0]
             try:
                 return _write_response_back_to_workspace_document(
                     request,
                     effective_user_id=effective_user_id,
-                    document=documents[0],
+                    document=target_doc,
                     content_text="".join(_accumulated_tokens),
+                    expected_version=target_doc.get("version"),
                 )
             except HTTPException as exc:
                 logger.warning("chat_stream: workspace writeback failed: %s", exc.detail)
+                if exc.status_code == 409:
+                    return {
+                        "status": "conflict",
+                        "document_id": target_doc["id"],
+                        "filename": target_doc["filename"],
+                    }
             except Exception as exc:
                 logger.warning("chat_stream: workspace writeback unexpected error: %s", exc)
             return None
 
-        def _run_persistence(writeback: dict | None = None) -> None:
-            """Persist user + assistant messages. Called as soon as [DONE] arrives."""
+        def _run_persistence(writeback: dict | None = None, persisted_content: str | None = None) -> None:
+            """Persist user + assistant messages. Called as soon as [DONE] arrives.
+
+            `persisted_content` is the exact text to store as the assistant message
+            (the clean writeback confirmation when a save succeeded); when omitted it
+            defaults to the raw accumulated tokens.
+            """
             if not conversation_id:
                 return
             assistant_content = "".join(_accumulated_tokens)
@@ -1737,19 +1832,8 @@ async def chat_stream(
             if _metadata.get("knowledge_context"):
                 tools_executed.append("knowledge_base")
 
-            # When writeback succeeded, persist the SUMMARY section (if present) as the
-            # conversation message rather than the raw SUMMARY:/DOCUMENT: blob.
-            persisted_content = assistant_content
-            if writeback and writeback.get("status") == "saved":
-                summary = _extract_writeback_summary(assistant_content)
-                wb_filename = writeback.get("filename", "document")
-                wb_version = writeback.get("version")
-                wb_prev = (int(wb_version) - 1) if isinstance(wb_version, int) else "?"
-                summary_line = f"\n\n{summary}" if summary else ""
-                persisted_content = (
-                    f"Saved `{wb_filename}` as version {wb_version} (previously v{wb_prev}).{summary_line}\n\n"
-                    "You can view and restore previous versions in the sidebar History tab."
-                )
+            if persisted_content is None:
+                persisted_content = assistant_content
 
             try:
                 conv_store = request.app.state.conversation_store
@@ -1840,6 +1924,21 @@ async def chat_stream(
             if model_warning:
                 yield f"event: warning\ndata: {json.dumps({'message': model_warning})}\n\n"
 
+            # Save was requested but isn't applicable (no/multiple eligible docs) —
+            # tell the user up front; the model still answers without saving.
+            if workspace_writeback_warning:
+                yield f"event: warning\ndata: {json.dumps({'message': workspace_writeback_warning})}\n\n"
+
+            # Deterministic compact-mode switch for the UI: a save is coming, so the
+            # client can show the summary + 'Updating document…' instead of the raw blob.
+            if workspace_writeback_eligible:
+                _wb_pending = {
+                    "document_id": eligible_writeback_docs[0]["id"],
+                    "filename": eligible_writeback_docs[0]["filename"],
+                    "version": eligible_writeback_docs[0]["version"],
+                }
+                yield f"event: writeback_pending\ndata: {json.dumps(_wb_pending)}\n\n"
+
             async with httpx.AsyncClient(timeout=900.0) as client:
                 async with client.stream(
                     "POST",
@@ -1869,7 +1968,17 @@ async def chat_stream(
                             # emit optional writeback event, then forward [DONE].
                             if stripped == "data: [DONE]":
                                 _writeback_result = _do_writeback()
-                                _run_persistence(writeback=_writeback_result)
+                                # The visible/persisted bubble is the clean confirmation
+                                # when a save succeeded — never the raw SUMMARY:/DOCUMENT: blob.
+                                _persisted_content = None
+                                if _writeback_result and _writeback_result.get("status") == "saved":
+                                    _persisted_content = _build_writeback_chat_message(
+                                        _writeback_result, "".join(_accumulated_tokens)
+                                    )
+                                _run_persistence(
+                                    writeback=_writeback_result,
+                                    persisted_content=_persisted_content,
+                                )
                                 # Auto-title on first exchange
                                 if conversation_id:
                                     try:
@@ -1887,7 +1996,20 @@ async def chat_stream(
                                     except Exception:
                                         pass
                                 if _writeback_result and _writeback_result.get("status") == "saved":
-                                    yield f"event: writeback\ndata: {json.dumps(_writeback_result)}\n\n"
+                                    _wb_event = {
+                                        **_writeback_result,
+                                        "summary": _extract_writeback_summary("".join(_accumulated_tokens)),
+                                        "persisted_content": _persisted_content,
+                                    }
+                                    yield f"event: writeback\ndata: {json.dumps(_wb_event)}\n\n"
+                                elif _writeback_result and _writeback_result.get("status") == "conflict":
+                                    yield (
+                                        "event: warning\n"
+                                        "data: " + json.dumps({
+                                            "message": "The document changed while the assistant was working — "
+                                            "nothing was saved. Retry to apply changes to the latest version.",
+                                        }) + "\n\n"
+                                    )
                                 yield "data: [DONE]\n\n"
                                 _done_emitted = True
                                 return

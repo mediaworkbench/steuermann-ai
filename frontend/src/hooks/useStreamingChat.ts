@@ -14,6 +14,12 @@ export interface StreamingChatParams {
   ragEnabled: boolean;
 }
 
+/** Signalled mid-stream when the model is about to write back to a document. */
+export interface WritebackPending {
+  documentId: string;
+  filename: string;
+}
+
 export interface UseStreamingChatReturn {
   streamingContent: string;
   isStreaming: boolean;
@@ -23,6 +29,7 @@ export interface UseStreamingChatReturn {
   nodeStatus: string | null;
   nodeTrace: NodeTraceEntry[];
   finalMetadata: ChatResponse["metadata"] | null;
+  writebackPending: WritebackPending | null;
   wasCancelled: boolean;
   thinkingContent: string;
   isThinking: boolean;
@@ -69,6 +76,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
   const [nodeStatus, setNodeStatus] = useState<string | null>(null);
   const [nodeTrace, setNodeTrace] = useState<NodeTraceEntry[]>([]);
   const [finalMetadata, setFinalMetadata] = useState<ChatResponse["metadata"] | null>(null);
+  const [writebackPending, setWritebackPending] = useState<WritebackPending | null>(null);
   const [wasCancelled, setWasCancelled] = useState(false);
   const [thinkingContent, setThinkingContent] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -90,6 +98,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     setStreamingContent("");
     setStreamError(null);
     setFinalMetadata(null);
+    setWritebackPending(null);
     setWasCancelled(false);
     setToolCallStatus(null);
     setNodeStatus(null);
@@ -112,6 +121,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
       setNodeStatus(null);
       setNodeTrace([]);
       setFinalMetadata(null);
+      setWritebackPending(null);
       setWasCancelled(false);
       setThinkingContent("");
       setIsThinking(false);
@@ -224,12 +234,21 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 setNodeStatus(null);
                 break;
 
+              case "writeback_pending":
+                setWritebackPending({
+                  documentId: parsed.document_id as string,
+                  filename: parsed.filename as string,
+                });
+                break;
+
               case "writeback":
-                setFinalMetadata((prev) =>
-                  prev
-                    ? { ...prev, workspace_document_writeback: parsed as ChatResponse["metadata"]["workspace_document_writeback"] }
-                    : prev  // metadata not yet received — skip rather than create a partial object
-                );
+                // Merge even if `metadata` hasn't arrived yet — the writeback result
+                // must never be dropped. Seed a minimal metadata object if needed.
+                setFinalMetadata((prev) => ({
+                  ...(prev ?? { tokens_used: 0, tools_executed: [] }),
+                  workspace_document_writeback:
+                    parsed as ChatResponse["metadata"]["workspace_document_writeback"],
+                }));
                 break;
 
               case "thinking_start":
@@ -282,6 +301,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     nodeStatus,
     nodeTrace,
     finalMetadata,
+    writebackPending,
     wasCancelled,
     thinkingContent,
     isThinking,

@@ -92,10 +92,10 @@ export function useVersionHistory({
           throw new Error(err.detail || res.statusText);
         }
         toast.success(t("workspace.restoredToVersion", { version }));
-        setHistoryDocId(null);
-        setHistoryVersions([]);
         onDocumentsRefresh?.();
         onAfterRestore?.(docId);
+        // Keep the panel open and refresh it so the new "Restored" version appears.
+        await loadHistory(docId);
       } catch (err) {
         const message = err instanceof Error ? err.message : t("workspace.restoreFailed");
         toast.error(t("workspace.restoreFailed"), { description: message });
@@ -103,7 +103,7 @@ export function useVersionHistory({
         setProcessingAction(null);
       }
     },
-    [onDocumentsRefresh, onAfterRestore, setProcessingAction, t],
+    [onDocumentsRefresh, onAfterRestore, loadHistory, setProcessingAction, t],
   );
 
   return {

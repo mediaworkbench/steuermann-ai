@@ -25,6 +25,7 @@ from backend.attachments import (
     WorkspaceManagerConfig,
 )
 from backend.circuit_breaker import CircuitState
+from backend.db import WorkspaceVersionConflictError
 from backend.rate_limit import limiter
 from backend.routers import chat as chat_module
 from backend.routers.chat import router as chat_router
@@ -78,14 +79,41 @@ class FakeWorkspaceDocumentStore:
     def __init__(self) -> None:
         self._documents: list[Dict[str, Any]] = []
 
+    def add(self, row: Dict[str, Any]) -> None:
+        self._documents.append(row)
+
     def get_documents_by_ids(self, user_id: str, document_ids: list[str]):
-        return []
+        rows = {r["id"]: r for r in self._documents if r["user_id"] == user_id}
+        return [rows[d] for d in document_ids if d in rows]
 
     def get_document(self, document_id: str, user_id: str):
+        for r in self._documents:
+            if r["id"] == document_id and r["user_id"] == user_id:
+                return r
         return None
 
     def list_documents(self, user_id: str, limit: int = 200, offset: int = 0):
-        return []
+        return [r for r in self._documents if r["user_id"] == user_id]
+
+    def update_document_content(
+        self,
+        document_id: str,
+        user_id: str,
+        content_text: str,
+        size_bytes: int,
+        sha256: str,
+        expected_version: Optional[int] = None,
+        source: str = "user",
+    ):
+        for r in self._documents:
+            if r["id"] == document_id and r["user_id"] == user_id:
+                r["content_text"] = content_text
+                r["size_bytes"] = size_bytes
+                r["sha256"] = sha256
+                r["version"] = int(r.get("version", 0)) + 1
+                r["last_source"] = source
+                return r
+        return None
 
 
 class FakeLLMCapabilityProbeStore:
@@ -93,7 +121,7 @@ class FakeLLMCapabilityProbeStore:
         return []
 
 
-# ── SSE helper ────────────────────────────────────────────────────────────────
+# ── SSE helpers ───────────────────────────────────────────────────────────────
 
 def parse_sse_stream(raw: str) -> list[Dict[str, Any]]:
     """Parse a raw SSE body into a list of {event, data} dicts."""
@@ -113,7 +141,7 @@ def parse_sse_stream(raw: str) -> list[Dict[str, Any]]:
     return events
 
 
-# ── Streaming SSE payload the fake LangGraph returns ─────────────────────────
+# ── SSE payloads ──────────────────────────────────────────────────────────────
 
 _SSE_RESPONSE = (
     "event: token\ndata: {\"delta\": \"Hello\"}\n\n"
@@ -126,6 +154,51 @@ _SSE_RESPONSE = (
     "\"rag_attempted\": false, \"rag_doc_count\": 0, \"loaded_memory\": []}\n\n"
     "data: [DONE]\n\n"
 )
+
+# Structured writeback format — single token containing SUMMARY: + DOCUMENT: sections.
+_SSE_WRITEBACK_RESPONSE = (
+    "event: token\ndata: {\"delta\": \"SUMMARY:\\nImproved clarity.\\n\\nDOCUMENT:\\nNew content.\"}\n\n"
+    "event: metadata\ndata: {\"tokens_used\": 15, \"input_tokens\": 5, \"output_tokens\": 10, "
+    "\"model_used\": \"test-model\", \"tool_results\": {}, \"sources\": [], "
+    "\"rag_attempted\": false, \"rag_doc_count\": 0, \"loaded_memory\": []}\n\n"
+    "data: [DONE]\n\n"
+)
+
+
+# ── Test document helpers ─────────────────────────────────────────────────────
+
+def _make_text_doc(doc_id: str, user_id: str = "u1", version: int = 1) -> Dict[str, Any]:
+    return {
+        "id": doc_id,
+        "user_id": user_id,
+        "filename": f"{doc_id}.md",
+        "mime_type": "text/markdown",
+        "size_bytes": 100,
+        "content_text": "Original content.",
+        "version": version,
+        "stored_path": f"/fake/{doc_id}.md",
+        "sha256": "abc123",
+        "last_source": "user",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _make_image_doc(doc_id: str, user_id: str = "u1") -> Dict[str, Any]:
+    return {
+        "id": doc_id,
+        "user_id": user_id,
+        "filename": f"{doc_id}.png",
+        "mime_type": "image/png",
+        "size_bytes": 5000,
+        "content_text": None,
+        "version": 1,
+        "stored_path": f"/fake/{doc_id}.png",
+        "sha256": "img123",
+        "last_source": "user",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── Fixture ───────────────────────────────────────────────────────────────────
@@ -140,7 +213,8 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     async def _noop_lifespan(app: FastAPI):
         yield
 
-    # Fake httpx that returns the SSE payload as a stream
+    # Fake httpx that returns the SSE payload as a stream.
+    # _response_body is a class attribute so individual tests can override it.
     class _FakeStreamContext:
         def __init__(self, status_code: int = 200, body: str = _SSE_RESPONSE) -> None:
             self.status_code = status_code
@@ -157,10 +231,11 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
             return self._body.encode()
 
         async def aiter_text(self) -> AsyncGenerator[str, None]:
-            # Yield the full SSE body in one chunk for simplicity
             yield self._body
 
     class _FakeAsyncClientStream:
+        _response_body: str = _SSE_RESPONSE
+
         def __init__(self, *args, **kwargs) -> None:
             self.last_json: Dict[str, Any] = {}
 
@@ -172,7 +247,7 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
         def stream(self, method: str, url: str, json: Dict[str, Any]):
             _FakeAsyncClientStream.last_request_json = json
-            return _FakeStreamContext()
+            return _FakeStreamContext(body=_FakeAsyncClientStream._response_body)
 
     # Also patch the non-stream post (used by _validate_preferred_model and _classify_workspace_intent_llm)
     class _FakeResponse:
@@ -188,10 +263,6 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         HTTPStatusError = Exception
 
     monkeypatch.setattr(chat_module, "httpx", _FakeHttpx)
-
-    @asynccontextmanager
-    async def _noop_lifespan(app: FastAPI):
-        yield
 
     app = FastAPI(lifespan=_noop_lifespan)
     app.state.limiter = limiter
@@ -210,7 +281,9 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     app.state.llm_capability_probe_store = FakeLLMCapabilityProbeStore()
     app.state.conversation_attachment_store = FakeAttachmentStore()
     app.state.conversation_workspace_store = FakeWorkspaceStore()
-    app.state.workspace_document_store = FakeWorkspaceDocumentStore()
+
+    workspace_document_store = FakeWorkspaceDocumentStore()
+    app.state.workspace_document_store = workspace_document_store
 
     attachment_manager = ChatAttachmentManager(
         AttachmentManagerConfig(root_dir=tmp_path / "chat-workspaces")
@@ -226,14 +299,14 @@ def stream_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     app.state.analytics_store = None
 
     with TestClient(app, raise_server_exceptions=False) as test_client:
-        yield test_client, conversation_store, _FakeAsyncClientStream
+        yield test_client, conversation_store, _FakeAsyncClientStream, workspace_document_store
 
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
+# ── Tests: general streaming ──────────────────────────────────────────────────
 
 
 def test_chat_stream_returns_event_stream_content_type(stream_client) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     response = test_client.post(
         "/api/chat/stream",
@@ -245,7 +318,7 @@ def test_chat_stream_returns_event_stream_content_type(stream_client) -> None:
 
 
 def test_chat_stream_forwards_token_events(stream_client) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     response = test_client.post(
         "/api/chat/stream",
@@ -261,7 +334,7 @@ def test_chat_stream_forwards_token_events(stream_client) -> None:
 
 
 def test_chat_stream_forwards_node_and_tool_events(stream_client) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     response = test_client.post(
         "/api/chat/stream",
@@ -278,7 +351,7 @@ def test_chat_stream_forwards_node_and_tool_events(stream_client) -> None:
 
 
 def test_chat_stream_terminates_with_done(stream_client) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     response = test_client.post(
         "/api/chat/stream",
@@ -289,7 +362,7 @@ def test_chat_stream_terminates_with_done(stream_client) -> None:
 
 
 def test_chat_stream_forwards_metadata_event(stream_client) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     response = test_client.post(
         "/api/chat/stream",
@@ -305,7 +378,7 @@ def test_chat_stream_forwards_metadata_event(stream_client) -> None:
 
 
 def test_chat_stream_persists_messages_when_conversation_id_given(stream_client) -> None:
-    test_client, conversation_store, _ = stream_client
+    test_client, conversation_store, _, _ = stream_client
 
     test_client.post(
         "/api/chat/stream",
@@ -324,7 +397,7 @@ def test_chat_stream_persists_messages_when_conversation_id_given(stream_client)
 
 
 def test_chat_stream_no_persistence_without_conversation_id(stream_client) -> None:
-    test_client, conversation_store, _ = stream_client
+    test_client, conversation_store, _, _ = stream_client
 
     test_client.post(
         "/api/chat/stream",
@@ -337,7 +410,7 @@ def test_chat_stream_no_persistence_without_conversation_id(stream_client) -> No
 def test_chat_stream_circuit_breaker_open_returns_error_event(
     stream_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    test_client, _, _ = stream_client
+    test_client, _, _, _ = stream_client
 
     monkeypatch.setattr(
         chat_module.LANGGRAPH_CIRCUIT_BREAKER,
@@ -371,7 +444,7 @@ def test_chat_stream_workspace_writeback_uses_streaming_path(
     Writeback is performed inside _proxy_stream after [DONE] arrives — there is
     no sync fallback.  The response must be SSE and forward token events normally.
     """
-    test_client, _, _FakeAsyncClientStream = stream_client
+    test_client, _, _FakeAsyncClientStream, _ = stream_client
 
     monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
 
@@ -390,3 +463,247 @@ def test_chat_stream_workspace_writeback_uses_streaming_path(
     events = parse_sse_stream(response.text)
     token_events = [e for e in events if e["event"] == "token"]
     assert len(token_events) >= 1, "Expected token events in SSE response"
+
+
+# ── Tests: writeback SSE events ───────────────────────────────────────────────
+
+
+def test_chat_stream_writeback_pending_emitted_before_token_events(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """writeback_pending SSE must arrive before the first token event."""
+    test_client, _, _FakeAsyncClientStream, workspace_document_store = stream_client
+
+    workspace_document_store.add(_make_text_doc("doc-1"))
+
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+
+    # Avoid filesystem dependency — return a successful writeback result directly.
+    monkeypatch.setattr(
+        chat_module,
+        "_write_response_back_to_workspace_document",
+        lambda *args, **kwargs: {
+            "status": "saved",
+            "document_id": "doc-1",
+            "filename": "doc-1.md",
+            "version": 2,
+            "size_bytes": 100,
+        },
+    )
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "improve and save this document",
+            "user_id": "u1",
+            "document_ids": ["doc-1"],
+        },
+    )
+
+    assert response.status_code == 200
+    events = parse_sse_stream(response.text)
+    event_types = [e["event"] for e in events]
+
+    assert "writeback_pending" in event_types, "Expected writeback_pending SSE event"
+    assert "token" in event_types, "Expected token SSE events"
+    assert event_types.index("writeback_pending") < event_types.index("token"), (
+        "writeback_pending must precede the first token event"
+    )
+
+    wb_pending = json.loads(events[event_types.index("writeback_pending")]["data"])
+    assert wb_pending["document_id"] == "doc-1"
+    assert wb_pending["filename"] == "doc-1.md"
+    assert wb_pending["version"] == 1
+
+
+def test_chat_stream_writeback_event_includes_persisted_content(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Successful writeback SSE must carry summary and persisted_content fields."""
+    test_client, _, _FakeAsyncClientStream, workspace_document_store = stream_client
+
+    workspace_document_store.add(_make_text_doc("doc-2"))
+
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+
+    # Use structured SUMMARY:/DOCUMENT: response so summary extraction works.
+    _FakeAsyncClientStream._response_body = _SSE_WRITEBACK_RESPONSE
+
+    monkeypatch.setattr(
+        chat_module,
+        "_write_response_back_to_workspace_document",
+        lambda *args, **kwargs: {
+            "status": "saved",
+            "document_id": "doc-2",
+            "filename": "doc-2.md",
+            "version": 2,
+            "size_bytes": 50,
+        },
+    )
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "improve and save this document",
+            "user_id": "u1",
+            "document_ids": ["doc-2"],
+        },
+    )
+
+    assert response.status_code == 200
+    events = parse_sse_stream(response.text)
+    writeback_events = [e for e in events if e["event"] == "writeback"]
+    assert writeback_events, "Expected a writeback SSE event"
+
+    wb = json.loads(writeback_events[0]["data"])
+    assert wb["status"] == "saved"
+    assert wb.get("summary") == "Improved clarity."
+    assert wb.get("persisted_content") is not None
+    # persisted_content is the clean confirmation message, not the raw SUMMARY:/DOCUMENT: blob
+    assert "doc-2.md" in wb["persisted_content"]
+    assert "version 2" in wb["persisted_content"]
+    assert "DOCUMENT:" not in wb["persisted_content"]
+
+
+def test_chat_stream_multi_doc_save_intent_emits_warning_no_writeback(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two eligible text docs + save intent → warning SSE, no writeback_pending, no writeback."""
+    test_client, _, _, workspace_document_store = stream_client
+
+    workspace_document_store.add(_make_text_doc("doc-a"))
+    workspace_document_store.add(_make_text_doc("doc-b"))
+
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "save both documents",
+            "user_id": "u1",
+            "document_ids": ["doc-a", "doc-b"],
+        },
+    )
+
+    assert response.status_code == 200
+    events = parse_sse_stream(response.text)
+    warning_events = [e for e in events if e["event"] == "warning"]
+    assert warning_events, "Expected a warning SSE event for multi-doc save intent"
+    warning_msg = json.loads(warning_events[0]["data"])["message"].lower()
+    assert "several" in warning_msg or "exactly one" in warning_msg
+
+    event_types = [e["event"] for e in events]
+    assert "writeback_pending" not in event_types, "writeback_pending must not be emitted"
+    assert "writeback" not in event_types, "writeback must not be emitted"
+
+
+def test_chat_stream_image_only_save_intent_emits_warning_no_writeback(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Image-only context + save intent → warning SSE (images aren't eligible), no writeback."""
+    test_client, _, _, workspace_document_store = stream_client
+
+    workspace_document_store.add(_make_image_doc("img-1"))
+
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "save this image",
+            "user_id": "u1",
+            "document_ids": ["img-1"],
+        },
+    )
+
+    assert response.status_code == 200
+    events = parse_sse_stream(response.text)
+    warning_events = [e for e in events if e["event"] == "warning"]
+    assert warning_events, "Expected a warning SSE event for image-only save intent"
+    warning_msg = json.loads(warning_events[0]["data"])["message"].lower()
+    assert "image" in warning_msg
+
+    event_types = [e["event"] for e in events]
+    assert "writeback_pending" not in event_types, "writeback_pending must not be emitted for images"
+    assert "writeback" not in event_types, "writeback must not be emitted for images"
+
+
+def test_chat_stream_writeback_conflict_emits_warning_no_saved_writeback(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Version conflict during writeback → conflict warning SSE, no writeback(status=saved)."""
+    test_client, _, _, workspace_document_store = stream_client
+
+    workspace_document_store.add(_make_text_doc("doc-conflict", version=1))
+
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+
+    def _conflict_writeback(*args, **kwargs):
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(
+            status_code=409,
+            detail="Document changed during generation (now at version 2).",
+        )
+
+    monkeypatch.setattr(
+        chat_module,
+        "_write_response_back_to_workspace_document",
+        _conflict_writeback,
+    )
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "improve and save",
+            "user_id": "u1",
+            "document_ids": ["doc-conflict"],
+        },
+    )
+
+    assert response.status_code == 200
+    events = parse_sse_stream(response.text)
+
+    # writeback_pending was emitted (before the upstream stream was opened)
+    event_types = [e["event"] for e in events]
+    assert "writeback_pending" in event_types, "writeback_pending should still be emitted"
+
+    # A conflict warning must appear
+    warning_events = [e for e in events if e["event"] == "warning"]
+    conflict_warnings = [
+        e for e in warning_events
+        if "changed" in json.loads(e["data"])["message"].lower()
+    ]
+    assert conflict_warnings, "Expected a conflict warning SSE event"
+
+    # No successful writeback event
+    writeback_events = [e for e in events if e["event"] == "writeback"]
+    saved_writebacks = [
+        e for e in writeback_events
+        if json.loads(e["data"]).get("status") == "saved"
+    ]
+    assert not saved_writebacks, "No successful writeback event expected on conflict"
