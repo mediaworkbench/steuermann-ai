@@ -1,5 +1,6 @@
 """Integration tests for graph builder with tool registry."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -85,7 +86,7 @@ def test_graph_loads_tools():
         "language": "de",
     }
     
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
     
     # Assert tools were loaded
     assert "loaded_tools" in result
@@ -111,7 +112,7 @@ def test_graph_skips_disabled_tools():
         "language": "de",
     }
     
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
     
     # Assert mcp_stub is NOT loaded (disabled in config/tools.yaml)
     tool_names = [tool.name for tool in result.get("loaded_tools", [])]
@@ -199,7 +200,7 @@ def test_graph_injects_tool_and_knowledge_context(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Find the response node invocation (it has "=== TOOL RESULTS ===" in the system prompt)
     response_inv = None
@@ -286,7 +287,7 @@ def test_rag_request_uses_config(
         "language": "en",
     }
 
-    graph.invoke(state)
+    asyncio.run(graph.ainvoke(state))
 
     assert mock_httpx_post.called
     url = mock_httpx_post.call_args.args[0]
@@ -348,7 +349,7 @@ def test_rag_disabled_via_features(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     assert result.get("knowledge_context") == []
     assert not mock_httpx_post.called
@@ -428,7 +429,7 @@ def test_rag_keyword_fallback_search(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Verify fallback search was called (two POST requests to Qdrant)
     assert mock_httpx_post.call_count == 2
@@ -493,7 +494,7 @@ def test_long_term_memory_disabled_via_features(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Verify long-term memory was not loaded (feature flag blocks it)
     # The loaded_memory key should not be present or should be empty/default

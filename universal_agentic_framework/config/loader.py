@@ -206,17 +206,31 @@ def _merge_prompt_languages(
     return merged
 
 
-def _load_config(
-    target: Type[T],
+# Cache of fully merged + env-substituted config dicts, keyed on the inputs that
+# determine the result. The expensive work (8+ YAML file reads, deep merges, env
+# substitution, prompt-file loading) runs once per key; model_validate still runs on
+# every call so each caller gets a FRESH, independently-mutable model instance — some
+# call sites (and the test suite's crew-disable fixture) mutate the returned config.
+# Only the default os.environ path is cached; an explicit `env=` (tests exercising env
+# behavior) always rebuilds. PROFILE_ID and config files are fixed for a process, so a
+# long-lived cache is correct; clear_config_cache() exists for tests and reloads.
+_CONFIG_DICT_CACHE: Dict[tuple, Dict[str, Any]] = {}
+
+
+def clear_config_cache() -> None:
+    """Drop all cached config dicts. Call after changing PROFILE_ID, config files, or
+    substitution-affecting env vars within a single process (primarily tests)."""
+    _CONFIG_DICT_CACHE.clear()
+
+
+def _build_config_dict(
     filename: str,
     config_dir: Path,
-    base_dir: Optional[Path] = None,
-    env: Optional[Mapping[str, str]] = None,
-    profiles_dir: Path | str = _DEFAULT_PROFILES_DIR,
-) -> T:
-    env_map: Mapping[str, str] = env or os.environ
-    profile_id = get_active_profile_id(env_map)
-
+    base_dir: Optional[Path],
+    env_map: Mapping[str, str],
+    profiles_dir: Path | str,
+    profile_id: str,
+) -> Dict[str, Any]:
     data: Dict[str, Any] = {}
     if base_dir:
         base_data = _load_yaml(base_dir / filename)
@@ -243,7 +257,42 @@ def _load_config(
             prompts_section = data.setdefault("prompts", {})
             prompts_section["languages"] = merged_prompts
 
-    substituted = _substitute_env(data, env_map)
+    return _substitute_env(data, env_map)
+
+
+def _load_config(
+    target: Type[T],
+    filename: str,
+    config_dir: Path,
+    base_dir: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
+    profiles_dir: Path | str = _DEFAULT_PROFILES_DIR,
+) -> T:
+    env_map: Mapping[str, str] = env or os.environ
+    profile_id = get_active_profile_id(env_map)
+
+    if env is None:
+        key = (
+            target.__name__,
+            filename,
+            str(config_dir),
+            str(base_dir or ""),
+            str(profiles_dir),
+            profile_id,
+        )
+        substituted = _CONFIG_DICT_CACHE.get(key)
+        if substituted is None:
+            substituted = _build_config_dict(
+                filename, config_dir, base_dir, env_map, profiles_dir, profile_id
+            )
+            _CONFIG_DICT_CACHE[key] = substituted
+    else:
+        substituted = _build_config_dict(
+            filename, config_dir, base_dir, env_map, profiles_dir, profile_id
+        )
+
+    # model_validate runs every call so callers receive a fresh, mutable instance and
+    # never share state through the cached dict (Pydantic does not mutate its input).
     return target.model_validate(substituted)
 
 

@@ -246,3 +246,109 @@ def test_node_generate_response_retries_on_inaccessible_extraction_phrase(monkey
     # First call uses inaccessible phrasing from production logs, second call is correction retry.
     assert len(model.calls) == 2
     assert result["messages"][-1]["content"] == "I used the attachment content and revised the document."
+
+
+def test_crew_result_prefixes_match_producers() -> None:
+    """Regression guard for W1.1: the filter prefixes must match what crew_nodes emits.
+
+    crew_nodes.py appends 'Analysis Result:' (not 'Analytics Result:') for the analytics
+    crew and 'Chain Result (<name>):' for chains. A drift here silently lets crew output
+    leak back into the LLM history as a prior assistant turn.
+    """
+    prefixes = graph_builder._CREW_RESULT_PREFIXES
+    assert "Analysis Result:" in prefixes  # analytics crew's actual prefix
+    assert "Analytics Result:" not in prefixes  # the old, never-matching string
+    assert "Chain Result (" in prefixes
+    for expected in ("Research Result:", "Code Generation Result:", "Planning Result:"):
+        assert expected in prefixes
+
+
+def test_node_generate_response_filters_crew_messages_from_history(monkeypatch) -> None:
+    """W1.1: crew-appended assistant messages must NOT be replayed as LLM turns.
+
+    Covers the previously-broken analytics ('Analysis Result:') and chain
+    ('Chain Result (...)') prefixes — these used to slip through into the message
+    history, making the model treat the crew output as its own prior answer.
+    """
+    model = _CapturingModel()
+
+    monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
+    monkeypatch.setattr(graph_builder, "get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
+    monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
+
+    state = {
+        "messages": [
+            {"role": "user", "content": "Analyze the sales data"},
+            {"role": "assistant", "content": "Analysis Result:\nRevenue grew 12% QoQ."},
+            {"role": "assistant", "content": "Chain Result (research_then_analytics):\nFull pipeline output."},
+            {"role": "user", "content": "Summarize what you found."},
+        ],
+        "language": "en",
+        "user_settings": {},
+        "tool_results": {},
+        "knowledge_context": [],
+        "loaded_memory": [],
+    }
+
+    graph_builder.node_generate_response(state)
+
+    turn_contents = [getattr(m, "content", "") for m in model.messages[1:]]
+    # The crew result bodies must not be replayed as assistant turns.
+    assert all("Revenue grew 12% QoQ." not in c for c in turn_contents)
+    assert all("Full pipeline output." not in c for c in turn_contents)
+    # The genuine user turn is still present.
+    assert any("Summarize what you found." in c for c in turn_contents)
+
+
+def test_rag_label_strips_only_trailing_extension() -> None:
+    """W1.8: extension stripping must be a suffix removal, not a substring replace."""
+    # ".md" is the real extension; the inner ".csv" must survive.
+    assert graph_builder._rag_label("data.csv.md") == "data.csv"
+    # Leading 32-char ingestion hash is stripped; dashes become spaces.
+    assert graph_builder._rag_label("a" * 32 + "-my-report.md") == "my report"
+    # A bare name with no known extension is returned (dash-normalized) unchanged.
+    assert graph_builder._rag_label("annual-summary") == "annual summary"
+    assert graph_builder._rag_label(None) == "Unknown"
+
+
+def test_node_generate_response_keeps_user_pasted_url(monkeypatch) -> None:
+    """W1.6: a URL the user pasted (and the model echoes) must not be scrubbed."""
+
+    class _EchoUrlModel:
+        def __init__(self) -> None:
+            self.messages = None
+
+        def invoke(self, messages):
+            self.messages = messages
+
+            class _Out:
+                content = "Sure — the page you linked is https://example.com/docs/page."
+
+            return _Out()
+
+    model = _EchoUrlModel()
+    monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
+    monkeypatch.setattr(graph_builder, "get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
+    monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
+
+    state = {
+        "messages": [
+            {"role": "user", "content": "What does https://example.com/docs/page say?"},
+        ],
+        "language": "en",
+        "user_settings": {},
+        "tool_results": {},
+        "knowledge_context": [],
+        "loaded_memory": [],
+    }
+
+    result = graph_builder.node_generate_response(state)
+
+    reply = result["messages"][-1]["content"]
+    # The user's own URL survives (trailing-period variant matches the pasted form).
+    assert "https://example.com/docs/page" in reply
+    assert "source omitted" not in reply

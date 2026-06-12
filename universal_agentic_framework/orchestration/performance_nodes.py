@@ -90,16 +90,15 @@ async def memory_query_cache_node(state: dict) -> dict:
     Returns:
         Updated state with loaded_memory
     """
-    cache = get_cache_manager()
-    
     try:
+        cache = get_cache_manager()
         user_id = state.get("user_id", "unknown")
         query = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
-        
+
         if not query:
             logger.debug("No query found for memory cache")
             return state
-        
+
         # Check cache
         cached_results = await cache.get_memory_query(user_id, query)
         if cached_results:
@@ -129,16 +128,15 @@ async def memory_cache_store_node(state: dict) -> dict:
     Returns:
         Unchanged state
     """
-    cache = get_cache_manager()
-    
     try:
+        cache = get_cache_manager()
         user_id = state.get("user_id", "unknown")
         memory = state.get("loaded_memory")
         query = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
-        
+
         if not memory or not query:
             return state
-        
+
         # Store in cache
         success = await cache.set_memory_query(user_id, query, memory)
         if success:
@@ -214,10 +212,10 @@ async def compress_state(state: dict, force: bool = False) -> dict:
         ``"ok"`` (history compressed), ``"skipped"`` (nothing to compress), or
         ``"error"`` (summary generation failed — history left untouched).
     """
-    summarizer = get_summarizer()
     state["last_compression_status"] = "skipped"
 
     try:
+        summarizer = get_summarizer()
         messages = state.get("messages", [])
         user_id = state.get("user_id", "unknown")
 
@@ -292,9 +290,8 @@ async def cache_stats_node(state: dict) -> dict:
     Returns:
         Unchanged state
     """
-    cache = get_cache_manager()
-    
     try:
+        cache = get_cache_manager()
         stats = cache.get_stats()
         if stats["total_requests"] > 0:
             logger.info(
@@ -310,111 +307,8 @@ async def cache_stats_node(state: dict) -> dict:
     return state
 
 
-# Synchronous wrappers for LangGraph integration (existing nodes are sync)
-def _run_async_node_sync(async_node, skip_message: str, error_label: str, state: dict) -> dict:
-    """Run an async node in sync context.
-
-    If an event loop is already running in this thread, execute in a worker
-    thread with its own event loop instead of skipping execution.
-    """
-    import asyncio
-    import threading
-
-    def _run_in_worker_thread() -> dict:
-        result_box: dict[str, dict] = {}
-        error_box: dict[str, Exception] = {}
-
-        def _worker() -> None:
-            try:
-                result_box["state"] = asyncio.run(async_node(state))
-            except Exception as thread_exc:  # pragma: no cover - defensive branch
-                error_box["error"] = thread_exc
-
-        worker = threading.Thread(target=_worker, daemon=True)
-        worker.start()
-        worker.join()
-
-        if "error" in error_box:
-            raise error_box["error"]
-        return result_box.get("state", state)
-
-    try:
-        asyncio.get_running_loop()
-        logger.debug("Event loop already running, executing async node in worker thread")
-        return _run_in_worker_thread()
-    except RuntimeError:
-        # No running loop in this thread: safe to run coroutine to completion.
-        pass
-
-    try:
-        return asyncio.run(async_node(state))
-    except Exception as e:
-        logger.warning(f"{error_label}: {e}")
-        return state
-
-
-def memory_query_cache_node_sync(state: dict) -> dict:
-    """Sync wrapper for memory_query_cache_node."""
-    return _run_async_node_sync(
-        memory_query_cache_node,
-        "Event loop already running, skipping cache check",
-        "Sync wrapper error",
-        state,
-    )
-
-
-def memory_cache_store_node_sync(state: dict) -> dict:
-    """Sync wrapper for memory_cache_store_node."""
-    return _run_async_node_sync(
-        memory_cache_store_node,
-        "Event loop already running, skipping cache store",
-        "Sync wrapper error",
-        state,
-    )
-
-
-def conversation_compression_node_sync(state: dict) -> dict:
-    """Sync wrapper for conversation_compression_node."""
-    return _run_async_node_sync(
-        conversation_compression_node,
-        "Event loop already running, skipping compression",
-        "Sync wrapper error",
-        state,
-    )
-
-
-def cache_stats_node_sync(state: dict) -> dict:
-    """Sync wrapper for cache_stats_node."""
-    return _run_async_node_sync(
-        cache_stats_node,
-        "Event loop already running, skipping stats",
-        "Sync wrapper error",
-        state,
-    )
-
-
-def add_performance_nodes_to_graph(graph_builder):
-    """Add performance optimization nodes to graph.
-    
-    Inserts caching and compression nodes into the graph execution flow.
-    
-    Args:
-        graph_builder: LangGraph GraphBuilder instance
-        
-    Returns:
-        Updated graph_builder
-    """
-    try:
-        # Add memory caching nodes (use sync wrappers)
-        graph_builder.add_node("memory_query_cache", memory_query_cache_node_sync)
-        graph_builder.add_node("memory_cache_store", memory_cache_store_node_sync)
-        
-        # Add compression node
-        graph_builder.add_node("compress_conversation", conversation_compression_node_sync)
-        
-        # Add stats monitoring
-        graph_builder.add_node("cache_stats", cache_stats_node_sync)
-    except Exception as e:
-        logger.warning(f"Error adding performance nodes: {e}")
-    
-    return graph_builder
+# NOTE: these nodes are registered directly as async coroutines in
+# graph_builder.build_graph() and awaited on the event loop under GRAPH.ainvoke().
+# The previous sync wrappers (memory_query_cache_node_sync, …) and the
+# _run_async_node_sync thread-bridge were removed when /invoke switched to ainvoke —
+# they only existed to call these coroutines from a synchronous GRAPH.invoke().

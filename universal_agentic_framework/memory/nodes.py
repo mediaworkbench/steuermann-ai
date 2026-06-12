@@ -2,7 +2,7 @@
 
 SOURCE OF TRUTH OWNERSHIP:
 - Digest chain: LangGraph orchestration (GraphState.digest_context)
-  - Created by: performance_nodes.conversation_compression_node_sync()
+  - Created by: performance_nodes.conversation_compression_node()
   - Propagated by: graph_builder.node_update_memory() → update_memory_node()
   - Persisted in: Mem0 memory record metadata
   

@@ -53,6 +53,25 @@ def live_embedding_provider(_embedding_provider_session):
 
 
 @pytest.fixture(autouse=True)
+def _clear_config_cache_each_test():
+    """Reset the loader's merged-config cache around every test.
+
+    load_*_config() caches the env-substituted config dict keyed on PROFILE_ID + paths
+    (not on individual env vars). Tests routinely monkeypatch substitution-affecting env
+    vars or PROFILE_ID, so a value cached by one test would otherwise leak into the next.
+    Clearing before and after keeps each test's config build hermetic.
+    """
+    try:
+        from universal_agentic_framework.config import clear_config_cache
+    except (ImportError, ModuleNotFoundError):
+        yield
+        return
+    clear_config_cache()
+    yield
+    clear_config_cache()
+
+
+@pytest.fixture(autouse=True)
 def _disable_redis_for_tests(monkeypatch):
     """Remove REDIS_URL so performance_nodes uses MemoryCacheBackend silently.
 

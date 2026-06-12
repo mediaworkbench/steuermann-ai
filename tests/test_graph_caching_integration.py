@@ -112,7 +112,8 @@ def test_memory_query_cache_integration(initialize_cache, mock_backends):
     }
     
     try:
-        result = graph.invoke(inputs)
+        # Async API: the performance nodes are native coroutines (see build_graph).
+        result = asyncio.run(graph.ainvoke(inputs))
         assert result is not None
     except Exception as e:
         print(f"Graph execution error (expected in test env): {e}")
@@ -134,23 +135,27 @@ def test_cache_key_generation(initialize_cache):
 
 
 def test_performance_nodes_handle_missing_data_gracefully():
-    """Test that performance nodes handle missing state data without crashing."""
+    """Test that performance nodes handle missing state data without crashing.
+
+    The nodes are async coroutines (awaited by langgraph under ainvoke); here we drive
+    them directly with asyncio.run from a no-loop context.
+    """
     from universal_agentic_framework.orchestration.performance_nodes import (
-        memory_query_cache_node_sync,
-        conversation_compression_node_sync,
-        cache_stats_node_sync,
+        memory_query_cache_node,
+        conversation_compression_node,
+        cache_stats_node,
     )
-    
+
     initialize_performance_nodes()
     empty_state = {}
-    
-    result1 = memory_query_cache_node_sync(empty_state)
+
+    result1 = asyncio.run(memory_query_cache_node(empty_state))
     assert result1 == empty_state
-    
-    result2 = conversation_compression_node_sync(empty_state)
+
+    result2 = asyncio.run(conversation_compression_node(empty_state))
     assert result2 == empty_state
-    
-    result3 = cache_stats_node_sync(empty_state)
+
+    result3 = asyncio.run(cache_stats_node(empty_state))
     assert result3 == empty_state
 
 

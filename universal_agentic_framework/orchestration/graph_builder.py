@@ -5,7 +5,7 @@ MEMORY LAYER INTEGRATION & SOURCE OF TRUTH OWNERSHIP:
 1. SHORT-MEMORY (Digest Chain)
    - Owner: LangGraph graph orchestration via GraphState
    - Lifecycle:
-     a) Created: performance_nodes.conversation_compression_node_sync() extracts digests
+     a) Created: performance_nodes.conversation_compression_node() extracts digests
      b) Stored: GraphState.digest_context (bounded list)
      c) Propagated: node_update_memory() → update_memory_node(state)
      d) Persisted: Backend stores in Mem0 record metadata
@@ -64,10 +64,10 @@ from universal_agentic_framework.monitoring.metrics import (
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.performance_nodes import (
     initialize_performance_nodes,
-    memory_query_cache_node_sync,
-    memory_cache_store_node_sync,
-    conversation_compression_node_sync,
-    cache_stats_node_sync,
+    memory_query_cache_node,
+    memory_cache_store_node,
+    conversation_compression_node,
+    cache_stats_node,
     get_summarizer,
 )
 from universal_agentic_framework.orchestration.crew_nodes import (
@@ -120,18 +120,72 @@ logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
 
+# Prefixes the crew nodes use when appending their results as assistant messages
+# (see crew_nodes.py). node_generate_response filters these out of the LLM message
+# history and injects them as system-level FINDINGS instead — keeping a crew result
+# as a prior assistant turn makes the model treat it as its own answer and only add a
+# short follow-up. MUST stay in sync with the strings produced in crew_nodes.py:
+#   research → "Research Result:", analytics → "Analysis Result:",
+#   code_generation → "Code Generation Result:", planning → "Planning Result:",
+#   chain → "Chain Result (<name>):". Matched via str.startswith, so "Chain Result ("
+#   covers every chain name. (W4 will unify producer + filter into a single CrewSpec.)
+_CREW_RESULT_PREFIXES = (
+    "Research Result:",
+    "Analysis Result:",
+    "Code Generation Result:",
+    "Planning Result:",
+    "Chain Result (",
+)
+
 
 def _rag_label(file_name: str | None) -> str:
     """Human-readable RAG source label: strip ingestion hash prefix, replace dashes with spaces."""
     raw = str(file_name or "Unknown")
+    # Strip only a trailing extension — removesuffix, not replace, so an extension
+    # substring inside the name (e.g. "csv-export-notes.md") is preserved.
     for ext in (".md", ".txt", ".pdf", ".csv", ".html", ".xml", ".yaml", ".yml"):
-        raw = raw.replace(ext, "")
+        if raw.endswith(ext):
+            raw = raw[: -len(ext)]
+            break
     raw = re.sub(r"^[0-9a-f]{32}-", "", raw)  # strip leading ingestion hash
     return raw.replace("-", " ").strip() or "Unknown"
 
 
 def _is_digest_entry(entry: Any) -> bool:
     return isinstance(entry, dict) and bool(entry.get("digest_id"))
+
+
+# User turns this short, or matching these patterns, don't warrant a long-term memory
+# write — nor the auxiliary-model fact-extraction summary that exists only to feed it.
+_TRIVIAL_MEMORY_PATTERNS = frozenset({
+    "ok", "okay", "thanks", "thank you", "yes", "no", "sure", "got it",
+    "hi", "hello", "bye", "goodbye", "great", "perfect", "alright",
+})
+
+
+def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            return msg.get("content", "") or ""
+    return ""
+
+
+def _should_write_memory(state: GraphState, features_config: Any) -> bool:
+    """True when this turn's exchange is worth a long-term memory write.
+
+    False when long-term memory is disabled or the latest user turn is trivial (a
+    greeting/acknowledgement, or under 5 characters). Shared by node_summarize (to skip
+    the auxiliary-model fact-extraction call) and node_update_memory (to skip the upsert),
+    so the expensive summary is never produced for a turn that won't be persisted.
+    """
+    if not getattr(features_config, "long_term_memory", False):
+        return False
+    stripped = _latest_user_message(state.get("messages", [])).strip().lower().rstrip("!.,?")
+    if len(stripped) < 5:
+        return False
+    if len(stripped) < 20 and stripped in _TRIVIAL_MEMORY_PATTERNS:
+        return False
+    return True
 
 
 def _merge_digest_chains(
@@ -385,8 +439,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
             state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
+            # Default aligned with docs/CLAUDE.md (0.55); profiles set this explicitly,
+            # so the fallback only applies to a profile that omits tool_routing entirely.
             similarity_threshold = getattr(
-                getattr(config, "tool_routing", None), "similarity_threshold", 0.3
+                getattr(config, "tool_routing", None), "similarity_threshold", 0.55
             )
             top_k = getattr(getattr(config, "tool_routing", None), "top_k", 5)
             intent_boost = getattr(
@@ -1358,6 +1414,10 @@ def node_generate_response(state: GraphState) -> GraphState:
     knowledge_context = state.get("knowledge_context", [])
     allowed_sources = []
     allowed_urls = set()
+    # Seed with URLs the user themselves pasted — echoing a user's own link back must not
+    # be scrubbed to "source omitted" by the anti-hallucination filter below.
+    for _u in _re_urls.findall(r"https?://[^\s)]+", user_msg or ""):
+        allowed_urls.add(_u.rstrip(".,;:!?"))
     collected_sources: List[Dict[str, Any]] = []  # structured source tracking
 
     # Utility-only tool responses (datetime/calculator/file ops) should not force citation-style footnotes.
@@ -1556,12 +1616,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     # Add crew results as system-level context so the LLM synthesizes a fresh response
     # (crew results must NOT appear as prior assistant turns — that causes the model to
     # just add a short follow-up instead of producing a full answer).
-    _crew_result_prefixes = (
-        "Research Result:",
-        "Analytics Result:",
-        "Code Generation Result:",
-        "Planning Result:",
-    )
+    _crew_result_prefixes = _CREW_RESULT_PREFIXES
     crew_results = state.get("crew_results", {})
     for crew_name, crew_result in crew_results.items():
         if isinstance(crew_result, dict) and crew_result.get("success") and crew_result.get("result"):
@@ -2036,10 +2091,12 @@ def node_generate_response(state: GraphState) -> GraphState:
                 urls = re.findall(r"https?://[^\s)]+", text)
                 if not urls:
                     return text
-                allowed = allowed_urls
+                # Compare on trailing-punctuation-normalized forms so "…/page." matches an
+                # allowed "…/page" (and vice versa) instead of being scrubbed spuriously.
+                allowed_norm = {a.rstrip(".,;:!?") for a in allowed_urls}
                 removed = 0
                 for url in urls:
-                    if url not in allowed:
+                    if url.rstrip(".,;:!?") not in allowed_norm:
                         text = text.replace(url, "source omitted")
                         removed += 1
                 if removed:
@@ -2105,11 +2162,20 @@ def node_summarize(state: GraphState) -> GraphState:
     config = load_core_config()
     lang = state.get("language") or config.profile.language
     profile_name = getattr(config.profile, "name", "default-profile")
+    features = load_features_config()
     logger.info("Summarizing conversation", profile_name=profile_name)
+
+    # Skip the auxiliary-model fact-extraction entirely when this turn won't be persisted
+    # (memory disabled or a trivial exchange). node_update_memory would discard the result
+    # anyway, so producing it just burns an LLM call. node_update_memory keeps its own
+    # meaningful exchange-based fallback summary for the rare case it does write.
+    if not _should_write_memory(state, features):
+        logger.info("Skipping summarize LLM call (memory write not warranted)", profile_name=profile_name)
+        state["summary_text"] = ""
+        return state
 
     # Keep digest_chain normalized even when compression does not generate a new summary.
     try:
-        features = load_features_config()
         if getattr(features, "memory_digest_chain_enabled", True):
             summarizer = get_summarizer()
             existing_chain = state.get("digest_chain") or []
@@ -2171,13 +2237,16 @@ def node_summarize(state: GraphState) -> GraphState:
                     item.get("text", "") if isinstance(item, dict) else str(item)
                     for item in _raw_content
                 )
-            summary = (_raw_content or "").strip() or f"LLM: {prompt}"
+            # Empty (not the prompt echo) on a blank reply: node_update_memory then builds
+            # a meaningful "User: … -> Assistant: …" fallback instead of persisting the
+            # extraction instruction + raw exchange as if it were a user fact.
+            summary = (_raw_content or "").strip()
             _sum_usage_meta = getattr(out, "usage_metadata", None)
             track_llm_call(profile_name, provider, model_name, "success")
         except Exception as e:
             track_llm_call(profile_name, provider, model_name, "error")
             logger.warning("Summarization LLM call failed, using fallback", error=str(e))
-            summary = f"LLM: {prompt}"
+            summary = ""
             _sum_usage_meta = None
 
         _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
@@ -2208,24 +2277,13 @@ def node_update_memory(state: GraphState) -> GraphState:
     user_id = state.get("user_id")
     logger.info("Updating memory", user_id=user_id, profile_name=profile_name)
 
-    if not getattr(features_config, "long_term_memory", False):
-        logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
+    # Skip writes for disabled memory or trivial exchanges (shared gate with node_summarize,
+    # which already skipped producing a summary for the same turns).
+    if not _should_write_memory(state, features_config):
+        logger.info("Skipping memory update (memory disabled or trivial exchange)", user_id=user_id)
         return state
 
-    # Trivial exchange filter: skip memory write for low-content turns.
-    _current_user_msg = ""
-    for _msg in reversed(state.get("messages", [])):
-        if isinstance(_msg, dict) and _msg.get("role") == "user":
-            _current_user_msg = _msg.get("content", "")
-            break
-    _trivial_patterns = {
-        "ok", "okay", "thanks", "thank you", "yes", "no", "sure", "got it",
-        "hi", "hello", "bye", "goodbye", "great", "perfect", "alright",
-    }
-    _stripped = _current_user_msg.strip().lower().rstrip("!.,?")
-    if len(_stripped) < 5 or (len(_stripped) < 20 and _stripped in _trivial_patterns):
-        logger.info("Skipping memory update for trivial exchange", user_id=user_id, preview=_stripped[:30])
-        return state
+    _current_user_msg = _latest_user_message(state.get("messages", []))
 
     logger.info("Building memory backend for upsert", user_id=user_id)
     backend = build_memory_backend(config)
@@ -2338,11 +2396,13 @@ def build_graph() -> StateGraph:
     graph.add_node("summarize", node_summarize)
     graph.add_node("update_memory", node_update_memory)
     
-    # Add performance optimization nodes
-    graph.add_node("memory_query_cache", memory_query_cache_node_sync)
-    graph.add_node("memory_cache_store", memory_cache_store_node_sync)
-    graph.add_node("compress_conversation", conversation_compression_node_sync)
-    graph.add_node("cache_stats", cache_stats_node_sync)
+    # Add performance optimization nodes. Registered as native async coroutines so
+    # langgraph awaits them on the event loop under ainvoke — no per-call worker thread
+    # or nested asyncio.run (the old *_sync wrappers existed only to bridge sync invoke).
+    graph.add_node("memory_query_cache", memory_query_cache_node)
+    graph.add_node("memory_cache_store", memory_cache_store_node)
+    graph.add_node("compress_conversation", conversation_compression_node)
+    graph.add_node("cache_stats", cache_stats_node)
 
     # --- Execution flow ---
     # Crew routing happens first — before tools load — so crew-destined queries skip
