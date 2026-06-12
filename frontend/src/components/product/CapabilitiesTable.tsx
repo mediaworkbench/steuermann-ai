@@ -59,7 +59,7 @@ export function CapabilitiesTable({
         </thead>
         <tbody>
           {items.map((item) => {
-            const rowKey = `${item.provider_id}:${item.model_name}`;
+            const rowKey = `${item.provider_id}:${item.model_name}:${item.role ?? ""}`;
             const expanded = !!expandedRows[rowKey];
             return (
               <Fragment key={rowKey}>

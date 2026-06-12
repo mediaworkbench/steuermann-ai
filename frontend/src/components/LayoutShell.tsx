@@ -2,7 +2,7 @@
 
 import { useState, createContext, useContext, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { AppSidebar } from "./AppSidebar";
 import { Header } from "./Header";
 import { AppShell } from "@/components/product/AppShell";
@@ -53,16 +53,8 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
         {children}
         <Toaster
           position="top-right"
-          richColors
           closeButton
-          theme="light"
-          toastOptions={{
-            duration: 6000,
-            style: {
-              fontFamily: "var(--font-sans)",
-              borderRadius: "0.75rem",
-            },
-          }}
+          toastOptions={{ duration: 6000 }}
         />
       </>
     );
@@ -132,16 +124,8 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     </SidebarProvider>
       <Toaster
         position="top-right"
-        richColors
         closeButton
-        theme="light"
-        toastOptions={{
-          duration: 6000,
-          style: {
-            fontFamily: "var(--font-sans)",
-            borderRadius: "0.75rem",
-          },
-        }}
+        toastOptions={{ duration: 6000 }}
       />
     </>
   );

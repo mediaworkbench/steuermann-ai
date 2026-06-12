@@ -123,27 +123,32 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <>
       <Sidebar collapsible="offcanvas" {...props}>
-        <SidebarHeader>
-          <div className="flex flex-col p-2 pb-1">
+        <SidebarHeader className="min-h-16 md:min-h-20 justify-center px-4">
+          <div className="flex flex-col w-full">
             <span className="text-sidebar-foreground text-base font-bold truncate">{appTitle}</span>
             {frameworkVersion !== "unknown" && (
               <span className="text-sidebar-foreground/50 text-xs font-mono">v{frameworkVersion}</span>
             )}
           </div>
-          <div className="flex justify-center px-2 pb-2">
-            <Button
-              size="lg"
-              variant="default"
-              onClick={handleNewChat}
-              className="w-full justify-center gap-2"
-            >
-              <Plus size={18} />
-              <span>{t("sidebar.newChat")}</span>
-            </Button>
-          </div>
         </SidebarHeader>
 
         <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <div className="px-2 pt-1 pb-2">
+                <Button
+                  size="lg"
+                  variant="default"
+                  onClick={handleNewChat}
+                  className="w-full justify-center gap-2"
+                >
+                  <Plus size={18} />
+                  <span>{t("sidebar.newChat")}</span>
+                </Button>
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
           {pinned.length > 0 && (
             <SidebarGroup>
               <SidebarGroupLabel>{t("sidebar.pinned")}</SidebarGroupLabel>

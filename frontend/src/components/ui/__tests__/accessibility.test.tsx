@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/hooks/useTheme";
 import {
   Table,
   TableBody,
@@ -301,7 +302,7 @@ describe("ui/ component accessibility", () => {
   });
 
   test("Toaster has no violations", async () => {
-    const { baseElement } = render(<Toaster />);
+    const { baseElement } = render(<ThemeProvider><Toaster /></ThemeProvider>);
     expect(await axe(baseElement, overlayAxeOptions)).toHaveNoViolations();
   });
 
