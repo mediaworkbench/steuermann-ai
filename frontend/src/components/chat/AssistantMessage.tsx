@@ -22,6 +22,7 @@ interface AssistantMessageProps {
   onRegenerate: () => void;
   onFeedback: (index: number, value: "up" | "down") => void;
   loading: boolean;
+  showMetrics?: boolean;
 }
 
 export function AssistantMessage({
@@ -32,6 +33,7 @@ export function AssistantMessage({
   onRegenerate,
   onFeedback,
   loading,
+  showMetrics = true,
 }: AssistantMessageProps) {
   const { t } = useI18n();
   return (
@@ -82,6 +84,7 @@ export function AssistantMessage({
             metrics={message.metrics}
             messageContent={message.content}
             onRegenerate={loading ? undefined : onRegenerate}
+            showMetrics={showMetrics}
           />
 
           {/* Feedback buttons */}

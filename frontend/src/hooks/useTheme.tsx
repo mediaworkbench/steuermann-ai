@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 type Theme = "light" | "dark" | "auto";
 
@@ -48,9 +48,9 @@ interface ThemeProviderProps {
 }
 
 /**
- * ThemeProvider wraps the app and provides theme context
- * Supports light/dark/auto (system detection)
- * Persists theme preference to localStorage
+ * ThemeProvider wraps the app and provides theme context.
+ * Supports light/dark/auto (system detection).
+ * Theme preference is stored server-side via user settings; no localStorage.
  */
 export function ThemeProvider({
   children,
@@ -62,29 +62,21 @@ export function ThemeProvider({
   const [effectiveTheme, setEffectiveTheme] = useState<"light" | "dark">("light");
   const [mounted, setMounted] = useState(false);
 
-  // On mount, load saved theme from localStorage and resolve system preference.
+  // On mount, resolve system preference and apply the initial theme.
+  // Server-stored theme is applied later by useI18n once settings load.
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as Theme | null;
-    if (savedTheme && ["light", "dark", "auto"].includes(savedTheme)) {
-      setThemeState(savedTheme);
-      const effective = getEffectiveTheme(savedTheme);
-      setEffectiveTheme(effective);
-      applyTheme(effective);
-    } else {
-      const effective = getEffectiveTheme(initialTheme);
-      setEffectiveTheme(effective);
-      applyTheme(effective);
-    }
+    const effective = getEffectiveTheme(initialTheme);
+    setEffectiveTheme(effective);
+    applyTheme(effective);
     setMounted(true);
   }, [initialTheme]);
 
-  // When theme changes, update effective theme and persist
+  // When theme changes, update effective theme (no localStorage — server is source of truth)
   useEffect(() => {
     if (!mounted) return;
     const effective = getEffectiveTheme(theme);
     setEffectiveTheme(effective);
     applyTheme(effective);
-    localStorage.setItem("theme", theme);
   }, [theme, mounted]);
 
   // Listen for system theme changes when using "auto"
@@ -102,9 +94,9 @@ export function ThemeProvider({
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, [theme, mounted]);
 
-  const setTheme = (newTheme: Theme) => {
+  const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme);
-  };
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, effectiveTheme }}>

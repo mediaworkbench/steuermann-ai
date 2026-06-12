@@ -40,6 +40,7 @@ interface MessageListProps {
   onClearQueue: () => void;
   onSendQueuedNow: () => void;
   onEditQueued: () => void;
+  showMetrics?: boolean;
 }
 
 export function MessageList({
@@ -69,6 +70,7 @@ export function MessageList({
   onClearQueue,
   onSendQueuedNow,
   onEditQueued,
+  showMetrics = true,
 }: MessageListProps) {
   const { t } = useI18n();
 
@@ -112,6 +114,7 @@ export function MessageList({
                 onRegenerate={onRegenerate}
                 onFeedback={onFeedback}
                 loading={loading}
+                showMetrics={showMetrics}
               />
             ),
           )}

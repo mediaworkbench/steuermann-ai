@@ -1,6 +1,42 @@
 # Changelog
 
-### [0.4.2] — workspace document editing, versioning, writeback hardening & compression repair
+### [0.4.2] — workspace document editing, versioning, writeback hardening, compression repair & per-user appearance settings
+
+#### Per-user appearance settings
+
+**Color scheme preference (light / dark / system default)**
+
+* New **Appearance** card at the top of `/settings` with a three-button segmented toggle:
+  Light / System default / Dark.
+* Clicking a button applies the theme immediately as a live preview; pressing **Save** persists
+  the choice to the server (`theme` column in `user_settings`, already existed in the DB schema).
+* Theme is now **server-only** — `localStorage` key `"theme"` is no longer written or read.
+  The server value is applied on every page load via a `useEffect` in `I18nProvider` (which
+  already owns the single app-wide `useSettings` call) mirroring the existing language-sync
+  pattern. This removes dual-storage and makes cross-session consistency the default.
+* `setTheme` in `ThemeProvider` is now wrapped in `useCallback` to keep the reference stable
+  and avoid spurious extra effect runs in `I18nProvider`.
+* `UserSettings` TypeScript interface gains `theme?: string`.
+* `useTheme.tsx` JSDoc updated to remove the stale localStorage reference.
+
+**Metrics panel visibility toggle**
+
+* New checkbox in the Appearance card: **Show response metrics**.
+* When disabled, the metrics summary button (timing/tokens, expand chevron) and the expandable
+  detail body are hidden; the **Copy** and **Regenerate** action icons remain visible in the
+  same row (`justify-end` when metrics are hidden).
+* Preference stored in `analytics_preferences.show_metrics_panel` (JSONB, default `true` — no
+  DB migration, consistent with the existing `sound_enabled` field).
+* `showMetrics` prop threaded from `useComposerSettings` → `ChatInterface` → `MessageList` →
+  `AssistantMessage` → `MetricsPanel`.
+
+**Translations:** 7 new keys added to `settingsPanel` in both `en` and `de` locales
+(`appearanceSection`, `themeLabel`, `themeLight`, `themeDark`, `themeAuto`,
+`showMetricsLabel`, `showMetricsDescription`).
+
+**Tests:** `SettingsPanel.test.tsx` updated to mock `useTheme` (consistent with the existing
+`useI18n` mock pattern) and assert `theme` in the save payload. 185 frontend tests passing,
+0 lint errors.
 
 #### Conversation compression repair & context-window accuracy
 

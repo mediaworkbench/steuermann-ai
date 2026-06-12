@@ -16,6 +16,7 @@ interface UseComposerSettingsResult {
   handleModelChange: (model: string) => Promise<void>;
   systemConfig: SystemConfig | null;
   soundEnabled: boolean;
+  showMetrics: boolean;
   maxContextTokens: number | null;
 }
 
@@ -27,6 +28,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
   const [availableChatModels, setAvailableChatModels] = useState<string[]>([]);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showMetrics, setShowMetrics] = useState(true);
   const preferredModelsRef = useRef<Record<string, string | null>>({});
 
   const selectedChatModel = chatModel || systemConfig?.default_model || availableChatModels[0] || "";
@@ -52,6 +54,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
       preferredModelsRef.current = s.preferred_models ?? {};
       const prefs = s.analytics_preferences as Record<string, unknown> | undefined;
       setSoundEnabled((prefs?.sound_enabled as boolean) ?? true);
+      setShowMetrics((prefs?.show_metrics_panel as boolean) ?? true);
     }).catch(() => {});
   }, []);
 
@@ -108,6 +111,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
     handleModelChange,
     systemConfig,
     soundEnabled,
+    showMetrics,
     maxContextTokens,
   };
 }

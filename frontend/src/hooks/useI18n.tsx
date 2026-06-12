@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { messages, type Locale, type Messages } from "@/i18n/messages";
 import { useSettings } from "@/hooks/useSettings";
+import { useTheme } from "@/hooks/useTheme";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 
 type MessageKey = string;
@@ -48,6 +49,7 @@ function toDate(value: Date | string | number): Date {
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>("en");
   const { settings } = useSettings(CURRENT_USER_ID);
+  const { setTheme } = useTheme();
 
   useEffect(() => {
     const configuredLanguage = settings?.language?.toLowerCase();
@@ -60,6 +62,13 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       setLocale(browser);
     }
   }, [settings?.language]);
+
+  useEffect(() => {
+    const t = settings?.theme;
+    if (t === "light" || t === "dark" || t === "auto") {
+      setTheme(t);
+    }
+  }, [settings?.theme, setTheme]);
 
   useEffect(() => {
     if (typeof document !== "undefined") {

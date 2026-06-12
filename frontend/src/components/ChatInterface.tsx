@@ -85,6 +85,7 @@ export function ChatInterface() {
     handleModelChange,
     systemConfig,
     soundEnabled,
+    showMetrics,
     maxContextTokens,
   } = useComposerSettings();
 
@@ -407,6 +408,7 @@ export function ChatInterface() {
                 composerApiRef.current?.resize();
               }, 0);
             }}
+            showMetrics={showMetrics}
           />
 
           <ChatComposer

@@ -10,6 +10,7 @@ import {
   type SystemConfig,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
+import { useTheme } from "@/hooks/useTheme";
 import { Button } from "@/components/ui/button";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
@@ -56,6 +57,7 @@ const USER_MODEL_ROLES = ["chat"];
 
 export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps) {
   const { t, formatDateTime } = useI18n();
+  const { setTheme } = useTheme();
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>(
     settings?.tool_toggles || {}
   );
@@ -69,6 +71,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   const [analyticsPreferences, setAnalyticsPreferences] = useState<Record<string, unknown>>(
     settings?.analytics_preferences || {}
   );
+  const [localTheme, setLocalTheme] = useState<string>(settings?.theme ?? "auto");
   const [saving, setSaving] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -89,6 +92,9 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       setPreferredModels(settings.preferred_models || {});
       setLanguage(settings.language || "en");
       setAnalyticsPreferences(settings.analytics_preferences || {});
+      if (settings.theme === "light" || settings.theme === "dark" || settings.theme === "auto") {
+        setLocalTheme(settings.theme);
+      }
     }
   }, [settings, systemConfig]);
 
@@ -123,6 +129,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         rag_config: ragConfig,
         preferred_model: preferredModels.chat || null,
         preferred_models: preferredModels,
+        theme: localTheme,
         language,
         analytics_preferences: analyticsPreferences,
       });
@@ -134,7 +141,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     } finally {
       setSaving(false);
     }
-  }, [toolToggles, ragConfig, preferredModels, language, analyticsPreferences, onSave, t]);
+  }, [toolToggles, ragConfig, preferredModels, localTheme, language, analyticsPreferences, onSave, t]);
 
   const handleMyDataReset = useCallback(async () => {
     setMyDataConfirmOpen(false);
@@ -162,46 +169,89 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     USER_MODEL_ROLES.includes(r.role)
   );
 
+  const themeOptions: { value: string; labelKey: "themeLight" | "themeDark" | "themeAuto" }[] = [
+    { value: "light", labelKey: "themeLight" },
+    { value: "auto",  labelKey: "themeAuto" },
+    { value: "dark",  labelKey: "themeDark" },
+  ];
+
   return (
     <div className="space-y-6">
 
-      {/* Language */}
+      {/* Interface */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("settingsPanel.language")}</CardTitle>
+          <CardTitle>{t("settingsPanel.interfaceSection")}</CardTitle>
         </CardHeader>
-        <div className="px-6 pb-6">
-        <Select
-          value={language}
-          onChange={(e) => setLanguage(e.target.value)}
-          aria-label={t("settingsPanel.language")}
-        >
-          {(systemConfig?.supported_languages || ["en"]).map((code) => (
-            <option key={code} value={code}>
-              {LANGUAGE_LABELS[code] || code.toUpperCase()}
-            </option>
-          ))}
-        </Select>
+        <div className="px-6 pb-6 space-y-6">
+          {/* Color scheme */}
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">{t("settingsPanel.themeLabel")}</p>
+            <div className="flex gap-2">
+              {themeOptions.map(({ value, labelKey }) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={localTheme === value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setLocalTheme(value);
+                    setTheme(value as "light" | "dark" | "auto");
+                  }}
+                  className="flex-1"
+                >
+                  {t(`settingsPanel.${labelKey}`)}
+                </Button>
+              ))}
+            </div>
+          </div>
+          {/* Language */}
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">{t("settingsPanel.language")}</p>
+            <Select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              aria-label={t("settingsPanel.language")}
+            >
+              {(systemConfig?.supported_languages || ["en"]).map((code) => (
+                <option key={code} value={code}>
+                  {LANGUAGE_LABELS[code] || code.toUpperCase()}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {/* Sounds */}
+          <OptionCheckboxRow
+            checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
+            onToggle={() =>
+              setAnalyticsPreferences((prev) => ({
+                ...prev,
+                sound_enabled: !((prev.sound_enabled as boolean) ?? true),
+              }))
+            }
+            label={t("settingsPanel.soundEnabled")}
+            description={t("settingsPanel.soundEnabledDescription")}
+          />
         </div>
       </Card>
 
-      {/* Sound */}
+      {/* Chat */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("settingsPanel.soundSection")}</CardTitle>
+          <CardTitle>{t("settingsPanel.chatSection")}</CardTitle>
         </CardHeader>
         <div className="px-6 pb-6">
-        <OptionCheckboxRow
-          checked={(analyticsPreferences.sound_enabled as boolean) ?? true}
-          onToggle={() =>
-            setAnalyticsPreferences((prev) => ({
-              ...prev,
-              sound_enabled: !((prev.sound_enabled as boolean) ?? true),
-            }))
-          }
-          label={t("settingsPanel.soundEnabled")}
-          description={t("settingsPanel.soundEnabledDescription")}
-        />
+          <OptionCheckboxRow
+            checked={(analyticsPreferences.show_metrics_panel as boolean) ?? true}
+            onToggle={() =>
+              setAnalyticsPreferences((prev) => ({
+                ...prev,
+                show_metrics_panel: !((prev.show_metrics_panel as boolean) ?? true),
+              }))
+            }
+            label={t("settingsPanel.showMetricsLabel")}
+            description={t("settingsPanel.showMetricsDescription")}
+          />
         </div>
       </Card>
 
@@ -300,7 +350,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       )}
 
       {/* My Data — danger zone */}
-      <Card className="!ring-destructive/30">
+      <Card className="ring-destructive/30!">
         <CardHeader>
           <CardTitle className="text-destructive">{t("settingsPanel.myDataSection")}</CardTitle>
           <CardDescription>{t("settingsPanel.myDataDescription")}</CardDescription>

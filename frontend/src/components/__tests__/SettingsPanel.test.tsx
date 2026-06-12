@@ -2,14 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useI18n } from "@/hooks/useI18n";
+import { useTheme } from "@/hooks/useTheme";
 import { fetchSystemConfig } from "@/lib/api";
 
 jest.mock("@/hooks/useI18n");
+jest.mock("@/hooks/useTheme");
 jest.mock("@/lib/api", () => ({
   fetchSystemConfig: jest.fn(),
 }));
 
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
+const mockUseTheme = useTheme as jest.MockedFunction<typeof useTheme>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
 
 const BASE_SETTINGS = {
@@ -26,6 +29,12 @@ const BASE_SETTINGS = {
 describe("SettingsPanel (user controls)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    mockUseTheme.mockReturnValue({
+      theme: "auto",
+      setTheme: jest.fn(),
+      effectiveTheme: "light",
+    });
 
     mockUseI18n.mockReturnValue({
       locale: "en",
@@ -78,8 +87,8 @@ describe("SettingsPanel (user controls)", () => {
     const { container } = render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
     expect(await axe(container)).toHaveNoViolations();
-    expect(screen.getByText("settingsPanel.language")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.soundSection")).toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.interfaceSection")).toBeInTheDocument();
+    expect(screen.getByText("settingsPanel.chatSection")).toBeInTheDocument();
     expect(screen.getByText("settingsPanel.toolSettings")).toBeInTheDocument();
     expect(screen.getByText("settingsPanel.ragConfiguration")).toBeInTheDocument();
     // Chat model section loads after system config
@@ -146,6 +155,7 @@ describe("SettingsPanel (user controls)", () => {
           tool_toggles: expect.any(Object),
           rag_config: expect.any(Object),
           preferred_models: expect.any(Object),
+          theme: expect.any(String),
           language: expect.any(String),
           analytics_preferences: expect.any(Object),
         })

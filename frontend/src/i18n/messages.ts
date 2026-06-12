@@ -223,7 +223,14 @@ export type Messages = {
     capabilityProbeStatus: string;
     capabilityReason: string;
     capabilityProbedAt: string;
-    soundSection: string;
+    interfaceSection: string;
+    chatSection: string;
+    themeLabel: string;
+    themeLight: string;
+    themeDark: string;
+    themeAuto: string;
+    showMetricsLabel: string;
+    showMetricsDescription: string;
     soundEnabled: string;
     soundEnabledDescription: string;
     myDataSection: string;
@@ -832,7 +839,14 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe Status",
       capabilityReason: "Reason",
       capabilityProbedAt: "Probed At",
-      soundSection: "Interface Sounds",
+      interfaceSection: "Interface",
+      chatSection: "Chat",
+      themeLabel: "Color scheme",
+      themeLight: "Light",
+      themeDark: "Dark",
+      themeAuto: "System default",
+      showMetricsLabel: "Show response metrics",
+      showMetricsDescription: "Display timing, token count, and model info under each answer",
       soundEnabled: "Enable interface sounds",
       soundEnabledDescription: "Play a sound notification when the assistant replies",
       myDataSection: "My Data",
@@ -1439,7 +1453,14 @@ export const messages: Record<Locale, Messages> = {
       capabilityProbeStatus: "Probe-Status",
       capabilityReason: "Grund",
       capabilityProbedAt: "Gepruft am",
-      soundSection: "Schnittstellentöne",
+      interfaceSection: "Oberfläche",
+      chatSection: "Chat",
+      themeLabel: "Farbschema",
+      themeLight: "Hell",
+      themeDark: "Dunkel",
+      themeAuto: "Systemstandard",
+      showMetricsLabel: "Antwortmetriken anzeigen",
+      showMetricsDescription: "Antwortzeit, Token-Anzahl und Modellinformationen unter jeder Antwort anzeigen",
       soundEnabled: "Schnittstellentöne aktivieren",
       soundEnabledDescription: "Einen Ton abspielen, wenn der Assistent antwortet",
       myDataSection: "Meine Daten",

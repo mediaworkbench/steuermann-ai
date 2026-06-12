@@ -7,6 +7,7 @@ export interface UserSettings {
   analytics_preferences: Record<string, unknown>;
   preferred_model: string | null;
   preferred_models: Record<string, string | null>;
+  theme?: string;
   language: string;
   updated_at: string | null;
 }

@@ -10,6 +10,7 @@ interface MetricsPanelProps {
   metrics?: MessageMetrics;
   messageContent: string;
   onRegenerate?: () => void;
+  showMetrics?: boolean;
 }
 
 const FINISH_REASON_COLORS: Record<string, string> = {
@@ -22,6 +23,7 @@ export function MetricsPanel({
   metrics,
   messageContent,
   onRegenerate,
+  showMetrics = true,
 }: MetricsPanelProps) {
   const { t, formatNumber } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -61,37 +63,39 @@ export function MetricsPanel({
   return (
     <div className="mt-2 ml-1 w-full">
       {/* Metrics toggle + action icons in the same row */}
-      <div className="flex items-center justify-between">
-        <Button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          variant="ghost"
-          size="sm"
-          className="h-auto gap-2 p-0 text-xs text-muted-foreground hover:text-foreground"
-          aria-expanded={expanded}
-        >
-          <ChevronDown
-            size={14}
-            className={`metrics-chevron ${expanded ? "open" : ""}`}
-          />
-          <span className="flex items-center gap-1.5 font-mono">
-            {responseTimeSec && (
-              <>
-                <span className="flex items-center gap-0.5">
-                  <Timer size={13} className="text-primary" />
-                  {responseTimeSec}s
-                </span>
-                <span className="text-muted-foreground" aria-hidden="true">
-                  ·
-                </span>
-              </>
-            )}
-            <span className="flex items-center gap-0.5">
-              <CircleDollarSign size={13} className="text-primary" />
-              {formatNumber(totalTokens)} {t("charts.tokens")}
+      <div className={`flex items-center ${showMetrics ? "justify-between" : "justify-end"}`}>
+        {showMetrics && (
+          <Button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-2 p-0 text-xs text-muted-foreground hover:text-foreground"
+            aria-expanded={expanded}
+          >
+            <ChevronDown
+              size={14}
+              className={`metrics-chevron ${expanded ? "open" : ""}`}
+            />
+            <span className="flex items-center gap-1.5 font-mono">
+              {responseTimeSec && (
+                <>
+                  <span className="flex items-center gap-0.5">
+                    <Timer size={13} className="text-primary" />
+                    {responseTimeSec}s
+                  </span>
+                  <span className="text-muted-foreground" aria-hidden="true">
+                    ·
+                  </span>
+                </>
+              )}
+              <span className="flex items-center gap-0.5">
+                <CircleDollarSign size={13} className="text-primary" />
+                {formatNumber(totalTokens)} {t("charts.tokens")}
+              </span>
             </span>
-          </span>
-        </Button>
+          </Button>
+        )}
 
         {/* Action icons — same row, pushed right */}
         <div className="flex items-center gap-0.5">
@@ -123,6 +127,7 @@ export function MetricsPanel({
       </div>
 
       {/* Expanded metrics body */}
+      {showMetrics && (
       <div
         className={`metrics-body ${expanded ? "open" : ""}`}
         role="region"
@@ -190,6 +195,7 @@ export function MetricsPanel({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
