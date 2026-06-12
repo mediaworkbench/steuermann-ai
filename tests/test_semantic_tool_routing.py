@@ -541,6 +541,30 @@ def test_prefilter_downgrades_native_mode_when_probe_signals_mismatch(
     assert result["tool_calling_mode_reason"] == "probe_capability_mismatch_downgrade"
 
 
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_greeting_sets_skip_rag(mock_config, mock_embedding_provider):
+    """W2.5: a greeting short-circuits the prefilter AND signals the RAG node to skip Qdrant.
+
+    Without this, the greeting path left prefilter_intents={} so node_retrieve_knowledge
+    would still query Qdrant for "hello".
+    """
+    set_mock_config(mock_config)
+    # The embedding provider must never be reached for a greeting; fail loudly if it is.
+    mock_embedding_provider.side_effect = AssertionError("embedding provider called for greeting")
+
+    state = {
+        "messages": [{"role": "user", "content": "Hello!"}],
+        "loaded_tools": [FakeTool("datetime_tool", "Get date and time")],
+        "language": "en",
+    }
+
+    result = node_prefilter_tools(state)
+
+    assert result["candidate_tools"] == []
+    assert result["prefilter_intents"].get("skip_rag") is True
+
+
 @patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
 @patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")

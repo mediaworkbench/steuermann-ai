@@ -1,11 +1,16 @@
 """Embedding provider management for tool routing."""
 
+import threading
 from typing import Any, Callable, Optional, Tuple
 
 
 # Module-level cache for embedding provider (to avoid reinitialization)
 _embedding_provider_cache: Optional[Any] = None
 _embedding_provider_config_key: Optional[str] = None
+# Serializes provider construction. Under GRAPH.ainvoke the sync prefilter/RAG nodes run
+# in executor threads, so two concurrent first requests could otherwise both see an empty
+# cache and build (and load the model) twice.
+_provider_lock = threading.Lock()
 
 
 def get_routing_embedding_provider(
@@ -14,22 +19,22 @@ def get_routing_embedding_provider(
     build_provider_func: Optional[Callable[..., Any]] = None,
 ) -> Tuple[Any, str]:
     """Return cached embedding provider and model name used for tool routing.
-    
+
     The provider is cached to avoid re-instantiation on every graph step.
     Cache is invalidated if the embedding configuration changes.
-    
+
     Args:
         config: Configuration object
         logger: Optional logger for debug output
-        
+
     Returns:
         Tuple of (embedding_provider, embedding_model_name)
     """
     from universal_agentic_framework.embeddings import build_embedding_provider
-    
+
     global _embedding_provider_cache, _embedding_provider_config_key
     provider_builder = build_provider_func or build_embedding_provider
-    
+
     embedding_model_name = (
         getattr(getattr(config, "tool_routing", None), "embedding_model", None)
         or config.llm.get_role_model_name("embedding", getattr(config.profile, "language", "en"))
@@ -40,19 +45,25 @@ def get_routing_embedding_provider(
 
     config_key = f"{embedding_model_name}:{embedding_provider_type}:{embedding_remote_endpoint}"
 
-    if _embedding_provider_cache is None or _embedding_provider_config_key != config_key:
-        if logger:
-            logger.info(
-                f"Loading embedding provider (first time): {embedding_model_name}",
+    # Fast path: cache hit, no lock contention on the hot per-request path.
+    if _embedding_provider_cache is not None and _embedding_provider_config_key == config_key:
+        return _embedding_provider_cache, embedding_model_name
+
+    # Slow path: build under the lock with a re-check (another thread may have built it).
+    with _provider_lock:
+        if _embedding_provider_cache is None or _embedding_provider_config_key != config_key:
+            if logger:
+                logger.info(
+                    f"Loading embedding provider (first time): {embedding_model_name}",
+                    provider_type=embedding_provider_type,
+                )
+            _embedding_provider_cache = provider_builder(
+                model_name=embedding_model_name,
+                dimension=embedding_dimension,
                 provider_type=embedding_provider_type,
+                remote_endpoint=embedding_remote_endpoint,
             )
-        _embedding_provider_cache = provider_builder(
-            model_name=embedding_model_name,
-            dimension=embedding_dimension,
-            provider_type=embedding_provider_type,
-            remote_endpoint=embedding_remote_endpoint,
-        )
-        _embedding_provider_config_key = config_key
+            _embedding_provider_config_key = config_key
 
     return _embedding_provider_cache, embedding_model_name
 
@@ -60,5 +71,6 @@ def get_routing_embedding_provider(
 def clear_embedding_cache():
     """Clear the embedding provider cache (for testing or config reloads)."""
     global _embedding_provider_cache, _embedding_provider_config_key
-    _embedding_provider_cache = None
-    _embedding_provider_config_key = None
+    with _provider_lock:
+        _embedding_provider_cache = None
+        _embedding_provider_config_key = None

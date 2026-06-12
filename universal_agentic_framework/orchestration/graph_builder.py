@@ -432,6 +432,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             if re.match(greeting_pattern, user_msg.lower()):
                 logger.info("Skipping tool pre-filter for greeting query")
                 state.update(empty_state)
+                # Greetings can't benefit from RAG — signal the RAG node to skip Qdrant.
+                # (empty_state's prefilter_intents={} would otherwise let RAG run here, and
+                # the meta-question path below already propagates skip_rag via its intents.)
+                state["prefilter_intents"] = {"skip_rag": True}
                 return state
 
             embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
