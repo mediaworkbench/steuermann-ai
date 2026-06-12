@@ -107,7 +107,7 @@ export function StreamingMessage({
           >
             <MarkdownMessage content={streamingContent} />
             <span
-              className="ml-0.5 inline-block h-[1.15em] w-[0.55em] animate-cursor-blink rounded-[1px] bg-primary/70 align-middle"
+              className="ml-0.5 inline-block h-[1.15em] w-[0.55em] animate-cursor-blink rounded-[1px] bg-foreground/70 align-middle"
               aria-hidden="true"
             />
           </div>

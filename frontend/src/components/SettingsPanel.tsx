@@ -176,7 +176,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
       {/* Interface */}
       <Card>
@@ -256,7 +256,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
       </Card>
 
       {/* Tool Toggles */}
-      <Card>
+      <Card className="md:col-span-2">
         <CardHeader>
           <CardTitle>{t("settingsPanel.toolSettings")}</CardTitle>
         </CardHeader>
@@ -335,22 +335,22 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         t={t}
       />
 
-      {/* Save */}
-      <div className="flex gap-3">
-      <Button onClick={handleSave} disabled={saving} className="flex-1">
-        {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-      </Button>
-      </div>
-
-      {/* Last updated */}
-      {settings?.updated_at && (
-        <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground">
-          <p>{t("settingsPage.lastUpdated", { value: formatDateTime(settings.updated_at) })}</p>
+      {/* Save + Last updated */}
+      <Card className="md:col-span-2">
+        <div className="p-6 space-y-4">
+          <Button onClick={handleSave} disabled={saving} className="w-full">
+            {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
+          </Button>
+          {settings?.updated_at && (
+            <p className="text-sm text-muted-foreground">
+              {t("settingsPage.lastUpdated", { value: formatDateTime(settings.updated_at) })}
+            </p>
+          )}
         </div>
-      )}
+      </Card>
 
       {/* My Data — danger zone */}
-      <Card className="ring-destructive/30!">
+      <Card className="md:col-span-2 ring-destructive/30!">
         <CardHeader>
           <CardTitle className="text-destructive">{t("settingsPanel.myDataSection")}</CardTitle>
           <CardDescription>{t("settingsPanel.myDataDescription")}</CardDescription>

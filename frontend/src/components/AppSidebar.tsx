@@ -8,8 +8,6 @@ import {
   Compass,
   Download,
   LogOut,
-  MessageCircle,
-  MessageSquare,
   MoreVertical,
   Pencil,
   Pin,
@@ -44,6 +42,7 @@ import {
   Avatar,
   AvatarFallback,
 } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog } from "./ExportDialog";
@@ -125,25 +124,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     <>
       <Sidebar collapsible="offcanvas" {...props}>
         <SidebarHeader>
-          <div className="flex flex-col p-2">
-            <span className="text-sidebar-foreground text-sm font-bold truncate">{appTitle}</span>
+          <div className="flex flex-col p-2 pb-1">
+            <span className="text-sidebar-foreground text-base font-bold truncate">{appTitle}</span>
             {frameworkVersion !== "unknown" && (
               <span className="text-sidebar-foreground/50 text-xs font-mono">v{frameworkVersion}</span>
             )}
           </div>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                size="lg"
-                tooltip={t("sidebar.newChat")}
-                onClick={handleNewChat}
-                className="justify-start"
-              >
-                <Plus />
-                <span>{t("sidebar.newChat")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <div className="flex justify-center px-2 pb-2">
+            <Button
+              size="lg"
+              variant="default"
+              onClick={handleNewChat}
+              className="w-full justify-center gap-2"
+            >
+              <Plus size={18} />
+              <span>{t("sidebar.newChat")}</span>
+            </Button>
+          </div>
         </SidebarHeader>
 
         <SidebarContent>
@@ -185,6 +182,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     />
                   ))}
                 </SidebarMenu>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <button
+                      onClick={() => router.push("/chats")}
+                      className="inline-flex items-center w-full rounded-md py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
+                    >
+                      {t("sidebar.seeAll")}
+                    </button>
+                  </SidebarMenuItem>
+                </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           )}
@@ -194,23 +201,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               {t("sidebar.noConversations")}
             </p>
           )}
-
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip={t("sidebar.seeAll")}
-                    onClick={() => router.push("/chats")}
-                    className="justify-start"
-                  >
-                    <MessageSquare />
-                    <span>{t("sidebar.seeAll")}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
 
           {isAdmin && (
             <SidebarGroup>
@@ -388,7 +378,6 @@ function ConversationRow({
           }}
           className="justify-start"
         >
-          {c.pinned ? <Pin /> : <MessageCircle />}
           <span className="truncate">{c.title}</span>
         </SidebarMenuButton>
       )}

@@ -38,7 +38,7 @@ export function Header({ chatTitle = "AI Agent", activeConversation }: HeaderPro
 
   return (
     <header
-      className="h-16 md:h-20 bg-surface border-b border-border flex items-center
+      className="h-16 md:h-20 bg-sidebar-muted border-b border-border flex items-center
                  justify-between px-4 md:px-8 shrink-0 sticky top-0 z-20"
     >
       <div className="flex items-center gap-3">

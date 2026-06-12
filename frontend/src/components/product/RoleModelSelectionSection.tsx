@@ -32,15 +32,15 @@ export function RoleModelSelectionSection({
 }: RoleModelSelectionSectionProps) {
   return (
     <Card>
-      <CardHeader className="px-0 pt-0">
+      <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       {loading ? (
-        <p className="text-sm text-muted-foreground">{loadingLabel}</p>
+        <p className="text-sm text-muted-foreground px-6 pb-6">{loadingLabel}</p>
       ) : roleConfigs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        <p className="text-sm text-muted-foreground px-6 pb-6">{emptyLabel}</p>
       ) : (
-        <div className="space-y-4">
+        <div className="px-6 pb-6 space-y-4">
           {roleConfigs.map((roleConfig) => {
             const roleName = roleConfig.role;
             const roleDefaultModel = roleConfig.default_model || "";

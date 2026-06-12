@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { toast } from "sonner";
-import { Check, Download, Eraser, FileText, Grid3x3, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
+import { Check, Download, FileText, Grid3x3, History, MoreVertical, Paperclip, PenLine, ScrollText, Search, SquarePen, Trash2, Upload, X } from "lucide-react";
 import {
   attachWorkspaceDocumentToConversation,
   clearAllWorkspaceDocuments,
@@ -427,9 +427,8 @@ export function DocumentsTab({
               variant="destructive"
               size="sm"
               className="flex-1 px-2 py-2 text-xs font-medium"
-              title={t("workspace.nukeAll")}
             >
-              <Eraser size={16} />
+              {t("workspace.nukeAll")}
             </Button>
           )}
         </div>

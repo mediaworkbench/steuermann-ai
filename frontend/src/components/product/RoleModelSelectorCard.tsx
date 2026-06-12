@@ -22,7 +22,7 @@ export function RoleModelSelectorCard({
   onModelChange,
 }: RoleModelSelectorCardProps) {
   return (
-    <div className="rounded-xl border border-border p-4">
+    <div className="p-4">
       <div className="mb-2">
         <p className="text-sm font-semibold text-foreground">{roleLabel}</p>
         <p className="text-xs text-muted-foreground">{providerLabel}</p>

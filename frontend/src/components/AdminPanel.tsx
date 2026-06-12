@@ -234,9 +234,10 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
       {/* LLM Capability Diagnostics */}
+      <div className="md:col-span-2">
       <DiagnosticsSectionCard
         title={t("adminPage.llmSection")}
         description={
@@ -267,6 +268,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
         onCopy={handleCopyDiagnostics}
         onRefresh={() => void loadCapabilities()}
       />
+      </div>
 
       {/* RAG Operational Configuration */}
       <Card>
@@ -336,14 +338,16 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       />
 
       {/* Save */}
-      <div className="flex gap-3">
-      <Button onClick={handleSave} disabled={!settings || saving} className="flex-1">
-        {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
-      </Button>
-      </div>
+      <Card className="md:col-span-2">
+        <div className="p-6">
+          <Button onClick={handleSave} disabled={!settings || saving} className="w-full">
+            {saving ? t("common.saving") : t("settingsPanel.saveSettings")}
+          </Button>
+        </div>
+      </Card>
 
       {/* Danger Zone */}
-      <Card className="!ring-destructive/30">
+      <Card className="md:col-span-2 !ring-destructive/30">
         <CardHeader className="pb-0">
           <CardTitle className="text-destructive">{t("adminPage.dangerZoneSection")}</CardTitle>
           <CardDescription>{t("adminPage.dangerZoneDescription")}</CardDescription>

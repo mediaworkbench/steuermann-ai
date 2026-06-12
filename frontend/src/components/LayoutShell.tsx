@@ -118,8 +118,8 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
       <SidebarInset className="min-w-0">
         <AppShell>
           <Header
-            chatTitle={isChat ? chatTitle : undefined}
-            activeConversation={isChat ? convState.activeConversation : null}
+            chatTitle={chatTitle}
+            activeConversation={convState.activeConversation}
           />
           <div className={`flex-1 min-h-0 ${isChat ? "overflow-hidden" : "overflow-y-auto"}`}>
             <WorkspacePanelProvider>

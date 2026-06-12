@@ -968,7 +968,7 @@ export const messages: Record<Locale, Messages> = {
       attach: "Attach",
       attachSuccess: "Attached to conversation",
       attachFailed: "Could not attach file",
-      nukeAll: "Clear all",
+      nukeAll: "Delete all",
       nukeMessage: "This permanently deletes all {count} document(s). This cannot be undone.",
       nukeSuccess: "Deleted {count} file(s)",
       nukeFailed: "Could not clear workspace",
