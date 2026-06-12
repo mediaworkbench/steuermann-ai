@@ -759,6 +759,12 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     break
 
                 parse_error = False
+                # Tools that already ran in a previous attempt. The retry loop exists only to
+                # correct calls that failed to parse/validate; re-executing a tool that already
+                # succeeded would duplicate its side effects (web search, save_to_rag, …).
+                # Snapshotted per attempt so a model legitimately calling the same tool twice
+                # within one response is still honoured.
+                executed_before = set(tool_results.keys())
                 _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
                 for tc in tool_calls:
                     tool_name = tc.get("name", "")
@@ -787,6 +793,12 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     if not tool_obj:
                         logger.warning("Model requested unknown tool", tool=tool_name, attempt=attempt)
                         parse_error = True
+                        continue
+
+                    # Already executed in a prior attempt — skip (not a parse error) so the
+                    # retry only runs the tools that previously failed to parse/validate.
+                    if tool_name in executed_before:
+                        logger.info("Skipping already-executed tool on retry", tool=tool_name, attempt=attempt)
                         continue
 
                     # Validate args against schema if available; also strips unknown fields.

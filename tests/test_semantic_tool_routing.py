@@ -133,6 +133,22 @@ class DummyNativeModel:
         return SimpleNamespace(content="", tool_calls=self.tool_calls)
 
 
+class SequencedNativeModel:
+    """Native model stub returning a different tool_calls list per invoke (one per attempt)."""
+
+    def __init__(self, tool_calls_per_attempt):
+        self.sequence = list(tool_calls_per_attempt)
+        self.invocations = 0
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        self.invocations += 1
+        tc = self.sequence.pop(0) if self.sequence else []
+        return SimpleNamespace(content="", tool_calls=tc)
+
+
 def set_mock_config(
     mock_config,
     *,
@@ -463,6 +479,53 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
 
     assert captured_kwargs["request_url"] == "https://www.tagesschau.de/"
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_native_retry_does_not_reexecute_successful_tool(mock_config, mock_model_factory):
+    """W1.5: a tool that already ran must not be re-executed when the retry loop fires.
+
+    Each attempt requests a valid tool (calculator_tool) plus an unknown tool (ghost_tool)
+    that forces a parse error and a retry. The valid tool must execute exactly once across
+    all attempts, not once per attempt.
+    """
+    set_mock_config(mock_config)
+
+    class CountingTool:
+        name = "calculator_tool"
+        description = "Calculate things"
+        args_schema = None
+
+        def __init__(self):
+            self.calls = 0
+
+        def _run(self, **kwargs):
+            self.calls += 1
+            return "42"
+
+    counting_tool = CountingTool()
+    one_round = [
+        {"name": "calculator_tool", "args": {}},
+        {"name": "ghost_tool", "args": {}},  # unknown -> parse_error -> retry
+    ]
+    # max_retries defaults to 2, so up to 3 attempts; same calls each time.
+    mock_model_factory.return_value = SequencedNativeModel([one_round, one_round, one_round])
+
+    state = {
+        "messages": [{"role": "user", "content": "what is 6 times 7"}],
+        "candidate_tools": [{"tool": counting_tool}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "language": "en",
+        "prefilter_intents": {},
+    }
+
+    result = node_call_tools_native(state)
+
+    assert counting_tool.calls == 1  # executed once, not re-run on each retry
+    assert result["tool_results"]["calculator_tool"] == "42"
 
 
 @patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
