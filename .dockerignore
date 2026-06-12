@@ -1,0 +1,44 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+**/__pycache__
+*.py[cod]
+*.pyo
+.venv
+venv
+.env
+*.egg-info
+dist
+
+# Node / frontend build artefacts
+frontend/node_modules
+frontend/.next
+frontend/.next/cache
+
+# Data directories (mounted at runtime via volumes)
+data/
+
+# Dev tools
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+coverage
+.coverage
+htmlcov
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea
+.vscode
+
+# Docs (not needed in images)
+docs/
+
+# Tests (not shipped in production images)
+tests/

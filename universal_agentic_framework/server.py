@@ -37,8 +37,15 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup/shutdown hooks. ``GRAPH`` is built at import time (below), so it is
-    always available by the time the lifespan body runs at server start."""
+    """Startup/shutdown hooks.
+
+    GRAPH is built here (not at module level) so that AsyncPostgresSaver.__init__
+    (which calls asyncio.get_running_loop() in langgraph-checkpoint-postgres 3.x)
+    executes inside the running uvicorn event loop rather than at import time.
+    """
+    global GRAPH, _GRAPH_NODE_NAMES
+    GRAPH = build_graph()
+    _GRAPH_NODE_NAMES = _discover_graph_node_names()
     await setup_checkpointer(GRAPH.checkpointer)
     await prune_checkpoints(GRAPH.checkpointer)
     yield
@@ -62,10 +69,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize system metrics and build graph
+# Initialize system metrics; GRAPH is built in _lifespan to satisfy the async
+# event-loop requirement of AsyncPostgresSaver.__init__ (checkpoint-postgres 3.x).
 CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
-GRAPH = build_graph()
+GRAPH: Any = None  # populated in _lifespan before first request is served
 ACTIVE_SESSIONS: set[str] = set()
 _invocation_count: int = 0
 
@@ -312,7 +320,7 @@ def _discover_graph_node_names() -> frozenset[str]:
     return frozenset()
 
 
-_GRAPH_NODE_NAMES: frozenset[str] = _discover_graph_node_names()
+_GRAPH_NODE_NAMES: frozenset[str] = frozenset()  # populated in _lifespan after GRAPH is built
 
 _TOOL_LABELS: dict[str, str] = {
     "web_search_mcp": "Searching the web...",

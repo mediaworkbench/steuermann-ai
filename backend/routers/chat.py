@@ -531,7 +531,11 @@ def _writeback_ineligible_warning(eligible_count: int) -> Optional[str]:
 async def _classify_workspace_intent_llm(message: str, language: str = "en") -> Dict[str, bool]:
     """Classify workspace intent via a direct HTTP call to the auxiliary LLM provider.
 
-    Uses httpx directly to avoid ChatLiteLLM async api_base forwarding issues.
+    Uses httpx directly (bypassing ChatLiteLLM) for simplicity and reliability.
+    langchain-litellm 0.6.6 _client_params now correctly includes api_base in
+    the async chain, so the original forwarding bug (langchain#14338) appears
+    resolved — but the direct httpx path is kept as it is more predictable for
+    this single-shot classification and avoids the full LangChain stack overhead.
     Language-agnostic; falls back to regex patterns when the LLM call fails.
     """
     try:

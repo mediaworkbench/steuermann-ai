@@ -89,8 +89,9 @@ services:
 #
 # Raspberry Pi 5 / ARM64: Qdrant startup fails with jemalloc page size error
 # ───────────────────────────────────────────────────────────────────────────
-# If you see "Unsupported system page size" in Qdrant logs, override image:
+# If you see "Unsupported system page size" in Qdrant logs, override the image.
+# Use a community build that matches the pinned server version (v1.18.2):
 #
 #   qdrant:
-#     image: haktansuren/qdrant-pi5-fixed-jemalloc
+#     image: haktansuren/qdrant-pi5-fixed-jemalloc:v1.18.2
 
