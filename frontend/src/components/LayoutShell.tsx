@@ -111,7 +111,11 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
     <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen }}>
       <AppSidebar />
-      <SidebarInset>
+      {/* min-w-0: SidebarInset is a flex child of the sidebar wrapper and defaults to
+          min-width:auto. Without this, wide non-wrapping content (long code tokens,
+          tables, URLs in a model answer) forces the inset past its share, squeezing the
+          sidebar/workspace and overflowing the page horizontally. */}
+      <SidebarInset className="min-w-0">
         <AppShell>
           <Header
             chatTitle={isChat ? chatTitle : undefined}

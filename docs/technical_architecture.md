@@ -437,7 +437,7 @@ Reason field propagates through entire pipeline:
 | `tool_call` | `{"name": "...", "status": "start"/"end"}` | Tool invocation boundary |
 | `node` | `{"node": "...", "label": "..."}` | Graph node status (RAG, memory) |
 | `node_state` | `{"node": "...", "sequence": N, "duration_ms": N, "status": "success"/"error"}` | Per-node execution trace for the workspace Inspector — emitted for every real graph node up to `respond` (on `on_chain_start`/`on_chain_end`/`on_chain_error`) |
-| `metadata` | `{tokens_used, model_used, sources, thinking_content, ...}` | Final response metadata |
+| `metadata` | `{tokens_used, input_tokens, output_tokens, model_used, sources, thinking_content, context_breakdown, ...}` | Final response metadata. `context_breakdown` is a live-only chars/4 estimate split (`system`/`history`/`user`/`attachments`) shown under the context-window ring; not persisted, so it is absent after a reload |
 | `warning` | `{"message": "..."}` | Non-fatal advisory (model fallback, writeback conflict, ineligible save target) |
 | `writeback_pending` | `{document_id, filename, version}` | Emitted before the upstream stream opens when a writeback is eligible; switches the chat bubble to compact summary view |
 | `writeback` | `{status, document_id, filename, version, summary?, persisted_content?}` | Emitted after `[DONE]` when writeback succeeded (`status:"saved"`) or conflicted (`status:"conflict"`); `persisted_content` is the exact text stored in the DB |
@@ -517,7 +517,7 @@ Mem0 extraction behavior is profile-configurable through `memory.mem0.infer_enab
 
 Mem0 API contract note: the adapter is aligned to Mem0's filters-based API shape (v3+). Entity scoping for memory search/list/delete is expected via `filters={"user_id": ...}` rather than legacy top-level entity kwargs. Direct item operations follow the canonical OSS SDK signatures: `get(memory_id)`, `delete(memory_id)`, and `update(memory_id, data=..., metadata=...)`.
 
-Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages.
+Compression path includes rolling digest metadata on summary messages (`digest_id`, `previous_digest_id`, message counts) so older context can be chained across turns while retaining recent raw messages. The shared `compress_state` (`orchestration/performance_nodes.py`) backs both the auto-compression node and the manual `POST /compact` endpoint: it compresses when the real prompt size (`state["last_input_tokens"]`) exceeds `0.75 × context_window` and `len(messages) > 5`, generates the digest via `ConversationSummarizer.compress_conversation` (auxiliary-role `llm.ainvoke`), and reports `state["last_compression_status"]` (`ok`/`skipped`/`error`). On summary failure the history is left untouched (never truncated). The respond node folds `type="summary"` digests into the system prompt as a `=== CONVERSATION SUMMARY ===` block so compressed history still reaches the model. Manual `/compact` writes back via `GRAPH.aupdate_state(...)` (proper UUIDv6 checkpoint id); the conversation UI message log is intentionally untouched (only the checkpoint the model reads shrinks). Startup/periodic checkpoint pruning (`orchestration/checkpointing.py`) repairs any legacy `uuid4`-poisoned checkpoints (from the prior `/compact` implementation) before the keep-latest pass.
 
 ### **6.3 Context Priority Rules (Response Assembly)**
 

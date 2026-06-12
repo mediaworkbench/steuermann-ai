@@ -51,6 +51,7 @@ export function ChatInterface() {
     isThinking,
     contextTokens,
     setContextTokens,
+    contextBreakdown,
     loading,
     queuedMessage,
     sendMessage,
@@ -281,13 +282,28 @@ export function ChatInterface() {
         headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
       });
       if (res.ok) {
-        const data = await res.json() as { status: string; estimated_tokens?: number };
-        if (data.status === "ok" && (data.estimated_tokens ?? 0) > 0) {
-          setContextTokens(data.estimated_tokens!);
+        const data = await res.json() as {
+          status: string;
+          estimated_tokens?: number;
+          messages_before?: number;
+          messages_after?: number;
+        };
+        if (data.status === "ok") {
+          if ((data.estimated_tokens ?? 0) > 0) setContextTokens(data.estimated_tokens!);
           setContextMenuOpen(false);
-          toast.success("Context compacted");
+          const removed =
+            data.messages_before != null && data.messages_after != null
+              ? data.messages_before - data.messages_after
+              : 0;
+          toast.success(
+            removed > 0
+              ? `Compacted ${removed} messages into a summary — the visible transcript is unchanged`
+              : "Context compacted — the visible transcript is unchanged",
+          );
         } else if (data.status === "skipped") {
           toast.info("Nothing to compact — context is already small");
+        } else if (data.status === "error") {
+          toast.error("Compaction failed — conversation unchanged");
         } else {
           setContextMenuOpen(false);
         }
@@ -419,6 +435,7 @@ export function ChatInterface() {
             onModelChange={handleModelChange}
             contextTokens={contextTokens}
             maxContextTokens={maxContextTokens}
+            contextBreakdown={contextBreakdown}
             userMessageCount={userMessageCount}
             assistantMessageCount={assistantMessageCount}
             isCompacting={isCompacting}

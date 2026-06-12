@@ -145,3 +145,66 @@ async def test_postgres_checkpointer_persists_across_turns():
     finally:
         # Always close the pool so the event loop is not left with open connections.
         await checkpointer.conn.close()
+
+
+class _FakeCursor:
+    def __init__(self, recorder):
+        self._recorder = recorder
+        self.rowcount = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, *args):
+        self._recorder.append(sql)
+        # Simulate one poisoned row removed on the repair DELETE.
+        self.rowcount = 1 if "= '4'" in sql else 0
+
+
+class _FakeConn:
+    def __init__(self, recorder):
+        self._recorder = recorder
+
+    def cursor(self):
+        return _FakeCursor(self._recorder)
+
+    async def commit(self):
+        self._recorder.append("COMMIT")
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakePoolConn:
+    def __init__(self, recorder):
+        self._recorder = recorder
+
+    def connection(self):
+        return _FakeConn(self._recorder)
+
+
+@pytest.mark.asyncio
+async def test_prune_runs_uuid4_repair_before_keep_latest():
+    """The repair DELETE (version nibble == '4') runs before the keep-latest pass."""
+    from universal_agentic_framework.orchestration.checkpointing import _prune_async
+
+    recorder: list[str] = []
+    checkpointer = SimpleNamespace(conn=_FakePoolConn(recorder))
+
+    await _prune_async(checkpointer)
+
+    sql_statements = [s for s in recorder if s != "COMMIT"]
+    # First statement is the poisoned-checkpoint repair, identified by the version
+    # nibble predicate; the keep-latest max() pass must come after it.
+    assert "substring(c.checkpoint_id from 15 for 1) = '4'" in sql_statements[0]
+    assert "= '6'" in sql_statements[0]  # guard: only delete when a real v6 exists
+    keep_latest_idx = next(
+        i for i, s in enumerate(sql_statements) if "max(checkpoint_id)" in s
+    )
+    assert keep_latest_idx > 0  # after the repair

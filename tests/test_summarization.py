@@ -1,6 +1,7 @@
 """Tests for conversation summarization."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from universal_agentic_framework.memory.summarization import ConversationSummarizer
@@ -170,11 +171,13 @@ class TestConversationSummarizer:
     
     @pytest.mark.asyncio
     async def test_generate_summary_with_factory(self):
-        """Test summary generation with LLM factory."""
-        # Mock LLM
+        """Test summary generation with LLM factory (ainvoke returns a message object)."""
+        # Mock LLM — langchain-core 1.x uses ainvoke returning a message with .content
         mock_llm = AsyncMock()
-        mock_llm.apredict.return_value = "Summary: User asked a question and got help."
-        
+        mock_llm.ainvoke.return_value = SimpleNamespace(
+            content="Summary: User asked a question and got help."
+        )
+
         # Mock factory
         mock_factory = MagicMock()
         mock_factory.create_auxiliary_llm.return_value = mock_llm
@@ -191,15 +194,31 @@ class TestConversationSummarizer:
         assert summary is not None
         assert "Summary" in summary
         mock_factory.create_auxiliary_llm.assert_called_once()
-        mock_llm.apredict.assert_called_once()
-    
+        mock_llm.ainvoke.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_returns_none_on_failure(self):
+        """A raising ainvoke yields None rather than propagating."""
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke.side_effect = RuntimeError("provider down")
+        mock_factory = MagicMock()
+        mock_factory.create_auxiliary_llm.return_value = mock_llm
+
+        summarizer = ConversationSummarizer(llm_factory=mock_factory)
+        summary = await summarizer.generate_summary(
+            [{"role": "user", "content": "hi"}], "user123"
+        )
+        assert summary is None
+
     @pytest.mark.asyncio
     async def test_compress_conversation(self):
         """Test conversation compression."""
         # Mock factory for summarization
         mock_llm = AsyncMock()
-        mock_llm.apredict.return_value = "Previous: User asked about AI and received overview."
-        
+        mock_llm.ainvoke.return_value = SimpleNamespace(
+            content="Previous: User asked about AI and received overview."
+        )
+
         mock_factory = MagicMock()
         mock_factory.create_auxiliary_llm.return_value = mock_llm
 
@@ -254,6 +273,52 @@ class TestConversationSummarizer:
             "user123",
             keep_recent_count=5
         )
-        
+
         # Should return unchanged since conversation is short
         assert compressed == messages
+
+    @pytest.mark.asyncio
+    async def test_compress_conversation_summary_failure_keeps_all_messages(self):
+        """When summary generation fails, history must NOT be truncated."""
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke.side_effect = RuntimeError("provider down")
+        mock_factory = MagicMock()
+        mock_factory.create_auxiliary_llm.return_value = mock_llm
+
+        summarizer = ConversationSummarizer(llm_factory=mock_factory)
+
+        messages = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+            for i in range(20)
+        ]
+
+        compressed = await summarizer.compress_conversation(
+            messages, "user123", keep_recent_count=5
+        )
+
+        # Original list returned intact — no summary, no dropped history.
+        assert compressed == messages
+        assert not any(m.get("type") == "summary" for m in compressed)
+
+    @pytest.mark.asyncio
+    async def test_generate_summary_char_budget(self):
+        """Oversized history is truncated to the char budget before summarizing."""
+        captured = {}
+
+        async def _capture(prompt):
+            captured["prompt"] = prompt
+            return SimpleNamespace(content="ok summary")
+
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke.side_effect = _capture
+        mock_factory = MagicMock()
+        mock_factory.create_auxiliary_llm.return_value = mock_llm
+
+        summarizer = ConversationSummarizer(llm_factory=mock_factory)
+        big = [{"role": "user", "content": "x" * 5000} for _ in range(10)]
+
+        summary = await summarizer.generate_summary(big, "user123")
+        assert summary == "ok summary"
+        # The conversation slice fed into the prompt is bounded by the budget.
+        assert len(captured["prompt"]) < 50000
+        assert "x" * 100 in captured["prompt"]  # recent content survives

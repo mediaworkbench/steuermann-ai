@@ -1,6 +1,67 @@
 # Changelog
 
-### [0.4.2] — workspace document editing, versioning & writeback hardening
+### [0.4.2] — workspace document editing, versioning, writeback hardening & compression repair
+
+#### Conversation compression repair & context-window accuracy
+
+**Compression pipeline (was non-functional — four independent bugs)**
+
+* `ConversationSummarizer.generate_summary` called `llm.apredict`, which was removed in
+  langchain-core 1.x — every summary raised and returned `None`, so compression never produced
+  a digest. Switched to `llm.ainvoke` (extracting `.content`); the summarizer now covers the
+  whole window of old messages bounded by a char budget instead of only the last 10.
+* On summary failure, `compress_conversation` truncated the conversation to the last 5 messages
+  with **no** summary (silent context loss). It now returns the original messages unchanged.
+* The respond node only mapped `user`/`assistant` turns, silently dropping the summary message
+  (`role="system"`, `type="summary"`) — the digest never reached the model. Summaries are now
+  folded into the system prompt as a `=== CONVERSATION SUMMARY (earlier messages) ===` block
+  and skipped in the history turns.
+* Manual `POST /compact` wrote checkpoints with a random `uuid.uuid4()` id. LangGraph
+  checkpoint ids are time-ordered UUIDv6 and `PostgresSaver` selects the latest lexically, so a
+  uuid4 shadowed all later turns (~88% of the time) — new messages stopped persisting and the
+  conversation appeared frozen. Rewrote `/compact` to use `GRAPH.aupdate_state(...)` (proper
+  UUIDv6 id). Added a startup/periodic checkpoint-pruning repair (`orchestration/checkpointing.py`)
+  that deletes legacy uuid4-poisoned checkpoints before the keep-latest pass (guarded so a thread
+  is never left with zero checkpoints).
+
+**Auto-compression threshold**
+
+* `compress_state` now thresholds on `0.75 × context_window` — resolved from
+  `llm.roles.chat.context_window_tokens` → capability-probe snapshot (matched to `model_used`)
+  → 32768 fallback. Previously used `max_tokens` (the **output** cap), which fires far too
+  aggressively. Fill is measured from the provider-reported prompt size of the last response
+  (`state["last_input_tokens"]`, the same number the context-ring shows), with a chars/4 fallback.
+* Compression is skipped when `len(messages) ≤ keep_recent_count` (5). `compress_state` sets
+  `state["last_compression_status"]` (`ok`/`skipped`/`error`); `/compact` returns these statuses
+  and the UI toast distinguishes "nothing to do" from "summary failed".
+
+**Context-window indicator**
+
+* `/api/system-config` now returns a per-model `context_windows` map per role (provider `/models`
+  overlaid with probe values); `useComposerSettings` picks the **selected** chat model's window
+  (`context_windows[selectedChatModel] ?? context_window_tokens`) so switching models updates the
+  ring's denominator instead of staying pinned to the role default.
+* The respond node emits a live `context_breakdown` (chars/4 estimate split: instructions+RAG+
+  tools vs. history vs. current message vs. attachments), surfaced in `ContextWindowMenu` as
+  "≈ estimate" rows under the total. Live-only — not persisted, so it is absent after a reload.
+
+**Cleanup**
+
+* Migrated the LangGraph `server.py` startup hook from the deprecated FastAPI
+  `@app.on_event("startup")` to the `lifespan` context manager (same
+  `setup_checkpointer` + `prune_checkpoints` logic) — removes the `DeprecationWarning`
+  surfaced when tests import the server module.
+
+**Tests**
+
+* New `tests/test_compress_state.py` (threshold resolution, fill measurement, status reporting),
+  `tests/test_compact_endpoint.py` (`ok`/`skipped`/`error`), checkpoint-repair ordering coverage
+  in `tests/test_checkpointing.py`, summary-into-prompt coverage in `tests/test_graph_attachments.py`,
+  per-model window coverage in `tests/test_settings_router.py`, and `context_breakdown` mapping in
+  `useStreamingChat.test.ts`. Updated `tests/test_summarization.py` for `ainvoke` + no-truncate-on-
+  failure + char-budget. Full suite: 1206 backend passed; 186 frontend passed.
+
+#### Workspace document editing, versioning & writeback hardening
 
 **CSV analysis tool (`csv_analyze_tool`)**
 

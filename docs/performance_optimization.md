@@ -33,7 +33,7 @@ Practical defaults:
 The most reliable cost and latency reduction usually comes from token discipline:
 
 - Lower retrieval fan-out before lowering model quality.
-- Use conversation compression to bound long sessions instead of letting context grow indefinitely (threshold: `llm.roles.chat.max_tokens * 0.75`).
+- Use conversation compression to bound long sessions instead of letting context grow indefinitely (threshold: `0.75 × context_window`, resolved from `llm.roles.chat.context_window_tokens` → capability probe → 32768; not `max_tokens`, the output cap).
 - Monitor real token counts via Prometheus or the SSE `metadata` event — `input_tokens` is the real LLM-reported value, not a local estimate.
 
 ### 3. Retrieval Cost

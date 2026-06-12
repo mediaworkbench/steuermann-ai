@@ -63,6 +63,7 @@ interface ChatSessionValue {
   wasCancelled: boolean;
   contextTokens: number;
   setContextTokens: React.Dispatch<React.SetStateAction<number>>;
+  contextBreakdown: ChatResponse["metadata"]["context_breakdown"] | null;
   loading: boolean;
   queuedMessage: QueuedMessage | null;
   sendMessage: (userMessage: string, opts?: SendMessageOptions) => Promise<void>;
@@ -95,6 +96,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [contextTokens, setContextTokens] = useState<number>(0);
+  const [contextBreakdown, setContextBreakdown] = useState<ChatResponse["metadata"]["context_breakdown"] | null>(null);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
   // Reactive mirror of which conversation owns the live stream. Drives the
   // gate that hides a backgrounded stream's UI while the user views another
@@ -211,6 +213,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
           .find((m) => m.role === "assistant" && (m.metrics?.input_tokens ?? 0) > 0)
           ?.metrics?.input_tokens ?? 0;
       setContextTokens(lastAssistantTokens);
+      // The breakdown is live-only (never persisted), so a reloaded conversation
+      // has no per-section split until its next turn.
+      setContextBreakdown(null);
       setMessages(loadedMessages);
       if (detail.messages.length === 0) {
         setWorkspaceSidebarOpen(false);
@@ -341,6 +346,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       streamConversationRef.current === activeIdRef.current
     ) {
       setContextTokens(tokens);
+      setContextBreakdown(finalMetadata?.context_breakdown ?? null);
     }
   }, [isStreaming, finalMetadata]);
 
@@ -463,6 +469,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     wasCancelled: streamOnActive && wasCancelled,
     contextTokens,
     setContextTokens,
+    contextBreakdown,
     loading: streamOnActive && loading,
     queuedMessage: streamOnActive ? queuedMessage : null,
     sendMessage,

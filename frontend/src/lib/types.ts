@@ -156,7 +156,17 @@ export interface ChatResponse {
     rag_attempted?: boolean;
     rag_doc_count?: number;
     map_data?: MapData;
+    /** Approximate per-section prompt token estimates for the context-window menu (live-only, not persisted). */
+    context_breakdown?: ContextBreakdown;
   };
+}
+
+/** Approximate prompt-token split shown under the context ring. Estimates only. */
+export interface ContextBreakdown {
+  system?: number;
+  history?: number;
+  user?: number;
+  attachments?: number;
 }
 
 export interface WorkspaceActionRequest {

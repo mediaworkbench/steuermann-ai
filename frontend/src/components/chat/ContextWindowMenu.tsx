@@ -3,12 +3,15 @@
 import { Minimize2 } from "lucide-react";
 import { ContextRingIndicator } from "@/components/ContextRingIndicator";
 import { Button } from "@/components/ui/button";
+import type { ContextBreakdown } from "@/lib/types";
 
-function CtxRow({ label, value }: { label: string; value: number }) {
+function CtxRow({ label, value, approx = false }: { label: string; value: number; approx?: boolean }) {
   return (
     <div className="flex items-center justify-between text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className="tabular-nums text-foreground">{value}</span>
+      <span className="tabular-nums text-foreground">
+        {approx ? "≈ " : ""}{value.toLocaleString()}
+      </span>
     </div>
   );
 }
@@ -19,6 +22,7 @@ interface ContextWindowMenuProps {
   onClose: () => void;
   contextTokens: number;
   maxContextTokens: number | null;
+  contextBreakdown?: ContextBreakdown | null;
   userMessageCount: number;
   assistantMessageCount: number;
   isStreaming: boolean;
@@ -33,6 +37,7 @@ export function ContextWindowMenu({
   onClose,
   contextTokens,
   maxContextTokens,
+  contextBreakdown,
   userMessageCount,
   assistantMessageCount,
   isStreaming,
@@ -92,6 +97,24 @@ export function ContextWindowMenu({
                 <p className="mt-1 text-[10px] text-muted-foreground">context window size unknown</p>
               )}
             </div>
+
+            {/* Per-section breakdown (live estimate; omitted after reload) */}
+            {contextBreakdown && (
+              <>
+                <div className="my-1 border-t border-border" />
+                <div className="px-3 py-1 space-y-0.5">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Breakdown (estimate)
+                  </p>
+                  <CtxRow label="Instructions + tools + RAG" value={contextBreakdown.system ?? 0} approx />
+                  <CtxRow label="Conversation history" value={contextBreakdown.history ?? 0} approx />
+                  <CtxRow label="Your message" value={contextBreakdown.user ?? 0} approx />
+                  {(contextBreakdown.attachments ?? 0) > 0 && (
+                    <CtxRow label="Attachments + documents" value={contextBreakdown.attachments ?? 0} approx />
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="my-1 border-t border-border" />
 

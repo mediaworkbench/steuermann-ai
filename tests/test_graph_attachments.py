@@ -101,6 +101,48 @@ def test_build_attachment_context_block_labels_and_truncates() -> None:
     assert normalized[0]["text"]
 
 
+def test_node_generate_response_folds_summary_into_system_prompt(monkeypatch) -> None:
+    model = _CapturingModel()
+
+    monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
+    monkeypatch.setattr(graph_builder, "get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
+    monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
+
+    state = {
+        "messages": [
+            {
+                "role": "system",
+                "type": "summary",
+                "content": "[SUMMARY: Previous 10 messages summarized] User is building a tax app.",
+            },
+            {"role": "user", "content": "What did we decide earlier?"},
+            {"role": "assistant", "content": "We chose Postgres."},
+            {"role": "user", "content": "Remind me of the stack."},
+        ],
+        "language": "en",
+        "user_settings": {},
+        "tool_results": {},
+        "knowledge_context": [],
+        "loaded_memory": [],
+    }
+
+    result = graph_builder.node_generate_response(state)
+
+    system_prompt = model.messages[0].content
+    # The digest is folded into the single leading system prompt.
+    assert "=== CONVERSATION SUMMARY (earlier messages) ===" in system_prompt
+    assert "User is building a tax app." in system_prompt
+
+    # The summary must NOT appear as its own conversation turn.
+    turn_contents = [getattr(m, "content", "") for m in model.messages[1:]]
+    assert all("User is building a tax app." not in c for c in turn_contents)
+    # Real user/assistant turns are still present.
+    assert any("Remind me of the stack." in c for c in turn_contents)
+    assert result["messages"][-1]["content"] == "attachment-aware response"
+
+
 def test_node_generate_response_injects_attachment_context(monkeypatch) -> None:
     model = _CapturingModel()
 

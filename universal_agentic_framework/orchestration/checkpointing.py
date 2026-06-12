@@ -104,9 +104,40 @@ async def _setup_via_autocommit(checkpointer: Any) -> None:
 
 
 async def _prune_async(checkpointer: Any) -> None:
-    """Run all three pruning DELETEs via the async connection pool."""
+    """Run all pruning DELETEs via the async connection pool.
+
+    Order matters: the poisoned-checkpoint repair runs *before* the keep-latest
+    pass so the latter selects the genuine newest checkpoint, not a stale one.
+    """
     async with checkpointer.conn.connection() as conn:
         async with conn.cursor() as cur:
+            # ── Repair: remove poisoned UUIDv4 checkpoints ─────────────────────
+            # A historical /compact bug wrote checkpoints with random uuid4 ids.
+            # LangGraph ids are time-ordered uuid6; PostgresSaver selects the
+            # latest via max(checkpoint_id) (lexical). A uuid4 (version nibble at
+            # canonical position 15 == '4') sorts above all future uuid6 ids most
+            # of the time, so it shadows every later turn — new messages stop
+            # persisting and the keep-latest pass below would *preserve* the bad
+            # checkpoint and delete the real ones. Delete uuid4 checkpoints only
+            # for threads that still have a real uuid6 checkpoint, so a thread is
+            # never left with zero checkpoints.
+            await cur.execute(
+                """
+                DELETE FROM checkpoints c
+                WHERE substring(c.checkpoint_id from 15 for 1) = '4'
+                  AND EXISTS (
+                      SELECT 1 FROM checkpoints v
+                      WHERE v.thread_id = c.thread_id
+                        AND v.checkpoint_ns = c.checkpoint_ns
+                        AND substring(v.checkpoint_id from 15 for 1) = '6'
+                  )
+                """
+            )
+            if cur.rowcount:
+                logger.warning(
+                    "Removed poisoned uuid4 checkpoints", count=cur.rowcount
+                )
+
             await cur.execute(
                 """
                 DELETE FROM checkpoints

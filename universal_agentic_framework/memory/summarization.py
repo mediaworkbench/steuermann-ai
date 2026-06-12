@@ -100,30 +100,40 @@ class ConversationSummarizer:
                 return max(0, i + 1)
         return 0
     
+    # Cap how much old-conversation text we feed the summarizer in one call.
+    # Auxiliary models require a 16k+ context window (see CLAUDE.md); ~8000 chars
+    # (~2000 tokens) leaves ample room for the prompt scaffold and the response.
+    SUMMARY_INPUT_CHAR_BUDGET = 8000
+
     async def generate_summary(
         self,
         messages: List[Dict[str, str]],
         user_id: str
     ) -> Optional[str]:
         """Generate summary of conversation messages.
-        
+
         Args:
             messages: Messages to summarize
             user_id: User context for LLM selection
-            
+
         Returns:
             Summary text or None if generation fails
         """
         if not self.llm_factory or not messages:
             return None
-        
+
         try:
-            # Build prompt for summarization
-            messages_text = "\n".join([
+            # Include the whole window of old messages, oldest-first, but bounded
+            # by a char budget so a long history can't overflow the auxiliary model.
+            # When over budget, drop the oldest lines (the recent context matters most).
+            lines = [
                 f"{msg.get('role', 'user')}: {msg.get('content', '')}"
-                for msg in messages[-10:]  # Last 10 messages
-            ])
-            
+                for msg in messages
+            ]
+            messages_text = "\n".join(lines)
+            if len(messages_text) > self.SUMMARY_INPUT_CHAR_BUDGET:
+                messages_text = messages_text[-self.SUMMARY_INPUT_CHAR_BUDGET:]
+
             prompt = f"""Summarize the following conversation concisely in 2-3 sentences.
 Focus on key topics, decisions, and action items.
 
@@ -132,16 +142,29 @@ Focus on key topics, decisions, and action items.
 ---
 
 Summary:"""
-            
+
             if hasattr(self.llm_factory, "create_auxiliary_llm"):
                 llm = self.llm_factory.create_auxiliary_llm()
             else:
                 llm = self.llm_factory.create_llm(user_id)
-            summary = await llm.apredict(prompt)
-            
+            response = await llm.ainvoke(prompt)
+            summary = getattr(response, "content", None)
+            if summary is None:
+                summary = str(response)
+            if isinstance(summary, list):
+                # Some providers return content as a list of blocks.
+                summary = " ".join(
+                    b.get("text", "") if isinstance(b, dict) else str(b)
+                    for b in summary
+                )
+            summary = summary.strip()
+            if not summary:
+                logger.warning(f"Summary generation returned empty content for user {user_id}")
+                return None
+
             logger.debug(f"Generated summary ({len(summary)} chars) for user {user_id}")
-            return summary.strip()
-            
+            return summary
+
         except Exception as e:
             logger.error(f"Summary generation error: {e}")
             return None
@@ -229,9 +252,11 @@ Summary:"""
         # Generate summary of old messages
         summary_text = await self.generate_summary(old_messages, user_id)
         if not summary_text:
-            # If summary generation fails, just use recent messages
-            logger.warning(f"Summary generation failed for user {user_id}, using recent only")
-            return recent_messages
+            # Summary generation failed — never silently truncate history. Return the
+            # original messages unchanged so no context is lost; the caller treats an
+            # unchanged list as "compression did not happen".
+            logger.warning(f"Summary generation failed for user {user_id}, leaving conversation uncompressed")
+            return messages
         
         # Create summary message and combine with recent
         summary_msg = self.create_summary_message(

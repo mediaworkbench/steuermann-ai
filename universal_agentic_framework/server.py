@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict
 
 from fastapi import FastAPI, HTTPException
@@ -34,11 +35,22 @@ from universal_agentic_framework.monitoring.metrics import (
 configure_logging(level="INFO", json_logs=False)
 logger = get_logger(__name__)
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Startup/shutdown hooks. ``GRAPH`` is built at import time (below), so it is
+    always available by the time the lifespan body runs at server start."""
+    await setup_checkpointer(GRAPH.checkpointer)
+    await prune_checkpoints(GRAPH.checkpointer)
+    yield
+    # No shutdown work required — the connection pool is closed by the process exit.
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="LangGraph Orchestration Server",
     description="HTTP wrapper for Steuermann graph execution",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=_lifespan,
 )
 
 # Add CORS middleware for local development
@@ -97,12 +109,6 @@ for _attempt in range(_MAX_STARTUP_RETRIES):
             raise RuntimeError("Embedding provider unreachable at startup") from _e
 
 logger.info("LangGraph server ready to accept requests")
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    await setup_checkpointer(GRAPH.checkpointer)
-    await prune_checkpoints(GRAPH.checkpointer)
 
 
 @app.get("/health")
@@ -638,6 +644,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "map_data": _map_data,
                                         "node_trace": _node_trace_list,
                                         "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
+                                        "context_breakdown": _final_output.get("context_breakdown", {}),
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -710,6 +717,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "map_data": _map_data,
                     "node_trace": _node_trace_list,
                     "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
+                    "context_breakdown": _final_output.get("context_breakdown", {}),
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 
@@ -737,16 +745,17 @@ async def compact_conversation(request: Dict[str, Any]) -> Dict[str, Any]:
     """Manually compress a conversation's LangGraph checkpoint.
 
     Loads the checkpoint for ``session_id``, runs force-compression (bypassing the
-    auto-compact token threshold), and saves the compressed messages back.  The
-    ConversationStore (UI message log) is intentionally left unchanged — only the
-    checkpoint (what the LLM sees next turn) is updated.
+    auto-compact token threshold), and writes the compressed messages back via the
+    supported ``aupdate_state`` API (which generates a proper time-ordered UUIDv6
+    checkpoint id and bumps channel versions). The ConversationStore (UI message log)
+    is intentionally left unchanged — only the checkpoint (what the LLM sees next
+    turn) is updated.
 
-    Returns ``status: "skipped"`` if the conversation is too short to compress
-    (≤ keep_recent_count messages), or ``status: "ok"`` with ``estimated_tokens``.
+    Returns one of:
+      - ``status: "ok"`` with ``estimated_tokens`` + ``messages_before/after`` — compressed.
+      - ``status: "skipped"`` — conversation too short to compress (≤ keep_recent_count).
+      - ``status: "error"`` — summary generation failed; history left untouched.
     """
-    import uuid
-    from datetime import datetime, timezone
-
     session_id = request.get("session_id")
     user_id = request.get("user_id", "unknown")
 
@@ -762,35 +771,38 @@ async def compact_conversation(request: Dict[str, Any]) -> Dict[str, Any]:
     state = {**channel_values, "user_id": user_id}
 
     compressed = await compress_state(state, force=True)
+    status = compressed.get("last_compression_status", "skipped")
+    messages_before = len(channel_values.get("messages") or [])
 
-    if compressed.get("messages") == channel_values.get("messages"):
-        return {"status": "skipped", "estimated_tokens": compressed.get("tokens_used", 0)}
+    if status != "ok":
+        # "skipped" (nothing to compress) or "error" (summary LLM failed) — leave the
+        # checkpoint untouched so no history is lost.
+        logger.info("Manual compact no-op", session_id=session_id, status=status)
+        return {"status": status, "estimated_tokens": compressed.get("tokens_used", 0)}
 
-    new_checkpoint_id = str(uuid.uuid4())
-    new_checkpoint = {
-        **ct.checkpoint,
-        "id": new_checkpoint_id,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "channel_values": {
-            **channel_values,
+    await GRAPH.aupdate_state(
+        config,
+        {
             "messages": compressed["messages"],
             "tokens_used": compressed.get("tokens_used", 0),
             "digest_chain": compressed.get("digest_chain", []),
         },
-    }
-    save_config = {
-        "configurable": {
-            "thread_id": session_id,
-            "checkpoint_ns": ct.config["configurable"].get("checkpoint_ns", ""),
-        }
-    }
-    new_versions = ct.checkpoint.get("channel_versions", {})
-    await GRAPH.checkpointer.aput(save_config, new_checkpoint, ct.metadata or {}, new_versions)
+        as_node="compress_conversation",
+    )
 
-    logger.info("Manual compact complete", session_id=session_id, estimated_tokens=compressed.get("tokens_used", 0))
+    messages_after = len(compressed["messages"])
+    logger.info(
+        "Manual compact complete",
+        session_id=session_id,
+        messages_before=messages_before,
+        messages_after=messages_after,
+        estimated_tokens=compressed.get("tokens_used", 0),
+    )
     return {
         "status": "ok",
         "estimated_tokens": compressed.get("tokens_used", 0),
+        "messages_before": messages_before,
+        "messages_after": messages_after,
     }
 
 

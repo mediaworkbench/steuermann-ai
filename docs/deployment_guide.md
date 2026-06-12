@@ -523,7 +523,7 @@ services:
 
 ## **8. Performance Considerations**
 
-- **Token tracking:** `tokens_used`, `input_tokens`, `output_tokens` accumulated in state for Prometheus metrics and SSE metadata; automatic summarization when context grows beyond `max_tokens * 0.75`
+- **Token tracking:** `tokens_used`, `input_tokens`, `output_tokens` accumulated in state for Prometheus metrics and SSE metadata; automatic summarization when the prompt grows beyond `0.75 × context_window` (resolved from `context_window_tokens` → probe → 32768; not `max_tokens`, the output cap)
 - **Caching:** LLM response caching (optional), session-scoped memory query caching, Qdrant collection caching
 - **Concurrency:** Container-based — each session gets independent graph execution in LangGraph service, horizontal scaling via additional containers
 

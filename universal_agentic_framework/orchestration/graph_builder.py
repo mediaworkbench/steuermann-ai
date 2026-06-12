@@ -195,6 +195,8 @@ class GraphState(TypedDict, total=False):
     model_used: str  # Actual model used for response generation
     summary_text: str
     digest_chain: List[Dict[str, Any]]  # Rolling conversation digest metadata
+    last_compression_status: str  # "ok" | "skipped" | "error" — outcome of the last compress_state run
+    context_breakdown: Dict[str, int]  # Approximate per-section prompt token estimates for the context-window menu
     sources: List[Dict[str, Any]]  # [{type: "web"|"rag", label: str, url: str|None}]
     query_embedding: List[float]  # Precomputed user-message embedding from node_prefilter_tools; reused by RAG to avoid duplicate encode
 
@@ -1600,19 +1602,38 @@ def node_generate_response(state: GraphState) -> GraphState:
     
     # Build messages in proper chat format for LangChain
     from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
-    
+
+    all_msgs = state.get("messages") or []
+
+    # Inject compression digests (role="system", type="summary") into the system prompt
+    # rather than emitting mid-conversation SystemMessages — many providers only honour a
+    # single leading system turn. Without this the summary that compression produced would
+    # never reach the model and compressed history would silently lose context.
+    summary_blocks = [
+        str(msg.get("content") or "").strip()
+        for msg in all_msgs
+        if msg.get("type") == "summary" and str(msg.get("content") or "").strip()
+    ]
+    if summary_blocks:
+        system_prompt += (
+            "\n\n=== CONVERSATION SUMMARY (earlier messages) ===\n"
+            + "\n\n".join(summary_blocks)
+            + "\n=== END CONVERSATION SUMMARY ===\n"
+        )
+
     # Start with system prompt
     messages = [SystemMessage(content=system_prompt)]
-    
+
     # Add full conversation history (all previous user and assistant messages).
     # Skip crew-appended assistant messages — their content is already injected into
     # the system prompt as FINDINGS context above.  Keeping them as AIMessage turns
     # causes the model to treat the crew output as its own prior answer and only add
     # a short follow-up instead of synthesising a full response.
-    all_msgs = state.get("messages") or []
     for msg in all_msgs:
         role = msg.get("role", "user")
         content = msg.get("content", "")
+        if msg.get("type") == "summary":
+            continue  # already folded into the system prompt above
         if role == "assistant" and any(content.startswith(p) for p in _crew_result_prefixes):
             continue  # already in system prompt as FINDINGS context
         if role == "user":
@@ -1667,6 +1688,37 @@ def node_generate_response(state: GraphState) -> GraphState:
             ))
 
     tool_results = state.get("tool_results", {})
+
+    # Approximate per-section prompt size for the context-window menu. The headline ring
+    # still uses the provider-reported total; these are cheap chars/4 estimates so the
+    # user can see *where* their context is going (instructions+RAG+memory+tools vs.
+    # prior turns vs. this message vs. attached files). Estimates only — never summed
+    # against the authoritative total.
+    def _ctx_attachment_tokens() -> int:
+        total = 0
+        for item in attachment_context or []:
+            total += estimate_tokens(str(item.get("text") or ""))
+        for item in workspace_document_context or []:
+            total += estimate_tokens(str(item.get("text") or ""))
+        if writeback_doc and state.get("workspace_writeback_requested"):
+            total += estimate_tokens(str(writeback_doc.get("content_text") or ""))
+        return total
+
+    _history_tokens = 0
+    for _m in all_msgs:
+        if _m.get("type") == "summary":
+            continue
+        _c = _m.get("content", "")
+        if _m.get("role") == "user" and _c == user_msg:
+            continue  # counted under "user" below
+        if isinstance(_c, str):
+            _history_tokens += estimate_tokens(_c)
+    state["context_breakdown"] = {
+        "system": estimate_tokens(system_prompt),
+        "history": _history_tokens,
+        "user": estimate_tokens(user_msg),
+        "attachments": _ctx_attachment_tokens(),
+    }
 
     logger.info("Sending to LLM",
                 system_prompt_length=len(system_prompt),

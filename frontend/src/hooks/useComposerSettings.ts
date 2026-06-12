@@ -31,8 +31,13 @@ export function useComposerSettings(): UseComposerSettingsResult {
 
   const selectedChatModel = chatModel || systemConfig?.default_model || availableChatModels[0] || "";
 
+  // Denominator for the context ring. Track the *selected* chat model's window
+  // (falling back to the role default) so switching models updates the gauge.
+  const chatRole = systemConfig?.model_roles?.find((r) => r.role === "chat");
   const maxContextTokens =
-    systemConfig?.model_roles?.find((r) => r.role === "chat")?.context_window_tokens ?? null;
+    chatRole?.context_windows?.[selectedChatModel] ??
+    chatRole?.context_window_tokens ??
+    null;
 
   // Load user settings on mount: RAG config, tool toggles, chat model, sound
   useEffect(() => {

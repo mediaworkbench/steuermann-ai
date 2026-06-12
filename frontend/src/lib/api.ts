@@ -77,6 +77,7 @@ export interface SystemConfig {
     model_load_error?: string | null;
     max_tokens?: number | null;
     context_window_tokens?: number | null;
+    context_windows?: Record<string, number>;
   }>;
   profile: {
     id: string;

@@ -1177,6 +1177,9 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
             "status": row.get("status"),
             "error_message": row.get("error_message"),
             "probed_at": row.get("probed_at"),
+            # Forwarded so the compression node can resolve the real context window
+            # (kept in sync with the per-model window the /api/system-config ring uses).
+            "context_window_tokens": (row.get("metadata") or {}).get("context_window_tokens"),
         }
 
     return list(latest_by_model.values())

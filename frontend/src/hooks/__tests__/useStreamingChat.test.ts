@@ -163,6 +163,27 @@ describe("useStreamingChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("maps context_breakdown from the metadata event", async () => {
+    mockFetch([
+      sseToken("Hi"),
+      sseMetadata({ context_breakdown: { system: 800, history: 200, user: 30, attachments: 0 } }),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.finalMetadata?.context_breakdown).toEqual({
+      system: 800,
+      history: 200,
+      user: 30,
+      attachments: 0,
+    });
+  });
+
   it("sets streamError on error event", async () => {
     mockFetch([sseError("LangGraph crashed"), sseDone()]);
 

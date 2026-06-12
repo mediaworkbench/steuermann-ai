@@ -12,7 +12,7 @@ import { formatModelName } from "@/components/product/modelSelection";
 import { useEdgeEffect } from "@/hooks/useEdgeEffect";
 import { useI18n } from "@/hooks/useI18n";
 import type { SystemConfig } from "@/lib/api";
-import type { ConversationAttachment } from "@/lib/types";
+import type { ConversationAttachment, ContextBreakdown } from "@/lib/types";
 
 /** Imperative handle for ChatComposer — follows the editorApiRef pattern. */
 export interface ChatComposerHandle {
@@ -46,6 +46,7 @@ interface ChatComposerProps {
   onModelChange: (model: string) => void;
   contextTokens: number;
   maxContextTokens: number | null;
+  contextBreakdown?: ContextBreakdown | null;
   userMessageCount: number;
   assistantMessageCount: number;
   isCompacting: boolean;
@@ -87,6 +88,7 @@ export function ChatComposer({
   onModelChange,
   contextTokens,
   maxContextTokens,
+  contextBreakdown,
   userMessageCount,
   assistantMessageCount,
   isCompacting,
@@ -261,6 +263,7 @@ export function ChatComposer({
                 onClose={() => onContextMenuToggle()}
                 contextTokens={contextTokens}
                 maxContextTokens={maxContextTokens}
+                contextBreakdown={contextBreakdown}
                 userMessageCount={userMessageCount}
                 assistantMessageCount={assistantMessageCount}
                 isStreaming={isStreaming}

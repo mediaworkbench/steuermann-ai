@@ -235,6 +235,9 @@ ingestion:
     # Override wins over max_tokens (4096) and over absent auto-detection.
     assert roles["chat"]["context_window_tokens"] == 16384
     assert roles["chat"]["max_tokens"] == 4096
+    # The per-model map is present and carries the override for the default model so
+    # the UI ring's denominator can track the selected model.
+    assert roles["chat"]["context_windows"].get("openai/base-model") == 16384
     # Roles without the override and without a reachable provider resolve to null.
     assert roles["embedding"]["context_window_tokens"] is None
 

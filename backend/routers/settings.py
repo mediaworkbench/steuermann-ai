@@ -500,6 +500,26 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                 # at probe time or the provider doesn't report context length.
                 config_ctx = getattr(role_settings, "context_window_tokens", None)
                 context_window_tokens = config_ctx or probe_ctx or context_windows.get(str(role_default_model)) or None
+                # Per-model context windows so the UI ring's denominator tracks the
+                # model the user actually selected (not just the role default). Start
+                # from the provider /models map, then overlay probe values (captured at
+                # the size the server loaded the model with).
+                per_model_windows: Dict[str, int] = {}
+                for mname, mctx in context_windows.items():
+                    try:
+                        per_model_windows[str(mname)] = int(mctx)
+                    except Exception:
+                        continue
+                for mname in available_models:
+                    try:
+                        pctx = probe_ctx_by_model.get(normalize_model_id(str(mname)))
+                    except Exception:
+                        pctx = None
+                    if pctx:
+                        per_model_windows[str(mname)] = int(pctx)
+                # The explicit profile override applies to the role default model.
+                if config_ctx and role_default_model:
+                    per_model_windows[str(role_default_model)] = int(config_ctx)
                 model_roles.append(
                     {
                         "role": role_name,
@@ -509,6 +529,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                         "model_load_error": model_load_error,
                         "max_tokens": getattr(role_settings, "max_tokens", None),
                         "context_window_tokens": context_window_tokens,
+                        "context_windows": per_model_windows,
                     }
                 )
         display_name = profile_metadata.display_name if profile_metadata else "Base Profile"

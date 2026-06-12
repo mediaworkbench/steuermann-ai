@@ -150,35 +150,91 @@ async def memory_cache_store_node(state: dict) -> dict:
     return state
 
 
+# Number of most-recent messages compress_conversation() preserves verbatim. Kept in
+# sync with ConversationSummarizer.compress_conversation(keep_recent_count=...).
+_KEEP_RECENT_COUNT = 5
+
+
+def _resolve_context_window(state: dict) -> int:
+    """Resolve the chat model's real context window for the compression threshold.
+
+    Precedence (highest first):
+      1. Profile override ``llm.roles.chat.context_window_tokens``.
+      2. Capability-probe snapshot forwarded into graph state, matched to the model
+         that produced the last response (``state["model_used"]``).
+      3. Conservative 32768 fallback.
+
+    Never uses ``max_tokens`` — that is the output cap, not the context window.
+    """
+    try:
+        from universal_agentic_framework.config import load_core_config as _load_cfg
+        _cfg = _load_cfg()
+        config_ctx = getattr(_cfg.llm.roles.chat, "context_window_tokens", None)
+        if config_ctx:
+            return int(config_ctx)
+    except Exception:
+        pass
+
+    # Probe snapshot: the adapter forwards context_window_tokens (top-level on the
+    # graph-state row; DB rows nest it under metadata). Prefer the row matching the
+    # model that actually answered; otherwise take any probed window.
+    model_used = str(state.get("model_used") or "")
+    fallback_probe_ctx: Optional[int] = None
+    for row in state.get("llm_capability_probes") or []:
+        try:
+            ctx = row.get("context_window_tokens") or (row.get("metadata") or {}).get(
+                "context_window_tokens"
+            )
+            if not ctx:
+                continue
+            ctx = int(ctx)
+        except Exception:
+            continue
+        if model_used and str(row.get("model_name") or "") == model_used:
+            return ctx
+        if fallback_probe_ctx is None:
+            fallback_probe_ctx = ctx
+    if fallback_probe_ctx is not None:
+        return fallback_probe_ctx
+
+    return 32768
+
+
 async def compress_state(state: dict, force: bool = False) -> dict:
     """Core compression logic shared by the auto-compression graph node and the manual
     /compact endpoint.
 
     Args:
         state: Graph state dict containing at least ``messages`` and ``user_id``.
-        force: When True, skip the should_summarize threshold check and always compress.
+        force: When True, skip the token-fill threshold check and always attempt
+            compression (still a no-op when there are too few messages to compress).
 
     Returns:
-        Updated state (may be unchanged if there is nothing to compress).
+        Updated state. ``state["last_compression_status"]`` is set to one of
+        ``"ok"`` (history compressed), ``"skipped"`` (nothing to compress), or
+        ``"error"`` (summary generation failed — history left untouched).
     """
     summarizer = get_summarizer()
+    state["last_compression_status"] = "skipped"
 
     try:
         messages = state.get("messages", [])
         user_id = state.get("user_id", "unknown")
 
-        if not force:
-            # Derive compression threshold from the chat role's max_tokens (75% of context window).
-            # Fall back to a conservative 24576 (= 75% of 32768) when config is unavailable.
-            try:
-                from universal_agentic_framework.config import load_core_config as _load_cfg
-                _cfg = _load_cfg()
-                _max_ctx = getattr(_cfg.llm.roles.chat, "max_tokens", None) or 32768
-            except Exception:
-                _max_ctx = 32768
-            compression_threshold = int(_max_ctx * 0.75)
+        # Compressing a conversation at or below the keep-recent window is a no-op.
+        if len(messages) <= _KEEP_RECENT_COUNT:
+            return state
 
-            if not summarizer.should_summarize(messages, max_tokens=compression_threshold, min_messages=2):
+        if not force:
+            # Fire when the real prompt size crosses 75% of the context window. Prefer
+            # the provider-reported prompt tokens of the last respond call (exactly what
+            # the context-ring shows); fall back to a chars/4 estimate when absent.
+            context_window = _resolve_context_window(state)
+            compression_threshold = int(context_window * 0.75)
+            fill = state.get("last_input_tokens") or 0
+            if fill <= 0:
+                fill = summarizer.calculate_conversation_tokens(messages)
+            if fill <= compression_threshold:
                 return state
 
         logger.info(f"Compressing conversation for user {user_id} (force={force})")
@@ -192,15 +248,21 @@ async def compress_state(state: dict, force: bool = False) -> dict:
                 f"removed {savings['messages_removed']} messages, "
                 f"saved ~{savings['estimated_tokens_saved']} tokens"
             )
+            state["messages"] = compressed
+            state["digest_chain"] = summarizer.extract_digest_chain(compressed)
+            state["tokens_used"] = summarizer.calculate_conversation_tokens(compressed)
+            state["last_compression_status"] = "ok"
         else:
-            logger.info(f"Compression skipped for {user_id}: too few messages to compress ({len(messages)} messages)")
-
-        state["messages"] = compressed
-        state["digest_chain"] = summarizer.extract_digest_chain(compressed)
-        state["tokens_used"] = summarizer.calculate_conversation_tokens(compressed)
+            # compress_conversation returns the input unchanged when summary
+            # generation fails (it never truncates without a summary). Since we
+            # already gated on len > keep_recent_count above, an unchanged result
+            # here means the summary LLM failed — surface it as an error.
+            logger.warning(f"Compression failed for {user_id}: summary generation did not produce a digest")
+            state["last_compression_status"] = "error"
 
     except Exception as e:
         logger.warning(f"Compression error: {e}")
+        state["last_compression_status"] = "error"
 
     return state
 

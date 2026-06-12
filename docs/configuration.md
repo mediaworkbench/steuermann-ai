@@ -358,7 +358,7 @@ tokens:
 
 - `tokens_used`, `input_tokens`, and `output_tokens` are accumulated in `GraphState` each turn and exposed via Prometheus metrics and the SSE `metadata` event.
 - Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The `tokens.*` configuration keys are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
-- Conversation length is controlled by the compression threshold (`llm.roles.chat.max_tokens * 0.75`, with `min_messages=2` at the call site), not by token budget caps. The summarization defaults live in code (`memory/summarization.py`, `orchestration/performance_nodes.py`), not in environment variables.
+- Conversation length is controlled by the compression threshold (`0.75 × context_window`, resolved from `llm.roles.chat.context_window_tokens` → capability-probe snapshot → 32768 fallback — **not** `max_tokens`, the output cap), not by token budget caps. Fill is measured from the provider-reported prompt size of the last response (`state["last_input_tokens"]`, the same number the context-ring shows). Compression is skipped when `len(messages) ≤ keep_recent_count` (5). The summarization defaults live in code (`memory/summarization.py`, `orchestration/performance_nodes.py`), not in environment variables.
 
 ### Checkpointing Configuration
 
