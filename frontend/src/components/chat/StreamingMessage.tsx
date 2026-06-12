@@ -1,5 +1,6 @@
 "use client";
 
+import { useDeferredValue } from "react";
 import {
   Brain,
   Calculator,
@@ -59,6 +60,11 @@ export function StreamingMessage({
   writebackSummary,
 }: StreamingMessageProps) {
   const { t } = useI18n();
+  // Defer the markdown re-parse so it runs at lower priority than the next token
+  // arriving. React can skip intermediate renders when tokens arrive faster than
+  // frames, preventing main-thread violations during fast-streaming responses.
+  const deferredContent = useDeferredValue(streamingContent);
+  const deferredWritebackSummary = useDeferredValue(writebackSummary);
 
   if (!isStreaming && !loading) return null;
 
@@ -90,8 +96,8 @@ export function StreamingMessage({
             aria-live="polite"
             aria-busy="true"
           >
-            {writebackSummary && (
-              <MarkdownMessage content={writebackSummary} />
+            {deferredWritebackSummary && (
+              <MarkdownMessage content={deferredWritebackSummary} />
             )}
             <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
               <FileEdit size={13} className="shrink-0" />
@@ -105,7 +111,7 @@ export function StreamingMessage({
             aria-live="polite"
             aria-busy="true"
           >
-            <MarkdownMessage content={streamingContent} />
+            <MarkdownMessage content={deferredContent} />
             <span
               className="ml-0.5 inline-block h-[1.15em] w-[0.55em] animate-cursor-blink rounded-[1px] bg-foreground/70 align-middle"
               aria-hidden="true"
