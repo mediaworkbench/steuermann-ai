@@ -90,7 +90,7 @@ export function WorkspacePanel({
       )}
 
       {/* Sidebar panel */}
-      <WorkspacePanelShell isOpen={isOpen}>
+      <WorkspacePanelShell isOpen={isOpen} onToggle={onToggle}>
         <WorkspacePanelTopBar
           title={t("chat.workspace")}
           onClose={onToggle}

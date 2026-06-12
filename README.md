@@ -1,7 +1,5 @@
 # Steuermann — Profile-Driven Runtime for Multi-Agent AI Applications
 
-![Steuermann](docs/steuermann.png)
-
 **Build domain-specific, multi-agent AI systems — entirely on your own infrastructure.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
