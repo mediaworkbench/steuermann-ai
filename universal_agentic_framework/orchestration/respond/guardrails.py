@@ -236,9 +236,9 @@ def format_tool_based_fallback(
     if response_text:
         return response_text
 
-    tool_based_text = None
-
-    # Prefer readable formatting of web search results over the raw dict string.
+    # Parseable web-search results become a complete, user-ready answer (own intro + list),
+    # so return them as-is — wrapping them in the generic tool prefix below would double the
+    # intro. Bounded by construction (5 results, 180-char snippets), so no truncation needed.
     web_search_raw = str(tool_results.get("web_search_mcp", "")).strip()
     if web_search_raw and not web_search_raw.lower().startswith("tool execution failed"):
         try:
@@ -258,25 +258,21 @@ def format_tool_based_fallback(
                     if lang != "de"
                     else "Hier sind die relevantesten Web-Ergebnisse, die ich gefunden habe:"
                 )
-                tool_based_text = intro + "\n\n" + "\n\n".join(lines)
+                return intro + "\n\n" + "\n\n".join(lines)
         except Exception:
-            tool_based_text = None
+            pass  # unparseable — fall through to the raw-output path below
 
-    if tool_based_text is None:
-        # Prioritize utility tools over web search in fallback.
-        for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
-            candidate = str(tool_results.get(tool_name, "")).strip()
-            if candidate and not candidate.lower().startswith("tool execution failed"):
-                tool_based_text = candidate
-                break
-
-    if tool_based_text:
-        prefix = (
-            "Hier ist das Ergebnis aus den ausgefuehrten Tools:\n\n"
-            if lang == "de"
-            else "Here is the result from the executed tools:\n\n"
-        )
-        return f"{prefix}{tool_based_text[:2500]}"
+    # Raw tool output (utility tools, or an unparseable web-search dict) is not a finished
+    # answer, so wrap it with the generic prefix. Truncated, since extracts can be long.
+    for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
+        candidate = str(tool_results.get(tool_name, "")).strip()
+        if candidate and not candidate.lower().startswith("tool execution failed"):
+            prefix = (
+                "Hier ist das Ergebnis aus den ausgefuehrten Tools:\n\n"
+                if lang == "de"
+                else "Here is the result from the executed tools:\n\n"
+            )
+            return f"{prefix}{candidate[:2500]}"
 
     return (
         "Entschuldigung, ich habe intern Werkzeuge ausgefuehrt, aber keine lesbare Antwort erhalten. "

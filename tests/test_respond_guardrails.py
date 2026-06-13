@@ -119,10 +119,17 @@ def test_fallback_formats_web_search_results():
     raw = "{'results': [{'title': 'T1', 'url': 'https://a.com', 'snippet': 'snip'}]}"
     out = format_tool_based_fallback("", tool_results={"web_search_mcp": raw}, lang="en")
     assert "T1" in out and "https://a.com" in out
-    # Faithful to the original: the formatted web results are wrapped by the generic
-    # "Here is the result from the executed tools:" prefix.
+    # Parseable web results are a complete answer — returned with their own intro and NOT
+    # double-wrapped in the generic "Here is the result from the executed tools:" prefix.
+    assert out.startswith("Here are the most relevant web results I found:")
+    assert "Here is the result from the executed tools:" not in out
+
+
+def test_fallback_wraps_unparseable_web_search_with_prefix():
+    # An unparseable web-search payload is raw output, so it DOES get the generic prefix.
+    out = format_tool_based_fallback("", tool_results={"web_search_mcp": "not-a-dict"}, lang="en")
     assert out.startswith("Here is the result from the executed tools:")
-    assert "Here are the most relevant web results I found:" in out
+    assert "not-a-dict" in out
 
 
 def test_fallback_uses_utility_tool_result():
