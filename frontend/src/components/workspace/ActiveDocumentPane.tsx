@@ -25,7 +25,8 @@ const DEFAULT_WIDTH = 460;
  */
 export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProps) {
   const { t } = useI18n();
-  const { editorDocId, getDocumentName, closeEditor, isDirty } = useActiveDocument();
+  const { editorDocId, historyDocId, getDocumentName, closeEditor, closeHistory, isDirty } =
+    useActiveDocument();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const draggingRef = useRef(false);
 
@@ -76,7 +77,11 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 shrink-0">
         <p className="flex min-w-0 items-center gap-1.5 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <span className="truncate">
-            {editorDocId ? getDocumentName(editorDocId) : t("workspace.splitViewTitle")}
+            {editorDocId
+              ? getDocumentName(editorDocId)
+              : historyDocId
+                ? getDocumentName(historyDocId)
+                : t("workspace.splitViewTitle")}
           </span>
           {isDirty && (
             <span
@@ -90,7 +95,10 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
         </p>
         <Button
           type="button"
-          onClick={() => closeEditor()}
+          onClick={() => {
+            closeEditor();
+            closeHistory();
+          }}
           variant="ghost"
           size="sm"
           className="p-0 text-muted-foreground hover:text-foreground"
@@ -102,7 +110,20 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
       </div>
 
       {/* Body — guard against the brief null window during close batching */}
-      {editorDocId && <DocumentEditorView isLoading={isLoading} />}
+      {(editorDocId || historyDocId) && <DocumentEditorView isLoading={isLoading} />}
     </div>
   );
+}
+
+/**
+ * Mount gate for the pane. Lives inside `ActiveDocumentProvider` so it can read
+ * the editor/history state directly (ChatInterface sits above the provider and
+ * cannot). Renders the pane whenever a document is open for editing OR its
+ * version history is open; renders nothing otherwise. `ActiveDocumentPane`
+ * itself keeps its mount contract (always renders its region when mounted).
+ */
+export function ActiveDocumentPaneSlot({ isLoading = false }: ActiveDocumentPaneProps) {
+  const { editorDocId, historyDocId } = useActiveDocument();
+  if (!editorDocId && !historyDocId) return null;
+  return <ActiveDocumentPane isLoading={isLoading} />;
 }

@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
 import { InspectorTab } from "../InspectorTab";
-import { ActiveDocumentPane } from "../ActiveDocumentPane";
+import { ActiveDocumentPane, ActiveDocumentPaneSlot } from "../ActiveDocumentPane";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
@@ -495,5 +495,20 @@ describe("ActiveDocumentPane", () => {
     expect(closeBtn).toBeInTheDocument();
     // Clicking while no doc is open should not throw
     fireEvent.click(closeBtn);
+  });
+});
+
+describe("ActiveDocumentPaneSlot", () => {
+  test("renders nothing when no document is open for editing or history", () => {
+    const { container } = render(
+      <ActiveDocumentProvider documents={[]}>
+        <ActiveDocumentPaneSlot />
+      </ActiveDocumentProvider>,
+    );
+    // No editor + no history → the pane is not mounted at all (no region chrome).
+    expect(container.firstChild).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "workspace.splitViewTitle" }),
+    ).not.toBeInTheDocument();
   });
 });
