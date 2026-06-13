@@ -91,6 +91,12 @@ from universal_agentic_framework.orchestration.respond.prompt_builder import (
     build_memory_context_block,
     build_crew_findings_block,
 )
+from universal_agentic_framework.orchestration.respond.guardrails import (
+    retry_synthesis_if_empty,
+    retry_on_attachment_refusal,
+    retry_on_web_extract_contradiction,
+    format_tool_based_fallback,
+)
 
 try:
     from litellm.exceptions import (
@@ -1486,6 +1492,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     for _u in _re_urls.findall(r"https?://[^\s)]+", user_msg or ""):
         allowed_urls.add(_u.rstrip(".,;:!?"))
     collected_sources: List[Dict[str, Any]] = []  # structured source tracking
+    context_text = ""  # RAG knowledge text; populated below when knowledge_context is present
 
     # Utility-only tool responses (datetime/calculator/file ops) should not force citation-style footnotes.
     tool_results = state.get("tool_results", {})
@@ -1864,233 +1871,37 @@ def node_generate_response(state: GraphState) -> GraphState:
                 else:
                     logger.info("Sanitized control tokens from LLM response")
 
-            if not response_text:
-                # LLM emitted only tool-call tokens — retry with a synthesis-only prompt
-                # (no tool catalog, explicit instruction to summarize the data)
-                logger.info("LLM produced empty response after sanitization, retrying with synthesis prompt")
+            # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
+            # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
+            response_text = retry_synthesis_if_empty(
+                response_text,
+                model=model,
+                lang=lang,
+                user_msg=user_msg,
+                knowledge_context=knowledge_context,
+                context_text=context_text,
+                tool_results=tool_results,
+                collected_sources=collected_sources,
+            )
+            response_text = retry_on_attachment_refusal(
+                response_text,
+                model=model,
+                state=state,
+                system_prompt=system_prompt,
+                all_msgs=all_msgs,
+            )
+            response_text = retry_on_web_extract_contradiction(
+                response_text,
+                model=model,
+                tool_results=tool_results,
+                user_msg=user_msg,
+            )
+            response_text = format_tool_based_fallback(
+                response_text,
+                tool_results=tool_results,
+                lang=lang,
+            )
 
-                _retry_has_citable_sources = bool(collected_sources)
-                _synth_default = {
-                    "en": (
-                        "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
-                        "Do NOT list raw result items. Write a fluent summary that directly answers the user's question. "
-                        "Treat current-turn tool results as current facts. Do not mention training cutoffs, outdated knowledge limits, or inability to browse."
-                        + (
-                            " Cite sources using numbered references like [1], [2] etc. matching the SOURCES list below."
-                            if _retry_has_citable_sources
-                            else ""
-                        )
-                    ),
-                    "de": (
-                        "Fasse die obigen Tool-Ergebnisse und die Wissensdatenbank zu einer zusammenhaengenden, "
-                        "gut strukturierten Antwort zusammen. Liste KEINE rohen Ergebnis-Eintraege auf. "
-                        "Schreibe eine fluessige Zusammenfassung, die die Frage des Benutzers direkt beantwortet. "
-                        "Behandle aktuelle Tool-Ergebnisse als aktuelle Fakten. Erwaehne keine Wissensgrenzen, Trainingsdaten-Grenzen oder fehlende Browsing-Faehigkeit."
-                        + (
-                            " Zitiere Quellen mit nummerierten Referenzen wie [1], [2] usw. passend zur SOURCES-Liste unten."
-                            if _retry_has_citable_sources
-                            else ""
-                        )
-                    ),
-                }
-                synth_instr = _synth_default.get(lang, _synth_default["en"])
-
-                # Build a focused data-only prompt — no tool catalog at all
-                retry_parts = [
-                    "You are a helpful AI assistant. Do NOT emit tool calls or control tokens. "
-                    "Return ONLY plain natural-language text. "
-                    "Use current-turn tool results as the source of truth and do not mention training cutoffs or browsing limitations.\n"
-                ]
-                if knowledge_context:
-                    retry_parts.append(f"=== KNOWLEDGE BASE ===\n{context_text}\n=== END KNOWLEDGE BASE ===\n")
-                if tool_results:
-                    for _tn, _tr in tool_results.items():
-                        retry_parts.append(f"=== TOOL: {_tn} ===\n{_tr}\n=== END TOOL ===\n")
-                # Include numbered source list so LLM can reference [N]
-                if collected_sources:
-                    src_lines = []
-                    for src in collected_sources:
-                        _idx = src.get("index", 0)
-                        if src.get("url"):
-                            src_lines.append(f"[{_idx}] {src['label']} - {src['url']}")
-                        else:
-                            src_lines.append(f"[{_idx}] {src['label']} (knowledge base)")
-                    retry_parts.append("=== SOURCES ===\n" + "\n".join(src_lines) + "\n=== END SOURCES ===\n")
-                retry_parts.append(f"=== TASK ===\n{synth_instr}\n=== END TASK ===\n")
-
-                retry_prompt = "\n".join(retry_parts)
-                retry_messages = [
-                    SystemMessage(content=retry_prompt),
-                    HumanMessage(content=user_msg),
-                ]
-
-                try:
-                    retry_out = model.invoke(retry_messages)
-                    if hasattr(retry_out, "content"):
-                        response_text = retry_out.content
-                    elif isinstance(retry_out, str):
-                        response_text = retry_out
-                    else:
-                        response_text = str(retry_out)
-
-                    # Strip any remaining control tokens from retry
-                    response_text = strip_control_tokens(response_text)
-                    logger.info("Synthesis retry succeeded", response_length=len(response_text))
-                except Exception as retry_err:
-                    logger.error("Synthesis retry failed", error=str(retry_err))
-                    response_text = ""
-
-            # Guardrail: if attachments were injected but the model still claims it cannot
-            # access attachments, force one corrective retry with explicit instruction.
-            attachment_context = state.get("attachment_context") or []
-            if response_text and attachment_context:
-                attachment_refusal_pattern = re.compile(
-                    r"("
-                    r"can(?:not|'t)\s+(?:view|access|see).{0,60}(?:attach|workspace\s+document|document)|"
-                    r"don['’]t\s+see.{0,60}(?:attach|workspace\s+document|document)|"
-                    r"(?:attach\w*|workspace\s+document\w*|document\w*).{0,60}"
-                    r"(?:not\s+)?(?:available|accessible|provided|found|readable|unavailable|inaccessible)|"
-                    r"not\s+accessible.{0,60}(?:content\s+extraction|extract)"
-                    r")",
-                    flags=re.IGNORECASE,
-                )
-                if attachment_refusal_pattern.search(response_text):
-                    logger.warning(
-                        "Model claimed attachments were unavailable despite injected attachment context; retrying once",
-                        attachment_count=len(attachment_context),
-                    )
-                    # Track attachment refusal retry trigger
-                    from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_TOTAL
-                    profile_name = state.get("profile_name", "unknown")
-                    ATTACHMENT_REFUSAL_RETRIES_TOTAL.labels(profile_name=profile_name).inc()
-                    
-                    correction_prompt = (
-                        system_prompt
-                        + "\n\n=== ATTACHMENT HANDLING ===\n"
-                        + "The USER ATTACHMENTS section is already provided in this prompt and is readable context. "
-                        + "Do not state that attachments are unavailable. Use that content directly in your answer.\n"
-                        + "=== END ATTACHMENT HANDLING ===\n"
-                    )
-                    correction_messages = [SystemMessage(content=correction_prompt)]
-                    for msg in all_msgs:
-                        role = msg.get("role", "user")
-                        content = msg.get("content", "")
-                        if role == "user":
-                            correction_messages.append(HumanMessage(content=content))
-                        elif role == "assistant":
-                            correction_messages.append(AIMessage(content=content))
-                    try:
-                        correction_out = model.invoke(correction_messages)
-                        if hasattr(correction_out, "content"):
-                            response_text = correction_out.content
-                        elif isinstance(correction_out, str):
-                            response_text = correction_out
-                        else:
-                            response_text = str(correction_out)
-                        response_text = strip_control_tokens(response_text)
-                        logger.info("Attachment correction retry succeeded", response_length=len(response_text))
-                        # Track successful attachment retry
-                        from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL
-                        ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL.labels(profile_name=profile_name).inc()
-                    except Exception as correction_err:
-                        logger.error("Attachment correction retry failed", error=str(correction_err))
-
-            # Guardrail: if webpage extraction succeeded but the model still claims
-            # it cannot access the site, force one corrective retry using tool output.
-            extract_result = str(tool_results.get("extract_webpage_mcp", "")).strip()
-            if response_text and extract_result and not extract_result.lower().startswith("error:"):
-                access_refusal_pattern = re.compile(
-                    r"(unable\s+to\s+(?:access|retrieve|visit)|"
-                    r"cannot\s+(?:access|retrieve|visit|reach)|"
-                    r"can't\s+(?:access|retrieve|visit|reach)|"
-                    r"connection\s+error|not\s+directly\s+retrievable|"
-                    r"verbindungsproblem|nicht\s+abrufbar|nicht\s+zugaenglich|"
-                    r"kann\s+(?:nicht|keine)\s+(?:zugreifen|abrufen|erreichen))",
-                    flags=re.IGNORECASE,
-                )
-                if access_refusal_pattern.search(response_text):
-                    logger.warning(
-                        "Model contradicted successful extract_webpage_mcp result; retrying once",
-                        extract_length=len(extract_result),
-                    )
-                    correction_prompt = (
-                        "You are given successfully extracted webpage content. "
-                        "Answer the user's question ONLY from this extracted content. "
-                        "Do not claim connection or access errors.\n\n"
-                        "=== EXTRACTED WEBPAGE CONTENT ===\n"
-                        f"{extract_result[:12000]}\n"
-                        "=== END EXTRACTED WEBPAGE CONTENT ==="
-                    )
-                    correction_messages = [
-                        SystemMessage(content=correction_prompt),
-                        HumanMessage(content=user_msg),
-                    ]
-                    try:
-                        correction_out = model.invoke(correction_messages)
-                        if hasattr(correction_out, "content"):
-                            response_text = correction_out.content
-                        elif isinstance(correction_out, str):
-                            response_text = correction_out
-                        else:
-                            response_text = str(correction_out)
-                        response_text = strip_control_tokens(response_text)
-                        logger.info("Web extract contradiction retry succeeded", response_length=len(response_text))
-                    except Exception as correction_err:
-                        logger.error("Web extract contradiction retry failed", error=str(correction_err))
-
-            # Final fallback — if retry also produced nothing, format raw results
-            if not response_text:
-                tool_based_text = None
-
-                # Prefer readable formatting of web search results over raw dict string
-                web_search_raw = str(tool_results.get("web_search_mcp", "")).strip()
-                if web_search_raw and not web_search_raw.lower().startswith("tool execution failed"):
-                    try:
-                        import ast
-                        parsed = ast.literal_eval(web_search_raw)
-                        if isinstance(parsed, dict) and isinstance(parsed.get("results"), list):
-                            items = parsed.get("results", [])[:5]
-                            lines = []
-                            for idx, item in enumerate(items, 1):
-                                title = str(item.get("title", "Untitled"))
-                                url = str(item.get("url", ""))
-                                snippet = str(item.get("snippet", "")).replace("\n", " ").strip()
-                                if len(snippet) > 180:
-                                    snippet = snippet[:177] + "..."
-                                lines.append(f"{idx}. {title}\n   {url}\n   {snippet}")
-                            intro = (
-                                "Here are the most relevant web results I found:"
-                                if lang != "de"
-                                else "Hier sind die relevantesten Web-Ergebnisse, die ich gefunden habe:"
-                            )
-                            tool_based_text = intro + "\n\n" + "\n\n".join(lines)
-                    except Exception:
-                        tool_based_text = None
-
-                if tool_based_text is None:
-                    # Prioritize utility tools over web search in fallback
-                    for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
-                        candidate = str(tool_results.get(tool_name, "")).strip()
-                        if candidate and not candidate.lower().startswith("tool execution failed"):
-                            tool_based_text = candidate
-                            break
-
-                if tool_based_text:
-                    prefix = (
-                        "Hier ist das Ergebnis aus den ausgefuehrten Tools:\n\n"
-                        if lang == "de"
-                        else "Here is the result from the executed tools:\n\n"
-                    )
-                    response_text = f"{prefix}{tool_based_text[:2500]}"
-                else:
-                    response_text = (
-                        "Entschuldigung, ich habe intern Werkzeuge ausgefuehrt, aber keine lesbare Antwort erhalten. "
-                        "Bitte formuliere deine Frage kurz neu."
-                        if lang == "de"
-                        else "Sorry, I executed tools internally but did not receive a readable answer. "
-                        "Please rephrase your question briefly."
-                    )
-        
         # Remove any URLs that were not present in tool results / RAG / the user message.
         if response_text:
             response_text, _urls_removed = filter_untrusted_urls(response_text, allowed_urls)
