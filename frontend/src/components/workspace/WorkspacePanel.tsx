@@ -181,6 +181,8 @@ export function WorkspacePanel({
             <InspectorTab
               nodeTrace={nodeTrace}
               isStreaming={isStreaming}
+              // Latest answer → its post-response nodes are running in the background.
+              isLatestAnswer={!historicalAnswer}
               // Only offer the Outputs deep-link when there's tool output to view.
               onOpenOutputs={evidence.tools.length > 0 ? () => setActiveTab("outputs") : undefined}
             />

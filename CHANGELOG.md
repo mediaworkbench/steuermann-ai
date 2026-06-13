@@ -1,5 +1,31 @@
 # Changelog
 
+### [0.4.4] — Inspector: full traceability of post-response nodes
+
+#### Feature
+
+* **The Inspector now shows the post-response nodes with real status + timing.** The four
+  nodes that run *after* the answer is streamed — `compress_conversation`, `summarize`,
+  `update_memory`, `cache_stats` — execute in a background drain after `[DONE]`, so their
+  timing/status was previously discarded; the Inspector could only list their names as static
+  badges. They are now captured during that drain and persisted onto the assistant message, so
+  the Inspector renders them as a second ordered list (sequence · success/error · duration ·
+  timing bar) exactly like the answer-path nodes. Persisted per message, so it survives reload.
+* **How it flows.** A per-turn `turn_id` is generated in the chat proxy, sent to LangGraph in
+  the stream `state`, and stored in the assistant message metadata. While the background drain
+  runs the post-response nodes to completion, it records each node's timing/status (reusing the
+  same `on_chain_start`/`on_chain_end`/`on_chain_error` logic as the live trace) and writes the
+  **complete** trace back to that exact message via a new
+  `ConversationStore.update_assistant_node_trace_by_turn`. Matching by `turn_id` (not recency)
+  keeps it correct when a queued/manual follow-up inserts a newer assistant row during the
+  drain. The live stream protocol (`tokens → metadata → [DONE]`) is unchanged — the answer is
+  never delayed.
+* **No-wait UX.** For the latest answer, the pending post-response nodes show a pulsing
+  "Running in the background…" indicator (so they read as *in-progress*, not *skipped*); a
+  bounded auto-refresh poll (steady ~10s cadence, ~80s budget) replaces them with the real
+  timings as soon as the ~40s drain finishes — no manual reload needed. Historical answers in
+  the `/chats` evidence drawer render the trace statically.
+
 ### [0.4.3] — orchestration audit: P0 graph fixes, performance, and modularization
 
 #### Fix

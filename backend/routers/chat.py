@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
@@ -1729,6 +1730,11 @@ async def chat_stream(
 
     llm_capability_probes = _get_latest_llm_capability_probes(request)
     conversation_id = request_body.conversation_id
+    # Unique id for this turn's assistant message. Stored in the message metadata at
+    # persist time and sent to LangGraph so the background drain can write the complete
+    # node trace (incl. post-response nodes) back to *this* exact row — robust against a
+    # follow-up/queued turn inserting a newer assistant row during the ~43 s drain.
+    turn_id = str(uuid.uuid4())
 
     state: Dict[str, Any] = {
         "messages": [{"role": "user", "content": request_body.message}],
@@ -1737,6 +1743,7 @@ async def chat_stream(
         "user_settings": user_settings,
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": conversation_id} if conversation_id else {}),
+        "turn_id": turn_id,
         "attachments": [
             {
                 "id": a["id"],
@@ -1874,6 +1881,9 @@ async def chat_stream(
                         "sources": _metadata.get("sources") or [],
                         "rag_attempted": bool(_metadata.get("rag_attempted", False)),
                         "rag_doc_count": int(_metadata.get("rag_doc_count", 0)),
+                        # Keyed so the LangGraph post-response drain can target this exact
+                        # row when it writes the full node trace back (see server.py).
+                        "turn_id": turn_id,
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),

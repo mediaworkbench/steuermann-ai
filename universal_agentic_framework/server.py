@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -438,13 +439,65 @@ def _tool_label(tool_name: str) -> str:
     return f"Using {friendly}..."
 
 
-async def _drain_remaining(iterator: Any) -> None:
-    """Silently consume remaining astream_events so post-processing nodes complete."""
+async def _drain_and_capture(
+    iterator: Any,
+    node_start: dict[str, float],
+    node_trace_list: list[dict[str, Any]],
+    start_seq: int,
+) -> None:
+    """Consume remaining astream_events so post-processing nodes complete, AND record
+    their Inspector node trace (timing + status) into ``node_trace_list`` in place.
+
+    Mirrors the on_chain_start / on_chain_end / on_chain_error handling of the main
+    stream loop, but for the post-response nodes (compress_conversation, summarize,
+    update_memory, cache_stats) that run after [DONE]. Best-effort: never raises.
+    """
+    seq = start_seq
     try:
-        async for _ in iterator:
-            pass
+        async for event in iterator:
+            name = event.get("name", "")
+            if name not in _GRAPH_NODE_NAMES:
+                continue
+            kind = event.get("event", "")
+            if kind == "on_chain_start":
+                node_start[name] = time.perf_counter()
+            elif kind in ("on_chain_end", "on_chain_error"):
+                seq += 1
+                started = node_start.pop(name, None)
+                dur_ms = (
+                    round((time.perf_counter() - started) * 1000, 1)
+                    if started is not None
+                    else None
+                )
+                node_trace_list.append({
+                    "node": name,
+                    "sequence": seq,
+                    "duration_ms": dur_ms,
+                    "status": "success" if kind == "on_chain_end" else "error",
+                })
     except Exception:
         pass
+
+
+_conversation_store = None  # lazy ConversationStore for post-response trace write-back
+_conversation_store_lock = threading.Lock()  # guards the lazy init (runs in worker threads)
+
+
+def _persist_post_response_trace(turn_id: str, node_trace: list[dict[str, Any]]) -> bool:
+    """Write the complete node trace back to a turn's assistant message (sync DB call).
+
+    Lazily builds a ConversationStore against the shared Postgres pool — same pattern as
+    the co-occurrence durable store. Run via ``asyncio.to_thread`` so the psycopg call
+    never blocks the event loop. The lock prevents two concurrent first-time drains from
+    each building a pool (``init_db_pool`` is not memoized).
+    """
+    global _conversation_store
+    if _conversation_store is None:
+        with _conversation_store_lock:
+            if _conversation_store is None:
+                from backend.db import ConversationStore, init_db_pool
+                _conversation_store = ConversationStore(init_db_pool())
+    return _conversation_store.update_assistant_node_trace_by_turn(turn_id, node_trace)
 
 
 @app.post("/stream")
@@ -470,6 +523,9 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     # Ephemeral requests (no session_id) run on a throwaway thread that is deleted
     # after the stream closes; persistent ones use their session_id as thread_id.
     session_id = request.get("session_id")
+    # Per-turn id from the FastAPI layer; used to write the complete node trace (incl.
+    # post-response nodes that run after [DONE]) back to this turn's assistant message.
+    turn_id = request.get("turn_id")
     thread_id, is_ephemeral = _resolve_thread(session_id)
 
     # Load at the edge: merge accumulated messages from checkpoint with new user message
@@ -742,11 +798,37 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
                                     # Drain post-processing nodes (summarize, update_memory)
                                     # in the background so they complete without blocking.
-                                    # Ephemeral cleanup runs only after the drain finishes,
-                                    # so the final checkpoint is deleted, not orphaned.
+                                    # While draining, capture their node trace and write the
+                                    # complete trace back to this turn's assistant message so
+                                    # the Inspector shows full traceability. Ephemeral cleanup
+                                    # runs only after the drain finishes, so the final
+                                    # checkpoint is deleted, not orphaned.
                                     async def _drain_then_cleanup(it: Any = _events_iter) -> None:
                                         try:
-                                            await _drain_remaining(it)
+                                            _pre_len = len(_node_trace_list)
+                                            await _drain_and_capture(
+                                                it, _node_start, _node_trace_list, _node_seq
+                                            )
+                                            _captured = len(_node_trace_list) - _pre_len
+                                            if turn_id and session_id and _captured > 0:
+                                                try:
+                                                    matched = await asyncio.to_thread(
+                                                        _persist_post_response_trace,
+                                                        turn_id,
+                                                        list(_node_trace_list),
+                                                    )
+                                                    logger.debug(
+                                                        "post_response_node_trace_persisted",
+                                                        turn_id=turn_id,
+                                                        captured=_captured,
+                                                        matched=matched,
+                                                    )
+                                                except Exception as exc:
+                                                    logger.warning(
+                                                        "post_response_node_trace_persist_failed",
+                                                        error=str(exc),
+                                                        exc_info=True,
+                                                    )
                                         finally:
                                             if is_ephemeral:
                                                 await _cleanup_ephemeral_thread(thread_id)
