@@ -81,6 +81,10 @@ from universal_agentic_framework.orchestration.crew_nodes import (
 )
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
+from universal_agentic_framework.orchestration.respond.text_cleanup import (
+    strip_control_tokens,
+    filter_untrusted_urls,
+)
 
 try:
     from litellm.exceptions import (
@@ -1895,11 +1899,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             import re
 
             original_text = response_text
-            response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-            response_text = re.sub(r"<\|[^|>]+\|>", "", response_text)
-            # Strip bare "[Tool Result]" placeholder that some models emit when confused by tool headers
-            response_text = re.sub(r"^\s*\[Tool Result\]\s*$", "", response_text, flags=re.MULTILINE)
-            response_text = response_text.strip()
+            response_text = strip_control_tokens(response_text)
 
             if response_text != original_text:
                 if tool_calling_mode == "native":
@@ -1980,8 +1980,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                         response_text = str(retry_out)
 
                     # Strip any remaining control tokens from retry
-                    response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                    response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
+                    response_text = strip_control_tokens(response_text)
                     logger.info("Synthesis retry succeeded", response_length=len(response_text))
                 except Exception as retry_err:
                     logger.error("Synthesis retry failed", error=str(retry_err))
@@ -2034,8 +2033,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                             response_text = correction_out
                         else:
                             response_text = str(correction_out)
-                        response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                        response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
+                        response_text = strip_control_tokens(response_text)
                         logger.info("Attachment correction retry succeeded", response_length=len(response_text))
                         # Track successful attachment retry
                         from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL
@@ -2081,8 +2079,7 @@ def node_generate_response(state: GraphState) -> GraphState:
                             response_text = correction_out
                         else:
                             response_text = str(correction_out)
-                        response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                        response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
+                        response_text = strip_control_tokens(response_text)
                         logger.info("Web extract contradiction retry succeeded", response_length=len(response_text))
                     except Exception as correction_err:
                         logger.error("Web extract contradiction retry failed", error=str(correction_err))
@@ -2140,27 +2137,11 @@ def node_generate_response(state: GraphState) -> GraphState:
                         "Please rephrase your question briefly."
                     )
         
-        # Remove any URLs that were not present in tool results
+        # Remove any URLs that were not present in tool results / RAG / the user message.
         if response_text:
-            import re
-
-            def _filter_urls(text: str) -> str:
-                urls = re.findall(r"https?://[^\s)]+", text)
-                if not urls:
-                    return text
-                # Compare on trailing-punctuation-normalized forms so "…/page." matches an
-                # allowed "…/page" (and vice versa) instead of being scrubbed spuriously.
-                allowed_norm = {a.rstrip(".,;:!?") for a in allowed_urls}
-                removed = 0
-                for url in urls:
-                    if url.rstrip(".,;:!?") not in allowed_norm:
-                        text = text.replace(url, "source omitted")
-                        removed += 1
-                if removed:
-                    logger.info("Removed untrusted URLs from response", removed=removed)
-                return text
-
-            response_text = _filter_urls(response_text)
+            response_text, _urls_removed = filter_untrusted_urls(response_text, allowed_urls)
+            if _urls_removed:
+                logger.info("Removed untrusted URLs from response", removed=_urls_removed)
 
         # Honor strict literal-response directives when explicitly requested.
         exact_reply = extract_exact_reply_directive(user_msg)
