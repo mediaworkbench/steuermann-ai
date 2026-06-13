@@ -40,6 +40,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import threading
 from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -136,6 +137,45 @@ _CREW_RESULT_PREFIXES = (
     "Planning Result:",
     "Chain Result (",
 )
+
+# Cache of discovered tool lists (ToolRegistry.discover_and_load scans the filesystem and
+# parses every tool manifest, which is wasteful to repeat per turn). Keyed on the inputs
+# that change the discovered set: profile, language (descriptions are language-specific),
+# and the profile tools dir. User tool_toggles and the vision-role exclusion are applied
+# per-request on top of this, so they are NOT part of the key. The lock serializes the
+# first build (sync load_tools node runs in an executor thread under ainvoke).
+_tool_registry_cache: Dict[Tuple[str, str, str], List[Any]] = {}
+_tool_registry_lock = threading.Lock()
+
+
+def clear_tool_registry_cache() -> None:
+    """Drop cached tool-discovery results (tests, or after tool config/file changes)."""
+    with _tool_registry_lock:
+        _tool_registry_cache.clear()
+
+
+def _discover_tools_cached(
+    profile_id: str,
+    language: str,
+    tools_config: Any,
+    profile_tools_dir: Any,
+) -> List[Any]:
+    """Return the discovered (unfiltered) tool list, cached per profile+language+dir."""
+    key = (str(profile_id), str(language), str(profile_tools_dir))
+    cached = _tool_registry_cache.get(key)
+    if cached is not None:
+        return cached
+    with _tool_registry_lock:
+        cached = _tool_registry_cache.get(key)
+        if cached is None:
+            registry = ToolRegistry(
+                config=tools_config,
+                profile_language=language,
+                extra_tools_dir=profile_tools_dir,
+            )
+            cached = registry.discover_and_load()
+            _tool_registry_cache[key] = cached
+    return cached
 
 
 def _rag_label(file_name: str | None) -> str:
@@ -335,12 +375,13 @@ def node_load_tools(state: GraphState) -> GraphState:
             profile_dir = get_profile_dir(profile_id=profile_id, require_exists=False)
             profile_tools_dir = profile_dir / "tools"
 
-            registry = ToolRegistry(
-                config=tools_config,
-                profile_language=conversation_language,
-                extra_tools_dir=profile_tools_dir,
+            # Cached filesystem discovery; copy so the per-request filters below never
+            # mutate or alias the shared cached list.
+            tools = list(
+                _discover_tools_cached(
+                    profile_id, conversation_language, tools_config, profile_tools_dir
+                )
             )
-            tools = registry.discover_and_load()
 
             # Filter tools based on user settings (tool_toggles)
             user_settings = state.get("user_settings", {})

@@ -66,9 +66,22 @@ def _clear_config_cache_each_test():
     except (ImportError, ModuleNotFoundError):
         yield
         return
+    # Tool discovery is also cached per (profile, language, dir); clear it too so a test
+    # that patches tool config/discovery isn't served a prior test's tool list.
+    try:
+        from universal_agentic_framework.orchestration.graph_builder import (
+            clear_tool_registry_cache,
+        )
+    except (ImportError, ModuleNotFoundError):
+        clear_tool_registry_cache = None
+
     clear_config_cache()
+    if clear_tool_registry_cache:
+        clear_tool_registry_cache()
     yield
     clear_config_cache()
+    if clear_tool_registry_cache:
+        clear_tool_registry_cache()
 
 
 @pytest.fixture(autouse=True)
