@@ -3,7 +3,6 @@
 Integrates caching and summarization into the graph execution pipeline.
 """
 
-import logging
 from typing import Optional, Any
 import os
 
@@ -13,8 +12,9 @@ from universal_agentic_framework.caching import (
     MemoryCacheBackend,
 )
 from universal_agentic_framework.memory.summarization import ConversationSummarizer
+from universal_agentic_framework.monitoring.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # Global instances
@@ -49,7 +49,7 @@ def initialize_performance_nodes(llm_factory=None):
             _cache_manager = CacheManager(backend)
             logger.info("Initialized Redis cache for graph")
         except Exception as e:
-            logger.warning(f"Redis initialization failed: {e}, using memory cache")
+            logger.warning("Redis initialization failed, using memory cache", error=str(e))
             _cache_manager = CacheManager(MemoryCacheBackend())
     else:
         _cache_manager = CacheManager(MemoryCacheBackend())
@@ -102,14 +102,14 @@ async def memory_query_cache_node(state: dict) -> dict:
         # Check cache
         cached_results = await cache.get_memory_query(user_id, query)
         if cached_results:
-            logger.info(f"Memory query cache hit for user {user_id}")
+            logger.info("Memory query cache hit", user_id=user_id)
             state["loaded_memory"] = cached_results
             return state
         
-        logger.debug(f"Memory query cache miss for user {user_id}")
+        logger.debug("Memory query cache miss", user_id=user_id)
         
     except Exception as e:
-        logger.warning(f"Memory cache node error: {e}")
+        logger.warning("Memory cache node error", error=str(e))
     
     return state
 
@@ -140,10 +140,10 @@ async def memory_cache_store_node(state: dict) -> dict:
         # Store in cache
         success = await cache.set_memory_query(user_id, query, memory)
         if success:
-            logger.debug(f"Cached memory results for user {user_id}")
+            logger.debug("Cached memory results", user_id=user_id)
     
     except Exception as e:
-        logger.warning(f"Memory store cache node error: {e}")
+        logger.warning("Memory store cache node error", error=str(e))
     
     return state
 
@@ -235,16 +235,17 @@ async def compress_state(state: dict, force: bool = False) -> dict:
             if fill <= compression_threshold:
                 return state
 
-        logger.info(f"Compressing conversation for user {user_id} (force={force})")
+        logger.info("Compressing conversation", user_id=user_id, force=force)
 
         compressed = await summarizer.compress_conversation(messages, user_id)
 
         if len(compressed) < len(messages):
             savings = summarizer.calculate_savings(len(messages), len(compressed))
             logger.info(
-                f"Compression savings for {user_id}: "
-                f"removed {savings['messages_removed']} messages, "
-                f"saved ~{savings['estimated_tokens_saved']} tokens"
+                "Compression savings",
+                user_id=user_id,
+                messages_removed=savings["messages_removed"],
+                estimated_tokens_saved=savings["estimated_tokens_saved"],
             )
             state["messages"] = compressed
             state["digest_chain"] = summarizer.extract_digest_chain(compressed)
@@ -255,11 +256,11 @@ async def compress_state(state: dict, force: bool = False) -> dict:
             # generation fails (it never truncates without a summary). Since we
             # already gated on len > keep_recent_count above, an unchanged result
             # here means the summary LLM failed — surface it as an error.
-            logger.warning(f"Compression failed for {user_id}: summary generation did not produce a digest")
+            logger.warning("Compression failed: summary generation did not produce a digest", user_id=user_id)
             state["last_compression_status"] = "error"
 
     except Exception as e:
-        logger.warning(f"Compression error: {e}")
+        logger.warning("Compression error", error=str(e))
         state["last_compression_status"] = "error"
 
     return state
@@ -295,14 +296,14 @@ async def cache_stats_node(state: dict) -> dict:
         stats = cache.get_stats()
         if stats["total_requests"] > 0:
             logger.info(
-                f"Cache stats - "
-                f"Hits: {stats['hits']}, "
-                f"Misses: {stats['misses']}, "
-                f"Hit Rate: {stats['hit_rate_percent']:.1f}%, "
-                f"Errors: {stats['errors']}"
+                "Cache stats",
+                hits=stats["hits"],
+                misses=stats["misses"],
+                hit_rate_percent=round(stats["hit_rate_percent"], 1),
+                errors=stats["errors"],
             )
     except Exception as e:
-        logger.warning(f"Cache stats error: {e}")
+        logger.warning("Cache stats error", error=str(e))
     
     return state
 

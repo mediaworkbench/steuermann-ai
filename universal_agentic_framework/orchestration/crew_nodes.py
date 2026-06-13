@@ -195,9 +195,11 @@ CREW_SPECS: Dict[str, CrewSpec] = {
             "informieren", "sag mir", "was ist", "wie", "recherchieren",
         ),
         patterns=(
-            r"^\s*(what|how|why|where|when)",
+            # W1.7: \b so "whatever…" doesn't read as a "what" question, and the bare German
+            # alternation no longer matches "wo" inside "password", "was" inside "etwas", etc.
+            r"^\s*(what|how|why|where|when)\b",
             r"(find|search|look).*?(for|about|on)",
-            r"(wie|was|warum|wo|wann)",
+            r"\b(wie|was|warum|wo|wann)\b",
             r"(?:search|suche).*?(web|internet|online)",
         ),
     ),
@@ -405,6 +407,16 @@ def make_crew_node(spec: CrewSpec):
 def make_route(spec: CrewSpec):
     """Build the routing predicate for ``spec`` (keyword + pattern match, feature-gated)."""
 
+    # W1.7: match keywords on word boundaries (one precompiled alternation) instead of plain
+    # substring containment, so "test" no longer fires inside "latest", "fix" inside "prefix",
+    # "data" inside "database", etc. Built once per spec at module import.
+    _keywords = spec.keywords_en + spec.keywords_de
+    _keyword_re = (
+        re.compile(r"\b(?:" + "|".join(re.escape(k) for k in _keywords) + r")\b")
+        if _keywords
+        else None
+    )
+
     def _route(state: Dict[str, Any]) -> bool:
         if not _multi_agent_crews_enabled():
             return False
@@ -415,11 +427,12 @@ def make_route(spec: CrewSpec):
 
         user_msg = messages[-1].get("content", "").lower()
 
-        for keyword in spec.keywords_en + spec.keywords_de:
-            if keyword in user_msg:
+        if _keyword_re is not None:
+            match = _keyword_re.search(user_msg)
+            if match:
                 logger.info(
                     f"{spec.name} routing triggered",
-                    detected_keyword=keyword,
+                    detected_keyword=match.group(0),
                     message_length=len(user_msg),
                 )
                 return True

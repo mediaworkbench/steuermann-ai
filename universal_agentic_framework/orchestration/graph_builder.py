@@ -679,7 +679,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "Native tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -890,7 +891,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "Structured tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -1139,7 +1141,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "ReAct tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -2182,22 +2185,18 @@ def build_graph() -> StateGraph:
         if mode not in ("native", "structured", "react"):
             logger.warning(
                 "Tool strategy routing: invalid mode, falling back to structured",
-                extra={
-                    "invalid_mode": mode,
-                    "candidates": len(candidates),
-                    "mode_reason": mode_reason,
-                },
+                invalid_mode=mode,
+                candidates=len(candidates),
+                mode_reason=mode_reason,
             )
             return "structured"
-        
+
         logger.info(
             "Tool strategy routing: routing to strategy node",
-            extra={
-                "mode": mode,
-                "mode_reason": mode_reason,
-                "candidates": len(candidates),
-                "candidate_names": [c.get("name", "unknown") for c in candidates],
-            },
+            mode=mode,
+            mode_reason=mode_reason,
+            candidates=len(candidates),
+            candidate_names=[c.get("name", "unknown") for c in candidates],
         )
         return mode
 
@@ -2217,33 +2216,12 @@ def build_graph() -> StateGraph:
     graph.add_edge("call_tools_structured", "after_tool_call")
     graph.add_edge("call_tools_react", "after_tool_call")
 
-    # Crew conditional routing from convergence point (secondary path — most crew queries
-    # are routed at START, but this handles any edge case where a crew is signalled after tools).
-    def route_to_crew(state):
-        """Route to appropriate crew or standard flow."""
-        if route_to_research_crew(state):
-            return "research_crew"
-        elif route_to_analytics_crew(state):
-            return "analytics_crew"
-        elif route_to_code_generation_crew(state):
-            return "code_generation_crew"
-        elif route_to_planning_crew(state):
-            return "planning_crew"
-        else:
-            return "memory_query_cache"
-    
-    graph.add_conditional_edges(
-        "after_tool_call",
-        route_to_crew,
-        {
-            "research_crew": "research_crew",
-            "analytics_crew": "analytics_crew",
-            "code_generation_crew": "code_generation_crew",
-            "planning_crew": "planning_crew",
-            "memory_query_cache": "memory_query_cache",
-        }
-    )
-    
+    # after_tool_call always proceeds to memory. Crew queries are routed to their crew at
+    # START (bypassing tools entirely), so a query only reaches after_tool_call when no crew
+    # matched there; tool nodes don't change messages[-1], so re-running the crew routers here
+    # would always return "no crew" (W1.7: removed that dead conditional re-check).
+    graph.add_edge("after_tool_call", "memory_query_cache")
+
     # All crews flow to memory cache for further processing
     graph.add_edge("research_crew", "memory_query_cache")
     graph.add_edge("analytics_crew", "memory_query_cache")

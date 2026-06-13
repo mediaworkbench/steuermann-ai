@@ -113,3 +113,20 @@ def test_route_disabled_returns_false():
 def test_route_empty_messages_returns_false():
     with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
         assert not crew_nodes.route_to_research_crew({"messages": []})
+
+
+# ── W1.7: word-boundary precision (no substring false positives) ──────
+
+def test_route_no_substring_false_positives():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        # "wo" inside "password" no longer triggers research; "plan" inside "explanation"
+        # no longer triggers planning; "fix" inside "suffix" no longer triggers code.
+        assert not crew_nodes.route_to_research_crew(_msg("I forgot my password"))
+        assert not crew_nodes.route_to_planning_crew(_msg("give me an explanation"))
+        assert not crew_nodes.route_to_code_generation_crew(_msg("explain the suffix notation"))
+
+
+def test_route_whole_word_keywords_still_match():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        assert crew_nodes.route_to_code_generation_crew(_msg("fix this bug in the code"))
+        assert crew_nodes.route_to_research_crew(_msg("wo ist der bahnhof"))  # \bwo\b as a word
