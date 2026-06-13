@@ -41,6 +41,13 @@ from .tool_scoring import (
 # Tool preparation
 from .tool_preparation import apply_top_k_scored_tools
 
+# Layer 2 tool-call argument preparation
+from .tool_call_args import (
+    apply_web_search_max_results,
+    infer_extract_webpage_url,
+    coerce_tool_args,
+)
+
 # Embedding provider
 from .embedding_provider import (
     get_routing_embedding_provider,
@@ -97,6 +104,10 @@ __all__ = [
     "apply_intent_override_floor",
     # Tool preparation
     "apply_top_k_scored_tools",
+    # Layer 2 tool-call argument preparation
+    "apply_web_search_max_results",
+    "infer_extract_webpage_url",
+    "coerce_tool_args",
     # Embedding provider
     "get_routing_embedding_provider",
     "clear_embedding_cache",

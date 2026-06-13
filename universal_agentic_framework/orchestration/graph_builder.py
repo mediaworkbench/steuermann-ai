@@ -125,6 +125,9 @@ from universal_agentic_framework.orchestration.helpers import (
     intent_boost_applies,
     apply_intent_override_floor,
     apply_top_k_scored_tools,
+    apply_web_search_max_results,
+    infer_extract_webpage_url,
+    coerce_tool_args,
     get_routing_embedding_provider,
     get_auxiliary_model,
     get_model,
@@ -784,24 +787,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     tool_name = tc.get("name", "")
                     tool_args = tc.get("args", {})
 
-                    if tool_name == "web_search_mcp" and _requested_results and "max_results" not in (tool_args or {}):
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
-
-                    if tool_name == "extract_webpage_mcp" and isinstance(tool_args, dict):
-                        def _contains_url_arg(value: Any) -> bool:
-                            if isinstance(value, str):
-                                candidate = value.strip().strip('"\'')
-                                return bool(re.match(r"^(https?://|www\.)", candidate))
-                            if isinstance(value, dict):
-                                return any(_contains_url_arg(v) for v in value.values())
-                            if isinstance(value, (list, tuple)):
-                                return any(_contains_url_arg(v) for v in value)
-                            return False
-
-                        if not _contains_url_arg(tool_args) and url_in_query:
-                            tool_args = dict(tool_args)
-                            tool_args["request_url"] = url_in_query
+                    tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                    tool_args = infer_extract_webpage_url(tool_name, tool_args, url_in_query)
 
                     tool_obj = tool_lookup.get(tool_name)
                     if not tool_obj:
@@ -816,19 +803,16 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         continue
 
                     # Validate args against schema if available; also strips unknown fields.
-                    schema = getattr(tool_obj, "args_schema", None)
-                    if schema:
-                        try:
-                            tool_args = schema(**tool_args).model_dump()
-                        except Exception as val_err:
-                            logger.warning(
-                                "Tool call validation failed",
-                                tool=tool_name,
-                                error=str(val_err),
-                                attempt=attempt,
-                            )
-                            parse_error = True
-                            continue
+                    tool_args, _val_err = coerce_tool_args(tool_obj, tool_args)
+                    if _val_err:
+                        logger.warning(
+                            "Tool call validation failed",
+                            tool=tool_name,
+                            error=_val_err,
+                            attempt=attempt,
+                        )
+                        parse_error = True
+                        continue
 
                     try:
                         result = tool_obj._run(**tool_args)
@@ -1070,11 +1054,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
 
-                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
-                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
-                    if _requested_results:
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1090,25 +1071,22 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                     break
 
                 # Validate args against schema; also strips unknown fields.
-                schema = getattr(tool_obj, "args_schema", None)
-                if schema:
-                    try:
-                        tool_args = schema(**tool_args).model_dump()
-                    except Exception as val_err:
-                        logger.warning(
-                            "Structured tool call validation failed",
-                            tool=tool_name,
-                            error=str(val_err),
-                            attempt=attempt,
-                        )
-                        if attempt < max_retries:
-                            from langchain_core.messages import AIMessage
-                            messages.append(AIMessage(content=response_text))
-                            messages.append(HumanMessage(
-                                content=f"Tool call validation error: {val_err}. Please fix the arguments and try again."
-                            ))
-                            continue
-                        break
+                tool_args, _val_err = coerce_tool_args(tool_obj, tool_args)
+                if _val_err:
+                    logger.warning(
+                        "Structured tool call validation failed",
+                        tool=tool_name,
+                        error=_val_err,
+                        attempt=attempt,
+                    )
+                    if attempt < max_retries:
+                        from langchain_core.messages import AIMessage
+                        messages.append(AIMessage(content=response_text))
+                        messages.append(HumanMessage(
+                            content=f"Tool call validation error: {_val_err}. Please fix the arguments and try again."
+                        ))
+                        continue
+                    break
 
                 try:
                     result = tool_obj._run(**tool_args)
@@ -1250,11 +1228,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
 
-                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
-                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
-                    if _requested_results:
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1265,13 +1240,9 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                     ))
                     continue
 
-                # Strip unknown fields before calling _run().
-                react_schema = getattr(tool_obj, "args_schema", None)
-                if react_schema:
-                    try:
-                        tool_args = react_schema(**tool_args).model_dump()
-                    except Exception:
-                        pass  # schema mismatch handled by _run's own error path
+                # Strip unknown fields before calling _run(); a schema mismatch is left for
+                # the tool's own error path (react ignores the validation error).
+                tool_args, _ = coerce_tool_args(tool_obj, tool_args)
 
                 try:
                     result = tool_obj._run(**tool_args)
