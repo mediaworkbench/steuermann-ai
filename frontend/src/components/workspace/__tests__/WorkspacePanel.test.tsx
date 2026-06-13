@@ -1,9 +1,11 @@
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { EvidenceChips } from "../EvidenceChips";
 import { InspectorTab } from "../InspectorTab";
 import { ActiveDocumentPane, ActiveDocumentPaneSlot } from "../ActiveDocumentPane";
+import { DocumentEditorView } from "../DocumentEditorView";
+import { useActiveDocument } from "@/context/ActiveDocumentContext";
 import { WorkspaceSidebar } from "@/components/WorkspaceSidebar";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
 import { ActiveDocumentProvider } from "@/context/ActiveDocumentContext";
@@ -510,5 +512,43 @@ describe("ActiveDocumentPaneSlot", () => {
     expect(
       screen.queryByRole("region", { name: "workspace.splitViewTitle" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("DocumentEditorView version history", () => {
+  function HistoryHarness({ docId }: { docId: string }) {
+    const { loadHistory } = useActiveDocument();
+    useEffect(() => {
+      void loadHistory(docId);
+    }, [docId, loadHistory]);
+    return <DocumentEditorView />;
+  }
+
+  test("shows the current document version as a non-restorable 'Current' row", async () => {
+    // The /versions endpoint only returns superseded snapshots — here, none — so
+    // the current version must still appear, sourced from the document record.
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => [] } as unknown as Response);
+    const d: WorkspaceDocument = {
+      id: "doc-9",
+      filename: "notes.md",
+      mime_type: "text/plain",
+      size_bytes: 100,
+      version: 3,
+      updated_at: "2026-06-13T00:00:00Z",
+    };
+
+    render(
+      <ActiveDocumentProvider documents={[d]}>
+        <HistoryHarness docId="doc-9" />
+      </ActiveDocumentProvider>,
+    );
+
+    expect(await screen.findByText("workspace.versionCurrent")).toBeInTheDocument();
+    expect(screen.getByText("v3")).toBeInTheDocument();
+    // The current version is not a restore target.
+    expect(screen.queryByText("workspace.restore")).not.toBeInTheDocument();
+    expect(screen.queryByText("workspace.noSavedVersions")).not.toBeInTheDocument();
   });
 });

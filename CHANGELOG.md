@@ -2,76 +2,63 @@
 
 ### [0.4.3] — orchestration audit: P0 graph fixes, performance, and modularization
 
-A focused quality pass over `universal_agentic_framework/orchestration/`. No new product
-features — correctness, performance, and maintainability of the LangGraph layer. ~80 new
-unit tests; full suite green (1309 passed, 4 skipped); every behavior-affecting change was
-rebuilt and live-smoke-tested against the running stack.
+#### Fix
+
+* **Version history never appeared (regression from the split-view refactor).** Clicking
+  **History** called `loadHistory()` and fetched the versions correctly, but the only component that renders the history panel (`DocumentEditorView`) lives inside `ActiveDocumentPane`, which was mounted only when the **editor** was open (`activeWorkspaceDocId`). Since `loadHistory` never opens the editor, the pane stayed unmounted and the loaded history was invisible — unless you happened to already be editing that document.
+* **Mount on history too, via a slot wrapper.** New exported `ActiveDocumentPaneSlot` (lives
+  inside `ActiveDocumentProvider`, so it can read editor/history state that `ChatInterface` — above the provider — cannot) mounts the pane when *either* the editor or the version history is open (`editorDocId || historyDocId`). `ActiveDocumentPane` itself keeps its "always renders its region when mounted" contract, so existing isolated tests are unaffected. The pane header falls back to the history document's name, the body renders for history-only, and the **X** now closes both the editor and the history panel.
+* **History opens as a view-only panel.** Clicking **History** shows the version list (preview / restore) without forcing the editor textarea open — **History** and **Edit** stay distinct actions. Because the pane no longer depends on `activeWorkspaceDocId`, viewing history correctly does **not** attach the document to the next chat message.
+* **Cleanup paths the new mount exposed.** Transient history state is now cleared wherever the editor is, so an orphaned history panel can't linger: on conversation switch
+  (`ActiveDocumentContext`), on deletion of the document whose history is open, and on **Nuke all** (`DocumentsTab` — which also now force-closes the editor, closing a pre-existing gap).
+* **Current version was never shown in history.** The history list renders only *snapshots*, which capture the **prior** content on each change — the current version lives solely on the document record (`workspace_documents`) and is never snapshotted. So the latest version (the one the Documents list shows, e.g. the v3 produced by restoring v2) never appeared as a history row. The panel now prepends a non-restorable **"Current"** row built from the document metadata already in state (new `getDocument` accessor on the editor hook), and filters it out of the snapshot list to avoid any overlap. This also replaces the misleading "No saved versions yet" for a freshly uploaded document that has a v1.
+* Images are unaffected — the **History** menu item is already hidden for them and the backend guards restore.
+
+**Known cosmetic gap (unchanged):** version "source" badges can show *You* / *Restored* but never *AI* — the backend only persists `source` of `user`/`restore`, never `assistant`.
 
 #### Critical fixes
 
 * **`/invoke` was completely broken (P0).** The sync `GRAPH.invoke(...)` call ran on the
   uvicorn event-loop thread, where the loop-bound `AsyncPostgresSaver` rejects synchronous
-  calls — every conversation-bound non-streaming request 500'd
-  (`InvalidStateError: Synchronous calls to AsyncPostgresSaver…`). Switched `/invoke` to
-  `await GRAPH.ainvoke(...)`.
-* **Ephemeral requests (no `session_id`) 500'd on both `/invoke` and `/stream`.** langgraph 1.x
-  requires a `thread_id` whenever a checkpointer is compiled in, so passing `config={}` raised
-  `Checkpointer requires one or more of the following 'configurable' keys`. Ephemeral requests
-  now run on a throwaway `ephemeral:<uuid>` thread that is deleted after the run
-  (`adelete_thread`); the streaming path chains cleanup onto the background drain task so it
-  fires only after the final checkpoint is written (no orphaned rows). Persistent sessions are
-  unaffected.
+  calls — every conversation-bound non-streaming request 500'd (`InvalidStateError: Synchronous calls to AsyncPostgresSaver…`). Switched `/invoke` to `await GRAPH.ainvoke(...)`.
+* **Ephemeral requests (no `session_id`) 500'd on both `/invoke` and `/stream`.** langgraph  
+  1.x requires a `thread_id` whenever a checkpointer is compiled in, so passing `config={}` raised `Checkpointer requires one or more of the following 'configurable' keys`. Ephemeral requests now run on a throwaway `ephemeral:<uuid>` thread that is deleted after the run (`adelete_thread`); the streaming path chains cleanup onto the background drain task so it fires only after the final checkpoint is written (no orphaned rows). Persistent sessions are unaffected.
 * **Stale checkpointed state leaked across turns.** With the Postgres checkpointer, any
   `GraphState` channel absent from the input retained the previous turn's value — so a cached
   `query_embedding`, a prior turn's `crew_results`/`tool_results`, or a stuck `rag_attempted`
-  could bleed into the next turn (e.g. a greeting reusing the previous question's embedding for
-  RAG). The server now resets all per-turn channels (`_per_turn_reset()`) on every request;
-  cumulative counters and the rolling `digest_chain` are intentionally preserved.
+  could bleed into the next turn (e.g. a greeting reusing the previous question's embedding for RAG). The server now resets all per-turn channels (`_per_turn_reset()`) on every request; cumulative counters and the rolling `digest_chain` are intentionally preserved.
 
 #### Correctness fixes
 
 * **Crew result prefix mismatch.** `node_generate_response` filtered crew messages out of LLM
-  history using `"Analytics Result:"`, but the analytics crew actually appends
-  `"Analysis Result:"` (and chains `"Chain Result (…)"`) — so analytics/chain output leaked
-  back as a prior assistant turn, making the model add a short follow-up instead of a full
-  answer. The filter prefixes now derive from a single `CREW_SPECS` source shared with the
-  producers, making the drift structurally impossible.
+  history using `"Analytics Result:"`, but the analytics crew actually appends `"Analysis Result:"` (and chains `"Chain Result (…)"`) — so analytics/chain output leaked back as a prior assistant turn, making the model add a short follow-up instead of a full answer. The filter prefixes now derive from a single `CREW_SPECS` source shared with the producers, making the drift structurally impossible.
 * **Summarizer failure wrote prompt text into long-term memory.** On an auxiliary-LLM failure
-  the summary fell back to echoing the extraction prompt + raw exchange, which was upserted to
-  Mem0 as a "user fact". It now yields empty and `node_update_memory` uses its meaningful
+  the summary fell back to echoing the extraction prompt + raw exchange, which was upserted to Mem0 as a "user fact". It now yields empty and `node_update_memory` uses its meaningful
   exchange-based fallback.
 * **Native tool-calling could double-execute tools.** When one call in a batch failed
-  validation, the whole model call was retried — re-running tools that already succeeded (real
-  side effects, e.g. `save_to_rag`). The retry now skips tools already executed in a prior
-  attempt.
+  validation, the whole model call was retried — re-running tools that already succeeded (real side effects, e.g. `save_to_rag`). The retry now skips tools already executed in a prior attempt.
 * **URL anti-hallucination filter false positives.** It scrubbed URLs the *user* pasted (and
   trailing-punctuation variants like `…/page.`). It now seeds the allow-list from the user
   message and matches on punctuation-normalized forms.
-* **Crew routing precision.** Keyword routing matched bare substrings ("test" inside "latest",
-  "fix" inside "suffix", "wo" inside "password"); it now matches on word boundaries. Removed a
-  dead conditional crew re-check at the post-tools convergence point (replaced with a direct
-  edge — crew queries are routed at START and tool nodes don't change the routing input).
-  (Latent — multi-agent crews are off by default.)
+* **Crew routing precision.** Keyword routing matched bare substrings ("test" inside 
+  "latest", "fix" inside "suffix", "wo" inside "password"); it now matches on word boundaries. Removed a dead conditional crew re-check at the post-tools convergence point (replaced with a direct edge — crew queries are routed at START and tool nodes don't change the routing input). (Latent — multi-agent crews are off by default.)
 * **Smaller items.** `_rag_label` now strips only a trailing extension (was a substring
-  `replace`, mangling names like `data.csv.md`); the in-code `tool_routing.similarity_threshold`
-  default aligned to the documented `0.55`; greetings now signal RAG to skip Qdrant.
+  `replace`, mangling names like `data.csv.md`); the in-code `tool_routing.similarity_threshold` default aligned to the documented `0.55`; greetings now signal RAG to skip Qdrant.
 
 #### Performance
 
 * **Config loading is cached.** `load_core_config` / `load_features_config` / etc. re-parsed
   and re-validated the full YAML stack on every call (~15–25× per request). The merged,
-  env-substituted dict is now cached per `(profile, file, paths)`, with `model_validate` still
-  run per call so each caller gets a fresh, mutable model. **~102× faster per load**
+  env-substituted dict is now cached per `(profile, file, paths)`, with `model_validate` still run per call so each caller gets a fresh, mutable model. **~102× faster per load**
   (3.96 ms → 0.04 ms); ~60–100 ms saved per turn.
 * **Performance nodes are async-native.** The memory-cache, compression, and stats nodes are
   registered as coroutines awaited under `ainvoke`, removing the per-call worker-thread +
   nested-event-loop bridging (`_run_async_node_sync` and the four sync wrappers deleted).
-* **Tool discovery is cached.** `ToolRegistry.discover_and_load()` (filesystem scan + per-tool
-  YAML parse) ran every turn; now cached per `(profile, language, dir)`, with user
+* **Tool discovery is cached.** `ToolRegistry.discover_and_load()` (filesystem scan + 
+  per-tool YAML parse) ran every turn; now cached per `(profile, language, dir)`, with user
   `tool_toggles` and the vision-role exclusion applied per request on top
   (**53.9 ms → 0.001 ms** warm).
-* **Wasted summary call removed.** `node_summarize` no longer makes its auxiliary-LLM call for
-  turns that won't be persisted (memory disabled or a trivial exchange — gate shared with
+* **Wasted summary call removed.** `node_summarize` no longer makes its auxiliary-LLM call for turns that won't be persisted (memory disabled or a trivial exchange — gate shared with
   `node_update_memory`).
 * **Embedding-provider cache** now guarded with double-checked locking so concurrent first
   requests can't double-build the provider.
@@ -89,11 +76,9 @@ rebuilt and live-smoke-tested against the running stack.
   via `make_crew_node` / `make_route`. `node_crew_chain` / `node_crew_parallel` unchanged.
 * **Layer 1/2 helpers extracted.** The 70-line intent-boost if/elif chain became a declarative
   table (`helpers/tool_scoring.py`); the duplicated web-search/URL/schema arg-prep across the
-  three tool-calling nodes moved to `helpers/tool_call_args.py`; `score_tool_similarity` lost a
-  dead second calling contract.
+  three tool-calling nodes moved to `helpers/tool_call_args.py`; `score_tool_similarity` lost a dead second calling contract.
 * **Logging standardized** on the structlog kwargs style (stdlib `extra={…}` calls and
-  `performance_nodes.py`'s f-string/`logging.getLogger` usage converted), so structured fields
-  are flattened rather than nested.
+  `performance_nodes.py`'s f-string/`logging.getLogger` usage converted), so structured fields are flattened rather than nested.
 
 ### [0.4.2] — workspace document editing, versioning, writeback hardening, compression repair & per-user appearance settings
 

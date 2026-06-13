@@ -71,6 +71,11 @@ export function useDocumentEditor({
     [documents],
   );
 
+  const getDocument = useCallback(
+    (docId: string) => documents.find((d) => d.id === docId),
+    [documents],
+  );
+
   const openEditor = useCallback(
     async (docId: string) => {
       setProcessingAction(docId);
@@ -241,6 +246,7 @@ export function useDocumentEditor({
     setEditorContent,
     isDirty,
     getDocumentName,
+    getDocument,
     openEditor,
     closeEditor,
     saveEditor,

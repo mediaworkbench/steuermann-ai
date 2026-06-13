@@ -27,6 +27,7 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
     setEditorContent,
     isDirty,
     getDocumentName,
+    getDocument,
     saveEditor,
     reattachEditor,
     downloadEditor,
@@ -48,6 +49,15 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
     return null;
   };
 
+  // The current/latest version lives only on the document record — it is never a
+  // historical snapshot (snapshots capture the *prior* content on each change).
+  // Surface it as a non-restorable "Current" row so the version shown in the
+  // Documents list (e.g. just after a restore) is always reflected in history.
+  const currentDoc = historyDocId ? getDocument(historyDocId) : undefined;
+  const pastVersions = currentDoc
+    ? historyVersions.filter((v) => v.version !== currentDoc.version)
+    : historyVersions;
+
   const versionHistory = historyDocId ? (
     <WorkspacePanelSection className="border-t-0">
       <WorkspacePanelHeaderRow
@@ -57,11 +67,28 @@ export function DocumentEditorView({ isLoading = false }: DocumentEditorViewProp
       />
       {historyLoading ? (
         <p className="py-2 text-xs text-muted-foreground">{t("workspace.loadingVersions")}</p>
-      ) : historyVersions.length === 0 ? (
+      ) : !currentDoc && pastVersions.length === 0 ? (
         <p className="py-2 text-xs text-muted-foreground">{t("workspace.noSavedVersions")}</p>
       ) : (
         <div className="space-y-1.5">
-          {historyVersions.map((v) => (
+          {currentDoc && (
+            <WorkspaceMutedCard className="rounded border border-primary/40">
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-foreground">v{currentDoc.version}</span>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                    {t("workspace.versionCurrent")}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatFileSize(currentDoc.size_bytes)}
+                    {currentDoc.updated_at &&
+                      ` · ${new Date(currentDoc.updated_at).toLocaleDateString()}`}
+                  </span>
+                </div>
+              </div>
+            </WorkspaceMutedCard>
+          )}
+          {pastVersions.map((v) => (
             <WorkspaceMutedCard key={v.id} className="rounded border">
               <div className="flex items-center justify-between px-2 py-1.5">
                 <div className="flex items-center gap-1.5">
