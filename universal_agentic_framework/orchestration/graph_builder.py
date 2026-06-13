@@ -78,6 +78,7 @@ from universal_agentic_framework.orchestration.crew_nodes import (
     node_planning_crew,
     node_crew_chain,
     node_crew_parallel,
+    CREW_SPECS,
 )
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
@@ -142,22 +143,16 @@ logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
 
-# Prefixes the crew nodes use when appending their results as assistant messages
-# (see crew_nodes.py). node_generate_response filters these out of the LLM message
-# history and injects them as system-level FINDINGS instead — keeping a crew result
-# as a prior assistant turn makes the model treat it as its own answer and only add a
-# short follow-up. MUST stay in sync with the strings produced in crew_nodes.py:
-#   research → "Research Result:", analytics → "Analysis Result:",
-#   code_generation → "Code Generation Result:", planning → "Planning Result:",
-#   chain → "Chain Result (<name>):". Matched via str.startswith, so "Chain Result ("
-#   covers every chain name. (W4 will unify producer + filter into a single CrewSpec.)
-_CREW_RESULT_PREFIXES = (
-    "Research Result:",
-    "Analysis Result:",
-    "Code Generation Result:",
-    "Planning Result:",
-    "Chain Result (",
-)
+# Prefixes the crew nodes use when appending their results as assistant messages.
+# node_generate_response filters these out of the LLM message history and injects them as
+# system-level FINDINGS instead — keeping a crew result as a prior assistant turn makes the
+# model treat it as its own answer and only add a short follow-up. Derived from CREW_SPECS so
+# the append-prefix (crew_nodes) and the filter-prefix (here) can never drift apart again
+# (the old W1.1 bug). Matched via str.startswith; "Chain Result (" — produced by
+# node_crew_chain, which has no CrewSpec — is appended manually and covers every chain name.
+_CREW_RESULT_PREFIXES = tuple(
+    spec.message_prefix for spec in CREW_SPECS.values()
+) + ("Chain Result (",)
 
 # Cache of discovered tool lists (ToolRegistry.discover_and_load scans the filesystem and
 # parses every tool manifest, which is wasteful to repeat per turn). Keyed on the inputs

@@ -12,7 +12,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, TypedDict
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from universal_agentic_framework.config import load_agents_config, load_core_config, load_features_config
 from universal_agentic_framework.monitoring.metrics import (
@@ -149,6 +150,159 @@ def _multi_agent_crews_enabled() -> bool:
         return False
 
 
+# ─── Crew spec registry + node factory ─────────────────────────────────
+# The four single-crew nodes were near-verbatim copies differing only in crew class,
+# kickoff kwarg, message prefix, and (for code/planning) step formatting. CrewSpec captures
+# those differences declaratively; make_crew_node builds the node from a spec. graph_builder
+# also derives _CREW_RESULT_PREFIXES from CREW_SPECS, so the append-prefix and the
+# history-filter prefix can never drift apart again (the old W1.1 bug).
+
+
+@dataclass(frozen=True)
+class CrewSpec:
+    """Declarative description of a single-crew node (and, later, its routing)."""
+
+    name: str                 # cache key + metric crew label, e.g. "research"
+    crew_class: str           # attribute name in universal_agentic_framework.crews
+    metric_label: str         # track_node_execution label, e.g. "research_crew"
+    kickoff_kwarg: str        # "topic" | "query" | "requirement" | "project_description"
+    message_prefix: str       # "Research Result:" etc. — single source of truth
+    # For multi-step crews (code/planning): (result_step_key, markdown_heading) pairs.
+    # None ⇒ simple single-result formatting.
+    step_sections: Optional[Tuple[Tuple[str, str], ...]] = None
+
+
+CREW_SPECS: Dict[str, CrewSpec] = {
+    "research": CrewSpec(
+        name="research",
+        crew_class="ResearchCrew",
+        metric_label="research_crew",
+        kickoff_kwarg="topic",
+        message_prefix="Research Result:",
+    ),
+    "analytics": CrewSpec(
+        name="analytics",
+        crew_class="AnalyticsCrew",
+        metric_label="analytics_crew",
+        kickoff_kwarg="query",
+        message_prefix="Analysis Result:",
+    ),
+    "code_generation": CrewSpec(
+        name="code_generation",
+        crew_class="CodeGenerationCrew",
+        metric_label="code_generation_crew",
+        kickoff_kwarg="requirement",
+        message_prefix="Code Generation Result:",
+        step_sections=(
+            ("design", "## Technical Design"),
+            ("implementation", "## Implementation"),
+            ("qa_testing", "## QA Report & Tests"),
+        ),
+    ),
+    "planning": CrewSpec(
+        name="planning",
+        crew_class="PlanningCrew",
+        metric_label="planning_crew",
+        kickoff_kwarg="project_description",
+        message_prefix="Planning Result:",
+        step_sections=(
+            ("analysis", "## Requirements Analysis"),
+            ("planning", "## Execution Plan"),
+            ("review", "## Plan Review & Risk Assessment"),
+        ),
+    ),
+}
+
+
+def _format_crew_message(spec: CrewSpec, result: Dict[str, Any]) -> str:
+    """Render a crew result as the assistant message body (prefix + result/steps)."""
+    if spec.step_sections:
+        steps = result.get("steps", {}) or {}
+        parts = [f"{heading}\n{steps[key]}" for key, heading in spec.step_sections if key in steps]
+        body = "\n\n".join(parts) if parts else result.get("result", "No result")
+        return f"{spec.message_prefix}\n\n{body}"
+    return f"{spec.message_prefix}\n{result.get('result', 'No result')}"
+
+
+def make_crew_node(spec: CrewSpec):
+    """Build a LangGraph node that runs ``spec``'s crew (cache → kickoff → metrics → message)."""
+
+    def _node(state: Dict[str, Any]) -> Dict[str, Any]:
+        config = load_core_config()
+        profile_name = getattr(config.profile, "name", "default-profile")
+
+        messages = state.get("messages", [])
+        if not messages:
+            return state
+
+        user_msg = messages[-1].get("content", "")
+        language = state.get("language", "en")
+
+        cached_result = _get_cached_crew_result(spec.name, state, user_msg, language)
+        if cached_result:
+            logger.info(f"{spec.name} crew cache hit", profile_name=profile_name, language=language)
+            state["crew_results"] = state.get("crew_results", {})
+            state["crew_results"][spec.name] = cached_result
+            if cached_result.get("success"):
+                state["messages"].append(
+                    {"role": "assistant", "content": _format_crew_message(spec, cached_result)}
+                )
+            return state
+
+        logger.info(
+            f"{spec.name} crew node invoked",
+            profile_name=profile_name,
+            message_length=len(user_msg),
+            language=language,
+        )
+
+        with track_node_execution(profile_name, spec.metric_label):
+            try:
+                from universal_agentic_framework import crews as _crews_mod
+
+                crew = getattr(_crews_mod, spec.crew_class)(language=language)
+                crew_result = crew.kickoff_with_retry(**{spec.kickoff_kwarg: user_msg})
+                result = crew_result.model_dump()
+
+                status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
+                track_crew_execution(profile_name, spec.name, crew_result.execution_time_ms / 1000, status)
+                for _ in range(crew_result.retries_attempted):
+                    track_crew_retry(profile_name, spec.name)
+                if crew_result.timed_out:
+                    track_crew_timeout(profile_name, spec.name)
+
+                state["crew_results"] = state.get("crew_results", {})
+                state["crew_results"][spec.name] = result
+
+                if result.get("success"):
+                    logger.info(f"{spec.name} crew completed successfully", profile_name=profile_name, language=language)
+                    _store_cached_crew_result(spec.name, state, user_msg, language, result)
+                    state["messages"].append(
+                        {"role": "assistant", "content": _format_crew_message(spec, result)}
+                    )
+                else:
+                    logger.error(f"{spec.name} crew execution failed", profile_name=profile_name, error=result.get("error"))
+
+                return state
+
+            except Exception as e:
+                logger.error(f"{spec.name} crew node error", profile_name=profile_name, error=str(e), exc_info=True)
+                state["crew_results"] = state.get("crew_results", {})
+                state["crew_results"][spec.name] = {"success": False, "error": str(e)}
+                return state
+
+    _node.__name__ = f"node_{spec.name}_crew"
+    _node.__qualname__ = _node.__name__
+    return _node
+
+
+node_research_crew = make_crew_node(CREW_SPECS["research"])
+node_analytics_crew = make_crew_node(CREW_SPECS["analytics"])
+node_code_generation_crew = make_crew_node(CREW_SPECS["code_generation"])
+node_planning_crew = make_crew_node(CREW_SPECS["planning"])
+
+
+
 def route_to_research_crew(state: Dict[str, Any]) -> bool:
     """Determine if the user query should be routed to the research crew.
     
@@ -237,112 +391,6 @@ def route_to_research_crew(state: Dict[str, Any]) -> bool:
     
     # Default: do not route to research crew
     return False
-
-
-def node_research_crew(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute the Research Crew for web research queries.
-    
-    This node:
-    1. Detects if the user query is a research request
-    2. Extracts the research topic from the query
-    3. Invokes the Research Crew (Searcher → Analyst → Writer)
-    4. Returns structured research results in the state
-    
-    Args:
-        state: GraphState dictionary with 'messages' and 'language'
-        
-    Returns:
-        Modified state with crew_results and research output added
-    """
-    config = load_core_config()
-    profile_name = getattr(config.profile, "name", "default-profile")
-    
-    # Extract user message
-    messages = state.get("messages", [])
-    if not messages:
-        return state
-    
-    user_msg = messages[-1].get("content", "")
-    language = state.get("language", "en")
-
-    cached_result = _get_cached_crew_result("research", state, user_msg, language)
-    if cached_result:
-        logger.info(
-            "Research crew cache hit",
-            profile_name=profile_name,
-            language=language,
-        )
-        state["crew_results"] = state.get("crew_results", {})
-        state["crew_results"]["research"] = cached_result
-        if cached_result.get("success"):
-            state["messages"].append({
-                "role": "assistant",
-                "content": f"Research Result:\n{cached_result.get('result', 'No result')}",
-            })
-        return state
-    
-    logger.info(
-        "Research crew node invoked",
-        profile_name=profile_name,
-        message_length=len(user_msg),
-        language=language,
-    )
-    
-    with track_node_execution(profile_name, "research_crew"):
-        try:
-            from universal_agentic_framework.crews import ResearchCrew
-            
-            crew = ResearchCrew(language=language)
-            crew_result = crew.kickoff_with_retry(topic=user_msg)
-            result = crew_result.model_dump()
-            
-            # Track crew metrics
-            status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(profile_name, "research", crew_result.execution_time_ms / 1000, status)
-            for _ in range(crew_result.retries_attempted):
-                track_crew_retry(profile_name, "research")
-            if crew_result.timed_out:
-                track_crew_timeout(profile_name, "research")
-            
-            # Store crew results in state
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["research"] = result
-            
-            if result.get("success"):
-                logger.info(
-                    "Research crew completed successfully",
-                    profile_name=profile_name,
-                    language=language,
-                )
-                _store_cached_crew_result("research", state, user_msg, language, result)
-                # Optionally append crew result to messages for LLM context
-                state["messages"].append({
-                    "role": "assistant",
-                    "content": f"Research Result:\n{result.get('result', 'No result')}",
-                })
-            else:
-                logger.error(
-                    "Research crew execution failed",
-                    profile_name=profile_name,
-                    error=result.get("error"),
-                )
-            
-            return state
-            
-        except Exception as e:
-            logger.error(
-                "Research crew node error",
-                profile_name=profile_name,
-                error=str(e),
-                exc_info=True,
-            )
-            # Store error in state but don't crash the graph
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["research"] = {
-                "success": False,
-                "error": str(e),
-            }
-            return state
 
 
 def route_to_analytics_crew(state: Dict[str, Any]) -> bool:
@@ -475,115 +523,6 @@ def route_to_analytics_crew(state: Dict[str, Any]) -> bool:
     
     # Default: do not route to analytics crew
     return False
-
-
-def node_analytics_crew(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute the Analytics Crew for data analysis queries.
-    
-    This node:
-    1. Detects if the user query is a data analysis request
-    2. Extracts the analysis query from the message
-    3. Invokes the Analytics Crew (Data Analyst → Statistician → Report Writer)
-    4. Returns structured analysis results in the state
-    
-    The analytics crew uses a hierarchical process where a manager coordinates
-    the three agents to perform comprehensive data analysis, statistical validation,
-    and business reporting.
-    
-    Args:
-        state: GraphState dictionary with 'messages' and 'language'
-        
-    Returns:
-        Modified state with crew_results and analysis output added
-    """
-    config = load_core_config()
-    profile_name = getattr(config.profile, "name", "default-profile")
-    
-    # Extract user message
-    messages = state.get("messages", [])
-    if not messages:
-        return state
-    
-    user_msg = messages[-1].get("content", "")
-    language = state.get("language", "en")
-    
-    logger.info(
-        "Analytics crew node invoked",
-        profile_name=profile_name,
-        message_length=len(user_msg),
-        language=language,
-    )
-    
-    cached_result = _get_cached_crew_result("analytics", state, user_msg, language)
-    if cached_result:
-        logger.info(
-            "Analytics crew cache hit",
-            profile_name=profile_name,
-            language=language,
-        )
-        state["crew_results"] = state.get("crew_results", {})
-        state["crew_results"]["analytics"] = cached_result
-        if cached_result.get("success"):
-            state["messages"].append({
-                "role": "assistant",
-                "content": f"Analysis Result:\n{cached_result.get('result', 'No result')}",
-            })
-        return state
-    
-    with track_node_execution(profile_name, "analytics_crew"):
-        try:
-            from universal_agentic_framework.crews import AnalyticsCrew
-            
-            crew = AnalyticsCrew(language=language)
-            crew_result = crew.kickoff_with_retry(query=user_msg)
-            result = crew_result.model_dump()
-            
-            status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(profile_name, "analytics", crew_result.execution_time_ms / 1000, status)
-            for _ in range(crew_result.retries_attempted):
-                track_crew_retry(profile_name, "analytics")
-            if crew_result.timed_out:
-                track_crew_timeout(profile_name, "analytics")
-            
-            # Store crew results in state
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["analytics"] = result
-            
-            if result.get("success"):
-                logger.info(
-                    "Analytics crew completed successfully",
-                    profile_name=profile_name,
-                    language=language,
-                )
-                _store_cached_crew_result("analytics", state, user_msg, language, result)
-                # Append crew result to messages for LLM context
-                state["messages"].append({
-                    "role": "assistant",
-                    "content": f"Analysis Result:\n{result.get('result', 'No result')}",
-                })
-            else:
-                logger.error(
-                    "Analytics crew execution failed",
-                    profile_name=profile_name,
-                    error=result.get("error"),
-                )
-            
-            return state
-            
-        except Exception as e:
-            logger.error(
-                "Analytics crew node error",
-                profile_name=profile_name,
-                error=str(e),
-                exc_info=True,
-            )
-            # Store error in state but don't crash the graph
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["analytics"] = {
-                "success": False,
-                "error": str(e),
-            }
-            return state
 
 
 def route_to_code_generation_crew(state: Dict[str, Any]) -> bool:
@@ -740,141 +679,6 @@ def route_to_code_generation_crew(state: Dict[str, Any]) -> bool:
     return False
 
 
-def node_code_generation_crew(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute the Code Generation Crew for software development queries.
-    
-    This node:
-    1. Detects if the user query is a code generation request
-    2. Extracts the requirement from the message
-    3. Invokes the Code Generation Crew (Architect → Developer → QA Engineer)
-    4. Returns code implementation, tests, and QA report in the state
-    
-    The code generation crew uses a sequential process where:
-    - Architect designs the technical solution and specifications
-    - Developer implements clean, production-ready code
-    - QA Engineer reviews code quality and writes comprehensive tests
-    
-    Args:
-        state: GraphState dictionary with 'messages' and 'language'
-        
-    Returns:
-        Modified state with crew_results and code output added
-    """
-    config = load_core_config()
-    profile_name = getattr(config.profile, "name", "default-profile")
-    
-    # Extract user message
-    messages = state.get("messages", [])
-    if not messages:
-        return state
-    
-    user_msg = messages[-1].get("content", "")
-    language = state.get("language", "en")
-    
-    logger.info(
-        "Code generation crew node invoked",
-        profile_name=profile_name,
-        message_length=len(user_msg),
-        language=language,
-    )
-    
-    cached_result = _get_cached_crew_result("code_generation", state, user_msg, language)
-    if cached_result:
-        logger.info(
-            "Code generation crew cache hit",
-            profile_name=profile_name,
-            language=language,
-        )
-        state["crew_results"] = state.get("crew_results", {})
-        state["crew_results"]["code_generation"] = cached_result
-        if cached_result.get("success"):
-            steps = cached_result.get("steps", {})
-            output_parts = []
-            if "design" in steps:
-                output_parts.append(f"## Technical Design\n{steps['design']}")
-            if "implementation" in steps:
-                output_parts.append(f"## Implementation\n{steps['implementation']}")
-            if "qa_testing" in steps:
-                output_parts.append(f"## QA Report & Tests\n{steps['qa_testing']}")
-            formatted_output = "\n\n".join(output_parts) if output_parts else cached_result.get('result', 'No result')
-            state["messages"].append({
-                "role": "assistant",
-                "content": f"Code Generation Result:\n\n{formatted_output}",
-            })
-        return state
-    
-    with track_node_execution(profile_name, "code_generation_crew"):
-        try:
-            from universal_agentic_framework.crews import CodeGenerationCrew
-            
-            crew = CodeGenerationCrew(language=language)
-            crew_result = crew.kickoff_with_retry(requirement=user_msg)
-            result = crew_result.model_dump()
-            
-            status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(profile_name, "code_generation", crew_result.execution_time_ms / 1000, status)
-            for _ in range(crew_result.retries_attempted):
-                track_crew_retry(profile_name, "code_generation")
-            if crew_result.timed_out:
-                track_crew_timeout(profile_name, "code_generation")
-            
-            # Store crew results in state
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["code_generation"] = result
-            
-            if result.get("success"):
-                logger.info(
-                    "Code generation crew completed successfully",
-                    profile_name=profile_name,
-                    language=language,
-                )
-                _store_cached_crew_result("code_generation", state, user_msg, language, result)
-                
-                # Format output with design, implementation, and QA results
-                steps = result.get("steps", {})
-                output_parts = []
-                
-                if "design" in steps:
-                    output_parts.append(f"## Technical Design\n{steps['design']}")
-                
-                if "implementation" in steps:
-                    output_parts.append(f"## Implementation\n{steps['implementation']}")
-                
-                if "qa_testing" in steps:
-                    output_parts.append(f"## QA Report & Tests\n{steps['qa_testing']}")
-                
-                formatted_output = "\n\n".join(output_parts) if output_parts else result.get('result', 'No result')
-                
-                # Append crew result to messages for LLM context
-                state["messages"].append({
-                    "role": "assistant",
-                    "content": f"Code Generation Result:\n\n{formatted_output}",
-                })
-            else:
-                logger.error(
-                    "Code generation crew execution failed",
-                    profile_name=profile_name,
-                    error=result.get("error"),
-                )
-            
-            return state
-            
-        except Exception as e:
-            logger.error(
-                "Code generation crew node error",
-                profile_name=profile_name,
-                error=str(e),
-                exc_info=True,
-            )
-            # Store error in state but don't crash the graph
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["code_generation"] = {
-                "success": False,
-                "error": str(e),
-            }
-            return state
-
-
 def route_to_planning_crew(state: Dict[str, Any]) -> bool:
     """Determine if the user query should be routed to the planning crew.
     
@@ -1016,139 +820,6 @@ def route_to_planning_crew(state: Dict[str, Any]) -> bool:
     
     # Default: do not route to planning crew
     return False
-
-
-def node_planning_crew(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute the Planning Crew for project planning queries.
-    
-    This node:
-    1. Detects if the user query is a planning request
-    2. Extracts the project description from the message
-    3. Invokes the Planning Crew (Analyst → Planner → Reviewer)
-    4. Returns planning output with task breakdown, dependencies, and risk assessment
-    
-    The planning crew uses a hierarchical process where a manager coordinates
-    the three agents to perform requirements analysis, task decomposition, and plan review.
-    
-    Args:
-        state: GraphState dictionary with 'messages' and 'language'
-        
-    Returns:
-        Modified state with crew_results and planning output added
-    """
-    config = load_core_config()
-    profile_name = getattr(config.profile, "name", "default-profile")
-    
-    # Extract user message
-    messages = state.get("messages", [])
-    if not messages:
-        return state
-    
-    user_msg = messages[-1].get("content", "")
-    language = state.get("language", "en")
-    
-    logger.info(
-        "Planning crew node invoked",
-        profile_name=profile_name,
-        message_length=len(user_msg),
-        language=language,
-    )
-    
-    cached_result = _get_cached_crew_result("planning", state, user_msg, language)
-    if cached_result:
-        logger.info(
-            "Planning crew cache hit",
-            profile_name=profile_name,
-            language=language,
-        )
-        state["crew_results"] = state.get("crew_results", {})
-        state["crew_results"]["planning"] = cached_result
-        if cached_result.get("success"):
-            steps = cached_result.get("steps", {})
-            output_parts = []
-            if "analysis" in steps:
-                output_parts.append(f"## Requirements Analysis\n{steps['analysis']}")
-            if "planning" in steps:
-                output_parts.append(f"## Execution Plan\n{steps['planning']}")
-            if "review" in steps:
-                output_parts.append(f"## Plan Review & Risk Assessment\n{steps['review']}")
-            formatted_output = "\n\n".join(output_parts) if output_parts else cached_result.get('result', 'No result')
-            state["messages"].append({
-                "role": "assistant",
-                "content": f"Planning Result:\n\n{formatted_output}",
-            })
-        return state
-    
-    with track_node_execution(profile_name, "planning_crew"):
-        try:
-            from universal_agentic_framework.crews import PlanningCrew
-            
-            crew = PlanningCrew(language=language)
-            crew_result = crew.kickoff_with_retry(project_description=user_msg)
-            result = crew_result.model_dump()
-            
-            status = "success" if crew_result.success else ("timeout" if crew_result.timed_out else "error")
-            track_crew_execution(profile_name, "planning", crew_result.execution_time_ms / 1000, status)
-            for _ in range(crew_result.retries_attempted):
-                track_crew_retry(profile_name, "planning")
-            if crew_result.timed_out:
-                track_crew_timeout(profile_name, "planning")
-            
-            # Store crew results in state
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["planning"] = result
-            
-            if result.get("success"):
-                logger.info(
-                    "Planning crew completed successfully",
-                    profile_name=profile_name,
-                    language=language,
-                )
-                _store_cached_crew_result("planning", state, user_msg, language, result)
-                
-                # Format output with analysis, planning, and review results
-                steps = result.get("steps", {})
-                output_parts = []
-                
-                if "analysis" in steps:
-                    output_parts.append(f"## Requirements Analysis\n{steps['analysis']}")
-                
-                if "planning" in steps:
-                    output_parts.append(f"## Execution Plan\n{steps['planning']}")
-                
-                if "review" in steps:
-                    output_parts.append(f"## Plan Review & Risk Assessment\n{steps['review']}")
-                
-                formatted_output = "\n\n".join(output_parts) if output_parts else result.get('result', 'No result')
-                
-                # Append crew result to messages for LLM context
-                state["messages"].append({
-                    "role": "assistant",
-                    "content": f"Planning Result:\n\n{formatted_output}",
-                })
-            else:
-                logger.error(
-                    "Planning crew execution failed",
-                    profile_name=profile_name,
-                    error=result.get("error"),
-                )
-            
-            return state
-            
-        except Exception as e:
-            logger.error(
-                "Planning crew node error",
-                profile_name=profile_name,
-                error=str(e),
-                exc_info=True,
-            )
-            # Store error in state but don't crash the graph
-            state["crew_results"] = state.get("crew_results", {})
-            state["crew_results"]["planning"] = {
-                "success": False,
-                "error": str(e),
-            }
-            return state
 
 
 # ─── Crew chain & parallel execution nodes ─────────────────────────────
