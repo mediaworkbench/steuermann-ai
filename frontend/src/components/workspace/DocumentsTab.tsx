@@ -81,6 +81,8 @@ export function DocumentsTab({
     getDocumentName,
     openEditor,
     loadHistory,
+    historyDocId,
+    closeHistory,
     processingAction,
     setProcessingAction,
   } = useActiveDocument();
@@ -109,6 +111,7 @@ export function DocumentsTab({
           throw new Error(`Failed to delete document: ${response.statusText}`);
         }
         if (editorDocId === docId) closeEditor();
+        if (historyDocId === docId) closeHistory();
         toast.success(t("workspace.delete"), { description: docName });
         onDocumentsRefresh?.();
       } catch (err) {
@@ -118,7 +121,7 @@ export function DocumentsTab({
         setProcessingAction(null);
       }
     },
-    [editorDocId, closeEditor, getDocumentName, onDocumentsRefresh, t],
+    [editorDocId, closeEditor, historyDocId, closeHistory, getDocumentName, onDocumentsRefresh, t],
   );
 
   const handleRenameDocument = useCallback(
@@ -226,6 +229,10 @@ export function DocumentsTab({
     setUploadingFile(true);
     try {
       const count = await clearAllWorkspaceDocuments();
+      // Every document is gone — drop any editor/history view so the pane can't
+      // reference a deleted document.
+      closeEditor({ force: true });
+      closeHistory();
       toast.success(t("workspace.nukeSuccess", { count }));
       onDocumentsRefresh?.();
     } catch {
@@ -233,7 +240,7 @@ export function DocumentsTab({
     } finally {
       setUploadingFile(false);
     }
-  }, [onDocumentsRefresh, t]);
+  }, [closeEditor, closeHistory, onDocumentsRefresh, t]);
 
   const renderDocRow = (doc: WorkspaceDocument) => {
     const isImage = doc.mime_type?.startsWith("image/");

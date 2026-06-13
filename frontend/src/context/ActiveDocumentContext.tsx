@@ -141,6 +141,11 @@ export function ActiveDocumentProvider({
     conversationIdRef.current = conversationId;
     if (restoredConvRef.current === conversationId) return;
 
+    // The version-history panel is transient per-conversation view state: close
+    // it on a real switch so the pane (which can mount on history alone) doesn't
+    // linger showing the previous conversation's document.
+    historyRef.current?.closeHistory();
+
     const swap = (fn: () => void) => {
       const ed = editorRef.current;
       if (ed.isDirty && ed.editorDocId) {

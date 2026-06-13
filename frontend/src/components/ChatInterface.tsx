@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { ActiveDocumentPane } from "./workspace/ActiveDocumentPane";
+import { ActiveDocumentPaneSlot } from "./workspace/ActiveDocumentPane";
 import { ActiveDocumentProvider, type ActiveDocumentEditorApi } from "@/context/ActiveDocumentContext";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { MessageList } from "./chat/MessageList";
@@ -454,9 +454,9 @@ export function ChatInterface() {
         </div>
 
         {/* ─── Active document split-view pane ─── */}
-        {activeWorkspaceDocId && (
-          <ActiveDocumentPane isLoading={loading} />
-        )}
+        {/* Mounts when a doc is open for editing OR its version history is open
+            (the slot reads editor/history state from the provider it sits in). */}
+        <ActiveDocumentPaneSlot isLoading={loading} />
 
         {/* ─── Workspace sidebar ─── */}
         <WorkspaceSidebar

@@ -153,14 +153,12 @@ def validate_and_log_tool_calling_mode(
 
     log_fn(
         f"Tool calling mode validation ({node_name})",
-        extra={
-            "expected_mode": expected_mode,
-            "actual_mode": actual_mode,
-            "mode_reason": mode_reason,
-            "is_valid": is_valid,
-            "candidates": len(candidates),
-            "profile_name": profile_name,
-        },
+        expected_mode=expected_mode,
+        actual_mode=actual_mode,
+        mode_reason=mode_reason,
+        is_valid=is_valid,
+        candidates=len(candidates),
+        profile_name=profile_name,
     )
 
     if is_valid:

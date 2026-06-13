@@ -429,6 +429,7 @@ export type Messages = {
     versionSourceUser: string;
     versionSourceAssistant: string;
     versionSourceRestored: string;
+    versionCurrent: string;
   };
   exportDialog: {
     exportFailedNoData: string;
@@ -1045,6 +1046,7 @@ export const messages: Record<Locale, Messages> = {
       versionSourceUser: "You",
       versionSourceAssistant: "AI",
       versionSourceRestored: "Restored",
+      versionCurrent: "Current",
     },
     exportDialog: {
       exportFailedNoData: "Export failed - no data returned.",
@@ -1659,6 +1661,7 @@ export const messages: Record<Locale, Messages> = {
       versionSourceUser: "Du",
       versionSourceAssistant: "KI",
       versionSourceRestored: "Wiederhergestellt",
+      versionCurrent: "Aktuell",
     },
     exportDialog: {
       exportFailedNoData: "Export fehlgeschlagen - keine Daten zurückgegeben.",

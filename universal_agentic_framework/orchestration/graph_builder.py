@@ -5,7 +5,7 @@ MEMORY LAYER INTEGRATION & SOURCE OF TRUTH OWNERSHIP:
 1. SHORT-MEMORY (Digest Chain)
    - Owner: LangGraph graph orchestration via GraphState
    - Lifecycle:
-     a) Created: performance_nodes.conversation_compression_node_sync() extracts digests
+     a) Created: performance_nodes.conversation_compression_node() extracts digests
      b) Stored: GraphState.digest_context (bounded list)
      c) Propagated: node_update_memory() → update_memory_node(state)
      d) Persisted: Backend stores in Mem0 record metadata
@@ -38,8 +38,10 @@ See: docs/technical_architecture.md (Memory Architecture) for full memory layer 
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
+import threading
 from typing import Annotated, Any, Dict, List, Optional, Tuple, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -64,10 +66,10 @@ from universal_agentic_framework.monitoring.metrics import (
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.performance_nodes import (
     initialize_performance_nodes,
-    memory_query_cache_node_sync,
-    memory_cache_store_node_sync,
-    conversation_compression_node_sync,
-    cache_stats_node_sync,
+    memory_query_cache_node,
+    memory_cache_store_node,
+    conversation_compression_node,
+    cache_stats_node,
     get_summarizer,
 )
 from universal_agentic_framework.orchestration.crew_nodes import (
@@ -77,9 +79,26 @@ from universal_agentic_framework.orchestration.crew_nodes import (
     node_planning_crew,
     node_crew_chain,
     node_crew_parallel,
+    CREW_SPECS,
 )
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
+from universal_agentic_framework.orchestration.respond.text_cleanup import (
+    strip_control_tokens,
+    filter_untrusted_urls,
+)
+from universal_agentic_framework.orchestration.respond.prompt_builder import (
+    build_tool_results_block,
+    select_synthesis_instruction,
+    build_memory_context_block,
+    build_crew_findings_block,
+)
+from universal_agentic_framework.orchestration.respond.guardrails import (
+    retry_synthesis_if_empty,
+    retry_on_attachment_refusal,
+    retry_on_web_extract_contradiction,
+    format_tool_based_fallback,
+)
 
 try:
     from litellm.exceptions import (
@@ -105,7 +124,12 @@ from universal_agentic_framework.orchestration.helpers import (
     build_workspace_tool_paths,
     detect_tool_routing_intents,
     score_tool_similarity,
+    intent_boost_applies,
+    apply_intent_override_floor,
     apply_top_k_scored_tools,
+    apply_web_search_max_results,
+    infer_extract_webpage_url,
+    coerce_tool_args,
     get_routing_embedding_provider,
     get_auxiliary_model,
     get_model,
@@ -120,18 +144,105 @@ logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
 
+# Prefixes the crew nodes use when appending their results as assistant messages.
+# node_generate_response filters these out of the LLM message history and injects them as
+# system-level FINDINGS instead — keeping a crew result as a prior assistant turn makes the
+# model treat it as its own answer and only add a short follow-up. Derived from CREW_SPECS so
+# the append-prefix (crew_nodes) and the filter-prefix (here) can never drift apart again
+# (the old W1.1 bug). Matched via str.startswith; "Chain Result (" — produced by
+# node_crew_chain, which has no CrewSpec — is appended manually and covers every chain name.
+_CREW_RESULT_PREFIXES = tuple(
+    spec.message_prefix for spec in CREW_SPECS.values()
+) + ("Chain Result (",)
+
+# Cache of discovered tool lists (ToolRegistry.discover_and_load scans the filesystem and
+# parses every tool manifest, which is wasteful to repeat per turn). Keyed on the inputs
+# that change the discovered set: profile, language (descriptions are language-specific),
+# and the profile tools dir. User tool_toggles and the vision-role exclusion are applied
+# per-request on top of this, so they are NOT part of the key. The lock serializes the
+# first build (sync load_tools node runs in an executor thread under ainvoke).
+_tool_registry_cache: Dict[Tuple[str, str, str], List[Any]] = {}
+_tool_registry_lock = threading.Lock()
+
+
+def clear_tool_registry_cache() -> None:
+    """Drop cached tool-discovery results (tests, or after tool config/file changes)."""
+    with _tool_registry_lock:
+        _tool_registry_cache.clear()
+
+
+def _discover_tools_cached(
+    profile_id: str,
+    language: str,
+    tools_config: Any,
+    profile_tools_dir: Any,
+) -> List[Any]:
+    """Return the discovered (unfiltered) tool list, cached per profile+language+dir."""
+    key = (str(profile_id), str(language), str(profile_tools_dir))
+    cached = _tool_registry_cache.get(key)
+    if cached is not None:
+        return cached
+    with _tool_registry_lock:
+        cached = _tool_registry_cache.get(key)
+        if cached is None:
+            registry = ToolRegistry(
+                config=tools_config,
+                profile_language=language,
+                extra_tools_dir=profile_tools_dir,
+            )
+            cached = registry.discover_and_load()
+            _tool_registry_cache[key] = cached
+    return cached
+
 
 def _rag_label(file_name: str | None) -> str:
     """Human-readable RAG source label: strip ingestion hash prefix, replace dashes with spaces."""
     raw = str(file_name or "Unknown")
+    # Strip only a trailing extension — removesuffix, not replace, so an extension
+    # substring inside the name (e.g. "csv-export-notes.md") is preserved.
     for ext in (".md", ".txt", ".pdf", ".csv", ".html", ".xml", ".yaml", ".yml"):
-        raw = raw.replace(ext, "")
+        if raw.endswith(ext):
+            raw = raw[: -len(ext)]
+            break
     raw = re.sub(r"^[0-9a-f]{32}-", "", raw)  # strip leading ingestion hash
     return raw.replace("-", " ").strip() or "Unknown"
 
 
 def _is_digest_entry(entry: Any) -> bool:
     return isinstance(entry, dict) and bool(entry.get("digest_id"))
+
+
+# User turns this short, or matching these patterns, don't warrant a long-term memory
+# write — nor the auxiliary-model fact-extraction summary that exists only to feed it.
+_TRIVIAL_MEMORY_PATTERNS = frozenset({
+    "ok", "okay", "thanks", "thank you", "yes", "no", "sure", "got it",
+    "hi", "hello", "bye", "goodbye", "great", "perfect", "alright",
+})
+
+
+def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            return msg.get("content", "") or ""
+    return ""
+
+
+def _should_write_memory(state: GraphState, features_config: Any) -> bool:
+    """True when this turn's exchange is worth a long-term memory write.
+
+    False when long-term memory is disabled or the latest user turn is trivial (a
+    greeting/acknowledgement, or under 5 characters). Shared by node_summarize (to skip
+    the auxiliary-model fact-extraction call) and node_update_memory (to skip the upsert),
+    so the expensive summary is never produced for a turn that won't be persisted.
+    """
+    if not getattr(features_config, "long_term_memory", False):
+        return False
+    stripped = _latest_user_message(state.get("messages", [])).strip().lower().rstrip("!.,?")
+    if len(stripped) < 5:
+        return False
+    if len(stripped) < 20 and stripped in _TRIVIAL_MEMORY_PATTERNS:
+        return False
+    return True
 
 
 def _merge_digest_chains(
@@ -281,12 +392,13 @@ def node_load_tools(state: GraphState) -> GraphState:
             profile_dir = get_profile_dir(profile_id=profile_id, require_exists=False)
             profile_tools_dir = profile_dir / "tools"
 
-            registry = ToolRegistry(
-                config=tools_config,
-                profile_language=conversation_language,
-                extra_tools_dir=profile_tools_dir,
+            # Cached filesystem discovery; copy so the per-request filters below never
+            # mutate or alias the shared cached list.
+            tools = list(
+                _discover_tools_cached(
+                    profile_id, conversation_language, tools_config, profile_tools_dir
+                )
             )
-            tools = registry.discover_and_load()
 
             # Filter tools based on user settings (tool_toggles)
             user_settings = state.get("user_settings", {})
@@ -368,8 +480,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "prefilter_tools"):
         try:
-            import re
-
             # Skip for greetings
             greeting_pattern = (
                 r"^\s*(hi|hello|hey|hallo|servus|moin|"
@@ -378,6 +488,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             if re.match(greeting_pattern, user_msg.lower()):
                 logger.info("Skipping tool pre-filter for greeting query")
                 state.update(empty_state)
+                # Greetings can't benefit from RAG — signal the RAG node to skip Qdrant.
+                # (empty_state's prefilter_intents={} would otherwise let RAG run here, and
+                # the meta-question path below already propagates skip_rag via its intents.)
+                state["prefilter_intents"] = {"skip_rag": True}
                 return state
 
             embedding_provider, embedding_model_name = _get_routing_embedding_provider(config)
@@ -385,8 +499,10 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
             state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
+            # Default aligned with docs/CLAUDE.md (0.55); profiles set this explicitly,
+            # so the fallback only applies to a profile that omits tool_routing entirely.
             similarity_threshold = getattr(
-                getattr(config, "tool_routing", None), "similarity_threshold", 0.3
+                getattr(config, "tool_routing", None), "similarity_threshold", 0.55
             )
             top_k = getattr(getattr(config, "tool_routing", None), "top_k", 5)
             intent_boost = getattr(
@@ -433,78 +549,33 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 )
 
                 # Intent boost: increase score for tools matching detected intents
-                if tool_name == "datetime_tool" and intents["mentions_datetime"]:
-                    similarity += intent_boost
-                elif tool_name == "calculator_tool" and intents["mentions_calculation"]:
-                    similarity += intent_boost
-                elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
-                    similarity += intent_boost
-                elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_image_tool" and (
-                    intents.get("image_url_in_query") or image_attachment_present
-                ):
-                    similarity += intent_boost
-                elif tool_name == "ocr_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_ocr"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_document_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_document"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_chart_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_chart"):
-                    similarity += intent_boost
-                elif tool_name == "image_metadata_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_image_metadata"):
-                    similarity += intent_boost
-                elif tool_name == "read_barcodes_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_barcode"):
-                    similarity += intent_boost
-                elif tool_name == "map_tool" and intents.get("mentions_map"):
-                    similarity += intent_boost
-                elif (
-                    tool_name == "csv_analyze_tool"
-                    and intents.get("mentions_csv_analysis")
-                    and csv_workspace_doc_present
+                # (declarative rules live in helpers/tool_scoring.py; mirrors CLAUDE.md).
+                if intent_boost_applies(
+                    tool_name,
+                    intents,
+                    image_attachment_present=image_attachment_present,
+                    csv_workspace_doc_present=csv_workspace_doc_present,
                 ):
                     similarity += intent_boost
 
-                # Hard intent override: when user explicitly asks for web search,
-                # keep web_search_mcp above both threshold gates so Layer 2 can decide.
-                if tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
-                    min_top_score_cfg = getattr(
-                        getattr(config, "tool_routing", None), "min_top_score", 0.7
+                # Hard intent override: web_search_mcp / map_tool get a forced floor above both
+                # threshold gates when their intent is explicitly signalled, so Layer 2 decides.
+                _min_top_score_cfg = getattr(
+                    getattr(config, "tool_routing", None), "min_top_score", 0.7
+                )
+                similarity, _override_applied = apply_intent_override_floor(
+                    tool_name,
+                    similarity,
+                    intents,
+                    similarity_threshold=similarity_threshold,
+                    min_top_score=_min_top_score_cfg,
+                )
+                if _override_applied:
+                    logger.info(
+                        "Applying intent override floor",
+                        tool=tool_name,
+                        forced_similarity=round(similarity, 4),
                     )
-                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
-                    if similarity < forced_floor:
-                        logger.info(
-                            "Applying web-search intent override",
-                            original_similarity=round(similarity, 4),
-                            forced_similarity=round(forced_floor, 4),
-                        )
-                        similarity = forced_floor
-
-                # Hard intent override for map_tool: only fire when the user has
-                # explicitly signalled a map/location intent (mentions_map=True).
-                # A bare semantic similarity floor without intent signal causes
-                # false positives on unrelated queries that happen to score ≥0.60.
-                if tool_name == "map_tool" and intents.get("mentions_map"):
-                    min_top_score_cfg = getattr(
-                        getattr(config, "tool_routing", None), "min_top_score", 0.7
-                    )
-                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
-                    if similarity < forced_floor:
-                        logger.info(
-                            "Applying map intent override",
-                            original_similarity=round(similarity, 4),
-                            forced_similarity=round(forced_floor, 4),
-                        )
-                        similarity = forced_floor
 
                 logger.info(
                     "Tool scored (prefilter)",
@@ -607,7 +678,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "Native tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -699,29 +771,19 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                     break
 
                 parse_error = False
+                # Tools that already ran in a previous attempt. The retry loop exists only to
+                # correct calls that failed to parse/validate; re-executing a tool that already
+                # succeeded would duplicate its side effects (web search, save_to_rag, …).
+                # Snapshotted per attempt so a model legitimately calling the same tool twice
+                # within one response is still honoured.
+                executed_before = set(tool_results.keys())
                 _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
                 for tc in tool_calls:
                     tool_name = tc.get("name", "")
                     tool_args = tc.get("args", {})
 
-                    if tool_name == "web_search_mcp" and _requested_results and "max_results" not in (tool_args or {}):
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
-
-                    if tool_name == "extract_webpage_mcp" and isinstance(tool_args, dict):
-                        def _contains_url_arg(value: Any) -> bool:
-                            if isinstance(value, str):
-                                candidate = value.strip().strip('"\'')
-                                return bool(re.match(r"^(https?://|www\.)", candidate))
-                            if isinstance(value, dict):
-                                return any(_contains_url_arg(v) for v in value.values())
-                            if isinstance(value, (list, tuple)):
-                                return any(_contains_url_arg(v) for v in value)
-                            return False
-
-                        if not _contains_url_arg(tool_args) and url_in_query:
-                            tool_args = dict(tool_args)
-                            tool_args["request_url"] = url_in_query
+                    tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                    tool_args = infer_extract_webpage_url(tool_name, tool_args, url_in_query)
 
                     tool_obj = tool_lookup.get(tool_name)
                     if not tool_obj:
@@ -729,20 +791,23 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         parse_error = True
                         continue
 
+                    # Already executed in a prior attempt — skip (not a parse error) so the
+                    # retry only runs the tools that previously failed to parse/validate.
+                    if tool_name in executed_before:
+                        logger.info("Skipping already-executed tool on retry", tool=tool_name, attempt=attempt)
+                        continue
+
                     # Validate args against schema if available; also strips unknown fields.
-                    schema = getattr(tool_obj, "args_schema", None)
-                    if schema:
-                        try:
-                            tool_args = schema(**tool_args).model_dump()
-                        except Exception as val_err:
-                            logger.warning(
-                                "Tool call validation failed",
-                                tool=tool_name,
-                                error=str(val_err),
-                                attempt=attempt,
-                            )
-                            parse_error = True
-                            continue
+                    tool_args, _val_err = coerce_tool_args(tool_obj, tool_args)
+                    if _val_err:
+                        logger.warning(
+                            "Tool call validation failed",
+                            tool=tool_name,
+                            error=_val_err,
+                            attempt=attempt,
+                        )
+                        parse_error = True
+                        continue
 
                     try:
                         result = tool_obj._run(**tool_args)
@@ -825,7 +890,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "Structured tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -852,7 +918,6 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "call_tools_structured"):
         try:
-            import json
             from langchain_core.messages import HumanMessage, SystemMessage
 
             lang = state.get("language") or getattr(config.profile, "language", "en")
@@ -984,11 +1049,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
 
-                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
-                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
-                    if _requested_results:
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1004,25 +1066,22 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                     break
 
                 # Validate args against schema; also strips unknown fields.
-                schema = getattr(tool_obj, "args_schema", None)
-                if schema:
-                    try:
-                        tool_args = schema(**tool_args).model_dump()
-                    except Exception as val_err:
-                        logger.warning(
-                            "Structured tool call validation failed",
-                            tool=tool_name,
-                            error=str(val_err),
-                            attempt=attempt,
-                        )
-                        if attempt < max_retries:
-                            from langchain_core.messages import AIMessage
-                            messages.append(AIMessage(content=response_text))
-                            messages.append(HumanMessage(
-                                content=f"Tool call validation error: {val_err}. Please fix the arguments and try again."
-                            ))
-                            continue
-                        break
+                tool_args, _val_err = coerce_tool_args(tool_obj, tool_args)
+                if _val_err:
+                    logger.warning(
+                        "Structured tool call validation failed",
+                        tool=tool_name,
+                        error=_val_err,
+                        attempt=attempt,
+                    )
+                    if attempt < max_retries:
+                        from langchain_core.messages import AIMessage
+                        messages.append(AIMessage(content=response_text))
+                        messages.append(HumanMessage(
+                            content=f"Tool call validation error: {_val_err}. Please fix the arguments and try again."
+                        ))
+                        continue
+                    break
 
                 try:
                     result = tool_obj._run(**tool_args)
@@ -1080,7 +1139,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     if not is_valid:
         logger.warning(
             "ReAct tool calling invoked but mode doesn't match; proceeding with caution",
-            extra={"validation_reason": validation_reason, "actual_mode": state.get("tool_calling_mode")},
+            validation_reason=validation_reason,
+            actual_mode=state.get("tool_calling_mode"),
         )
 
     user_msg = (
@@ -1099,7 +1159,6 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "call_tools_react"):
         try:
-            import re
             from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
             lang = state.get("language") or getattr(config.profile, "language", "en")
@@ -1137,8 +1196,6 @@ def node_call_tools_react(state: GraphState) -> GraphState:
             tool_execution_results: Dict[str, Dict[str, Any]] = state.get("tool_execution_results", {})
             routing_metadata: Dict[str, str] = state.get("routing_metadata", {})
 
-            import json
-
             for iteration in range(max_iterations):
                 response = model.invoke(messages)
                 response_text = response.content if hasattr(response, "content") else str(response)
@@ -1164,11 +1221,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
 
-                if tool_name == "web_search_mcp" and "max_results" not in (tool_args or {}):
-                    _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
-                    if _requested_results:
-                        tool_args = dict(tool_args)
-                        tool_args["max_results"] = _requested_results
+                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1179,13 +1233,9 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                     ))
                     continue
 
-                # Strip unknown fields before calling _run().
-                react_schema = getattr(tool_obj, "args_schema", None)
-                if react_schema:
-                    try:
-                        tool_args = react_schema(**tool_args).model_dump()
-                    except Exception:
-                        pass  # schema mismatch handled by _run's own error path
+                # Strip unknown fields before calling _run(); a schema mismatch is left for
+                # the tool's own error path (react ignores the validation error).
+                tool_args, _ = coerce_tool_args(tool_obj, tool_args)
 
                 try:
                     result = tool_obj._run(**tool_args)
@@ -1310,7 +1360,6 @@ def node_generate_response(state: GraphState) -> GraphState:
     )
 
     # Enforce response language to avoid drift into unintended languages.
-    prompts_cfg = getattr(config, "prompts", None)
     language_instruction = (
         (prompts_cfg.get_prompt(lang, "language_enforcement", fallback_lang="en") if prompts_cfg else None)
         or f"Respond exclusively in language code '{lang}'."
@@ -1358,7 +1407,12 @@ def node_generate_response(state: GraphState) -> GraphState:
     knowledge_context = state.get("knowledge_context", [])
     allowed_sources = []
     allowed_urls = set()
+    # Seed with URLs the user themselves pasted — echoing a user's own link back must not
+    # be scrubbed to "source omitted" by the anti-hallucination filter below.
+    for _u in _re_urls.findall(r"https?://[^\s)]+", user_msg or ""):
+        allowed_urls.add(_u.rstrip(".,;:!?"))
     collected_sources: List[Dict[str, Any]] = []  # structured source tracking
+    context_text = ""  # RAG knowledge text; populated below when knowledge_context is present
 
     # Utility-only tool responses (datetime/calculator/file ops) should not force citation-style footnotes.
     tool_results = state.get("tool_results", {})
@@ -1397,27 +1451,14 @@ def node_generate_response(state: GraphState) -> GraphState:
     web_tools_used = any(
         name in tool_results for name in ("extract_webpage_mcp", "web_search_mcp")
     )
-    if loaded_memory:
-        memory_context = "\n\n".join([
-            f"[Memory]\n{mem.text if hasattr(mem, 'text') else mem.get('text', '')}"
-            for mem in loaded_memory[:5]  # Top 5 memories
-        ])
-        if web_tools_used:
-            system_prompt += (
-                "\n\n=== PAST CONTEXT (LOW PRIORITY) ===\n"
-                "Use this only as background. If it conflicts with current-turn TOOL RESULTS, "
-                "always trust current-turn TOOL RESULTS.\n\n"
-                f"{memory_context}\n"
-                "=== END PAST CONTEXT (LOW PRIORITY) ===\n"
-            )
-            logger.info(
-                "Loaded memory injected as low-priority context due to fresh web tool results",
-                memory_count=len(loaded_memory),
-                tools_count=len(tool_results),
-            )
-        else:
-            system_prompt += f"\n\n=== PAST CONTEXT ===\n{memory_context}\n=== END PAST CONTEXT ===\n"
-            logger.info("Loaded memory injected into context", memory_count=len(loaded_memory))
+    _memory_block = build_memory_context_block(loaded_memory, web_tools_used)
+    if _memory_block:
+        system_prompt += _memory_block
+        logger.info(
+            "Loaded memory injected into context",
+            memory_count=len(loaded_memory),
+            low_priority=web_tools_used,
+        )
 
     # Add user-provided uploaded attachments as explicitly labeled reference context.
     attachments = state.get("attachments") or []
@@ -1455,31 +1496,12 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     # Add tool results if available (semantic routing)
     if tool_results:
-        tool_context_lines = []
-        for tool_name, result in tool_results.items():
-            reason = routing_metadata.get(tool_name, "semantic match")
-            tool_header = f"Tool: {tool_name} (via {reason})\nResult:"
-
-            envelope = tool_execution_results.get(tool_name, {})
-            # Use full output_text (not the 300-char summary) so models have enough content
-            full_result = envelope.get("output_text") or result
-            rendered = str(full_result)[:8000]
-            tool_context_lines.append(f"{tool_header}\n{rendered}")
-        
-        tool_context = "\n\n".join(tool_context_lines)
-        system_prompt += f"\n\n=== TOOL RESULTS ===\n{tool_context}\n=== ENDE TOOL RESULTS ===\n"
-        system_prompt += (
-            "\n\n=== CONTEXT PRIORITY ===\n"
-            "Use current-turn TOOL RESULTS as the primary source of truth. "
-            "Use PAST CONTEXT only as secondary background. "
-            "If there is any conflict, follow TOOL RESULTS. "
-            "Do not mention model training data, knowledge-cutoff dates, or stale prior knowledge when TOOL RESULTS provide current information.\n"
-            "=== END CONTEXT PRIORITY ===\n"
+        system_prompt += build_tool_results_block(
+            tool_results, tool_execution_results, routing_metadata
         )
         logger.info("Tool results injected into context", tools_count=len(tool_results))
 
         # Extract URLs from tool results so citations can be limited to known sources
-        import re
         for result in tool_results.values():
             for url in re.findall(r"https?://[^\s)]+", str(result)):
                 allowed_urls.add(url)
@@ -1498,33 +1520,11 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         has_citable_sources = bool(collected_sources)
 
-        # Inject synthesis instruction so LLM writes a summary, not a raw list (env-configurable)
-        # Exception: verbatim-relay tools (OCR, barcode, metadata, structured JSON) must be
-        # presented as-is — synthesis instructions cause the model to second-guess the result.
-        _VERBATIM_RELAY_TOOLS = {
-            "ocr_tool", "read_barcodes_tool", "image_metadata_tool",
-            "analyze_document_tool", "analyze_chart_tool",
-        }
-        verbatim_relay = bool(used_tool_names & _VERBATIM_RELAY_TOOLS)
-
-        if verbatim_relay:
-            synthesis_text = (
-                "The tool has returned its output. Present the result directly to the user:\n"
-                "- For OCR / text extraction: display the extracted text verbatim as your answer. "
-                "Do NOT paraphrase, summarize, or question whether the content is correct — it is.\n"
-                "- For structured JSON (documents, charts, barcodes, metadata): present the "
-                "information clearly and readably.\n"
-                "Never say the result is missing or incorrect."
-            )
-        else:
-            prompts_cfg = getattr(config, "prompts", None)
-            prompt_key = "synthesis_with_sources" if has_citable_sources else "synthesis"
-            synthesis_text = (prompts_cfg.get_prompt(lang, prompt_key, fallback_lang="en") if prompts_cfg else None)
-            if not synthesis_text:
-                synthesis_text = (
-                    "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
-                    "Do NOT list raw result items. Write a fluent summary that directly answers the user's question."
-                )
+        # Inject synthesis instruction so the LLM writes a summary, not a raw list (verbatim
+        # relay for OCR/barcode/metadata/structured tools is handled inside the helper).
+        synthesis_text = select_synthesis_instruction(
+            used_tool_names, has_citable_sources, getattr(config, "prompts", None), lang
+        )
         system_prompt += f"\n\n=== SYNTHESIS INSTRUCTION ===\n{synthesis_text}\n=== END SYNTHESIS INSTRUCTION ===\n"
 
         # Number sources and inject as a reference list for the LLM
@@ -1556,22 +1556,18 @@ def node_generate_response(state: GraphState) -> GraphState:
     # Add crew results as system-level context so the LLM synthesizes a fresh response
     # (crew results must NOT appear as prior assistant turns — that causes the model to
     # just add a short follow-up instead of producing a full answer).
-    _crew_result_prefixes = (
-        "Research Result:",
-        "Analytics Result:",
-        "Code Generation Result:",
-        "Planning Result:",
-    )
+    _crew_result_prefixes = _CREW_RESULT_PREFIXES
     crew_results = state.get("crew_results", {})
-    for crew_name, crew_result in crew_results.items():
-        if isinstance(crew_result, dict) and crew_result.get("success") and crew_result.get("result"):
-            section = crew_name.upper().replace("_", " ")
-            system_prompt += (
-                f"\n\n=== {section} FINDINGS ===\n"
-                f"{crew_result['result']}\n"
-                f"=== END {section} FINDINGS ===\n"
-            )
-            logger.info("Crew result injected into context", crew=crew_name, result_length=len(crew_result["result"]))
+    _crew_block = build_crew_findings_block(crew_results)
+    if _crew_block:
+        system_prompt += _crew_block
+        logger.info(
+            "Crew results injected into context",
+            crew_count=sum(
+                1 for c in crew_results.values()
+                if isinstance(c, dict) and c.get("success") and c.get("result")
+            ),
+        )
 
     workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
@@ -1780,14 +1776,8 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         # Remove leaked tool-call/control tokens from model output
         if response_text:
-            import re
-
             original_text = response_text
-            response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-            response_text = re.sub(r"<\|[^|>]+\|>", "", response_text)
-            # Strip bare "[Tool Result]" placeholder that some models emit when confused by tool headers
-            response_text = re.sub(r"^\s*\[Tool Result\]\s*$", "", response_text, flags=re.MULTILINE)
-            response_text = response_text.strip()
+            response_text = strip_control_tokens(response_text)
 
             if response_text != original_text:
                 if tool_calling_mode == "native":
@@ -1798,255 +1788,42 @@ def node_generate_response(state: GraphState) -> GraphState:
                 else:
                     logger.info("Sanitized control tokens from LLM response")
 
-            if not response_text:
-                # LLM emitted only tool-call tokens — retry with a synthesis-only prompt
-                # (no tool catalog, explicit instruction to summarize the data)
-                logger.info("LLM produced empty response after sanitization, retrying with synthesis prompt")
+            # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
+            # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
+            response_text = retry_synthesis_if_empty(
+                response_text,
+                model=model,
+                lang=lang,
+                user_msg=user_msg,
+                knowledge_context=knowledge_context,
+                context_text=context_text,
+                tool_results=tool_results,
+                collected_sources=collected_sources,
+            )
+            response_text = retry_on_attachment_refusal(
+                response_text,
+                model=model,
+                state=state,
+                system_prompt=system_prompt,
+                all_msgs=all_msgs,
+            )
+            response_text = retry_on_web_extract_contradiction(
+                response_text,
+                model=model,
+                tool_results=tool_results,
+                user_msg=user_msg,
+            )
+            response_text = format_tool_based_fallback(
+                response_text,
+                tool_results=tool_results,
+                lang=lang,
+            )
 
-                _retry_has_citable_sources = bool(collected_sources)
-                _synth_default = {
-                    "en": (
-                        "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
-                        "Do NOT list raw result items. Write a fluent summary that directly answers the user's question. "
-                        "Treat current-turn tool results as current facts. Do not mention training cutoffs, outdated knowledge limits, or inability to browse."
-                        + (
-                            " Cite sources using numbered references like [1], [2] etc. matching the SOURCES list below."
-                            if _retry_has_citable_sources
-                            else ""
-                        )
-                    ),
-                    "de": (
-                        "Fasse die obigen Tool-Ergebnisse und die Wissensdatenbank zu einer zusammenhaengenden, "
-                        "gut strukturierten Antwort zusammen. Liste KEINE rohen Ergebnis-Eintraege auf. "
-                        "Schreibe eine fluessige Zusammenfassung, die die Frage des Benutzers direkt beantwortet. "
-                        "Behandle aktuelle Tool-Ergebnisse als aktuelle Fakten. Erwaehne keine Wissensgrenzen, Trainingsdaten-Grenzen oder fehlende Browsing-Faehigkeit."
-                        + (
-                            " Zitiere Quellen mit nummerierten Referenzen wie [1], [2] usw. passend zur SOURCES-Liste unten."
-                            if _retry_has_citable_sources
-                            else ""
-                        )
-                    ),
-                }
-                synth_instr = _synth_default.get(lang, _synth_default["en"])
-
-                # Build a focused data-only prompt — no tool catalog at all
-                retry_parts = [
-                    "You are a helpful AI assistant. Do NOT emit tool calls or control tokens. "
-                    "Return ONLY plain natural-language text. "
-                    "Use current-turn tool results as the source of truth and do not mention training cutoffs or browsing limitations.\n"
-                ]
-                if knowledge_context:
-                    retry_parts.append(f"=== KNOWLEDGE BASE ===\n{context_text}\n=== END KNOWLEDGE BASE ===\n")
-                if tool_results:
-                    for _tn, _tr in tool_results.items():
-                        retry_parts.append(f"=== TOOL: {_tn} ===\n{_tr}\n=== END TOOL ===\n")
-                # Include numbered source list so LLM can reference [N]
-                if collected_sources:
-                    src_lines = []
-                    for src in collected_sources:
-                        _idx = src.get("index", 0)
-                        if src.get("url"):
-                            src_lines.append(f"[{_idx}] {src['label']} - {src['url']}")
-                        else:
-                            src_lines.append(f"[{_idx}] {src['label']} (knowledge base)")
-                    retry_parts.append("=== SOURCES ===\n" + "\n".join(src_lines) + "\n=== END SOURCES ===\n")
-                retry_parts.append(f"=== TASK ===\n{synth_instr}\n=== END TASK ===\n")
-
-                retry_prompt = "\n".join(retry_parts)
-                retry_messages = [
-                    SystemMessage(content=retry_prompt),
-                    HumanMessage(content=user_msg),
-                ]
-
-                try:
-                    retry_out = model.invoke(retry_messages)
-                    if hasattr(retry_out, "content"):
-                        response_text = retry_out.content
-                    elif isinstance(retry_out, str):
-                        response_text = retry_out
-                    else:
-                        response_text = str(retry_out)
-
-                    # Strip any remaining control tokens from retry
-                    response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                    response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
-                    logger.info("Synthesis retry succeeded", response_length=len(response_text))
-                except Exception as retry_err:
-                    logger.error("Synthesis retry failed", error=str(retry_err))
-                    response_text = ""
-
-            # Guardrail: if attachments were injected but the model still claims it cannot
-            # access attachments, force one corrective retry with explicit instruction.
-            attachment_context = state.get("attachment_context") or []
-            if response_text and attachment_context:
-                attachment_refusal_pattern = re.compile(
-                    r"("
-                    r"can(?:not|'t)\s+(?:view|access|see).{0,60}(?:attach|workspace\s+document|document)|"
-                    r"don['’]t\s+see.{0,60}(?:attach|workspace\s+document|document)|"
-                    r"(?:attach\w*|workspace\s+document\w*|document\w*).{0,60}"
-                    r"(?:not\s+)?(?:available|accessible|provided|found|readable|unavailable|inaccessible)|"
-                    r"not\s+accessible.{0,60}(?:content\s+extraction|extract)"
-                    r")",
-                    flags=re.IGNORECASE,
-                )
-                if attachment_refusal_pattern.search(response_text):
-                    logger.warning(
-                        "Model claimed attachments were unavailable despite injected attachment context; retrying once",
-                        attachment_count=len(attachment_context),
-                    )
-                    # Track attachment refusal retry trigger
-                    from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_TOTAL
-                    profile_name = state.get("profile_name", "unknown")
-                    ATTACHMENT_REFUSAL_RETRIES_TOTAL.labels(profile_name=profile_name).inc()
-                    
-                    correction_prompt = (
-                        system_prompt
-                        + "\n\n=== ATTACHMENT HANDLING ===\n"
-                        + "The USER ATTACHMENTS section is already provided in this prompt and is readable context. "
-                        + "Do not state that attachments are unavailable. Use that content directly in your answer.\n"
-                        + "=== END ATTACHMENT HANDLING ===\n"
-                    )
-                    correction_messages = [SystemMessage(content=correction_prompt)]
-                    for msg in all_msgs:
-                        role = msg.get("role", "user")
-                        content = msg.get("content", "")
-                        if role == "user":
-                            correction_messages.append(HumanMessage(content=content))
-                        elif role == "assistant":
-                            correction_messages.append(AIMessage(content=content))
-                    try:
-                        correction_out = model.invoke(correction_messages)
-                        if hasattr(correction_out, "content"):
-                            response_text = correction_out.content
-                        elif isinstance(correction_out, str):
-                            response_text = correction_out
-                        else:
-                            response_text = str(correction_out)
-                        response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                        response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
-                        logger.info("Attachment correction retry succeeded", response_length=len(response_text))
-                        # Track successful attachment retry
-                        from universal_agentic_framework.monitoring.metrics import ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL
-                        ATTACHMENT_REFUSAL_RETRIES_SUCCESS_TOTAL.labels(profile_name=profile_name).inc()
-                    except Exception as correction_err:
-                        logger.error("Attachment correction retry failed", error=str(correction_err))
-
-            # Guardrail: if webpage extraction succeeded but the model still claims
-            # it cannot access the site, force one corrective retry using tool output.
-            extract_result = str(tool_results.get("extract_webpage_mcp", "")).strip()
-            if response_text and extract_result and not extract_result.lower().startswith("error:"):
-                access_refusal_pattern = re.compile(
-                    r"(unable\s+to\s+(?:access|retrieve|visit)|"
-                    r"cannot\s+(?:access|retrieve|visit|reach)|"
-                    r"can't\s+(?:access|retrieve|visit|reach)|"
-                    r"connection\s+error|not\s+directly\s+retrievable|"
-                    r"verbindungsproblem|nicht\s+abrufbar|nicht\s+zugaenglich|"
-                    r"kann\s+(?:nicht|keine)\s+(?:zugreifen|abrufen|erreichen))",
-                    flags=re.IGNORECASE,
-                )
-                if access_refusal_pattern.search(response_text):
-                    logger.warning(
-                        "Model contradicted successful extract_webpage_mcp result; retrying once",
-                        extract_length=len(extract_result),
-                    )
-                    correction_prompt = (
-                        "You are given successfully extracted webpage content. "
-                        "Answer the user's question ONLY from this extracted content. "
-                        "Do not claim connection or access errors.\n\n"
-                        "=== EXTRACTED WEBPAGE CONTENT ===\n"
-                        f"{extract_result[:12000]}\n"
-                        "=== END EXTRACTED WEBPAGE CONTENT ==="
-                    )
-                    correction_messages = [
-                        SystemMessage(content=correction_prompt),
-                        HumanMessage(content=user_msg),
-                    ]
-                    try:
-                        correction_out = model.invoke(correction_messages)
-                        if hasattr(correction_out, "content"):
-                            response_text = correction_out.content
-                        elif isinstance(correction_out, str):
-                            response_text = correction_out
-                        else:
-                            response_text = str(correction_out)
-                        response_text = re.sub(r"<\|tool_call_start\|>.*?<\|tool_call_end\|>", "", response_text, flags=re.DOTALL)
-                        response_text = re.sub(r"<\|[^|>]+\|>", "", response_text).strip()
-                        logger.info("Web extract contradiction retry succeeded", response_length=len(response_text))
-                    except Exception as correction_err:
-                        logger.error("Web extract contradiction retry failed", error=str(correction_err))
-
-            # Final fallback — if retry also produced nothing, format raw results
-            if not response_text:
-                tool_based_text = None
-
-                # Prefer readable formatting of web search results over raw dict string
-                web_search_raw = str(tool_results.get("web_search_mcp", "")).strip()
-                if web_search_raw and not web_search_raw.lower().startswith("tool execution failed"):
-                    try:
-                        import ast
-                        parsed = ast.literal_eval(web_search_raw)
-                        if isinstance(parsed, dict) and isinstance(parsed.get("results"), list):
-                            items = parsed.get("results", [])[:5]
-                            lines = []
-                            for idx, item in enumerate(items, 1):
-                                title = str(item.get("title", "Untitled"))
-                                url = str(item.get("url", ""))
-                                snippet = str(item.get("snippet", "")).replace("\n", " ").strip()
-                                if len(snippet) > 180:
-                                    snippet = snippet[:177] + "..."
-                                lines.append(f"{idx}. {title}\n   {url}\n   {snippet}")
-                            intro = (
-                                "Here are the most relevant web results I found:"
-                                if lang != "de"
-                                else "Hier sind die relevantesten Web-Ergebnisse, die ich gefunden habe:"
-                            )
-                            tool_based_text = intro + "\n\n" + "\n\n".join(lines)
-                    except Exception:
-                        tool_based_text = None
-
-                if tool_based_text is None:
-                    # Prioritize utility tools over web search in fallback
-                    for tool_name in ["calculator_tool", "datetime_tool", "extract_webpage_mcp", "web_search_mcp"]:
-                        candidate = str(tool_results.get(tool_name, "")).strip()
-                        if candidate and not candidate.lower().startswith("tool execution failed"):
-                            tool_based_text = candidate
-                            break
-
-                if tool_based_text:
-                    prefix = (
-                        "Hier ist das Ergebnis aus den ausgefuehrten Tools:\n\n"
-                        if lang == "de"
-                        else "Here is the result from the executed tools:\n\n"
-                    )
-                    response_text = f"{prefix}{tool_based_text[:2500]}"
-                else:
-                    response_text = (
-                        "Entschuldigung, ich habe intern Werkzeuge ausgefuehrt, aber keine lesbare Antwort erhalten. "
-                        "Bitte formuliere deine Frage kurz neu."
-                        if lang == "de"
-                        else "Sorry, I executed tools internally but did not receive a readable answer. "
-                        "Please rephrase your question briefly."
-                    )
-        
-        # Remove any URLs that were not present in tool results
+        # Remove any URLs that were not present in tool results / RAG / the user message.
         if response_text:
-            import re
-
-            def _filter_urls(text: str) -> str:
-                urls = re.findall(r"https?://[^\s)]+", text)
-                if not urls:
-                    return text
-                allowed = allowed_urls
-                removed = 0
-                for url in urls:
-                    if url not in allowed:
-                        text = text.replace(url, "source omitted")
-                        removed += 1
-                if removed:
-                    logger.info("Removed untrusted URLs from response", removed=removed)
-                return text
-
-            response_text = _filter_urls(response_text)
+            response_text, _urls_removed = filter_untrusted_urls(response_text, allowed_urls)
+            if _urls_removed:
+                logger.info("Removed untrusted URLs from response", removed=_urls_removed)
 
         # Honor strict literal-response directives when explicitly requested.
         exact_reply = extract_exact_reply_directive(user_msg)
@@ -2105,11 +1882,20 @@ def node_summarize(state: GraphState) -> GraphState:
     config = load_core_config()
     lang = state.get("language") or config.profile.language
     profile_name = getattr(config.profile, "name", "default-profile")
+    features = load_features_config()
     logger.info("Summarizing conversation", profile_name=profile_name)
+
+    # Skip the auxiliary-model fact-extraction entirely when this turn won't be persisted
+    # (memory disabled or a trivial exchange). node_update_memory would discard the result
+    # anyway, so producing it just burns an LLM call. node_update_memory keeps its own
+    # meaningful exchange-based fallback summary for the rare case it does write.
+    if not _should_write_memory(state, features):
+        logger.info("Skipping summarize LLM call (memory write not warranted)", profile_name=profile_name)
+        state["summary_text"] = ""
+        return state
 
     # Keep digest_chain normalized even when compression does not generate a new summary.
     try:
-        features = load_features_config()
         if getattr(features, "memory_digest_chain_enabled", True):
             summarizer = get_summarizer()
             existing_chain = state.get("digest_chain") or []
@@ -2171,13 +1957,16 @@ def node_summarize(state: GraphState) -> GraphState:
                     item.get("text", "") if isinstance(item, dict) else str(item)
                     for item in _raw_content
                 )
-            summary = (_raw_content or "").strip() or f"LLM: {prompt}"
+            # Empty (not the prompt echo) on a blank reply: node_update_memory then builds
+            # a meaningful "User: … -> Assistant: …" fallback instead of persisting the
+            # extraction instruction + raw exchange as if it were a user fact.
+            summary = (_raw_content or "").strip()
             _sum_usage_meta = getattr(out, "usage_metadata", None)
             track_llm_call(profile_name, provider, model_name, "success")
         except Exception as e:
             track_llm_call(profile_name, provider, model_name, "error")
             logger.warning("Summarization LLM call failed, using fallback", error=str(e))
-            summary = f"LLM: {prompt}"
+            summary = ""
             _sum_usage_meta = None
 
         _, output_tokens = _tokens_from_usage(_sum_usage_meta, summary)
@@ -2208,24 +1997,13 @@ def node_update_memory(state: GraphState) -> GraphState:
     user_id = state.get("user_id")
     logger.info("Updating memory", user_id=user_id, profile_name=profile_name)
 
-    if not getattr(features_config, "long_term_memory", False):
-        logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
+    # Skip writes for disabled memory or trivial exchanges (shared gate with node_summarize,
+    # which already skipped producing a summary for the same turns).
+    if not _should_write_memory(state, features_config):
+        logger.info("Skipping memory update (memory disabled or trivial exchange)", user_id=user_id)
         return state
 
-    # Trivial exchange filter: skip memory write for low-content turns.
-    _current_user_msg = ""
-    for _msg in reversed(state.get("messages", [])):
-        if isinstance(_msg, dict) and _msg.get("role") == "user":
-            _current_user_msg = _msg.get("content", "")
-            break
-    _trivial_patterns = {
-        "ok", "okay", "thanks", "thank you", "yes", "no", "sure", "got it",
-        "hi", "hello", "bye", "goodbye", "great", "perfect", "alright",
-    }
-    _stripped = _current_user_msg.strip().lower().rstrip("!.,?")
-    if len(_stripped) < 5 or (len(_stripped) < 20 and _stripped in _trivial_patterns):
-        logger.info("Skipping memory update for trivial exchange", user_id=user_id, preview=_stripped[:30])
-        return state
+    _current_user_msg = _latest_user_message(state.get("messages", []))
 
     logger.info("Building memory backend for upsert", user_id=user_id)
     backend = build_memory_backend(config)
@@ -2338,11 +2116,13 @@ def build_graph() -> StateGraph:
     graph.add_node("summarize", node_summarize)
     graph.add_node("update_memory", node_update_memory)
     
-    # Add performance optimization nodes
-    graph.add_node("memory_query_cache", memory_query_cache_node_sync)
-    graph.add_node("memory_cache_store", memory_cache_store_node_sync)
-    graph.add_node("compress_conversation", conversation_compression_node_sync)
-    graph.add_node("cache_stats", cache_stats_node_sync)
+    # Add performance optimization nodes. Registered as native async coroutines so
+    # langgraph awaits them on the event loop under ainvoke — no per-call worker thread
+    # or nested asyncio.run (the old *_sync wrappers existed only to bridge sync invoke).
+    graph.add_node("memory_query_cache", memory_query_cache_node)
+    graph.add_node("memory_cache_store", memory_cache_store_node)
+    graph.add_node("compress_conversation", conversation_compression_node)
+    graph.add_node("cache_stats", cache_stats_node)
 
     # --- Execution flow ---
     # Crew routing happens first — before tools load — so crew-destined queries skip
@@ -2396,22 +2176,18 @@ def build_graph() -> StateGraph:
         if mode not in ("native", "structured", "react"):
             logger.warning(
                 "Tool strategy routing: invalid mode, falling back to structured",
-                extra={
-                    "invalid_mode": mode,
-                    "candidates": len(candidates),
-                    "mode_reason": mode_reason,
-                },
+                invalid_mode=mode,
+                candidates=len(candidates),
+                mode_reason=mode_reason,
             )
             return "structured"
-        
+
         logger.info(
             "Tool strategy routing: routing to strategy node",
-            extra={
-                "mode": mode,
-                "mode_reason": mode_reason,
-                "candidates": len(candidates),
-                "candidate_names": [c.get("name", "unknown") for c in candidates],
-            },
+            mode=mode,
+            mode_reason=mode_reason,
+            candidates=len(candidates),
+            candidate_names=[c.get("name", "unknown") for c in candidates],
         )
         return mode
 
@@ -2431,33 +2207,12 @@ def build_graph() -> StateGraph:
     graph.add_edge("call_tools_structured", "after_tool_call")
     graph.add_edge("call_tools_react", "after_tool_call")
 
-    # Crew conditional routing from convergence point (secondary path — most crew queries
-    # are routed at START, but this handles any edge case where a crew is signalled after tools).
-    def route_to_crew(state):
-        """Route to appropriate crew or standard flow."""
-        if route_to_research_crew(state):
-            return "research_crew"
-        elif route_to_analytics_crew(state):
-            return "analytics_crew"
-        elif route_to_code_generation_crew(state):
-            return "code_generation_crew"
-        elif route_to_planning_crew(state):
-            return "planning_crew"
-        else:
-            return "memory_query_cache"
-    
-    graph.add_conditional_edges(
-        "after_tool_call",
-        route_to_crew,
-        {
-            "research_crew": "research_crew",
-            "analytics_crew": "analytics_crew",
-            "code_generation_crew": "code_generation_crew",
-            "planning_crew": "planning_crew",
-            "memory_query_cache": "memory_query_cache",
-        }
-    )
-    
+    # after_tool_call always proceeds to memory. Crew queries are routed to their crew at
+    # START (bypassing tools entirely), so a query only reaches after_tool_call when no crew
+    # matched there; tool nodes don't change messages[-1], so re-running the crew routers here
+    # would always return "no crew" (W1.7: removed that dead conditional re-check).
+    graph.add_edge("after_tool_call", "memory_query_cache")
+
     # All crews flow to memory cache for further processing
     graph.add_edge("research_crew", "memory_query_cache")
     graph.add_edge("analytics_crew", "memory_query_cache")

@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM python:3.11.15-slim AS builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ COPY universal_agentic_framework/ ./universal_agentic_framework/
 COPY backend/ ./backend/
 COPY config/ ./config/
 
-FROM python:3.11-slim AS runtime
+FROM python:3.11.15-slim AS runtime
 
 ARG APP_UID=1000
 ARG APP_GID=1000

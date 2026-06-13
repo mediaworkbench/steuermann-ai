@@ -171,6 +171,14 @@ export function useStreamingChat(): UseStreamingChatReturn {
           const parts = buffer.split("\n\n");
           buffer = parts.pop() ?? "";
 
+          // Accumulate token/thinking deltas across all events in this chunk so we
+          // call setState once per network read rather than once per token event.
+          // Each setStreamingContent call schedules a React re-render + full markdown
+          // re-parse; batching per-chunk keeps the main thread free between reads.
+          let tokenDelta = "";
+          let thinkingDelta = "";
+          let streamEnded = false;
+
           for (const part of parts) {
             const trimmed = part.trim();
             if (!trimmed) continue;
@@ -187,9 +195,8 @@ export function useStreamingChat(): UseStreamingChatReturn {
             }
 
             if (dataLine === "[DONE]") {
-              setIsStreaming(false);
-              setNodeStatus(null);
-              return;
+              streamEnded = true;
+              break;
             }
 
             if (!dataLine) continue;
@@ -203,7 +210,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
 
             switch (eventType) {
               case "token":
-                setStreamingContent((prev) => prev + ((parsed.delta as string) ?? ""));
+                tokenDelta += (parsed.delta as string) ?? "";
                 break;
 
               case "tool_call":
@@ -257,7 +264,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
                 break;
 
               case "thinking":
-                setThinkingContent((prev) => prev + ((parsed.delta as string) ?? ""));
+                thinkingDelta += (parsed.delta as string) ?? "";
                 break;
 
               case "thinking_end":
@@ -271,6 +278,16 @@ export function useStreamingChat(): UseStreamingChatReturn {
               case "error":
                 throw new Error((parsed.message as string) ?? "Unknown stream error");
             }
+          }
+
+          // Flush accumulated deltas once per chunk — a single setState per read()
+          if (tokenDelta) setStreamingContent((prev) => prev + tokenDelta);
+          if (thinkingDelta) setThinkingContent((prev) => prev + thinkingDelta);
+
+          if (streamEnded) {
+            setIsStreaming(false);
+            setNodeStatus(null);
+            return;
           }
         }
       } catch (err) {

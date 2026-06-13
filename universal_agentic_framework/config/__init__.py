@@ -1,5 +1,6 @@
 """Configuration loading utilities."""
 from .loader import (
+    clear_config_cache,
     get_active_profile_id,
     get_profile_dir,
     load_agents_config,
@@ -24,6 +25,7 @@ __all__ = [
     "load_agents_config",
     "load_tools_config",
     "load_features_config",
+    "clear_config_cache",
     "get_active_profile_id",
     "get_profile_dir",
     "load_profile_metadata",

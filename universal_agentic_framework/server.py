@@ -11,8 +11,9 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,8 +38,15 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup/shutdown hooks. ``GRAPH`` is built at import time (below), so it is
-    always available by the time the lifespan body runs at server start."""
+    """Startup/shutdown hooks.
+
+    GRAPH is built here (not at module level) so that AsyncPostgresSaver.__init__
+    (which calls asyncio.get_running_loop() in langgraph-checkpoint-postgres 3.x)
+    executes inside the running uvicorn event loop rather than at import time.
+    """
+    global GRAPH, _GRAPH_NODE_NAMES
+    GRAPH = build_graph()
+    _GRAPH_NODE_NAMES = _discover_graph_node_names()
     await setup_checkpointer(GRAPH.checkpointer)
     await prune_checkpoints(GRAPH.checkpointer)
     yield
@@ -62,12 +70,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize system metrics and build graph
+# Initialize system metrics; GRAPH is built in _lifespan to satisfy the async
+# event-loop requirement of AsyncPostgresSaver.__init__ (checkpoint-postgres 3.x).
 CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
-GRAPH = build_graph()
+GRAPH: Any = None  # populated in _lifespan before first request is served
 ACTIVE_SESSIONS: set[str] = set()
 _invocation_count: int = 0
+
+
+def _per_turn_reset() -> Dict[str, Any]:
+    """Channels that must be cleared at the start of every turn.
+
+    With the Postgres checkpointer, any GraphState channel NOT present in the input
+    retains its previous turn's value. These are all strictly per-turn outputs, so a
+    stale value leaks into the next turn (e.g. a cached ``query_embedding`` from the
+    previous question getting reused for RAG, or a prior turn's ``crew_results`` being
+    re-injected into every later prompt). Returning a fresh dict each call avoids
+    sharing mutable objects across concurrent requests.
+
+    NOT reset here (intentionally persisted or self-overwriting): ``digest_chain``
+    (rolling digest), ``tokens_used`` / ``input_tokens`` / ``output_tokens``
+    (cumulative), ``loaded_memory`` / ``memory_analytics`` / ``summary_text``
+    (rewritten every turn by their nodes). ``loaded_tools`` / ``candidate_tools`` are
+    UntrackedValue channels — never checkpointed, so they cannot go stale.
+    """
+    return {
+        "query_embedding": [],
+        "prefilter_intents": {},
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "crew_results": {},
+        "knowledge_context": [],
+        "rag_attempted": False,
+        "rag_doc_count": 0,
+        "sources": [],
+    }
+
+
+def _resolve_thread(session_id: Optional[str]) -> Tuple[str, bool]:
+    """Return (thread_id, is_ephemeral) for a graph invocation.
+
+    langgraph 1.x requires a ``thread_id`` whenever a checkpointer is compiled into
+    the graph — there is no "checkpointer present but skip it" mode. Persistent
+    conversations pass their ``session_id`` straight through. Ephemeral requests
+    (no ``session_id``) get a throwaway, unique thread id so the checkpointer is
+    satisfied; the checkpoint rows it writes are deleted after the run by
+    ``_cleanup_ephemeral_thread``.
+    """
+    if session_id:
+        return session_id, False
+    return f"ephemeral:{uuid.uuid4()}", True
+
+
+async def _cleanup_ephemeral_thread(thread_id: str) -> None:
+    """Delete the checkpoint rows written for a throwaway ephemeral thread.
+
+    Best-effort: a failure here only leaks a single keep-latest checkpoint row that
+    periodic pruning will not reclaim (the thread id is unique), so log and move on
+    rather than failing the request.
+    """
+    try:
+        await GRAPH.checkpointer.adelete_thread(thread_id)
+    except Exception as exc:  # noqa: BLE001 - cleanup must never break the response
+        logger.warning(
+            "Failed to delete ephemeral checkpoint thread",
+            thread_id=thread_id,
+            error=str(exc),
+        )
 
 # Initialize system info metrics
 initialize_system_info(version="1.0.0", environment="production")
@@ -193,8 +264,10 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             workspace_document_count=len(request.get("workspace_documents", [])),
         )
         
-        # Ephemeral sessions (no session_id) are not checkpointed
+        # Ephemeral requests (no session_id) run on a throwaway thread that is
+        # deleted after the run; persistent ones use their session_id as thread_id.
         session_id = request.get("session_id")
+        thread_id, is_ephemeral = _resolve_thread(session_id)
 
         # Load at the edge: merge accumulated messages from checkpoint with new user message
         existing_messages: list = []
@@ -203,8 +276,10 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             if ct:
                 existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
 
-        # Prepare graph state
+        # Prepare graph state. Per-turn channels are reset first so stale checkpointed
+        # values from the previous turn cannot leak into this one.
         state: GraphState = {
+            **_per_turn_reset(),
             "messages": existing_messages + request.get("messages", []),
             "user_id": user_id,
             "session_id": session_id,
@@ -225,10 +300,11 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         # Track request with metrics
         with track_graph_request(profile_name) as ctx:
             try:
-                invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
+                invoke_config = {"configurable": {"thread_id": thread_id}}
 
-                # Execute graph (use invoke since HTTP is sync context)
-                result = GRAPH.invoke(state, config=invoke_config)
+                # Async invoke: the Postgres checkpointer is loop-bound and rejects
+                # sync calls from the serving thread, so the graph must be awaited.
+                result = await GRAPH.ainvoke(state, config=invoke_config)
 
                 ctx["status"] = "success"
                 global _invocation_count
@@ -240,7 +316,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     tokens_used=result.get("tokens_used", 0),
                     tools_executed=len(result.get("tool_results", {}))
                 )
-                
+
                 # Return result
                 return {
                     "messages": result.get("messages", []),
@@ -259,7 +335,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     "rag_attempted": result.get("rag_attempted", False),
                     "rag_doc_count": result.get("rag_doc_count", 0),
                 }
-                
+
             except Exception as e:
                 ctx["status"] = "error"
                 logger.error(
@@ -271,6 +347,9 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                     status_code=500,
                     detail=f"Graph execution error: {str(e)}"
                 )
+            finally:
+                if is_ephemeral:
+                    await _cleanup_ephemeral_thread(thread_id)
         
     except HTTPException:
         raise
@@ -312,7 +391,7 @@ def _discover_graph_node_names() -> frozenset[str]:
     return frozenset()
 
 
-_GRAPH_NODE_NAMES: frozenset[str] = _discover_graph_node_names()
+_GRAPH_NODE_NAMES: frozenset[str] = frozenset()  # populated in _lifespan after GRAPH is built
 
 _TOOL_LABELS: dict[str, str] = {
     "web_search_mcp": "Searching the web...",
@@ -388,8 +467,10 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     profile_name = CONFIG.profile.name
     profile_id = ACTIVE_PROFILE_ID
 
-    # Ephemeral sessions (no session_id) are not checkpointed
+    # Ephemeral requests (no session_id) run on a throwaway thread that is deleted
+    # after the stream closes; persistent ones use their session_id as thread_id.
     session_id = request.get("session_id")
+    thread_id, is_ephemeral = _resolve_thread(session_id)
 
     # Load at the edge: merge accumulated messages from checkpoint with new user message
     existing_messages: list = []
@@ -399,6 +480,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
             existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
 
     state: GraphState = {
+        **_per_turn_reset(),
         "messages": existing_messages + request.get("messages", []),
         "user_id": user_id,
         "session_id": session_id,
@@ -411,7 +493,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "workspace_documents": request.get("workspace_documents", []),
         "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
     }
-    invoke_config = {"configurable": {"thread_id": session_id}} if session_id else {}
+    invoke_config = {"configurable": {"thread_id": thread_id}}
 
     logger.info(
         "Graph stream invocation received",
@@ -423,6 +505,11 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     async def _event_stream() -> AsyncGenerator[str, None]:
         _final_output: dict = {}
         _done_emitted = False
+        # When the respond node finishes we break and drain the post-processing nodes
+        # (which write the final checkpoint) in a background task. Ephemeral cleanup is
+        # chained onto that task so it runs AFTER the last checkpoint is written — never
+        # in the generator's finally, which would delete rows the drain is still writing.
+        _drain_owns_cleanup = False
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
         _captured_map_data = None  # populated from tool-call node output, not respond node
@@ -655,7 +742,17 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
                                     # Drain post-processing nodes (summarize, update_memory)
                                     # in the background so they complete without blocking.
-                                    asyncio.create_task(_drain_remaining(_events_iter))
+                                    # Ephemeral cleanup runs only after the drain finishes,
+                                    # so the final checkpoint is deleted, not orphaned.
+                                    async def _drain_then_cleanup(it: Any = _events_iter) -> None:
+                                        try:
+                                            await _drain_remaining(it)
+                                        finally:
+                                            if is_ephemeral:
+                                                await _cleanup_ephemeral_thread(thread_id)
+
+                                    _drain_owns_cleanup = True
+                                    asyncio.create_task(_drain_then_cleanup())
                                     break
                             # Emit specific tool label once we know which tool ran.
                             if name in _TOOL_CALL_NODES:
@@ -727,6 +824,14 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                 yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
         finally:
             clear_context()
+            # Only clean up here when the background drain task did NOT take ownership.
+            # In the normal path the drain task owns cleanup (it runs after the final
+            # checkpoint is written); this covers the fallback/early-exit/error paths
+            # where the event iterator was already exhausted in-loop. Cleanup precedes
+            # the final yield because code after a yield in a generator's finally only
+            # runs if the consumer pulls again past [DONE].
+            if is_ephemeral and not _drain_owns_cleanup:
+                await _cleanup_ephemeral_thread(thread_id)
             if not _done_emitted:
                 yield "data: [DONE]\n\n"
 

@@ -158,7 +158,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:15.5-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: framework
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or the shell environment}
@@ -175,7 +175,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.4-alpine
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
@@ -189,7 +189,7 @@ services:
     restart: unless-stopped
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.18.2
     expose:
       - "6333"
     volumes:
@@ -203,12 +203,10 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v2.48.1
+    image: prom/prometheus:v3.4.1
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
     expose:
       - "9090"
     volumes:
@@ -223,7 +221,7 @@ services:
       retries: 3
 
   duckduckgo-mcp:
-    image: mcp/duckduckgo
+    image: mcp/duckduckgo@sha256:d7141ebf002fd36928e006b7f33de8be0088b337b668edd6564c640e1ce768d8
     command: ["python", "-c", "from duckduckgo_mcp_server.server import mcp; from mcp.server.fastmcp.server import TransportSecuritySettings; mcp.settings.host='0.0.0.0'; mcp.settings.transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False); mcp.run(transport='streamable-http')"]
     environment:
       - DDG_SAFE_SEARCH=MODERATE

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from universal_agentic_framework.orchestration.graph_builder import build_graph
@@ -53,7 +55,9 @@ def test_langgraph_pipeline_runs_and_updates_memory():
         "language": "en",
     }
 
-    result = graph.invoke(inputs)
+    # The graph's performance nodes are native async coroutines, so it must be driven
+    # via the async API (matching production's GRAPH.ainvoke in server.py).
+    result = asyncio.run(graph.ainvoke(inputs))
 
     # Assistant message appended
     assert result["messages"][-1]["role"] == "assistant"

@@ -1,5 +1,6 @@
 """Integration tests for graph builder with tool registry."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -85,7 +86,7 @@ def test_graph_loads_tools():
         "language": "de",
     }
     
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
     
     # Assert tools were loaded
     assert "loaded_tools" in result
@@ -104,18 +105,43 @@ def test_graph_loads_tools():
 def test_graph_skips_disabled_tools():
     """Verify that disabled tools (like mcp_stub) are not loaded."""
     graph = build_graph()
-    
+
     state = {
         "messages": [{"role": "user", "content": "Hello"}],
         "user_id": "test_user",
         "language": "de",
     }
-    
-    result = graph.invoke(state)
-    
+
+    result = asyncio.run(graph.ainvoke(state))
+
     # Assert mcp_stub is NOT loaded (disabled in config/tools.yaml)
     tool_names = [tool.name for tool in result.get("loaded_tools", [])]
     assert "mcp_stub" not in tool_names
+
+
+@pytest.mark.integration
+def test_node_load_tools_applies_toggles_over_cached_discovery():
+    """W2.3: tool discovery is cached, but user tool_toggles are still applied per request."""
+    from universal_agentic_framework.orchestration.graph_builder import (
+        node_load_tools,
+        clear_tool_registry_cache,
+    )
+
+    clear_tool_registry_cache()
+    base = {"messages": [{"role": "user", "content": "hi"}], "user_id": "u", "language": "de"}
+
+    # First call (cold discovery), no toggles -> full set includes datetime_tool.
+    r1 = node_load_tools({**base, "user_settings": {}})
+    names1 = {t.name for t in r1["loaded_tools"]}
+    assert "datetime_tool" in names1
+
+    # Second call hits the discovery cache, but a user toggle must still remove the tool.
+    r2 = node_load_tools(
+        {**base, "user_settings": {"tool_toggles": {"datetime_tool": False}}}
+    )
+    names2 = {t.name for t in r2["loaded_tools"]}
+    assert "datetime_tool" not in names2
+    assert names2 < names1  # strictly fewer — toggle applied on top of cached discovery
 
 
 class DummyModel:
@@ -199,7 +225,7 @@ def test_graph_injects_tool_and_knowledge_context(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Find the response node invocation (it has "=== TOOL RESULTS ===" in the system prompt)
     response_inv = None
@@ -286,7 +312,7 @@ def test_rag_request_uses_config(
         "language": "en",
     }
 
-    graph.invoke(state)
+    asyncio.run(graph.ainvoke(state))
 
     assert mock_httpx_post.called
     url = mock_httpx_post.call_args.args[0]
@@ -348,7 +374,7 @@ def test_rag_disabled_via_features(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     assert result.get("knowledge_context") == []
     assert not mock_httpx_post.called
@@ -428,7 +454,7 @@ def test_rag_keyword_fallback_search(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Verify fallback search was called (two POST requests to Qdrant)
     assert mock_httpx_post.call_count == 2
@@ -493,7 +519,7 @@ def test_long_term_memory_disabled_via_features(
         "language": "en",
     }
 
-    result = graph.invoke(state)
+    result = asyncio.run(graph.ainvoke(state))
 
     # Verify long-term memory was not loaded (feature flag blocks it)
     # The loaded_memory key should not be present or should be empty/default
