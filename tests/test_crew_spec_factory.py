@@ -1,11 +1,19 @@
-"""Unit tests for the CrewSpec registry + node factory (W4.1)."""
+"""Unit tests for the CrewSpec registry + node/route factories (W4.1 + W4.2)."""
 
+from unittest.mock import patch
+
+from universal_agentic_framework.orchestration import crew_nodes
 from universal_agentic_framework.orchestration.crew_nodes import (
     CREW_SPECS,
     CrewSpec,
     make_crew_node,
+    make_route,
     _format_crew_message,
 )
+
+
+def _msg(text):
+    return {"messages": [{"role": "user", "content": text}]}
 
 
 def test_registry_has_all_four_crews_with_expected_prefixes():
@@ -68,3 +76,40 @@ def test_make_crew_node_passes_through_empty_messages():
     node = make_crew_node(CREW_SPECS["research"])
     state = {"messages": []}
     assert node(state) is state  # no crew run, returned as-is
+
+
+# ── make_route (W4.2) ─────────────────────────────────────────────────
+
+def test_make_route_names_function():
+    route = make_route(CREW_SPECS["analytics"])
+    assert route.__name__ == "route_to_analytics_crew"
+
+
+def test_route_matches_keyword_when_enabled():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        assert crew_nodes.route_to_research_crew(_msg("please research the latest news"))
+        assert crew_nodes.route_to_analytics_crew(_msg("analyze the sales data"))
+        assert crew_nodes.route_to_code_generation_crew(_msg("write a function to sort"))
+        assert crew_nodes.route_to_planning_crew(_msg("create a roadmap for the project"))
+
+
+def test_route_matches_pattern_when_no_keyword():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        # "what" hits the research question pattern (no plain keyword in this phrasing).
+        assert crew_nodes.route_to_research_crew(_msg("what color is the sky"))
+
+
+def test_route_rejects_greeting():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        assert not crew_nodes.route_to_code_generation_crew(_msg("hello there"))
+        assert not crew_nodes.route_to_planning_crew(_msg("hello there"))
+
+
+def test_route_disabled_returns_false():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=False):
+        assert not crew_nodes.route_to_research_crew(_msg("research the latest news"))
+
+
+def test_route_empty_messages_returns_false():
+    with patch.object(crew_nodes, "_multi_agent_crews_enabled", return_value=True):
+        assert not crew_nodes.route_to_research_crew({"messages": []})

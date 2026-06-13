@@ -150,17 +150,17 @@ def _multi_agent_crews_enabled() -> bool:
         return False
 
 
-# ─── Crew spec registry + node factory ─────────────────────────────────
-# The four single-crew nodes were near-verbatim copies differing only in crew class,
-# kickoff kwarg, message prefix, and (for code/planning) step formatting. CrewSpec captures
-# those differences declaratively; make_crew_node builds the node from a spec. graph_builder
-# also derives _CREW_RESULT_PREFIXES from CREW_SPECS, so the append-prefix and the
-# history-filter prefix can never drift apart again (the old W1.1 bug).
+# ─── Crew spec registry + node/route factories ─────────────────────────
+# The four single-crew nodes AND their four routers were near-verbatim copies differing only
+# in crew class, kickoff kwarg, message prefix, step formatting, and routing keywords/patterns.
+# CrewSpec captures those differences declaratively; make_crew_node / make_route build the
+# functions from a spec. graph_builder also derives _CREW_RESULT_PREFIXES from CREW_SPECS, so
+# the append-prefix and the history-filter prefix can never drift apart (the old W1.1 bug).
 
 
 @dataclass(frozen=True)
 class CrewSpec:
-    """Declarative description of a single-crew node (and, later, its routing)."""
+    """Declarative description of a single crew: its node and its router."""
 
     name: str                 # cache key + metric crew label, e.g. "research"
     crew_class: str           # attribute name in universal_agentic_framework.crews
@@ -170,6 +170,13 @@ class CrewSpec:
     # For multi-step crews (code/planning): (result_step_key, markdown_heading) pairs.
     # None ⇒ simple single-result formatting.
     step_sections: Optional[Tuple[Tuple[str, str], ...]] = None
+    # Routing: keyword substrings (en+de) + regex patterns checked in order. non_match_patterns
+    # mirror the originals — they sit after keywords+patterns where both outcomes are already
+    # False, so they are effectively inert; kept for fidelity (W1.7 will revisit precision).
+    keywords_en: Tuple[str, ...] = ()
+    keywords_de: Tuple[str, ...] = ()
+    patterns: Tuple[str, ...] = ()
+    non_match_patterns: Tuple[str, ...] = ()
 
 
 CREW_SPECS: Dict[str, CrewSpec] = {
@@ -179,6 +186,20 @@ CREW_SPECS: Dict[str, CrewSpec] = {
         metric_label="research_crew",
         kickoff_kwarg="topic",
         message_prefix="Research Result:",
+        keywords_en=(
+            "search", "research", "find", "look up", "latest", "recent", "current",
+            "what is", "how to", "find out", "tell me about", "information about", "news about",
+        ),
+        keywords_de=(
+            "suche", "recherche", "finde", "neueste", "aktuelle", "nachschlage",
+            "informieren", "sag mir", "was ist", "wie", "recherchieren",
+        ),
+        patterns=(
+            r"^\s*(what|how|why|where|when)",
+            r"(find|search|look).*?(for|about|on)",
+            r"(wie|was|warum|wo|wann)",
+            r"(?:search|suche).*?(web|internet|online)",
+        ),
     ),
     "analytics": CrewSpec(
         name="analytics",
@@ -186,6 +207,30 @@ CREW_SPECS: Dict[str, CrewSpec] = {
         metric_label="analytics_crew",
         kickoff_kwarg="query",
         message_prefix="Analysis Result:",
+        step_sections=None,
+        keywords_en=(
+            "analyze", "analysis", "trend", "trends", "pattern", "patterns", "statistic",
+            "statistics", "statistical", "calculate", "compute", "correlation", "insight",
+            "insights", "metric", "metrics", "data", "dataset", "distribution", "average",
+            "mean", "median", "report", "summary", "compare", "comparison", "visualize",
+            "chart", "graph", "dashboard", "performance", "forecast", "predict", "anomaly",
+            "detect",
+        ),
+        keywords_de=(
+            "analysiere", "analyse", "trend", "muster", "statistik", "statistisch", "berechne",
+            "korrelation", "einsicht", "metrik", "daten", "datensatz", "verteilung",
+            "durchschnitt", "mittelwert", "median", "bericht", "zusammenfassung", "vergleiche",
+            "vergleich", "visualisiere", "diagramm", "grafik", "dashboard", "leistung",
+            "prognose", "vorhersage", "anomalie", "erkennen",
+        ),
+        patterns=(
+            r"(analyze|analyse|analysis).*?(data|trend|pattern|metric)",
+            r"(what|which|how).*?(trend|pattern|correlation|insight)",
+            r"(compare|vergleiche).*?(with|to|vs|gegen)",
+            r"(calculate|compute|berechne).*?(average|mean|sum|total)",
+            r"(show|zeige).*?(trend|pattern|distribution|chart|graph)",
+            r"(find|finde).*?(pattern|anomaly|outlier|correlation)",
+        ),
     ),
     "code_generation": CrewSpec(
         name="code_generation",
@@ -198,6 +243,37 @@ CREW_SPECS: Dict[str, CrewSpec] = {
             ("implementation", "## Implementation"),
             ("qa_testing", "## QA Report & Tests"),
         ),
+        keywords_en=(
+            "code", "implement", "implementation", "write", "create", "generate", "develop",
+            "build", "function", "method", "class", "interface", "api", "endpoint", "rest",
+            "microservice", "service", "module", "library", "component", "algorithm", "script",
+            "program", "application", "test", "unit test", "integration test", "refactor",
+            "optimize", "debug", "fix", "database", "query", "schema", "model", "dto",
+            "validator", "parser", "handler", "controller", "route", "middleware",
+        ),
+        keywords_de=(
+            "code", "implementiere", "implementierung", "schreibe", "erstelle", "generiere",
+            "entwickle", "funktion", "methode", "klasse", "schnittstelle", "api", "endpunkt",
+            "modul", "bibliothek", "komponente", "algorithmus", "skript", "programm",
+            "anwendung", "test", "unittest", "refaktoriere", "optimiere", "debugging",
+            "datenbank", "abfrage", "schema", "modell",
+        ),
+        patterns=(
+            r"(write|create|generate|build|implement).*?(function|method|class|api|service|module|component)",
+            r"(how to|wie).*?(code|implement|write|create|build)",
+            r"(need|want|require).*?(function|class|api|code|implementation)",
+            r"(can you|could you|kannst du).*?(write|create|implement|build|code)",
+            r"(make|erstelle).*?(function|class|api|rest|endpoint|service)",
+            r"(develop|entwickle).*?(application|api|service|module|component)",
+            r"(test|unittest).*?(for|für).*?(function|class|module|api)",
+            r"(refactor|optimize|fix|debug).*?(code|function|class|module)",
+        ),
+        non_match_patterns=(
+            r"^(hi|hello|hey|hallo|guten tag)",
+            r"(how are you|wie geht)",
+            r"(thank|danke)",
+            r"(what is the weather|wie ist das wetter)",
+        ),
     ),
     "planning": CrewSpec(
         name="planning",
@@ -209,6 +285,36 @@ CREW_SPECS: Dict[str, CrewSpec] = {
             ("analysis", "## Requirements Analysis"),
             ("planning", "## Execution Plan"),
             ("review", "## Plan Review & Risk Assessment"),
+        ),
+        keywords_en=(
+            "plan", "planning", "roadmap", "task", "tasks", "breakdown", "break down",
+            "decompose", "sprint", "iteration", "milestone", "milestones", "project plan",
+            "execution plan", "schedule", "timeline", "backlog", "epic", "user story", "story",
+            "estimate", "estimation", "scope", "scoping", "phase", "phases", "initiative",
+            "deliverable", "deliverables", "dependency", "dependencies", "critical path",
+            "gantt", "workflow", "organize", "structure",
+        ),
+        keywords_de=(
+            "plan", "planung", "fahrplan", "roadmap", "aufgabe", "aufgaben", "aufschlüsseln",
+            "sprint", "iteration", "meilenstein", "meilensteine", "projektplan", "zeitplan",
+            "backlog", "schätzung", "umfang", "phase", "phasen", "abhängigkeit",
+            "abhängigkeiten", "kritischer pfad", "arbeitsablauf", "organisieren", "struktur",
+        ),
+        patterns=(
+            r"(plan|planning).*?(project|migration|initiative|feature|epic)",
+            r"(create|make|build).*?(plan|roadmap|timeline|schedule|backlog)",
+            r"(break down|breakdown|decompose).*?(into|to).*?(task|story|epic|phase)",
+            r"(estimate|estimation).*?(effort|time|duration|cost)",
+            r"(need|want|require).*?(plan|roadmap|timeline|breakdown)",
+            r"(how to|wie).*?(plan|organize|structure|schedule)",
+            r"(sprint|iteration).*?(planning|plan|backlog)",
+            r"(organize|structure).*?(work|tasks|project|initiative)",
+            r"(identify|find|determine).*?(dependency|dependencies|milestone)",
+        ),
+        non_match_patterns=(
+            r"^(hi|hello|hey|hallo|guten tag)",
+            r"(how are you|wie geht)",
+            r"(thank|danke)",
         ),
     ),
 }
@@ -296,530 +402,54 @@ def make_crew_node(spec: CrewSpec):
     return _node
 
 
+def make_route(spec: CrewSpec):
+    """Build the routing predicate for ``spec`` (keyword + pattern match, feature-gated)."""
+
+    def _route(state: Dict[str, Any]) -> bool:
+        if not _multi_agent_crews_enabled():
+            return False
+
+        messages = state.get("messages", [])
+        if not messages:
+            return False
+
+        user_msg = messages[-1].get("content", "").lower()
+
+        for keyword in spec.keywords_en + spec.keywords_de:
+            if keyword in user_msg:
+                logger.info(
+                    f"{spec.name} routing triggered",
+                    detected_keyword=keyword,
+                    message_length=len(user_msg),
+                )
+                return True
+
+        for pattern in spec.patterns:
+            if re.search(pattern, user_msg, re.IGNORECASE):
+                logger.info(f"{spec.name} routing triggered by pattern", pattern=pattern)
+                return True
+
+        for pattern in spec.non_match_patterns:
+            if re.search(pattern, user_msg, re.IGNORECASE):
+                return False
+
+        return False
+
+    _route.__name__ = f"route_to_{spec.name}_crew"
+    _route.__qualname__ = _route.__name__
+    return _route
+
+
 node_research_crew = make_crew_node(CREW_SPECS["research"])
 node_analytics_crew = make_crew_node(CREW_SPECS["analytics"])
 node_code_generation_crew = make_crew_node(CREW_SPECS["code_generation"])
 node_planning_crew = make_crew_node(CREW_SPECS["planning"])
 
+route_to_research_crew = make_route(CREW_SPECS["research"])
+route_to_analytics_crew = make_route(CREW_SPECS["analytics"])
+route_to_code_generation_crew = make_route(CREW_SPECS["code_generation"])
+route_to_planning_crew = make_route(CREW_SPECS["planning"])
 
-
-def route_to_research_crew(state: Dict[str, Any]) -> bool:
-    """Determine if the user query should be routed to the research crew.
-    
-    The research crew is invoked if the query contains research-related keywords
-    or follows patterns typical of research requests (search queries, fact-finding,
-    current information requests, etc.).
-    
-    Routing keywords checked:
-    - English: search, research, find, latest, recent, look up, what is, how to
-    - German: suche, recherche, finde, neueste, aktuelle, nachschlage, informieren
-    
-    Args:
-        state: GraphState dictionary with 'messages'
-        
-    Returns:
-        True if query should be routed to research crew, False otherwise
-    """
-    if not _multi_agent_crews_enabled():
-        return False
-
-    messages = state.get("messages", [])
-    if not messages:
-        return False
-    
-    user_msg = messages[-1].get("content", "").lower()
-    
-    # Research-specific keywords that indicate a research task
-    research_keywords_en = [
-        "search",
-        "research",
-        "find",
-        "look up",
-        "latest",
-        "recent",
-        "current",
-        "what is",
-        "how to",
-        "find out",
-        "tell me about",
-        "information about",
-        "news about",
-    ]
-    
-    research_keywords_de = [
-        "suche",
-        "recherche",
-        "finde",
-        "neueste",
-        "aktuelle",
-        "nachschlage",
-        "informieren",
-        "sag mir",
-        "was ist",
-        "wie",
-        "recherchieren",
-    ]
-    
-    all_keywords = research_keywords_en + research_keywords_de
-    
-    # Check if any research keyword is in the message
-    for keyword in all_keywords:
-        if keyword in user_msg:
-            logger.info(
-                "Research routing triggered",
-                detected_keyword=keyword,
-                message_length=len(user_msg),
-            )
-            return True
-    
-    # Pattern matching for typical research query structures
-    # "what is X", "how does X work", "tell me about X"
-    research_patterns = [
-        r"^\s*(what|how|why|where|when)",  # Question-based
-        r"(find|search|look).*?(for|about|on)",  # Search-based
-        r"(wie|was|warum|wo|wann)",  # German questions
-        r"(?:search|suche).*?(web|internet|online)",  # Explicit search
-    ]
-    
-    for pattern in research_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            logger.info(
-                "Research routing triggered by pattern",
-                pattern=pattern,
-            )
-            return True
-    
-    # Default: do not route to research crew
-    return False
-
-
-def route_to_analytics_crew(state: Dict[str, Any]) -> bool:
-    """Determine if the user query should be routed to the analytics crew.
-    
-    The analytics crew is invoked if the query contains analytics-related keywords
-    or follows patterns typical of data analysis requests (pattern finding, trends,
-    statistical analysis, etc.).
-    
-    Routing keywords checked:
-    - English: analyze, analysis, trend, pattern, statistic, calculate, correlation, insight, metric
-    - German: analysiere, analyse, trend, muster, statistik, berechne, korrelation, einsicht, metrik
-    
-    Args:
-        state: GraphState dictionary with 'messages'
-        
-    Returns:
-        True if query should be routed to analytics crew, False otherwise
-    """
-    if not _multi_agent_crews_enabled():
-        return False
-
-    messages = state.get("messages", [])
-    if not messages:
-        return False
-    
-    user_msg = messages[-1].get("content", "").lower()
-    
-    # Analytics-specific keywords that indicate a data analysis task
-    analytics_keywords_en = [
-        "analyze",
-        "analysis",
-        "trend",
-        "trends",
-        "pattern",
-        "patterns",
-        "statistic",
-        "statistics",
-        "statistical",
-        "calculate",
-        "compute",
-        "correlation",
-        "insight",
-        "insights",
-        "metric",
-        "metrics",
-        "data",
-        "dataset",
-        "distribution",
-        "average",
-        "mean",
-        "median",
-        "report",
-        "summary",
-        "compare",
-        "comparison",
-        "visualize",
-        "chart",
-        "graph",
-        "dashboard",
-        "performance",
-        "forecast",
-        "predict",
-        "anomaly",
-        "detect",
-    ]
-    
-    analytics_keywords_de = [
-        "analysiere",
-        "analyse",
-        "trend",
-        "muster",
-        "statistik",
-        "statistisch",
-        "berechne",
-        "korrelation",
-        "einsicht",
-        "metrik",
-        "daten",
-        "datensatz",
-        "verteilung",
-        "durchschnitt",
-        "mittelwert",
-        "median",
-        "bericht",
-        "zusammenfassung",
-        "vergleiche",
-        "vergleich",
-        "visualisiere",
-        "diagramm",
-        "grafik",
-        "dashboard",
-        "leistung",
-        "prognose",
-        "vorhersage",
-        "anomalie",
-        "erkennen",
-    ]
-    
-    all_keywords = analytics_keywords_en + analytics_keywords_de
-    
-    # Check if any analytics keyword is in the message
-    for keyword in all_keywords:
-        if keyword in user_msg:
-            logger.info(
-                "Analytics routing triggered",
-                detected_keyword=keyword,
-                message_length=len(user_msg),
-            )
-            return True
-    
-    # Pattern matching for typical analytics query structures
-    # "analyze X", "what trends in X", "compare X and Y"
-    analytics_patterns = [
-        r"(analyze|analyse|analysis).*?(data|trend|pattern|metric)",
-        r"(what|which|how).*?(trend|pattern|correlation|insight)",
-        r"(compare|vergleiche).*?(with|to|vs|gegen)",
-        r"(calculate|compute|berechne).*?(average|mean|sum|total)",
-        r"(show|zeige).*?(trend|pattern|distribution|chart|graph)",
-        r"(find|finde).*?(pattern|anomaly|outlier|correlation)",
-    ]
-    
-    for pattern in analytics_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            logger.info(
-                "Analytics routing triggered by pattern",
-                pattern=pattern,
-            )
-            return True
-    
-    # Default: do not route to analytics crew
-    return False
-
-
-def route_to_code_generation_crew(state: Dict[str, Any]) -> bool:
-    """Determine if the user query should be routed to the code generation crew.
-    
-    The code generation crew is invoked if the query contains code-related keywords
-    or follows patterns typical of software development requests (implementing functions,
-    writing classes, creating APIs, generating tests, etc.).
-    
-    Routing keywords checked:
-    - English: code, implement, write, function, class, API, create, generate, develop, refactor
-    - German: code, implementiere, schreibe, funktion, klasse, erstelle, generiere, entwickle
-    
-    Args:
-        state: GraphState dictionary with 'messages'
-        
-    Returns:
-        True if query should be routed to code generation crew, False otherwise
-    """
-    if not _multi_agent_crews_enabled():
-        return False
-
-    messages = state.get("messages", [])
-    if not messages:
-        return False
-    
-    user_msg = messages[-1].get("content", "").lower()
-    
-    # Code generation-specific keywords that indicate a development task
-    code_keywords_en = [
-        "code",
-        "implement",
-        "implementation",
-        "write",
-        "create",
-        "generate",
-        "develop",
-        "build",
-        "function",
-        "method",
-        "class",
-        "interface",
-        "api",
-        "endpoint",
-        "rest",
-        "microservice",
-        "service",
-        "module",
-        "library",
-        "component",
-        "algorithm",
-        "script",
-        "program",
-        "application",
-        "test",
-        "unit test",
-        "integration test",
-        "refactor",
-        "optimize",
-        "debug",
-        "fix",
-        "database",
-        "query",
-        "schema",
-        "model",
-        "dto",
-        "validator",
-        "parser",
-        "handler",
-        "controller",
-        "route",
-        "middleware",
-    ]
-    
-    code_keywords_de = [
-        "code",
-        "implementiere",
-        "implementierung",
-        "schreibe",
-        "erstelle",
-        "generiere",
-        "entwickle",
-        "funktion",
-        "methode",
-        "klasse",
-        "schnittstelle",
-        "api",
-        "endpunkt",
-        "modul",
-        "bibliothek",
-        "komponente",
-        "algorithmus",
-        "skript",
-        "programm",
-        "anwendung",
-        "test",
-        "unittest",
-        "refaktoriere",
-        "optimiere",
-        "debugging",
-        "datenbank",
-        "abfrage",
-        "schema",
-        "modell",
-    ]
-    
-    all_keywords = code_keywords_en + code_keywords_de
-    
-    # Check if any code generation keyword is in the message
-    for keyword in all_keywords:
-        if keyword in user_msg:
-            logger.info(
-                "Code generation routing triggered",
-                detected_keyword=keyword,
-                message_length=len(user_msg),
-            )
-            return True
-    
-    # Pattern matching for typical code request structures
-    # "write a function that", "create a class for", "implement X", "build an API"
-    code_patterns = [
-        r"(write|create|generate|build|implement).*?(function|method|class|api|service|module|component)",
-        r"(how to|wie).*?(code|implement|write|create|build)",
-        r"(need|want|require).*?(function|class|api|code|implementation)",
-        r"(can you|could you|kannst du).*?(write|create|implement|build|code)",
-        r"(make|erstelle).*?(function|class|api|rest|endpoint|service)",
-        r"(develop|entwickle).*?(application|api|service|module|component)",
-        r"(test|unittest).*?(for|für).*?(function|class|module|api)",
-        r"(refactor|optimize|fix|debug).*?(code|function|class|module)",
-    ]
-    
-    for pattern in code_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            logger.info(
-                "Code generation routing triggered by pattern",
-                pattern=pattern,
-            )
-            return True
-    
-    # Reject if it's clearly not a code generation request
-    # (greetings, general questions, etc.)
-    non_code_patterns = [
-        r"^(hi|hello|hey|hallo|guten tag)",
-        r"(how are you|wie geht)",
-        r"(thank|danke)",
-        r"(what is the weather|wie ist das wetter)",
-    ]
-    
-    for pattern in non_code_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            return False
-    
-    # Default: do not route to code generation crew
-    return False
-
-
-def route_to_planning_crew(state: Dict[str, Any]) -> bool:
-    """Determine if the user query should be routed to the planning crew.
-    
-    The planning crew is invoked if the query contains planning-related keywords
-    or follows patterns typical of project planning requests (task breakdown,
-    roadmap creation, sprint planning, etc.).
-    
-    Routing keywords checked:
-    - English: plan, planning, roadmap, task, breakdown, sprint, milestone, project, schedule
-    - German: plan, planung, fahrplan, aufgabe, sprint, meilenstein, projekt, zeitplan
-    
-    Args:
-        state: GraphState dictionary with 'messages'
-        
-    Returns:
-        True if query should be routed to planning crew, False otherwise
-    """
-    if not _multi_agent_crews_enabled():
-        return False
-
-    messages = state.get("messages", [])
-    if not messages:
-        return False
-    
-    user_msg = messages[-1].get("content", "").lower()
-    
-    # Planning-specific keywords that indicate a planning task
-    planning_keywords_en = [
-        "plan",
-        "planning",
-        "roadmap",
-        "task",
-        "tasks",
-        "breakdown",
-        "break down",
-        "decompose",
-        "sprint",
-        "iteration",
-        "milestone",
-        "milestones",
-        "project plan",
-        "execution plan",
-        "schedule",
-        "timeline",
-        "backlog",
-        "epic",
-        "user story",
-        "story",
-        "estimate",
-        "estimation",
-        "scope",
-        "scoping",
-        "phase",
-        "phases",
-        "initiative",
-        "deliverable",
-        "deliverables",
-        "dependency",
-        "dependencies",
-        "critical path",
-        "gantt",
-        "workflow",
-        "organize",
-        "structure",
-    ]
-    
-    planning_keywords_de = [
-        "plan",
-        "planung",
-        "fahrplan",
-        "roadmap",
-        "aufgabe",
-        "aufgaben",
-        "aufschlüsseln",
-        "sprint",
-        "iteration",
-        "meilenstein",
-        "meilensteine",
-        "projektplan",
-        "zeitplan",
-        "backlog",
-        "schätzung",
-        "umfang",
-        "phase",
-        "phasen",
-        "abhängigkeit",
-        "abhängigkeiten",
-        "kritischer pfad",
-        "arbeitsablauf",
-        "organisieren",
-        "struktur",
-    ]
-    
-    all_keywords = planning_keywords_en + planning_keywords_de
-    
-    # Check if any planning keyword is in the message
-    for keyword in all_keywords:
-        if keyword in user_msg:
-            logger.info(
-                "Planning routing triggered",
-                detected_keyword=keyword,
-                message_length=len(user_msg),
-            )
-            return True
-    
-    # Pattern matching for typical planning request structures
-    # "plan X", "create a roadmap for", "break down into tasks", "estimate X"
-    planning_patterns = [
-        r"(plan|planning).*?(project|migration|initiative|feature|epic)",
-        r"(create|make|build).*?(plan|roadmap|timeline|schedule|backlog)",
-        r"(break down|breakdown|decompose).*?(into|to).*?(task|story|epic|phase)",
-        r"(estimate|estimation).*?(effort|time|duration|cost)",
-        r"(need|want|require).*?(plan|roadmap|timeline|breakdown)",
-        r"(how to|wie).*?(plan|organize|structure|schedule)",
-        r"(sprint|iteration).*?(planning|plan|backlog)",
-        r"(organize|structure).*?(work|tasks|project|initiative)",
-        r"(identify|find|determine).*?(dependency|dependencies|milestone)",
-    ]
-    
-    for pattern in planning_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            logger.info(
-                "Planning routing triggered by pattern",
-                pattern=pattern,
-            )
-            return True
-    
-    # Reject if it's clearly not a planning request
-    # (greetings, simple questions, etc.)
-    non_planning_patterns = [
-        r"^(hi|hello|hey|hallo|guten tag)",
-        r"(how are you|wie geht)",
-        r"(thank|danke)",
-    ]
-    
-    for pattern in non_planning_patterns:
-        if re.search(pattern, user_msg, re.IGNORECASE):
-            return False
-    
-    # Default: do not route to planning crew
-    return False
 
 
 # ─── Crew chain & parallel execution nodes ─────────────────────────────
