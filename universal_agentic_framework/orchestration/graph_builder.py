@@ -38,6 +38,7 @@ See: docs/technical_architecture.md (Memory Architecture) for full memory layer 
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 import threading
@@ -479,8 +480,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "prefilter_tools"):
         try:
-            import re
-
             # Skip for greetings
             greeting_pattern = (
                 r"^\s*(hi|hello|hey|hallo|servus|moin|"
@@ -919,7 +918,6 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "call_tools_structured"):
         try:
-            import json
             from langchain_core.messages import HumanMessage, SystemMessage
 
             lang = state.get("language") or getattr(config.profile, "language", "en")
@@ -1161,7 +1159,6 @@ def node_call_tools_react(state: GraphState) -> GraphState:
 
     with track_node_execution(profile_name, "call_tools_react"):
         try:
-            import re
             from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
             lang = state.get("language") or getattr(config.profile, "language", "en")
@@ -1198,8 +1195,6 @@ def node_call_tools_react(state: GraphState) -> GraphState:
             tool_results: Dict[str, str] = state.get("tool_results", {})
             tool_execution_results: Dict[str, Dict[str, Any]] = state.get("tool_execution_results", {})
             routing_metadata: Dict[str, str] = state.get("routing_metadata", {})
-
-            import json
 
             for iteration in range(max_iterations):
                 response = model.invoke(messages)
@@ -1365,7 +1360,6 @@ def node_generate_response(state: GraphState) -> GraphState:
     )
 
     # Enforce response language to avoid drift into unintended languages.
-    prompts_cfg = getattr(config, "prompts", None)
     language_instruction = (
         (prompts_cfg.get_prompt(lang, "language_enforcement", fallback_lang="en") if prompts_cfg else None)
         or f"Respond exclusively in language code '{lang}'."
@@ -1508,7 +1502,6 @@ def node_generate_response(state: GraphState) -> GraphState:
         logger.info("Tool results injected into context", tools_count=len(tool_results))
 
         # Extract URLs from tool results so citations can be limited to known sources
-        import re
         for result in tool_results.values():
             for url in re.findall(r"https?://[^\s)]+", str(result)):
                 allowed_urls.add(url)
@@ -1783,8 +1776,6 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         # Remove leaked tool-call/control tokens from model output
         if response_text:
-            import re
-
             original_text = response_text
             response_text = strip_control_tokens(response_text)
 
