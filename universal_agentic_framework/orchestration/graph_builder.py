@@ -122,6 +122,8 @@ from universal_agentic_framework.orchestration.helpers import (
     build_workspace_tool_paths,
     detect_tool_routing_intents,
     score_tool_similarity,
+    intent_boost_applies,
+    apply_intent_override_floor,
     apply_top_k_scored_tools,
     get_routing_embedding_provider,
     get_auxiliary_model,
@@ -550,78 +552,33 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 )
 
                 # Intent boost: increase score for tools matching detected intents
-                if tool_name == "datetime_tool" and intents["mentions_datetime"]:
-                    similarity += intent_boost
-                elif tool_name == "calculator_tool" and intents["mentions_calculation"]:
-                    similarity += intent_boost
-                elif tool_name == "extract_webpage_mcp" and intents["url_in_query"]:
-                    similarity += intent_boost
-                elif tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_image_tool" and (
-                    intents.get("image_url_in_query") or image_attachment_present
-                ):
-                    similarity += intent_boost
-                elif tool_name == "ocr_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_ocr"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_document_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_document"):
-                    similarity += intent_boost
-                elif tool_name == "analyze_chart_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_chart"):
-                    similarity += intent_boost
-                elif tool_name == "image_metadata_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_image_metadata"):
-                    similarity += intent_boost
-                elif tool_name == "read_barcodes_tool" and (
-                    intents.get("image_in_query") or image_attachment_present
-                ) and intents.get("mentions_barcode"):
-                    similarity += intent_boost
-                elif tool_name == "map_tool" and intents.get("mentions_map"):
-                    similarity += intent_boost
-                elif (
-                    tool_name == "csv_analyze_tool"
-                    and intents.get("mentions_csv_analysis")
-                    and csv_workspace_doc_present
+                # (declarative rules live in helpers/tool_scoring.py; mirrors CLAUDE.md).
+                if intent_boost_applies(
+                    tool_name,
+                    intents,
+                    image_attachment_present=image_attachment_present,
+                    csv_workspace_doc_present=csv_workspace_doc_present,
                 ):
                     similarity += intent_boost
 
-                # Hard intent override: when user explicitly asks for web search,
-                # keep web_search_mcp above both threshold gates so Layer 2 can decide.
-                if tool_name == "web_search_mcp" and intents.get("mentions_web_search"):
-                    min_top_score_cfg = getattr(
-                        getattr(config, "tool_routing", None), "min_top_score", 0.7
+                # Hard intent override: web_search_mcp / map_tool get a forced floor above both
+                # threshold gates when their intent is explicitly signalled, so Layer 2 decides.
+                _min_top_score_cfg = getattr(
+                    getattr(config, "tool_routing", None), "min_top_score", 0.7
+                )
+                similarity, _override_applied = apply_intent_override_floor(
+                    tool_name,
+                    similarity,
+                    intents,
+                    similarity_threshold=similarity_threshold,
+                    min_top_score=_min_top_score_cfg,
+                )
+                if _override_applied:
+                    logger.info(
+                        "Applying intent override floor",
+                        tool=tool_name,
+                        forced_similarity=round(similarity, 4),
                     )
-                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
-                    if similarity < forced_floor:
-                        logger.info(
-                            "Applying web-search intent override",
-                            original_similarity=round(similarity, 4),
-                            forced_similarity=round(forced_floor, 4),
-                        )
-                        similarity = forced_floor
-
-                # Hard intent override for map_tool: only fire when the user has
-                # explicitly signalled a map/location intent (mentions_map=True).
-                # A bare semantic similarity floor without intent signal causes
-                # false positives on unrelated queries that happen to score ≥0.60.
-                if tool_name == "map_tool" and intents.get("mentions_map"):
-                    min_top_score_cfg = getattr(
-                        getattr(config, "tool_routing", None), "min_top_score", 0.7
-                    )
-                    forced_floor = max(similarity_threshold, min_top_score_cfg) + 0.01
-                    if similarity < forced_floor:
-                        logger.info(
-                            "Applying map intent override",
-                            original_similarity=round(similarity, 4),
-                            forced_similarity=round(forced_floor, 4),
-                        )
-                        similarity = forced_floor
 
                 logger.info(
                     "Tool scored (prefilter)",

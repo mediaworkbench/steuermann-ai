@@ -32,7 +32,11 @@ from .text_processing import (
 from .intent_detection import detect_tool_routing_intents
 
 # Tool scoring
-from .tool_scoring import score_tool_similarity
+from .tool_scoring import (
+    score_tool_similarity,
+    intent_boost_applies,
+    apply_intent_override_floor,
+)
 
 # Tool preparation
 from .tool_preparation import apply_top_k_scored_tools
@@ -89,6 +93,8 @@ __all__ = [
     "detect_tool_routing_intents",
     # Tool scoring
     "score_tool_similarity",
+    "intent_boost_applies",
+    "apply_intent_override_floor",
     # Tool preparation
     "apply_top_k_scored_tools",
     # Embedding provider
