@@ -85,6 +85,12 @@ from universal_agentic_framework.orchestration.respond.text_cleanup import (
     strip_control_tokens,
     filter_untrusted_urls,
 )
+from universal_agentic_framework.orchestration.respond.prompt_builder import (
+    build_tool_results_block,
+    select_synthesis_instruction,
+    build_memory_context_block,
+    build_crew_findings_block,
+)
 
 try:
     from litellm.exceptions import (
@@ -1518,27 +1524,14 @@ def node_generate_response(state: GraphState) -> GraphState:
     web_tools_used = any(
         name in tool_results for name in ("extract_webpage_mcp", "web_search_mcp")
     )
-    if loaded_memory:
-        memory_context = "\n\n".join([
-            f"[Memory]\n{mem.text if hasattr(mem, 'text') else mem.get('text', '')}"
-            for mem in loaded_memory[:5]  # Top 5 memories
-        ])
-        if web_tools_used:
-            system_prompt += (
-                "\n\n=== PAST CONTEXT (LOW PRIORITY) ===\n"
-                "Use this only as background. If it conflicts with current-turn TOOL RESULTS, "
-                "always trust current-turn TOOL RESULTS.\n\n"
-                f"{memory_context}\n"
-                "=== END PAST CONTEXT (LOW PRIORITY) ===\n"
-            )
-            logger.info(
-                "Loaded memory injected as low-priority context due to fresh web tool results",
-                memory_count=len(loaded_memory),
-                tools_count=len(tool_results),
-            )
-        else:
-            system_prompt += f"\n\n=== PAST CONTEXT ===\n{memory_context}\n=== END PAST CONTEXT ===\n"
-            logger.info("Loaded memory injected into context", memory_count=len(loaded_memory))
+    _memory_block = build_memory_context_block(loaded_memory, web_tools_used)
+    if _memory_block:
+        system_prompt += _memory_block
+        logger.info(
+            "Loaded memory injected into context",
+            memory_count=len(loaded_memory),
+            low_priority=web_tools_used,
+        )
 
     # Add user-provided uploaded attachments as explicitly labeled reference context.
     attachments = state.get("attachments") or []
@@ -1576,26 +1569,8 @@ def node_generate_response(state: GraphState) -> GraphState:
 
     # Add tool results if available (semantic routing)
     if tool_results:
-        tool_context_lines = []
-        for tool_name, result in tool_results.items():
-            reason = routing_metadata.get(tool_name, "semantic match")
-            tool_header = f"Tool: {tool_name} (via {reason})\nResult:"
-
-            envelope = tool_execution_results.get(tool_name, {})
-            # Use full output_text (not the 300-char summary) so models have enough content
-            full_result = envelope.get("output_text") or result
-            rendered = str(full_result)[:8000]
-            tool_context_lines.append(f"{tool_header}\n{rendered}")
-        
-        tool_context = "\n\n".join(tool_context_lines)
-        system_prompt += f"\n\n=== TOOL RESULTS ===\n{tool_context}\n=== ENDE TOOL RESULTS ===\n"
-        system_prompt += (
-            "\n\n=== CONTEXT PRIORITY ===\n"
-            "Use current-turn TOOL RESULTS as the primary source of truth. "
-            "Use PAST CONTEXT only as secondary background. "
-            "If there is any conflict, follow TOOL RESULTS. "
-            "Do not mention model training data, knowledge-cutoff dates, or stale prior knowledge when TOOL RESULTS provide current information.\n"
-            "=== END CONTEXT PRIORITY ===\n"
+        system_prompt += build_tool_results_block(
+            tool_results, tool_execution_results, routing_metadata
         )
         logger.info("Tool results injected into context", tools_count=len(tool_results))
 
@@ -1619,33 +1594,11 @@ def node_generate_response(state: GraphState) -> GraphState:
 
         has_citable_sources = bool(collected_sources)
 
-        # Inject synthesis instruction so LLM writes a summary, not a raw list (env-configurable)
-        # Exception: verbatim-relay tools (OCR, barcode, metadata, structured JSON) must be
-        # presented as-is — synthesis instructions cause the model to second-guess the result.
-        _VERBATIM_RELAY_TOOLS = {
-            "ocr_tool", "read_barcodes_tool", "image_metadata_tool",
-            "analyze_document_tool", "analyze_chart_tool",
-        }
-        verbatim_relay = bool(used_tool_names & _VERBATIM_RELAY_TOOLS)
-
-        if verbatim_relay:
-            synthesis_text = (
-                "The tool has returned its output. Present the result directly to the user:\n"
-                "- For OCR / text extraction: display the extracted text verbatim as your answer. "
-                "Do NOT paraphrase, summarize, or question whether the content is correct — it is.\n"
-                "- For structured JSON (documents, charts, barcodes, metadata): present the "
-                "information clearly and readably.\n"
-                "Never say the result is missing or incorrect."
-            )
-        else:
-            prompts_cfg = getattr(config, "prompts", None)
-            prompt_key = "synthesis_with_sources" if has_citable_sources else "synthesis"
-            synthesis_text = (prompts_cfg.get_prompt(lang, prompt_key, fallback_lang="en") if prompts_cfg else None)
-            if not synthesis_text:
-                synthesis_text = (
-                    "Synthesize a coherent, well-structured answer from the tool results and knowledge base above. "
-                    "Do NOT list raw result items. Write a fluent summary that directly answers the user's question."
-                )
+        # Inject synthesis instruction so the LLM writes a summary, not a raw list (verbatim
+        # relay for OCR/barcode/metadata/structured tools is handled inside the helper).
+        synthesis_text = select_synthesis_instruction(
+            used_tool_names, has_citable_sources, getattr(config, "prompts", None), lang
+        )
         system_prompt += f"\n\n=== SYNTHESIS INSTRUCTION ===\n{synthesis_text}\n=== END SYNTHESIS INSTRUCTION ===\n"
 
         # Number sources and inject as a reference list for the LLM
@@ -1679,15 +1632,16 @@ def node_generate_response(state: GraphState) -> GraphState:
     # just add a short follow-up instead of producing a full answer).
     _crew_result_prefixes = _CREW_RESULT_PREFIXES
     crew_results = state.get("crew_results", {})
-    for crew_name, crew_result in crew_results.items():
-        if isinstance(crew_result, dict) and crew_result.get("success") and crew_result.get("result"):
-            section = crew_name.upper().replace("_", " ")
-            system_prompt += (
-                f"\n\n=== {section} FINDINGS ===\n"
-                f"{crew_result['result']}\n"
-                f"=== END {section} FINDINGS ===\n"
-            )
-            logger.info("Crew result injected into context", crew=crew_name, result_length=len(crew_result["result"]))
+    _crew_block = build_crew_findings_block(crew_results)
+    if _crew_block:
+        system_prompt += _crew_block
+        logger.info(
+            "Crew results injected into context",
+            crew_count=sum(
+                1 for c in crew_results.values()
+                if isinstance(c, dict) and c.get("success") and c.get("result")
+            ),
+        )
 
     workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
