@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 
 from backend.db import SettingsStore, LLMCapabilityProbeStore
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import CurrentUser, current_user_id, resolve_current_user
+from backend.single_user import require_api_access
 from backend.version import get_framework_version
 from universal_agentic_framework.cli.ingest import resolve_runtime_ingestion_defaults
 from universal_agentic_framework.config import (
@@ -298,9 +299,13 @@ def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any
 
 
 @router.get("/settings/user/{user_id}", response_model=UserSettingsResponse)
-def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
+def get_user_settings(
+    user_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+) -> Dict[str, Any]:
     """Retrieve persisted user settings or return defaults."""
-    effective_user_id = get_effective_user_id(user_id)
+    effective_user_id = current_user.user_id
     store = _get_settings_store(request)
     record = store.get_user_settings(effective_user_id)
     if record is None:
@@ -319,9 +324,14 @@ def get_user_settings(user_id: str, request: Request) -> Dict[str, Any]:
 
 
 @router.post("/settings/user/{user_id}", response_model=UserSettingsResponse)
-async def update_user_settings(user_id: str, settings: UserSettings, request: Request) -> Dict[str, Any]:
+async def update_user_settings(
+    user_id: str,
+    settings: UserSettings,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+) -> Dict[str, Any]:
     """Persist user settings for the given user id."""
-    effective_user_id = get_effective_user_id(user_id)
+    effective_user_id = current_user.user_id
     store = _get_settings_store(request)
     
     # Get old settings to detect model changes
@@ -946,7 +956,7 @@ def reset_all_databases(
 def reset_my_data(
     request: Request,
     options: Optional[UserResetOptions] = Body(default=None),
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ) -> Dict[str, Any]:
     """Purge selected personal data for the current authenticated user only.
 

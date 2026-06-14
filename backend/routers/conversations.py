@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from pydantic import BaseModel, Field
 
 from backend.attachments import AttachmentValidationError, WorkspaceValidationError
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import CurrentUser, resolve_current_user
+from backend.single_user import require_api_access
 
 try:
     from universal_agentic_framework.monitoring.metrics import track_message_feedback as _track_message_feedback
@@ -185,11 +186,15 @@ def _workspace_enabled() -> bool:
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
-async def create_conversation(body: CreateConversationRequest, request: Request):
+async def create_conversation(
+    body: CreateConversationRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Create a new conversation."""
     store = _get_store(request)
     conversation_id = str(uuid.uuid4())
-    effective_user_id = get_effective_user_id(body.user_id)
+    effective_user_id = current_user.user_id
     try:
         conv = store.create_conversation(
             conversation_id=conversation_id,
@@ -211,6 +216,7 @@ async def list_conversations(
     q: Optional[str] = Query(default=None, description="Substring search over title + message content"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """List conversations for a user (pinned first, then most-recently updated).
 
@@ -219,7 +225,7 @@ async def list_conversations(
     ``match_snippet`` of the matching message.
     """
     store = _get_store(request)
-    effective_user_id = get_effective_user_id(user_id)
+    effective_user_id = current_user.user_id
     conversations, total = store.list_conversations(
         user_id=effective_user_id,
         q=q,
@@ -286,9 +292,10 @@ async def upload_attachment(
     request: Request,
     file: UploadFile = File(...),
     user_id: Optional[str] = Form(default=None),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Upload a text attachment for a conversation.
-    
+
     The uploaded file is persisted directly as a workspace document and the
     conversation stores only a reference to that canonical document.
     """
@@ -302,8 +309,7 @@ async def upload_attachment(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    resolved_user_id = user_id or conv["user_id"]
-    resolved_user_id = get_effective_user_id(resolved_user_id)
+    resolved_user_id = current_user.user_id
     if resolved_user_id != conv["user_id"]:
         raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
@@ -403,6 +409,7 @@ async def attach_from_workspace(
     conversation_id: str,
     body: AttachFromWorkspaceRequest,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Link an existing workspace document to a conversation as an attachment.
 
@@ -420,7 +427,7 @@ async def attach_from_workspace(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     if effective_user_id != conv["user_id"]:
         raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
@@ -599,7 +606,11 @@ _LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
 
 
 @router.post("/{conversation_id}/compact")
-async def compact_conversation(conversation_id: str, request: Request):
+async def compact_conversation(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Manually compress the LangGraph checkpoint for a conversation.
 
     Calls the LangGraph service's /compact endpoint, which force-runs the
@@ -615,7 +626,7 @@ async def compact_conversation(conversation_id: str, request: Request):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    user_id = get_effective_user_id(conv.get("user_id", "anonymous"))
+    user_id = current_user.user_id
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:

@@ -24,7 +24,8 @@ from backend.circuit_breaker import (
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
 from backend.db import SettingsStore, WorkspaceVersionConflictError
 from backend.rate_limit import limiter
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import CurrentUser, resolve_current_user
+from backend.single_user import require_api_access
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
@@ -1315,10 +1316,15 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
-async def chat(request: Request, request_body: ChatRequest, background_tasks: BackgroundTasks) -> ChatResponse:
+async def chat(
+    request: Request,
+    request_body: ChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(resolve_current_user),
+) -> ChatResponse:
     """Route a chat request to the LangGraph container."""
     start_time = time.time()
-    effective_user_id = get_effective_user_id(request_body.user_id)
+    effective_user_id = current_user.user_id
 
     if request_body.workspace_action is not None:
         workspace_result = _execute_workspace_action(request, request_body, effective_user_id)
@@ -1663,6 +1669,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
 async def chat_stream(
     request: Request,
     request_body: ChatRequest,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Stream a chat request to LangGraph as Server-Sent Events.
 
@@ -1674,7 +1681,7 @@ async def chat_stream(
     writeback_pending, writeback, error. Terminates with ``data: [DONE]``.
     """
     start_time = time.time()
-    effective_user_id = get_effective_user_id(request_body.user_id)
+    effective_user_id = current_user.user_id
 
     # workspace_action fast-path — never stream these
     if request_body.workspace_action is not None:
