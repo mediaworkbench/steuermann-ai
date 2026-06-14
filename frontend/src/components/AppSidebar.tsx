@@ -9,6 +9,7 @@ import {
   Download,
   LogOut,
   MoreVertical,
+  ShipWheel,
   Pencil,
   Pin,
   Plus,
@@ -126,7 +127,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <Sidebar collapsible="offcanvas" {...props}>
         <SidebarHeader className="min-h-16 md:min-h-20 justify-center px-4">
           <div className="flex flex-col w-full">
-            <span className="text-sidebar-foreground text-base font-bold truncate">{appTitle}</span>
+            <span className="text-sidebar-foreground text-base font-bold truncate flex items-center gap-2">
+              <ShipWheel size={20} />
+              {appTitle}
+            </span>
             {frameworkVersion !== "unknown" && (
               <span className="text-sidebar-foreground/50 text-xs font-mono">v{frameworkVersion}</span>
             )}
