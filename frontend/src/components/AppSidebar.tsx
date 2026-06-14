@@ -15,6 +15,7 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Users,
 } from "lucide-react";
 
 import {
@@ -233,6 +234,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       >
                         <Compass />
                         <span>{t("header.ragExplorer")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip="Users"
+                        onClick={() => router.push("/admin/users")}
+                        className="justify-start"
+                      >
+                        <Users />
+                        <span>Users</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}

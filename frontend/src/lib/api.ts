@@ -853,3 +853,98 @@ export async function fetchRagCollections(): Promise<RagCollectionsResponse | nu
     return null;
   }
 }
+
+// ── Admin: user & role management (administrator-only; enforced server-side) ──
+
+export interface AdminUser {
+  user_id: string;
+  username: string;
+  email: string;
+  role_name: string | null;
+  status: string;
+  must_change_password: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminRole {
+  role_id: number;
+  role_name: string;
+  description?: string | null;
+}
+
+/** List users (paginated). Returns null on failure. */
+export async function fetchUsers(
+  limit: number = 100,
+  offset: number = 0,
+): Promise<{ users: AdminUser[]; total: number } | null> {
+  try {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    const response = await fetch(`${API_BASE}/api/admin/users?${params}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch users: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as { users: AdminUser[]; total: number };
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return null;
+  }
+}
+
+/** List the fixed roles. Returns [] on failure. */
+export async function fetchRoles(): Promise<AdminRole[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/roles`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.roles || []) as AdminRole[];
+  } catch (error) {
+    console.error("Error fetching roles:", error);
+    return [];
+  }
+}
+
+async function _detail(response: Response, fallback: string): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+  return payload?.detail || fallback;
+}
+
+/** Create a user. Throws Error(detail) on failure (e.g. 409 duplicate, 400 bad role). */
+export async function createUser(body: {
+  username: string;
+  email: string;
+  role: string;
+}): Promise<{ user: AdminUser; temporary_password: string }> {
+  const response = await fetch(`${API_BASE}/api/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await _detail(response, "Failed to create user"));
+  return (await response.json()) as { user: AdminUser; temporary_password: string };
+}
+
+/** Update a user's role/status and/or reset their password. Throws Error(detail) on failure. */
+export async function updateUser(
+  userId: string,
+  body: { role?: string; status?: string; reset_password?: boolean },
+): Promise<{ user: AdminUser; temporary_password?: string }> {
+  const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await _detail(response, "Failed to update user"));
+  return (await response.json()) as { user: AdminUser; temporary_password?: string };
+}
+
+/** Delete a user. Throws Error(detail) on failure (e.g. last-admin / self guardrails). */
+export async function deleteUser(userId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(await _detail(response, "Failed to delete user"));
+  }
+}
