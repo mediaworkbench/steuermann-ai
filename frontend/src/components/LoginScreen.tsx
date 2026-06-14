@@ -2,19 +2,18 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { AUTH_ENABLED } from "@/lib/runtime";
+import { hardNavigate } from "@/lib/navigation";
 
 interface LoginScreenProps {
   nextPath: string;
 }
 
 export function LoginScreen({ nextPath }: LoginScreenProps) {
-  const router = useRouter();
   const profile = useProfile();
   const { t } = useI18n();
   const [username, setUsername] = useState("");
@@ -40,8 +39,9 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
         return;
       }
 
-      router.replace(nextPath);
-      router.refresh();
+      // Hard navigation so the server middleware re-runs with the new session cookie:
+      // users with a temporary password are redirected to /change-password before the app.
+      hardNavigate(nextPath);
     } finally {
       setSubmitting(false);
     }

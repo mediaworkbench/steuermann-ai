@@ -1,14 +1,13 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { hardNavigate } from "@/lib/navigation";
 
 const MIN_LENGTH = 8;
 
 export function ChangePasswordScreen() {
-  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -46,8 +45,9 @@ export function ChangePasswordScreen() {
         return;
       }
 
-      router.replace("/");
-      router.refresh();
+      // Hard navigation so the re-minted session cookie (must_change_password cleared) is
+      // picked up fresh by the middleware and the app loads.
+      hardNavigate("/");
     } finally {
       setSubmitting(false);
     }

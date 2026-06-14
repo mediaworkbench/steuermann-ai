@@ -1,12 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { ChangePasswordScreen } from "@/components/ChangePasswordScreen";
+import { hardNavigate } from "@/lib/navigation";
 
-const replace = jest.fn();
-const refresh = jest.fn();
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace, refresh }),
-}));
+jest.mock("@/lib/navigation", () => ({ hardNavigate: jest.fn() }));
+const mockNavigate = hardNavigate as jest.Mock;
 
 describe("ChangePasswordScreen", () => {
   beforeEach(() => {
@@ -42,7 +40,7 @@ describe("ChangePasswordScreen", () => {
     fireEvent.change(screen.getByLabelText(/confirm/i), { target: { value: "brand-new-pass" } });
     fireEvent.click(screen.getByRole("button", { name: /change password/i }));
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/"));
     expect(global.fetch).toHaveBeenCalledWith(
       "/api/auth/change-password",
       expect.objectContaining({ method: "POST" })

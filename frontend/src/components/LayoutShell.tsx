@@ -47,7 +47,9 @@ export function useConversationContext() {
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/login")) {
+  // Standalone full-screen gate pages — rendered without the app shell (no sidebar/chat)
+  // so the user cannot navigate into the app from them.
+  if (pathname.startsWith("/login") || pathname.startsWith("/change-password")) {
     return (
       <>
         {children}
