@@ -1,4 +1,4 @@
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 interface RoleModelSelectorCardProps {
   roleName: string;
@@ -29,12 +29,17 @@ export function RoleModelSelectorCard({
         <p className="text-xs text-muted-foreground">{systemDefaultLabel}</p>
         {modelLoadError ? <p className="text-xs text-warning">{modelLoadError}</p> : null}
       </div>
-      <Select value={selectedModel} onChange={(e) => onModelChange(e.target.value)} aria-label={roleLabel}>
-        {modelOptions.map((model) => (
-          <option key={`${roleName}:${model}`} value={model}>
-            {model}
-          </option>
-        ))}
+      <Select value={selectedModel} onValueChange={onModelChange}>
+        <SelectTrigger aria-label={roleLabel} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {modelOptions.map((model) => (
+            <SelectItem key={`${roleName}:${model}`} value={model}>
+              {model}
+            </SelectItem>
+          ))}
+        </SelectContent>
       </Select>
     </div>
   );

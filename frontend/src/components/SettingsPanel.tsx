@@ -23,7 +23,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 export interface SettingsPanelProps {
   settings: UserSettings | null;
@@ -208,16 +208,17 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           {/* Language */}
           <div>
             <p className="text-sm text-muted-foreground mb-2">{t("settingsPanel.language")}</p>
-            <Select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              aria-label={t("settingsPanel.language")}
-            >
-              {(systemConfig?.supported_languages || ["en"]).map((code) => (
-                <option key={code} value={code}>
-                  {LANGUAGE_LABELS[code] || code.toUpperCase()}
-                </option>
-              ))}
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger aria-label={t("settingsPanel.language")} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(systemConfig?.supported_languages || ["en"]).map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {LANGUAGE_LABELS[code] || code.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           {/* Sounds */}

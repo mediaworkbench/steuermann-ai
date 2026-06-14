@@ -6,7 +6,7 @@ import { Copy, KeyRound, Loader2, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -177,10 +177,15 @@ export function AdminUsersPanel() {
             </div>
             <div>
               <Label htmlFor="new-role" className="mb-2 block">Role</Label>
-              <Select id="new-role" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                {roles.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
+              <Select value={newRole} onValueChange={setNewRole}>
+                <SelectTrigger id="new-role" className="w-full">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <Button variant="primary" onClick={handleCreate} disabled={creating}>
@@ -225,26 +230,34 @@ export function AdminUsersPanel() {
                       <TableCell className="text-muted-foreground">{u.email}</TableCell>
                       <TableCell>
                         <Select
-                          aria-label={`Role for ${u.username}`}
                           value={u.role_name ?? "user"}
                           disabled={rowBusy || isSelf}
-                          onChange={(e) => runUpdate(u, { role: e.target.value }, "Role updated.")}
+                          onValueChange={(v) => runUpdate(u, { role: v }, "Role updated.")}
                         >
-                          {roles.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
+                          <SelectTrigger aria-label={`Role for ${u.username}`} className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roles.map((r) => (
+                              <SelectItem key={r} value={r}>{r}</SelectItem>
+                            ))}
+                          </SelectContent>
                         </Select>
                       </TableCell>
                       <TableCell>
                         <Select
-                          aria-label={`Status for ${u.username}`}
                           value={u.status}
                           disabled={rowBusy || isSelf}
-                          onChange={(e) => runUpdate(u, { status: e.target.value }, "Status updated.")}
+                          onValueChange={(v) => runUpdate(u, { status: v }, "Status updated.")}
                         >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
+                          <SelectTrigger aria-label={`Status for ${u.username}`} className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUSES.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
                         </Select>
                       </TableCell>
                       <TableCell>

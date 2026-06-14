@@ -6,7 +6,7 @@ import { AttachMenu } from "./AttachMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContextWindowMenu } from "./ContextWindowMenu";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatModelName } from "@/components/product/modelSelection";
 import { useEdgeEffect } from "@/hooks/useEdgeEffect";
@@ -273,20 +273,21 @@ export function ChatComposer({
               />
 
               {/* Model selector */}
-              <div className="relative">
-                <Select
-                  value={selectedChatModel}
-                  onChange={(e) => void onModelChange(e.target.value)}
+              <Select value={selectedChatModel} onValueChange={onModelChange}>
+                <SelectTrigger
                   aria-label="Select model"
-                  className="max-w-35 rounded-lg px-2.5 py-2 text-xs text-foreground"
+                  className="max-w-35 rounded-lg px-2.5 py-2 text-xs text-foreground h-auto"
                 >
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
                   {availableChatModels.map((model) => (
-                    <option key={model} value={model}>
+                    <SelectItem key={model} value={model} className="text-xs">
                       {formatModelName(model)}
-                    </option>
+                    </SelectItem>
                   ))}
-                </Select>
-              </div>
+                </SelectContent>
+              </Select>
 
               {/* Microphone — inactive placeholder */}
               <Button

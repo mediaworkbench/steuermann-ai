@@ -4,7 +4,7 @@ import { axe } from "jest-axe";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -116,9 +116,14 @@ describe("ui/ component accessibility", () => {
 
   test("Select with aria-label has no violations", async () => {
     const { container } = render(
-      <Select aria-label="Pick one">
-        <option value="a">A</option>
-        <option value="b">B</option>
+      <Select>
+        <SelectTrigger aria-label="Pick one" className="w-full">
+          <SelectValue placeholder="Pick one" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="a">A</SelectItem>
+          <SelectItem value="b">B</SelectItem>
+        </SelectContent>
       </Select>
     );
     expect(await axe(container)).toHaveNoViolations();
