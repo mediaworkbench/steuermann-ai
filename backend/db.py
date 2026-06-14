@@ -164,15 +164,26 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             email TEXT UNIQUE NOT NULL,
             role_id INTEGER REFERENCES roles(role_id),
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+            password_hash TEXT,
+            must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
-    
+
     # Create index on username and email for faster lookups
     index_statement = """
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    """
+
+    # The three fixed roles are always present. No custom roles are supported.
+    roles_seed_statement = """
+        INSERT INTO roles (role_name, description) VALUES
+            ('user', 'Standard user'),
+            ('researcher', 'Standard user plus access to the RAG explorer'),
+            ('administrator', 'Full access including user management')
+        ON CONFLICT (role_name) DO NOTHING;
     """
 
     with db_pool.connection() as conn:
@@ -180,13 +191,18 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             cur.execute(roles_statement)
             cur.execute(users_statement)
             cur.execute(index_statement)
+            cur.execute(roles_seed_statement)
         conn.commit()
 
-    # Legacy compatibility: keep password_hash column if older databases already have it.
+    # Idempotent column adds so existing databases gain the auth columns.
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS password_hash TEXT;"
+            )
+            cur.execute(
+                "ALTER TABLE IF EXISTS users "
+                "ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;"
             )
         conn.commit()
 
