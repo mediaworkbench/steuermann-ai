@@ -1285,6 +1285,32 @@ class ConversationStore:
             conn.commit()
         return _normalize_message_row(row) if row else None
 
+    def update_assistant_node_trace_by_turn(
+        self, turn_id: str, node_trace: list[Dict[str, Any]]
+    ) -> bool:
+        """Merge the complete Inspector node trace onto a specific assistant message.
+
+        The post-response graph nodes (compress/summarize/update_memory/cache_stats) run
+        after [DONE] in a background drain, so the trace persisted at stream time only
+        covers the answer path. The LangGraph drain calls this once those nodes finish to
+        write the full trace back. Matching by ``turn_id`` (stored in the message metadata
+        at insert time) — not by recency — keeps this correct when a follow-up/queued turn
+        inserts a newer assistant row during the drain. No-op (returns False) when no row
+        matches. Overwrites only the ``node_trace`` metadata key.
+        """
+        statement = """
+            UPDATE messages
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('node_trace', %s::jsonb)
+            WHERE metadata->>'turn_id' = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (extras.Json(node_trace), turn_id))
+                updated = cur.rowcount
+            conn.commit()
+        return bool(updated)
+
     # ── Export ──────────────────────────────────────────────────────────
 
     def export_conversation(

@@ -121,7 +121,7 @@ export function DocumentsTab({
         setProcessingAction(null);
       }
     },
-    [editorDocId, closeEditor, historyDocId, closeHistory, getDocumentName, onDocumentsRefresh, t],
+    [editorDocId, closeEditor, historyDocId, closeHistory, getDocumentName, onDocumentsRefresh, setProcessingAction, t],
   );
 
   const handleRenameDocument = useCallback(
@@ -150,7 +150,7 @@ export function DocumentsTab({
         setProcessingAction(null);
       }
     },
-    [onDocumentsRefresh, t],
+    [onDocumentsRefresh, setProcessingAction, t],
   );
 
   const handleDownloadDocument = useCallback(
@@ -221,7 +221,7 @@ export function DocumentsTab({
         setProcessingAction(null);
       }
     },
-    [conversationId, onEnsureConversation, onAttachmentUploaded, t],
+    [conversationId, onEnsureConversation, onAttachmentUploaded, setProcessingAction, t],
   );
 
   const handleClearAllDocuments = useCallback(async () => {

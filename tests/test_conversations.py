@@ -809,3 +809,73 @@ class TestWorkspaceCleanup:
         assert not workspace_dir.exists()
         assert workspace_store.get_workspace("expired-conv", include_inactive=True) is None
         assert any(op["operation"] == "cleanup_workspace" for op in workspace_store._operations)
+
+
+# ── ConversationStore.update_assistant_node_trace_by_turn (wrapper unit test) ──
+
+
+class _FakeCursor:
+    def __init__(self, rowcount: int) -> None:
+        self.rowcount = rowcount
+        self.executed: list[tuple] = []
+
+    def __enter__(self) -> "_FakeCursor":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def execute(self, statement: str, params: tuple) -> None:
+        self.executed.append((statement, params))
+
+
+class _FakeConn:
+    def __init__(self, cursor: _FakeCursor) -> None:
+        self._cursor = cursor
+        self.committed = False
+
+    def __enter__(self) -> "_FakeConn":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def cursor(self, **_kwargs: object) -> _FakeCursor:
+        return self._cursor
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+class _FakePool:
+    def __init__(self, rowcount: int) -> None:
+        self._cursor = _FakeCursor(rowcount)
+        self._conn = _FakeConn(self._cursor)
+
+    def connection(self) -> _FakeConn:
+        return self._conn
+
+
+class TestUpdateAssistantNodeTraceByTurn:
+    def _store(self, rowcount: int):
+        from backend.db import ConversationStore
+
+        store = ConversationStore.__new__(ConversationStore)
+        pool = _FakePool(rowcount)
+        store._db_pool = pool  # type: ignore[attr-defined]
+        return store, pool
+
+    def test_matches_row_returns_true_and_commits(self):
+        store, pool = self._store(rowcount=1)
+        trace = [{"node": "summarize", "sequence": 2, "duration_ms": 1800, "status": "success"}]
+
+        assert store.update_assistant_node_trace_by_turn("turn-1", trace) is True
+        assert pool._conn.committed is True
+        statement, params = pool._cursor.executed[0]
+        # Targets the specific turn via metadata, not recency.
+        assert "metadata->>'turn_id'" in statement
+        assert params[1] == "turn-1"
+
+    def test_no_match_returns_false(self):
+        store, _pool = self._store(rowcount=0)
+        assert store.update_assistant_node_trace_by_turn("missing", []) is False

@@ -412,6 +412,7 @@ export type Messages = {
     inspectorNodes: string;
     inspectorNotRun: string;
     inspectorPostResponse: string;
+    inspectorPostResponseRunning: string;
     inspectorWaiting: string;
     inspectorStatusSuccess: string;
     inspectorStatusError: string;
@@ -889,7 +890,7 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Add image",
       addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
-      workspace: "Workspace",
+      workspace: "Workspace & Provenance",
       newConversation: "New conversation",
       copyMessage: "Copy message",
       regenerateResponse: "Regenerate this response",
@@ -1029,6 +1030,7 @@ export const messages: Record<Locale, Messages> = {
       inspectorNodes: "{count} nodes",
       inspectorNotRun: "Not in this run",
       inspectorPostResponse: "Runs after the response is sent",
+      inspectorPostResponseRunning: "Running in the background…",
       inspectorWaiting: "Capturing node execution…",
       inspectorStatusSuccess: "succeeded",
       inspectorStatusError: "failed",
@@ -1504,7 +1506,7 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Bild hinzufügen",
       addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
-      workspace: "Workspace",
+      workspace: "Workspace & Provenance",
       newConversation: "Neue Unterhaltung",
       copyMessage: "Nachricht kopieren",
       regenerateResponse: "Antwort neu generieren",
@@ -1644,6 +1646,7 @@ export const messages: Record<Locale, Messages> = {
       inspectorNodes: "{count} Knoten",
       inspectorNotRun: "Nicht in diesem Lauf",
       inspectorPostResponse: "Läuft nach dem Senden der Antwort",
+      inspectorPostResponseRunning: "Läuft im Hintergrund…",
       inspectorWaiting: "Knotenausführung wird erfasst…",
       inspectorStatusSuccess: "erfolgreich",
       inspectorStatusError: "fehlgeschlagen",

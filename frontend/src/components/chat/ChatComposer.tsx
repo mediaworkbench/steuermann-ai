@@ -187,7 +187,7 @@ export function ChatComposer({
             onChange={(e) => { onInputChange(e.target.value); autoResize(); }}
             onKeyDown={onKeyDown}
             disabled={queueFull}
-            className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0"
+            className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0 focus-visible:ring-0"
             placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
             aria-label={t("chat.typeYourMessage")}
             rows={2}

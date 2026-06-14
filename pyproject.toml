@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "steuermann-ai"
-version = "0.4.3"
+version = "0.4.4"
 description = "Template scaffold for Steuermann"
 authors = ["Steuermann Maintainers"]
 readme = "README.md"

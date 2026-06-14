@@ -13,6 +13,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { fetchConversation } from "@/lib/api";
 import { toUiMessage } from "@/lib/messageMapping";
+import { isPostResponseNode } from "@/lib/nodeTrace";
 import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { WritebackPending } from "@/hooks/useStreamingChat";
 import type { ChatResponse, Message, NodeTraceEntry } from "@/lib/types";
@@ -173,6 +174,46 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     rawCancel();
   }, [rawCancel]);
 
+  // ── Post-response trace auto-refresh ───────────────────────────────────
+  // The post-response nodes (compress/summarize/update_memory/cache_stats) run
+  // after [DONE] in a ~43 s background drain; the backend persists their trace
+  // onto the assistant message once done. Briefly poll for it so the Inspector
+  // fills in without a manual reload. Stops on landing, conversation switch, or
+  // when superseded by a newer turn (token guard). Reload restores it anyway.
+  const postTraceTokenRef = useRef(0);
+  const pollPostResponseTrace = useCallback(
+    (convId: string) => {
+      const token = ++postTraceTokenRef.current;
+      // Steady ~10s cadence: the post-response drain (summarize + update_memory)
+      // typically finishes within ~40s, so 8 attempts (~80s) comfortably covers it
+      // while surfacing the timings promptly once they land.
+      const intervalMs = 10000;
+      const maxAttempts = 8;
+      const attempt = (i: number) => {
+        if (i >= maxAttempts) return;
+        window.setTimeout(async () => {
+          if (postTraceTokenRef.current !== token || activeIdRef.current !== convId) return;
+          const detail = await fetchConversation(convId);
+          if (postTraceTokenRef.current !== token || activeIdRef.current !== convId) return;
+          const lastDb = detail
+            ? [...detail.messages].reverse().find((m) => m.role === "assistant")
+            : undefined;
+          const ui = lastDb ? toUiMessage(lastDb, formatTime) : undefined;
+          const trace = ui?.nodeTrace;
+          if (lastDb && trace?.some((n) => isPostResponseNode(n.node))) {
+            setMessages((prev) =>
+              prev.map((m) => (m.persistedId === lastDb.id ? { ...m, nodeTrace: trace } : m)),
+            );
+            return; // landed — stop polling
+          }
+          attempt(i + 1);
+        }, intervalMs);
+      };
+      attempt(0);
+    },
+    [formatTime],
+  );
+
   // ── Load messages when the active conversation changes ─────────────────
   useEffect(() => {
     if (!activeId) {
@@ -298,6 +339,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
               });
             });
           });
+          // Then briefly poll for the post-response node trace (persisted after
+          // the ~43 s drain) so the Inspector fills in without a manual reload.
+          pollPostResponseTrace(activeId);
         }
       }
       resetStream();

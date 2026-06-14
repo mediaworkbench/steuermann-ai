@@ -7,10 +7,7 @@ import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
 import type { NodeTraceEntry } from "@/lib/types";
-
-// Post-response nodes run after the answer is streamed ([DONE]), so the live
-// trace never captures them — they are surfaced separately, not as "skipped".
-const POST_RESPONSE_NODES = ["compress_conversation", "summarize", "update_memory", "cache_stats"];
+import { POST_RESPONSE_NODES, isPostResponseNode } from "@/lib/nodeTrace";
 
 // The three mutually-exclusive tool-calling strategies; exactly one runs per
 // turn, so the others are collapsed into a single "Call tools" slot.
@@ -46,10 +43,14 @@ function humanizeNode(id: string): string {
 export function InspectorTab({
   nodeTrace,
   isStreaming,
+  isLatestAnswer = false,
   onOpenOutputs,
 }: {
   nodeTrace: NodeTraceEntry[];
   isStreaming?: boolean;
+  /** Latest (non-historical) answer: its post-response nodes are still running in
+   *  the background, so pending ones are shown as in-progress rather than inert. */
+  isLatestAnswer?: boolean;
   /** When provided, tool-calling node rows become deep-links into the Outputs tab. */
   onOpenOutputs?: () => void;
 }) {
@@ -71,6 +72,12 @@ export function InspectorTab({
   const totalMs = nodeTrace.reduce((sum, n) => sum + (n.durationMs ?? 0), 0);
   const maxMs = Math.max(1, ...nodeTrace.map((n) => n.durationMs ?? 0));
 
+  // Post-response nodes run after [DONE]; their trace is captured by the backend
+  // drain and persisted, so it arrives after the answer (on reload / auto-refresh).
+  // Split it out so it renders as its own ordered list with full status + timing.
+  const preTrace = nodeTrace.filter((n) => !isPostResponseNode(n.node));
+  const postTrace = nodeTrace.filter((n) => isPostResponseNode(n.node));
+
   // Answer-path nodes that did not fire, collapsing the mutually-exclusive
   // tool-calling strategies into one "Call tools" slot (shown only if none ran).
   const skipped: string[] = [];
@@ -86,7 +93,8 @@ export function InspectorTab({
     }
     skipped.push(id);
   }
-  const postResponse = POST_RESPONSE_NODES.filter((id) => !firedIds.has(id));
+  // Post-response nodes whose trace hasn't landed yet — shown as pending badges.
+  const postResponsePending = POST_RESPONSE_NODES.filter((id) => !firedIds.has(id));
 
   return (
     <div className="p-3 space-y-3">
@@ -100,59 +108,9 @@ export function InspectorTab({
 
       {/* Active path — ordered nodes that fired, with status + timing */}
       <ol className="space-y-1">
-        {nodeTrace.map((n, idx) => {
-          const isError = n.status === "error";
-          const pct = n.durationMs != null ? Math.round((n.durationMs / maxMs) * 100) : 0;
-          const isToolNode = CALL_TOOLS_SET.has(n.node);
-          const linkToOutputs = isToolNode && Boolean(onOpenOutputs);
-          const rowContent = (
-            <>
-              <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
-              {isError
-                ? <AlertCircle size={13} className="shrink-0 text-destructive" />
-                : <CheckCircle size={13} className="shrink-0 text-primary" />
-              }
-              <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
-              <span className="sr-only">
-                {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
-              </span>
-              {n.durationMs != null && (
-                <span className="font-mono text-[10px] text-muted-foreground shrink-0">{n.durationMs} ms</span>
-              )}
-              {linkToOutputs && (
-                <>
-                  <ArrowRight size={12} className="shrink-0 text-muted-foreground group-hover/row:text-primary" />
-                  <span className="sr-only">{t("workspace.viewToolResults")}</span>
-                </>
-              )}
-            </>
-          );
-          return (
-            <li
-              key={`${n.node}-${n.sequence}-${idx}`}
-              className="rounded-lg border border-border bg-surface-muted px-2.5 py-1.5"
-            >
-              {linkToOutputs ? (
-                <button
-                  type="button"
-                  onClick={onOpenOutputs}
-                  title={t("workspace.viewToolResults")}
-                  className="group/row flex w-full items-center gap-2 text-left"
-                >
-                  {rowContent}
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">{rowContent}</div>
-              )}
-              <div className="mt-1 ml-7 h-1 rounded-full bg-border overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${isError ? "bg-destructive/50" : "bg-primary/40"}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </li>
-          );
-        })}
+        {preTrace.map((n, idx) => (
+          <NodeRow key={`${n.node}-${n.sequence}-${idx}`} n={n} maxMs={maxMs} onOpenOutputs={onOpenOutputs} />
+        ))}
       </ol>
 
       {/* Live indicator while the answer is still streaming */}
@@ -166,11 +124,110 @@ export function InspectorTab({
       {/* Answer-path nodes that did not run this turn */}
       {skipped.length > 0 && <NodeGroup heading={t("workspace.inspectorNotRun")} ids={skipped} />}
 
-      {/* Nodes that run after the response is sent (never in the live trace) */}
-      {postResponse.length > 0 && (
-        <NodeGroup heading={t("workspace.inspectorPostResponse")} ids={postResponse} icon="schedule" />
+      {/* Nodes that run after the response is sent. Captured ones render with full
+          status + timing once the backend drain persists them; the rest stay as
+          pending badges until that trace lands. */}
+      {(postTrace.length > 0 || postResponsePending.length > 0) && (
+        <div className="pt-2 border-t border-border/60">
+          <WorkspaceSectionLabel>{t("workspace.inspectorPostResponse")}</WorkspaceSectionLabel>
+          {postTrace.length > 0 && (
+            <ol className="space-y-1">
+              {postTrace.map((n, idx) => (
+                <NodeRow key={`${n.node}-${n.sequence}-${idx}`} n={n} maxMs={maxMs} />
+              ))}
+            </ol>
+          )}
+          {postResponsePending.length > 0 && (
+            <>
+              {/* Latest answer: these nodes are still executing in the ~40s
+                  background drain, so flag them as in-progress (not skipped). */}
+              {isLatestAnswer && postTrace.length === 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground px-0.5 mt-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                  {t("workspace.inspectorPostResponseRunning")}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1 mt-1">
+                {postResponsePending.map((id) => {
+                  const IconCmp = iconMap["schedule"];
+                  return (
+                    <WorkspaceInlineBadge
+                      key={id}
+                      size="compact"
+                      className={`text-muted-foreground${isLatestAnswer && postTrace.length === 0 ? " animate-pulse" : ""}`}
+                    >
+                      {IconCmp && <IconCmp size={10} />}
+                      {humanizeNode(id)}
+                    </WorkspaceInlineBadge>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
+  );
+}
+
+/** One ordered node-trace row: sequence, status icon, label, duration, timing bar. */
+function NodeRow({
+  n,
+  maxMs,
+  onOpenOutputs,
+}: {
+  n: NodeTraceEntry;
+  maxMs: number;
+  onOpenOutputs?: () => void;
+}) {
+  const { t } = useI18n();
+  const isError = n.status === "error";
+  const pct = n.durationMs != null ? Math.round((n.durationMs / maxMs) * 100) : 0;
+  const isToolNode = CALL_TOOLS_SET.has(n.node);
+  const linkToOutputs = isToolNode && Boolean(onOpenOutputs);
+  const rowContent = (
+    <>
+      <span className="font-mono text-[10px] text-muted-foreground w-5 shrink-0">{n.sequence}</span>
+      {isError
+        ? <AlertCircle size={13} className="shrink-0 text-destructive" />
+        : <CheckCircle size={13} className="shrink-0 text-primary" />
+      }
+      <span className="text-xs text-foreground truncate flex-1">{humanizeNode(n.node)}</span>
+      <span className="sr-only">
+        {isError ? t("workspace.inspectorStatusError") : t("workspace.inspectorStatusSuccess")}
+      </span>
+      {n.durationMs != null && (
+        <span className="font-mono text-[10px] text-muted-foreground shrink-0">{n.durationMs} ms</span>
+      )}
+      {linkToOutputs && (
+        <>
+          <ArrowRight size={12} className="shrink-0 text-muted-foreground group-hover/row:text-primary" />
+          <span className="sr-only">{t("workspace.viewToolResults")}</span>
+        </>
+      )}
+    </>
+  );
+  return (
+    <li className="rounded-lg border border-border bg-surface-muted px-2.5 py-1.5">
+      {linkToOutputs ? (
+        <button
+          type="button"
+          onClick={onOpenOutputs}
+          title={t("workspace.viewToolResults")}
+          className="group/row flex w-full items-center gap-2 text-left"
+        >
+          {rowContent}
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">{rowContent}</div>
+      )}
+      <div className="mt-1 ml-7 h-1 rounded-full bg-border overflow-hidden">
+        <div
+          className={`h-full rounded-full ${isError ? "bg-destructive/50" : "bg-primary/40"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </li>
   );
 }
 

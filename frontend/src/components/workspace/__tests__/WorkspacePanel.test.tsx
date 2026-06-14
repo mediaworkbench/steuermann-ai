@@ -447,6 +447,21 @@ describe("InspectorTab", () => {
     expect(screen.getByText("workspace.inspectorPostResponse")).toBeInTheDocument();
   });
 
+  test("renders captured post-response nodes with timing, pending ones as badges", () => {
+    const trace: NodeTraceEntry[] = [
+      { node: "respond", sequence: 1, durationMs: 200, status: "success" },
+      // Post-response node whose trace landed after the drain.
+      { node: "summarize", sequence: 2, durationMs: 1800, status: "success" },
+    ];
+    render(<InspectorTab nodeTrace={trace} />);
+    // The captured post-response node shows as a full row with its timing…
+    expect(screen.getByText("Summarize")).toBeInTheDocument();
+    expect(screen.getByText("1800 ms")).toBeInTheDocument();
+    // …while the not-yet-captured post-response nodes stay as pending badges.
+    expect(screen.getByText("Update memory")).toBeInTheDocument();
+    expect(screen.getByText("workspace.inspectorPostResponse")).toBeInTheDocument();
+  });
+
   test("collapses the mutually-exclusive tool-calling strategies into one slot", () => {
     const trace: NodeTraceEntry[] = [
       { node: "load_tools", sequence: 1, durationMs: 5, status: "success" },
