@@ -70,6 +70,8 @@ services:
       - AUTH_USERNAME=${AUTH_USERNAME:-anonymous}
       - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH:-}
       - AUTH_ADMIN_EMAIL=${AUTH_ADMIN_EMAIL:-}
+      # Dev-bypass role (AUTH_ENABLED=false) — kept in sync with the frontend dev role.
+      - NEXT_PUBLIC_AUTH_USER_ROLE=${NEXT_PUBLIC_AUTH_USER_ROLE:-administrator}
       - CHAT_ACCESS_TOKEN=${CHAT_ACCESS_TOKEN:-}
       - CHAT_ATTACHMENTS_ROOT=${CHAT_ATTACHMENTS_ROOT:-/tmp/steuermann-ai/chat-workspaces}
       - CHAT_ATTACHMENTS_MAX_FILE_BYTES=${CHAT_ATTACHMENTS_MAX_FILE_BYTES:-524288}

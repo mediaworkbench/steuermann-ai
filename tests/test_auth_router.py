@@ -31,6 +31,10 @@ class FakeUserStore:
     def get_user_by_id_with_hash(self, user_id: str):
         return self.by_id.get(user_id)
 
+    def get_user_by_id(self, user_id: str):
+        rec = self.by_id.get(user_id)
+        return {k: v for k, v in rec.items() if k != "password_hash"} if rec else None
+
     def set_password_hash(self, user_id: str, password_hash: str, must_change_password: bool = False):
         self.set_calls.append((user_id, password_hash, must_change_password))
         rec = self.by_id.get(user_id)
@@ -143,6 +147,29 @@ class TestChangePassword:
         )
         assert resp.status_code == 200
         assert store.set_calls[0][0] == "u-1"
+
+    def test_change_password_reachable_despite_must_change_flag(self, monkeypatch):
+        # A flagged user is blocked everywhere EXCEPT /api/auth/* — otherwise they could
+        # never clear the flag (lockout).
+        rec = _user_record(
+            user_id="u-1",
+            username="alice",
+            role_name="user",
+            password_hash=hash_password("temp-password"),
+            must_change_password=True,
+        )
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "temp-password", "new_password": "chosen-password"},
+            headers={
+                "x-authenticated-user-id": "u-1",
+                "x-authenticated-username": "alice",
+                "x-authenticated-role": "user",
+            },
+        )
+        assert resp.status_code == 200
 
     def test_change_password_wrong_current_401(self, monkeypatch):
         rec = _user_record(password_hash=hash_password("old-password"))

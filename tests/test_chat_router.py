@@ -358,6 +358,31 @@ def test_chat_forwards_attachment_context(client) -> None:
     }
 
 
+def test_chat_rejects_other_users_conversation(client) -> None:
+    """A user must not chat into (or read history from) another user's conversation."""
+    test_client, conversation_store, _ = client
+    conversation_store.create_conversation("conv-u2", "u2")
+
+    response = test_client.post(
+        "/api/chat",
+        json={"message": "leak history", "language": "en", "conversation_id": "conv-u2"},
+    )
+    assert response.status_code == 404
+    # Nothing was persisted into the other user's conversation.
+    assert all(m.get("conversation_id") != "conv-u2" for m in conversation_store.messages)
+
+
+def test_chat_stream_rejects_other_users_conversation(client) -> None:
+    test_client, conversation_store, _ = client
+    conversation_store.create_conversation("conv-u2b", "u2")
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={"message": "leak", "language": "en", "conversation_id": "conv-u2b"},
+    )
+    assert response.status_code == 404
+
+
 def test_chat_rejects_attachment_ids_without_conversation_id(client) -> None:
     test_client, _, _ = client
 

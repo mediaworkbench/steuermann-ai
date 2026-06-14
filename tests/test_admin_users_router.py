@@ -97,6 +97,7 @@ def _client(monkeypatch, store, *, auth_enabled=False, admin_user_id="boss"):
 class TestAdminGate:
     def test_non_admin_forbidden(self, monkeypatch):
         store = FakeUserStore()
+        store.add("u-1", "alice", role_name="user")  # acting user re-validated against the DB
         client = _client(monkeypatch, store, auth_enabled=True)
         resp = client.get(
             "/api/admin/users",
@@ -110,6 +111,7 @@ class TestAdminGate:
 
     def test_admin_allowed_via_headers(self, monkeypatch):
         store = FakeUserStore()
+        store.add("u-1", "boss", role_name="administrator")
         client = _client(monkeypatch, store, auth_enabled=True)
         resp = client.get(
             "/api/admin/users",
@@ -120,6 +122,42 @@ class TestAdminGate:
             },
         )
         assert resp.status_code == 200
+
+
+class TestSessionRevalidation:
+    """resolve_current_user re-validates the JWT-derived identity against the DB."""
+
+    def _hdr(self, role="administrator", uid="u-1", username="boss"):
+        return {
+            "x-authenticated-user-id": uid,
+            "x-authenticated-username": username,
+            "x-authenticated-role": role,
+        }
+
+    def test_deleted_user_rejected_401(self, monkeypatch):
+        store = FakeUserStore()  # u-1 absent (deleted)
+        client = _client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/admin/users", headers=self._hdr()).status_code == 401
+
+    def test_suspended_user_rejected_403(self, monkeypatch):
+        store = FakeUserStore()
+        store.add("u-1", "boss", role_name="administrator", status="suspended")
+        client = _client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/admin/users", headers=self._hdr()).status_code == 403
+
+    def test_db_role_overrides_header_role(self, monkeypatch):
+        # Header still claims administrator, but the DB demoted them to user.
+        store = FakeUserStore()
+        store.add("u-1", "boss", role_name="user")
+        client = _client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/admin/users", headers=self._hdr(role="administrator")).status_code == 403
+
+    def test_must_change_password_blocks_non_auth_routes(self, monkeypatch):
+        store = FakeUserStore()
+        store.add("u-1", "boss", role_name="administrator")
+        store.users["u-1"]["must_change_password"] = True
+        client = _client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/admin/users", headers=self._hdr()).status_code == 403
 
 
 class TestRolesAndList:

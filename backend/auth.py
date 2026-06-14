@@ -14,7 +14,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
 from backend.single_user import get_single_user_id
 
@@ -45,20 +45,41 @@ def auth_enabled() -> bool:
     return os.getenv("AUTH_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
 
 
+def dev_bypass_role() -> str:
+    """Role granted by the AUTH_ENABLED=false dev bypass.
+
+    Read from NEXT_PUBLIC_AUTH_USER_ROLE so the backend matches the frontend's dev role
+    (defaults to administrator). Keeps the single-user dev experience consistent.
+    """
+    raw = os.getenv("NEXT_PUBLIC_AUTH_USER_ROLE", ADMIN_ROLE).strip().lower()
+    return raw if raw in VALID_ROLES else ADMIN_ROLE
+
+
+def _is_auth_path(request: Optional[Request]) -> bool:
+    """True for the /api/auth/* routes (login/change-password) that must stay reachable."""
+    try:
+        return bool(request) and request.url.path.startswith("/api/auth/")
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
 def resolve_current_user(
+    request: Request = None,
     x_authenticated_user_id: Optional[str] = Header(default=None),
     x_authenticated_username: Optional[str] = Header(default=None),
     x_authenticated_role: Optional[str] = Header(default=None),
 ) -> CurrentUser:
     """Resolve the authenticated user for the current request.
 
-    Auth enabled: identity + role come exclusively from the trusted proxy headers; a
-    missing id or an unknown role is rejected with 401.
-    Auth disabled: fall back to the single env user with the administrator role.
+    Auth enabled: identity comes from the trusted proxy headers, then is re-validated
+    against the DB (when a user store is wired) so suspensions, deletions, and role
+    changes take effect immediately rather than living only in the 7-day JWT. A user with
+    a pending forced password change is blocked from everything except the /api/auth/*
+    routes. Auth disabled: fall back to the single env user with the dev-bypass role.
     """
     if not auth_enabled():
         uid = get_single_user_id()
-        return CurrentUser(user_id=uid, username=uid, role=ADMIN_ROLE)
+        return CurrentUser(user_id=uid, username=uid, role=dev_bypass_role())
 
     user_id = (x_authenticated_user_id or "").strip()
     username = (x_authenticated_username or "").strip()
@@ -69,6 +90,28 @@ def resolve_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid authenticated identity",
         )
+
+    # Re-validate against the DB. Skipped when no user store is wired (some unit-test and
+    # dev setups), in which case the trusted header is taken at face value.
+    store = getattr(request.app.state, "user_store", None) if request is not None else None
+    if store is not None and hasattr(store, "get_user_by_id"):
+        record = store.get_user_by_id(user_id)
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Account no longer exists"
+            )
+        if (record.get("status") or "active") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Account is not active"
+            )
+        db_role = record.get("role_name")
+        if db_role in VALID_ROLES:
+            role = db_role  # the DB is authoritative for the current role
+        if record.get("must_change_password") and not _is_auth_path(request):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Password change required"
+            )
+
     return CurrentUser(user_id=user_id, username=username or user_id, role=role)
 
 

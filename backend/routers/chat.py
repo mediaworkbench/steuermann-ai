@@ -1313,6 +1313,24 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
         return normalized_request, None
 
 
+def _require_conversation_ownership(request: Request, conversation_id: Optional[str], user_id: str) -> None:
+    """Reject a request whose conversation_id is not owned by the authenticated user.
+
+    A provided conversation_id becomes the LangGraph checkpoint thread (its history is
+    merged into the prompt) and the persistence target, so it must belong to the caller —
+    otherwise another user's history could be read or written via a known conversation id.
+    Empty/absent ids are ephemeral and allowed.
+    """
+    cid = (conversation_id or "").strip()
+    if not cid:
+        return
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None:
+        return
+    if store.get_conversation(cid, user_id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(
@@ -1324,6 +1342,7 @@ async def chat(
     """Route a chat request to the LangGraph container."""
     start_time = time.time()
     effective_user_id = current_user.user_id
+    _require_conversation_ownership(request, request_body.conversation_id, effective_user_id)
 
     if request_body.workspace_action is not None:
         workspace_result = _execute_workspace_action(request, request_body, effective_user_id)
@@ -1682,6 +1701,7 @@ async def chat_stream(
     """
     start_time = time.time()
     effective_user_id = current_user.user_id
+    _require_conversation_ownership(request, request_body.conversation_id, effective_user_id)
 
     # workspace_action fast-path — never stream these
     if request_body.workspace_action is not None:
