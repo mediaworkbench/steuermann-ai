@@ -587,6 +587,7 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
 
 async def _generate_conversation_title(
     conversation_id: str,
+    user_id: str,
     user_message: str,
     assistant_message: str,
     conv_store,
@@ -620,7 +621,7 @@ async def _generate_conversation_title(
             resp.raise_for_status()
             title = resp.json()["choices"][0]["message"]["content"].strip()
             if title:
-                conv_store.update_conversation(conversation_id, title=title)
+                conv_store.update_conversation(conversation_id, user_id, title=title)
                 logger.debug("Auto-title generated for conversation %s: %s", conversation_id, title)
     except Exception as exc:
         logger.debug("Auto-title generation failed (non-critical): %s", exc)
@@ -801,11 +802,9 @@ def _execute_workspace_action(
         except Exception as exc:
             logger.warning("Failed to log workspace operation: %s", exc)
 
-    conv = conversation_store.get_conversation(conversation_id)
+    conv = conversation_store.get_conversation(conversation_id, effective_user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if conv.get("user_id") != effective_user_id:
-        raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
     if action.operation == "copy_to_workspace":
         if not action.attachment_id:
@@ -1607,6 +1606,7 @@ async def chat(
                 background_tasks.add_task(
                     _generate_conversation_title,
                     conversation_id=conversation_id,
+                    user_id=effective_user_id,
                     user_message=request_body.message,
                     assistant_message=assistant_msg,
                     conv_store=conv_store,
@@ -2014,6 +2014,7 @@ async def chat_stream(
                                             asyncio.create_task(
                                                 _generate_conversation_title(
                                                     conversation_id=conversation_id,
+                                                    user_id=effective_user_id,
                                                     user_message=request_body.message,
                                                     assistant_message="".join(_accumulated_tokens),
                                                     conv_store=_conv_store,

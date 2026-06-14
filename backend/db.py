@@ -1304,27 +1304,34 @@ class ConversationStore:
 
         return [_normalize_conversation_row(r) for r in rows], total
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        """Get a single conversation (without messages)."""
+    def get_conversation(self, conversation_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single conversation (without messages), scoped to its owner.
+
+        ``user_id`` is required: a conversation owned by a different user resolves to
+        ``None`` (the router turns that into a 404), so ownership cannot be bypassed.
+        """
         statement = """
             SELECT id, user_id, title, language, profile_name,
                    pinned, metadata, created_at, updated_at
-            FROM conversations WHERE id = %s;
+            FROM conversations WHERE id = %s AND user_id = %s;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (conversation_id,))
+                cur.execute(statement, (conversation_id, user_id))
                 row = cur.fetchone()
         return _normalize_conversation_row(row) if row else None
 
     def update_conversation(
-        self, conversation_id: str, **fields: Any
+        self, conversation_id: str, user_id: str, **fields: Any
     ) -> Optional[Dict[str, Any]]:
-        """Update mutable conversation fields (title, pinned, language, metadata)."""
+        """Update mutable conversation fields (title, pinned, language, metadata).
+
+        Scoped to ``user_id``: a non-owner update matches no row and returns ``None``.
+        """
         allowed = {"title", "pinned", "language", "metadata"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
-            return self.get_conversation(conversation_id)
+            return self.get_conversation(conversation_id, user_id)
 
         set_clauses = []
         params: list[Any] = []
@@ -1337,10 +1344,11 @@ class ConversationStore:
                 params.append(value)
         set_clauses.append("updated_at = NOW()")
         params.append(conversation_id)
+        params.append(user_id)
 
         statement = f"""
             UPDATE conversations SET {', '.join(set_clauses)}
-            WHERE id = %s
+            WHERE id = %s AND user_id = %s
             RETURNING id, user_id, title, language, profile_name,
                       pinned, metadata, created_at, updated_at;
         """
@@ -1351,12 +1359,12 @@ class ConversationStore:
             conn.commit()
         return _normalize_conversation_row(row) if row else None
 
-    def delete_conversation(self, conversation_id: str) -> bool:
-        """Hard-delete a conversation and its messages (CASCADE)."""
-        statement = "DELETE FROM conversations WHERE id = %s;"
+    def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
+        """Hard-delete a conversation and its messages (CASCADE), scoped to its owner."""
+        statement = "DELETE FROM conversations WHERE id = %s AND user_id = %s;"
         with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(statement, (conversation_id,))
+                cur.execute(statement, (conversation_id, user_id))
                 deleted = cur.rowcount > 0
             conn.commit()
         return deleted
@@ -1423,19 +1431,31 @@ class ConversationStore:
         return [_normalize_message_row(r) for r in rows]
 
     def update_message_feedback(
-        self, message_id: int, feedback: Optional[str]
+        self, message_id: int, feedback: Optional[str], conversation_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         if feedback is not None and feedback not in ("up", "down"):
             raise ValueError(f"Invalid feedback: {feedback}")
-        statement = """
-            UPDATE messages SET feedback = %s
-            WHERE id = %s
-            RETURNING id, conversation_id, role, content, tokens_used, model_name,
-                      response_time_ms, tools_used, feedback, metadata, created_at;
-        """
+        # When conversation_id is supplied, scope the update to it so a message can only
+        # be rated through its own (ownership-verified) conversation.
+        if conversation_id is not None:
+            statement = """
+                UPDATE messages SET feedback = %s
+                WHERE id = %s AND conversation_id = %s
+                RETURNING id, conversation_id, role, content, tokens_used, model_name,
+                          response_time_ms, tools_used, feedback, metadata, created_at;
+            """
+            params: tuple = (feedback, message_id, conversation_id)
+        else:
+            statement = """
+                UPDATE messages SET feedback = %s
+                WHERE id = %s
+                RETURNING id, conversation_id, role, content, tokens_used, model_name,
+                          response_time_ms, tools_used, feedback, metadata, created_at;
+            """
+            params = (feedback, message_id)
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (feedback, message_id))
+                cur.execute(statement, params)
                 row = cur.fetchone()
             conn.commit()
         return _normalize_message_row(row) if row else None
@@ -1469,9 +1489,9 @@ class ConversationStore:
     # ── Export ──────────────────────────────────────────────────────────
 
     def export_conversation(
-        self, conversation_id: str, fmt: str = "json"
+        self, conversation_id: str, user_id: str, fmt: str = "json"
     ) -> Optional[Dict[str, Any] | str]:
-        conv = self.get_conversation(conversation_id)
+        conv = self.get_conversation(conversation_id, user_id)
         if not conv:
             return None
         msgs = self.get_messages(conversation_id, limit=10000)

@@ -101,7 +101,6 @@ async def get_cost_projection(
 
 @router.post("/analytics/log-event")
 async def log_event(
-    user_id: str | None = Query(default=None),
     event_type: str = Query(...),
     model_name: str | None = Query(default=None),
     tokens_used: int | None = Query(default=None),
