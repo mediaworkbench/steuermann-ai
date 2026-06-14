@@ -537,6 +537,21 @@ class UserStore:
         
         return [_normalize_user_row(row) for row in rows], total
 
+    def count_admins(self, active_only: bool = True) -> int:
+        """Count users with the administrator role (active only by default)."""
+        statement = """
+            SELECT COUNT(*) AS count
+            FROM users u JOIN roles r ON u.role_id = r.role_id
+            WHERE r.role_name = 'administrator'
+        """
+        if active_only:
+            statement += " AND u.status = 'active'"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement + ";")
+                row = cur.fetchone()
+        return int(row["count"]) if row else 0
+
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific user by ID."""
         statement = """

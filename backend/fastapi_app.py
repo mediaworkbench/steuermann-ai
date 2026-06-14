@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from backend.attachments import ChatAttachmentManager, ChatWorkspaceManager, UserWorkspaceFileManager
+from backend.routers.admin_users import router as admin_users_router
 from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
 from backend.routers.metrics import router as metrics_router
@@ -284,6 +285,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth_router)
+    app.include_router(admin_users_router)
     app.include_router(chat_router)
     app.include_router(settings_router)
     app.include_router(metrics_router)
