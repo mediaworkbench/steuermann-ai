@@ -1,5 +1,3 @@
-import { CURRENT_USER_ID } from "@/lib/runtime";
-
 export interface UserSettings {
   user_id: string;
   tool_toggles: Record<string, boolean>;
@@ -14,9 +12,9 @@ export interface UserSettings {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
 
-export async function fetchUserSettings(userId: string): Promise<UserSettings | null> {
+export async function fetchUserSettings(): Promise<UserSettings | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/settings/user/${userId}`);
+    const response = await fetch(`${API_BASE}/api/settings/me`);
     if (!response.ok) {
       console.error(`Failed to fetch settings: ${response.status}`);
       return null;
@@ -29,11 +27,10 @@ export async function fetchUserSettings(userId: string): Promise<UserSettings | 
 }
 
 export async function updateUserSettings(
-  userId: string,
   settings: Partial<Omit<UserSettings, "user_id" | "updated_at">>
 ): Promise<UserSettings | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/settings/user/${userId}`, {
+    const response = await fetch(`${API_BASE}/api/settings/me`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
@@ -468,7 +465,6 @@ import type {
 } from "@/lib/types";
 
 export async function createConversation(
-  userId: string = CURRENT_USER_ID,
   title: string = "New conversation",
   language: string = "en",
 ): Promise<Conversation | null> {
@@ -476,7 +472,7 @@ export async function createConversation(
     const response = await fetch(`${API_BASE}/api/conversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, title, language }),
+      body: JSON.stringify({ title, language }),
     });
     if (!response.ok) {
       console.error(`Failed to create conversation: ${response.status}`);
@@ -490,14 +486,12 @@ export async function createConversation(
 }
 
 export async function fetchConversations(
-  userId: string = CURRENT_USER_ID,
   limit: number = 50,
   offset: number = 0,
   q?: string,
 ): Promise<ConversationListResponse | null> {
   try {
     const params = new URLSearchParams({
-      user_id: userId,
       limit: String(limit),
       offset: String(offset),
     });
@@ -600,13 +594,11 @@ export async function rateMemory(memoryId: string, rating: number): Promise<bool
 }
 
 export async function fetchMemories(
-  userId: string = CURRENT_USER_ID,
   limit: number = 50,
   offset: number = 0,
 ): Promise<import("@/lib/types").MemoryListResponse | null> {
   try {
     const params = new URLSearchParams({
-      user_id: userId,
       limit: String(limit),
       offset: String(offset),
     });
@@ -622,11 +614,9 @@ export async function fetchMemories(
   }
 }
 
-export async function fetchMemoryStats(
-  userId: string = CURRENT_USER_ID,
-): Promise<import("@/lib/types").MemoryStats | null> {
+export async function fetchMemoryStats(): Promise<import("@/lib/types").MemoryStats | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/memories/stats?user_id=${encodeURIComponent(userId)}`);
+    const response = await fetch(`${API_BASE}/api/memories/stats`);
     if (!response.ok) {
       console.error(`Failed to fetch memory stats: ${response.status}`);
       return null;
@@ -685,12 +675,10 @@ export async function fetchConversationAttachments(
 export async function uploadConversationAttachment(
   conversationId: string,
   file: File,
-  userId: string = CURRENT_USER_ID,
 ): Promise<ConversationAttachment | null> {
   try {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("user_id", userId);
 
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/attachments`, {
       method: "POST",
@@ -769,7 +757,6 @@ export async function runWorkspaceAction(
   conversationId: string,
   message: string,
   workspaceAction: WorkspaceActionRequest,
-  userId: string = CURRENT_USER_ID,
   language: string = "en",
 ): Promise<ChatResponse | null> {
   try {
@@ -778,7 +765,6 @@ export async function runWorkspaceAction(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        user_id: userId,
         language,
         conversation_id: conversationId,
         workspace_action: workspaceAction,

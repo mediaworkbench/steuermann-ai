@@ -6,7 +6,7 @@ import { LayoutShell } from "@/components/LayoutShell";
 import { ProfileProvider } from "@/hooks/useProfile";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
-import { RoleProvider } from "@/context/RoleContext";
+import { SessionProvider } from "@/context/SessionContext";
 
 
 export const metadata: Metadata = {
@@ -39,13 +39,13 @@ export default function RootLayout({
     <html lang="en" className="font-sans">
       <body className="bg-background text-foreground h-screen overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
-          <I18nProvider>
-            <RoleProvider>
+          <SessionProvider>
+            <I18nProvider>
               <ProfileProvider>
                 <LayoutShell>{children}</LayoutShell>
               </ProfileProvider>
-            </RoleProvider>
-          </I18nProvider>
+            </I18nProvider>
+          </SessionProvider>
         </ThemeProvider>
       </body>
     </html>

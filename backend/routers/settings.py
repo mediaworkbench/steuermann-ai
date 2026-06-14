@@ -298,13 +298,12 @@ def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any
     return "native", "probe_confirmed_native"
 
 
-@router.get("/settings/user/{user_id}", response_model=UserSettingsResponse)
+@router.get("/settings/me", response_model=UserSettingsResponse)
 def get_user_settings(
-    user_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
-    """Retrieve persisted user settings or return defaults."""
+    """Retrieve the authenticated user's persisted settings or defaults."""
     effective_user_id = current_user.user_id
     store = _get_settings_store(request)
     record = store.get_user_settings(effective_user_id)
@@ -323,14 +322,13 @@ def get_user_settings(
     return record
 
 
-@router.post("/settings/user/{user_id}", response_model=UserSettingsResponse)
+@router.post("/settings/me", response_model=UserSettingsResponse)
 async def update_user_settings(
-    user_id: str,
     settings: UserSettings,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
-    """Persist user settings for the given user id."""
+    """Persist settings for the authenticated user."""
     effective_user_id = current_user.user_id
     store = _get_settings_store(request)
     

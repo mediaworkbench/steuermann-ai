@@ -15,7 +15,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useI18n } from "@/hooks/useI18n";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 import { Brain, Trash2, RefreshCw } from "lucide-react";
@@ -72,7 +71,6 @@ function RatingHelpPopover({ label }: { label: string }) {
 
 export default function MemoriesPage() {
   const { t, formatDate } = useI18n();
-  const userId = CURRENT_USER_ID;
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,8 +86,8 @@ export default function MemoriesPage() {
     async (off: number) => {
       setLoading(true);
       const [list, st] = await Promise.all([
-        fetchMemories(userId, PAGE_SIZE, off),
-        stats === null ? fetchMemoryStats(userId) : Promise.resolve(stats),
+        fetchMemories(PAGE_SIZE, off),
+        stats === null ? fetchMemoryStats() : Promise.resolve(stats),
       ]);
       if (list) {
         setItems(list.items);
@@ -100,13 +98,13 @@ export default function MemoriesPage() {
       setLoading(false);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userId],
+    [],
   );
 
   const refreshStats = useCallback(async () => {
-    const st = await fetchMemoryStats(userId);
+    const st = await fetchMemoryStats();
     if (st) setStats(st);
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     load(0);

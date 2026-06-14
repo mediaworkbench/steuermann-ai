@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchConversations } from "@/lib/api";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { Conversation } from "@/lib/types";
 
 const PAGE_SIZE = 50;
@@ -39,7 +38,7 @@ export function useConversationBrowser(revision: number) {
     const seq = ++seqRef.current; // invalidate any in-flight request
     setLoading(true);
     try {
-      const data = await fetchConversations(CURRENT_USER_ID, PAGE_SIZE, off, q || undefined);
+      const data = await fetchConversations(PAGE_SIZE, off, q || undefined);
       if (seq !== seqRef.current) return; // superseded by a newer load
       if (data) {
         setItems(data.conversations);

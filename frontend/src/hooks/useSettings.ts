@@ -11,7 +11,7 @@ interface UseSettingsReturn {
   refetch: () => Promise<void>;
 }
 
-export function useSettings(userId: string): UseSettingsReturn {
+export function useSettings(): UseSettingsReturn {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function useSettings(userId: string): UseSettingsReturn {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchUserSettings(userId);
+      const data = await fetchUserSettings();
       if (data) {
         setSettings(data);
       } else {
@@ -31,12 +31,12 @@ export function useSettings(userId: string): UseSettingsReturn {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   const saveSettings = useCallback(
     async (updates: Partial<Omit<UserSettings, "user_id" | "updated_at">>): Promise<boolean> => {
       try {
-        const updated = await updateUserSettings(userId, updates);
+        const updated = await updateUserSettings(updates);
         if (updated) {
           setSettings(updated);
           return true;
@@ -49,7 +49,7 @@ export function useSettings(userId: string): UseSettingsReturn {
         return false;
       }
     },
-    [userId]
+    []
   );
 
   useEffect(() => {

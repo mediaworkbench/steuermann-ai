@@ -69,7 +69,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
-  const { isAdmin } = useRole();
+  const { isAdmin, canAccessRag } = useRole();
   const {
     conversations,
     activeId,
@@ -207,41 +207,47 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </p>
           )}
 
-          {isAdmin && (
+          {(isAdmin || canAccessRag) && (
             <SidebarGroup>
               <SidebarGroupLabel>{t("sidebar.administration")}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.metrics")}
-                      onClick={() => router.push("/metrics")}
-                      className="justify-start"
-                    >
-                      <BarChart3 />
-                      <span>{t("header.metrics")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.ragExplorer")}
-                      onClick={() => router.push("/admin/rag")}
-                      className="justify-start"
-                    >
-                      <Compass />
-                      <span>{t("header.ragExplorer")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.admin")}
-                      onClick={() => router.push("/admin")}
-                      className="justify-start"
-                    >
-                      <ShieldCheck />
-                      <span>{t("header.admin")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.metrics")}
+                        onClick={() => router.push("/metrics")}
+                        className="justify-start"
+                      >
+                        <BarChart3 />
+                        <span>{t("header.metrics")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {canAccessRag && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.ragExplorer")}
+                        onClick={() => router.push("/admin/rag")}
+                        className="justify-start"
+                      >
+                        <Compass />
+                        <span>{t("header.ragExplorer")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.admin")}
+                        onClick={() => router.push("/admin")}
+                        className="justify-start"
+                      >
+                        <ShieldCheck />
+                        <span>{t("header.admin")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

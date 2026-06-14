@@ -394,7 +394,7 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _valid_model)
 
     response = client.post(
-        "/api/settings/user/u1",
+        "/api/settings/me",
         json={
             "analytics_preferences": {
                 "usage": {"showRequests": False}
@@ -424,7 +424,7 @@ def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
     monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _invalid_model)
 
     response = client.post(
-        "/api/settings/user/u1",
+        "/api/settings/me",
         json={
             "preferred_model": "user2-model",
             "theme": "auto",

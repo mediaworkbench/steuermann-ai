@@ -7,7 +7,6 @@ import {
   fetchConversationAttachments,
   uploadConversationAttachment,
 } from "@/lib/api";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { ConversationAttachment } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -83,7 +82,7 @@ export function useConversationAttachments(
         const convId = await ensureConversation(file.name);
         if (!convId) throw new Error(t("chat.couldNotCreateConversationForAttachment"));
 
-        const uploaded = await uploadConversationAttachment(convId, file, CURRENT_USER_ID);
+        const uploaded = await uploadConversationAttachment(convId, file);
         if (!uploaded) throw new Error(t("chat.attachmentUploadFailed"));
 
         addAttachment(uploaded);

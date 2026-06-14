@@ -8,7 +8,6 @@ jest.mock("sonner", () => ({ toast: { error: jest.fn(), success: jest.fn(), warn
 jest.mock("@/hooks/useI18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));
-jest.mock("@/lib/runtime", () => ({ CURRENT_USER_ID: "u1" }));
 const mockMimeTypeForFilename = jest.fn(() => "text/plain");
 
 jest.mock("@/components/workspace/utils", () => ({

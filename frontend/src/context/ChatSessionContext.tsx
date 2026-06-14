@@ -14,7 +14,6 @@ import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { fetchConversation } from "@/lib/api";
 import { toUiMessage } from "@/lib/messageMapping";
 import { isPostResponseNode } from "@/lib/nodeTrace";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { WritebackPending } from "@/hooks/useStreamingChat";
 import type { ChatResponse, Message, NodeTraceEntry } from "@/lib/types";
 
@@ -454,7 +453,6 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
 
       await startStream({
         message: userMessage,
-        userId: CURRENT_USER_ID,
         conversationId: convId,
         attachmentIds,
         documentIds,

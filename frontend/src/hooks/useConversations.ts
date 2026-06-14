@@ -10,9 +10,6 @@ import {
   updateConversation,
   deleteConversation,
 } from "@/lib/api";
-import { CURRENT_USER_ID } from "@/lib/runtime";
-
-const USER_ID = CURRENT_USER_ID;
 
 // The shared context loads only a modest slice — enough for the sidebar's pinned + 5
 // recent. The /chats page does its own server-side pagination/search via
@@ -40,7 +37,7 @@ export function useConversations() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchConversations(USER_ID, SIDEBAR_LIMIT, 0);
+      const data = await fetchConversations(SIDEBAR_LIMIT, 0);
       if (data) {
         setConversations(data.conversations);
         setTotal(data.total);
@@ -95,7 +92,7 @@ export function useConversations() {
 
   const create = useCallback(
     async (title?: string, language?: string) => {
-      const conv = await createConversation(USER_ID, title || "New conversation", language || "en");
+      const conv = await createConversation(title || "New conversation", language || "en");
       if (conv) {
         setConversations((prev) => [conv, ...prev]);
         setTotal((t) => t + 1);

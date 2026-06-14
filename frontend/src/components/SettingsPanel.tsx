@@ -62,7 +62,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     settings?.tool_toggles || {}
   );
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>(
-    settings?.rag_config || { collection: "", top_k: 5, enabled: true }
+    settings?.rag_config || { top_k: 5, enabled: true }
   );
   const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(
     settings?.preferred_models || {}
@@ -87,8 +87,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   useEffect(() => {
     if (settings) {
       setToolToggles(settings.tool_toggles || {});
-      const ragDefault = { collection: systemConfig?.rag_defaults.collection_name || "framework", top_k: systemConfig?.rag_defaults.top_k || 5 };
-      setRagConfig(settings.rag_config && settings.rag_config.collection ? settings.rag_config : ragDefault);
+      const ragDefault = { top_k: systemConfig?.rag_defaults.top_k || 5 };
+      setRagConfig(settings.rag_config || ragDefault);
       setPreferredModels(settings.preferred_models || {});
       setLanguage(settings.language || "en");
       setAnalyticsPreferences(settings.analytics_preferences || {});

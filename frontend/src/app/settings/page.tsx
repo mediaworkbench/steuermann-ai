@@ -1,21 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useSettings } from "@/hooks/useSettings";
 import { useI18n } from "@/hooks/useI18n";
 import { useRole } from "@/context/RoleContext";
-import {
-  CURRENT_USER_ID,
-  SINGLE_USER_DISPLAY_NAME,
-} from "@/lib/runtime";
+import { useCurrentUser } from "@/context/SessionContext";
 
 
 export default function SettingsPage() {
-  const [userId] = useState(CURRENT_USER_ID);
   const { t } = useI18n();
   const { role } = useRole();
-  const { settings, loading, error, saveSettings } = useSettings(userId);
+  const { displayName, username } = useCurrentUser();
+  const { settings, loading, error, saveSettings } = useSettings();
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
@@ -24,7 +20,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">{t("settingsPage.title")}</h1>
           <p className="mt-1 text-muted-foreground">
-            {SINGLE_USER_DISPLAY_NAME}
+            {displayName || username}
             <span className="ml-2 text-sm font-normal capitalize opacity-60">· {role}</span>
           </p>
         </div>

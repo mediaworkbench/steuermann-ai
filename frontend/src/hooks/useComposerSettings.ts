@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchSystemConfig, fetchUserSettings, updateUserSettings } from "@/lib/api";
 import type { SystemConfig } from "@/lib/api";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 
 interface UseComposerSettingsResult {
   ragEnabled: boolean;
@@ -43,9 +42,9 @@ export function useComposerSettings(): UseComposerSettingsResult {
 
   // Load user settings on mount: RAG config, tool toggles, chat model, sound
   useEffect(() => {
-    fetchUserSettings(CURRENT_USER_ID).then((s) => {
+    fetchUserSettings().then((s) => {
       if (!s) return;
-      const cfg = (s.rag_config as Record<string, unknown>) || { collection: "", top_k: 5, enabled: true };
+      const cfg = (s.rag_config as Record<string, unknown>) || { top_k: 5, enabled: true };
       setRagConfig(cfg);
       setRagEnabled((cfg.enabled as boolean) !== false);
       if (s.tool_toggles) setToolToggles(s.tool_toggles);
@@ -78,7 +77,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
     setRagEnabled(next);
     setRagConfig(updated);
     const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
-    await fetch(`${apiBase}/api/settings/user/${CURRENT_USER_ID}`, {
+    await fetch(`${apiBase}/api/settings/me`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rag_config: updated }),
@@ -90,14 +89,14 @@ export function useComposerSettings(): UseComposerSettingsResult {
     // Do not simplify to !toolToggles[toolId] — that breaks the default-on behaviour.
     const next = { ...toolToggles, [toolId]: toolToggles[toolId] !== false ? false : true };
     setToolToggles(next);
-    await updateUserSettings(CURRENT_USER_ID, { tool_toggles: next });
+    await updateUserSettings({ tool_toggles: next });
   }, [toolToggles]);
 
   const handleModelChange = useCallback(async (model: string) => {
     setChatModel(model);
     const merged = { ...preferredModelsRef.current, chat: model };
     preferredModelsRef.current = merged;
-    await updateUserSettings(CURRENT_USER_ID, { preferred_model: model, preferred_models: merged });
+    await updateUserSettings({ preferred_model: model, preferred_models: merged });
   }, []);
 
   return {

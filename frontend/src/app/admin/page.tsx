@@ -6,12 +6,11 @@ import { useSettings } from "@/hooks/useSettings";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { ProfileMetaCard } from "@/components/product/ProfileMetaCard";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 
 export default function AdminPage() {
   const { t } = useI18n();
   const profile = useProfile();
-  const { settings, loading, error, saveSettings } = useSettings(CURRENT_USER_ID);
+  const { settings, loading, error, saveSettings } = useSettings();
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
