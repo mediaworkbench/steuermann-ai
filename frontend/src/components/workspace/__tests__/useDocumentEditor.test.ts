@@ -9,7 +9,7 @@ jest.mock("@/hooks/useI18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));
 jest.mock("@/lib/runtime", () => ({ CURRENT_USER_ID: "u1" }));
-const mockMimeTypeForFilename = jest.fn((_name: string) => "text/plain");
+const mockMimeTypeForFilename = jest.fn(() => "text/plain");
 
 jest.mock("@/components/workspace/utils", () => ({
   workspaceAuthHeaders: (extra?: Record<string, string>) => ({ ...(extra ?? {}) }),
@@ -288,7 +288,7 @@ describe("useDocumentEditor", () => {
       expect(uploadedFile.type).toBe("text/csv");
 
       mockMimeTypeForFilename.mockReset();
-      mockMimeTypeForFilename.mockImplementation((_name: string) => "text/plain");
+      mockMimeTypeForFilename.mockImplementation(() => "text/plain");
     });
   });
 
