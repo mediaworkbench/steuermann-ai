@@ -72,7 +72,7 @@ class ProfileConfigResponse(BaseModel):
 
 class UserSettings(BaseModel):
     tool_toggles: Dict[str, bool] = Field(default_factory=dict)
-    rag_config: Dict[str, Any] = Field(default_factory=lambda: {"collection": "", "top_k": 5, "enabled": True})
+    rag_config: Dict[str, Any] = Field(default_factory=lambda: {"top_k": 5, "enabled": True})
     analytics_preferences: Dict[str, Any] = Field(default_factory=dict)
     preferred_model: str | None = None
     preferred_models: Dict[str, Optional[str]] = Field(default_factory=dict)
@@ -312,7 +312,7 @@ def get_user_settings(
         return {
             "user_id": effective_user_id,
             "tool_toggles": {},
-            "rag_config": {"collection": "", "top_k": 5, "enabled": True},
+            "rag_config": {"top_k": 5, "enabled": True},
             "analytics_preferences": {},
             "preferred_model": None,
             "preferred_models": {},
@@ -348,7 +348,7 @@ async def update_user_settings(
         return fallback
     
     tool_toggles = _resolved_value("tool_toggles", {})
-    rag_config = _resolved_value("rag_config", {"collection": "", "top_k": 5, "enabled": True})
+    rag_config = _resolved_value("rag_config", {"top_k": 5, "enabled": True})
     analytics_preferences = _resolved_value("analytics_preferences", {})
     theme = _resolved_value("theme", "auto")
     language = _resolved_value("language", "en")

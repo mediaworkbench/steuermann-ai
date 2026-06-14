@@ -14,10 +14,10 @@ Endpoints are sync ``def`` on purpose: ``search_qdrant`` and ``embedder.encode``
 blocking ``httpx``, so FastAPI runs them in its threadpool (matching the other admin
 endpoints in ``settings.py``). An ``async def`` here would block the event loop.
 
-Auth note: protected by the shared ``require_api_access`` token like every other router.
-Admin-only access is enforced at the Next.js page layer (``/admin/`` middleware prefix +
-``AdminOnly``); the backend does not do per-request role checks today — same posture as
-the existing ``/api/admin/*`` endpoints.
+Auth note: protected by the shared ``require_api_access`` token AND a server-side
+``require_researcher_or_admin`` role gate (defense in depth) — the RAG explorer is
+available to researchers and administrators. The Next.js page layer also gates the
+``/admin/rag`` route for the same roles.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from backend.auth import require_researcher_or_admin
 from backend.single_user import require_api_access
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.embeddings import EmbeddingProviderUnavailableError
@@ -44,7 +45,7 @@ logger = get_logger(__name__)
 router = APIRouter(
     prefix="/api/rag",
     tags=["rag"],
-    dependencies=[Depends(require_api_access)],
+    dependencies=[Depends(require_api_access), Depends(require_researcher_or_admin)],
 )
 
 # Fallback production threshold, matching node_retrieve_knowledge (rag_node.py).

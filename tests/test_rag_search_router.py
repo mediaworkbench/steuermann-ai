@@ -214,3 +214,42 @@ def test_collections_lists_names_with_counts(monkeypatch):
         "framework": 42,
         "other": 42,
     }
+
+
+# ── Role gating (researcher + administrator only) ────────────────────────────
+
+def _role_client(monkeypatch):
+    """RAG explorer client with auth enabled so role headers are enforced."""
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setattr(rag_module, "load_core_config", lambda: _fake_config())
+    monkeypatch.setattr(
+        rag_module,
+        "get_routing_embedding_provider",
+        lambda cfg: (_FakeEmbedder(), "model"),
+    )
+    monkeypatch.setattr(rag_module, "search_qdrant", _recording_search(_HITS))
+    app = FastAPI()
+    app.include_router(rag_module.router)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _headers(role: str) -> dict:
+    return {
+        "x-authenticated-user-id": "u-1",
+        "x-authenticated-username": "tester",
+        "x-authenticated-role": role,
+    }
+
+
+def test_rag_explorer_forbidden_for_basic_user(monkeypatch):
+    client = _role_client(monkeypatch)
+    resp = client.get("/api/rag/search", params={"q": "taxes"}, headers=_headers("user"))
+    assert resp.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["researcher", "administrator"])
+def test_rag_explorer_allowed_for_researcher_and_admin(monkeypatch, role):
+    client = _role_client(monkeypatch)
+    resp = client.get("/api/rag/search", params={"q": "taxes"}, headers=_headers(role))
+    assert resp.status_code == 200
