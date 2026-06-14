@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from backend.attachments import ChatAttachmentManager, ChatWorkspaceManager, UserWorkspaceFileManager
+from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
 from backend.routers.metrics import router as metrics_router
 from backend.routers.settings import router as settings_router
@@ -28,6 +29,7 @@ from backend.db import (
     ConversationAttachmentStore,
     ConversationWorkspaceStore,
     WorkspaceDocumentStore,
+    UserStore,
     init_db_pool,
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
@@ -222,6 +224,25 @@ async def lifespan(app: FastAPI):
     app.state.conversation_attachment_store = ConversationAttachmentStore(db_pool)
     app.state.conversation_workspace_store = ConversationWorkspaceStore(db_pool)
     app.state.workspace_document_store = WorkspaceDocumentStore(db_pool)
+    app.state.user_store = UserStore(db_pool)
+
+    # Seed the bootstrap administrator from env config (idempotent — no-op if it exists).
+    admin_username = os.getenv("AUTH_USERNAME", "").strip()
+    admin_hash = os.getenv("AUTH_PASSWORD_HASH", "").strip()
+    admin_email = os.getenv("AUTH_ADMIN_EMAIL", "").strip() or f"{admin_username or 'admin'}@example.com"
+    if admin_username and admin_hash:
+        try:
+            seeded = app.state.user_store.seed_bootstrap_admin(
+                username=admin_username, email=admin_email, password_hash=admin_hash
+            )
+            if seeded:
+                logger.info("Seeded bootstrap administrator '%s'", admin_username)
+        except Exception as exc:  # pragma: no cover - never block startup on seeding
+            logger.error("Failed to seed bootstrap administrator: %s", exc)
+    else:
+        logger.warning(
+            "Bootstrap admin not seeded: AUTH_USERNAME and/or AUTH_PASSWORD_HASH are unset."
+        )
 
     attachment_manager = ChatAttachmentManager()
     app.state.chat_attachment_manager = attachment_manager
@@ -262,6 +283,7 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID"],
     )
 
+    app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(settings_router)
     app.include_router(metrics_router)
