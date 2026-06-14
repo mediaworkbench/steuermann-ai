@@ -1,5 +1,34 @@
 # Changelog
 
+### [0.4.5] — Multi-user accounts & role-based access
+
+#### Feature
+
+* **Real multi-user authentication, replacing the single-user model.** Accounts now live in
+  the database with three built-in roles: **user** (chat, own data, settings), **researcher**
+  (a user plus the RAG knowledge explorer), and **administrator** (everything plus user
+  management). Login is verified on the FastAPI backend with **argon2id** (`POST /api/auth/login`);
+  the Next.js layer mints the session JWT. The first administrator is **bootstrapped from
+  environment config** (`AUTH_USERNAME` + an argon2id `AUTH_PASSWORD_HASH` + `AUTH_ADMIN_EMAIL`)
+  and seeded into the `users` table on startup.
+* **Admin user management.** A new administrator-only API (`/api/admin/users`, `/api/admin/roles`)
+  and in-app **Users** page let admins list, create, edit (role/status), reset passwords, and
+  delete accounts. New accounts (and password resets) get an **auto-generated temporary password**
+  shown once; the user is **forced to change it on first login**. Guardrails prevent removing or
+  demoting the last active administrator and acting destructively on your own account.
+* **Per-user data isolation.** Conversations (read/update/delete/export, attachments, messages,
+  feedback, compaction), settings (`/api/settings/me`), memories, and workspace documents are all
+  scoped to the authenticated user — a non-owner request resolves to 404. Rate limiting now buckets
+  per authenticated user rather than globally.
+* **Shared, locked RAG corpus.** The knowledge base is shared across all users; the per-user
+  collection override was removed (per-user `top_k`/threshold still apply). The RAG knowledge
+  explorer is available to researchers and administrators.
+* **Trust model & hardening.** The backend (internal-only, guarded by a shared `CHAT_ACCESS_TOKEN`)
+  derives identity and role exclusively from trusted proxy headers and **independently enforces**
+  role checks and ownership as defense in depth. The proxy strips any client-supplied
+  `x-authenticated-*` / `x-chat-token` headers so identity and role cannot be spoofed. With
+  authentication disabled, the app runs as a single bootstrap-admin user for local development.
+
 ### [0.4.4] — Inspector: full traceability of post-response nodes
 
 #### Feature

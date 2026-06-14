@@ -96,7 +96,11 @@ See [docs/tool_development_guide.md](docs/tool_development_guide.md) for buildin
 
 ### Operational Interface
 
-A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, an admin-only RAG knowledge explorer for searching the knowledge base by keyword and reviewing retrieved documents, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
+A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, a RAG knowledge explorer (open to administrators and researchers) for searching the knowledge base by keyword and reviewing retrieved documents, an admin user-management page, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
+
+### User Accounts & Roles
+
+Authentication is DB-backed with three built-in roles: **user** (chat, own data, settings), **researcher** (everything a user can do plus the RAG knowledge explorer), and **administrator** (full access plus user management). Administrators provision accounts from an in-app users page — each new account gets an auto-generated temporary password and is required to set its own on first login. The first administrator is bootstrapped from environment configuration on startup. Passwords are hashed with argon2id and verified server-side. Every user's conversations, settings, memories, and workspace documents are isolated to their account; the RAG knowledge base is shared across all users.
 
 ### Performance & Reliability
 
@@ -116,7 +120,9 @@ LLM models, system prompts, and embedding models are all configurable per langua
 
 ### Security Model
 
-Steuermann is designed for **internal, trusted deployments** behind your network perimeter. Internal services (Qdrant, PostgreSQL, Redis, Prometheus) are Docker-network-only by default. Auth is optional and session-based. All provider endpoints are explicitly configured — no implicit data exfiltration.
+Steuermann is designed for **internal, trusted deployments** behind your network perimeter. Internal services (Qdrant, PostgreSQL, Redis, Prometheus) are Docker-network-only by default. All provider endpoints are explicitly configured — no implicit data exfiltration.
+
+Authentication is session-based (httpOnly JWT cookie) and DB-backed: credentials are verified on the FastAPI backend with argon2id. The backend is reachable only through the Next.js proxy, which authenticates the session and forwards a trusted identity + role to the backend (guarded by a shared `CHAT_ACCESS_TOKEN`); the backend independently enforces role checks and per-user data ownership as defense in depth. Authentication can be disabled for local development, in which case the app runs as a single bootstrap-admin user.
 
 > Public-facing, multi-tenant, and zero-trust deployments are out of scope for this release, but will be a future feature.
 
@@ -193,12 +199,15 @@ Under the hood, `docker compose up -d` also starts **PostgreSQL** (5432), **Redi
 
 ### 3. (Optional) Enable authentication
 
-Set these in `.env`:
+With `AUTH_ENABLED=false` the app runs as a single local user (the dev bypass). To require
+login and enable multi-user accounts, configure the **bootstrap administrator** in `.env`:
 
 ```bash
 AUTH_ENABLED=true
 AUTH_USERNAME=admin
-AUTH_PASSWORD_HASH='scrypt$...$...'   # see .env.example for generation command
+AUTH_ADMIN_EMAIL=admin@example.com
+# argon2id hash — wrap in single quotes so the '$' chars stay literal:
+AUTH_PASSWORD_HASH='$(poetry run python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('"'"'your-password'"'"'))")'
 AUTH_SESSION_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
 CHAT_ACCESS_TOKEN=$(python -c "import secrets; print(secrets.token_hex(32))")
 ```
@@ -208,6 +217,11 @@ Rebuild and visit <http://localhost:3000/login>:
 ```bash
 docker compose up -d --build
 ```
+
+The bootstrap administrator is seeded into the database on first start. Log in, then create
+additional accounts (assigning **user**, **researcher**, or **administrator**) from the
+in-app **Users** admin page — each gets a one-time temporary password and must change it on
+first login.
 
 ### 4. (Optional) Ingest domain knowledge
 

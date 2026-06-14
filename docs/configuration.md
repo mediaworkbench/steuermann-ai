@@ -713,6 +713,37 @@ DEBUG=false
 LOG_LEVEL=INFO
 ```
 
+### Authentication
+
+```bash
+# Master switch. false → single bootstrap-admin dev bypass (no login). true → DB-backed
+# multi-user login. Shared by the FastAPI and Next.js containers (one value).
+AUTH_ENABLED=true
+
+# Bootstrap administrator, seeded into the users table on first start.
+AUTH_USERNAME=admin
+AUTH_ADMIN_EMAIL=admin@example.com
+# argon2id hash of the bootstrap password. Generate with:
+#   poetry run python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('your-password'))"
+# Wrap in single quotes in .env so the '$' chars stay literal under Docker Compose.
+AUTH_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'
+
+# JWT signing secret for the session cookie. Generate: python -c "import secrets; print(secrets.token_hex(32))"
+AUTH_SESSION_SECRET=change-me
+
+# Shared proxy↔backend secret. The backend is internal-only and trusts identity/role headers
+# only from the proxy, which authenticates this token. Generate as above.
+CHAT_ACCESS_TOKEN=change-me
+
+# Role assumed by the AUTH_ENABLED=false dev bypass. Values: user | researcher | administrator
+NEXT_PUBLIC_AUTH_USER_ROLE=administrator
+```
+
+Roles are fixed: **user**, **researcher** (user + RAG explorer), **administrator** (full access +
+user management). Additional accounts are created in-app at `/admin/users` (administrator only) —
+each receives a one-time temporary password and must change it on first login. Passwords are
+hashed/verified with argon2id on the backend.
+
 LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=false` to disable probing globally, or `LLM_CAPABILITY_PROBE_ON_STARTUP=false` to keep probing enabled but skip the automatic startup probe.
 
 **Chat/Workspace notes:**
