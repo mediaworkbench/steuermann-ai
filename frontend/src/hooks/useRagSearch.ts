@@ -19,10 +19,10 @@ const DEFAULT_TOP_K = 10;
  * overwrite a newer one. Collections are loaded once on mount so the admin can
  * pick a target and confirm it is populated.
  */
-export function useRagSearch() {
+export function useRagSearch(defaultCollectionName?: string) {
   const [query, setQuery] = useState("");
   const [topK, setTopK] = useState(DEFAULT_TOP_K);
-  const [collection, setCollection] = useState<string>("");
+  const [collection, setCollection] = useState<string>(defaultCollectionName ?? "");
 
   const [collections, setCollections] = useState<RagCollection[]>([]);
   const [result, setResult] = useState<RagSearchResponse | null>(null);
@@ -30,6 +30,20 @@ export function useRagSearch() {
   const [error, setError] = useState<string | null>(null);
 
   const seqRef = useRef(0);
+  const userInteractedRef = useRef(false);
+
+  const handleSetCollection = useCallback((value: string) => {
+    userInteractedRef.current = true;
+    setCollection(value);
+  }, []);
+
+  // When the profile's default collection name becomes available, apply it
+  // if no user selection has been made yet.
+  useEffect(() => {
+    if (defaultCollectionName && !userInteractedRef.current) {
+      setCollection(defaultCollectionName);
+    }
+  }, [defaultCollectionName]);
 
   // Load collections once; seed the dropdown with the configured default.
   useEffect(() => {
@@ -37,12 +51,12 @@ export function useRagSearch() {
     fetchRagCollections().then((data) => {
       if (cancelled || !data) return;
       setCollections(data.collections);
-      setCollection((current) => current || data.default_collection || "");
+      setCollection((current) => current || defaultCollectionName || data.default_collection || "");
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSearch = useCallback(async () => {
     const q = query.trim();
@@ -70,7 +84,7 @@ export function useRagSearch() {
     topK,
     setTopK,
     collection,
-    setCollection,
+    setCollection: handleSetCollection,
     collections,
     // output
     result,

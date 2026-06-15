@@ -1,13 +1,26 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { AdminOnly } from "@/components/AdminOnly";
 import { Compass, LoaderCircle, Search } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useRagSearch } from "@/hooks/useRagSearch";
-import { RagResultCard } from "./RagResultCard";
+import { fetchSystemConfig } from "@/lib/api";
+import { DataTable } from "@/components/ui/data-table";
+import { createColumns } from "./columns";
 
 export default function RagExplorerPage() {
   const { t } = useI18n();
+  const [defaultCollection, setDefaultCollection] = useState<string | undefined>();
+
+  useEffect(() => {
+    fetchSystemConfig().then((config) => {
+      if (config?.rag_defaults?.collection_name) {
+        setDefaultCollection(config.rag_defaults.collection_name);
+      }
+    });
+  }, []);
+
   const {
     query,
     setQuery,
@@ -20,12 +33,10 @@ export default function RagExplorerPage() {
     loading,
     error,
     runSearch,
-  } = useRagSearch();
+  } = useRagSearch(defaultCollection);
 
   const items = result?.items ?? [];
-  // Results are sorted desc by score, so above-cutoff hits come first. Draw a divider
-  // before the first below-cutoff hit to mark the production threshold.
-  const firstBelowIdx = items.findIndex((h) => !h.above_cutoff);
+  const columns = useMemo(() => createColumns(result?.query ?? ""), [result?.query]);
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
@@ -140,28 +151,13 @@ export default function RagExplorerPage() {
               })}
             </p>
 
-            {items.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground text-sm">
-                {t("ragExplorer.noResults")}
-              </div>
-            )}
-
-            {items.map((hit, idx) => (
-              <div key={`${hit.file_path}-${hit.chunk_index}-${idx}`}>
-                {idx === firstBelowIdx && (
-                  <div className="flex items-center gap-3 my-2 text-xs text-warning">
-                    <span className="h-px flex-1 bg-warning/40" />
-                    <span className="font-medium whitespace-nowrap">
-                      {t("ragExplorer.cutoffDivider", {
-                        threshold: result.production_threshold.toFixed(2),
-                      })}
-                    </span>
-                    <span className="h-px flex-1 bg-warning/40" />
-                  </div>
-                )}
-                <RagResultCard hit={hit} query={result.query} />
-              </div>
-            ))}
+            <DataTable
+              columns={columns}
+              data={items}
+              loading={loading}
+              emptyText={t("ragExplorer.noResults")}
+              pageSize={result.top_k}
+            />
           </section>
         )}
 
