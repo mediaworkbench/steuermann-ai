@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import {
   fetchLLMCapabilities,
   fetchSystemConfig,
+  fetchRoleTools,
   resetAllDatabases,
 } from "@/lib/api";
 
@@ -12,6 +13,8 @@ jest.mock("@/hooks/useI18n");
 jest.mock("@/lib/api", () => ({
   fetchLLMCapabilities: jest.fn(),
   fetchSystemConfig: jest.fn(),
+  fetchRoleTools: jest.fn(),
+  updateRoleTools: jest.fn(),
   triggerReingestAllDocuments: jest.fn(),
   resetAllDatabases: jest.fn(),
 }));
@@ -19,6 +22,7 @@ jest.mock("@/lib/api", () => ({
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
 const mockFetchLLMCapabilities = fetchLLMCapabilities as jest.MockedFunction<typeof fetchLLMCapabilities>;
+const mockFetchRoleTools = fetchRoleTools as jest.MockedFunction<typeof fetchRoleTools>;
 const mockResetAllDatabases = resetAllDatabases as jest.MockedFunction<typeof resetAllDatabases>;
 
 const BASE_SETTINGS = {
@@ -74,8 +78,16 @@ describe("AdminPanel", () => {
       formatRelativeTime: () => "",
     });
 
+    mockFetchRoleTools.mockResolvedValue({
+      tools: [
+        { id: "web_search_mcp", label: "Web Search", group: "text" },
+        { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
+      ],
+      roles: { user: ["web_search_mcp"], researcher: [] },
+    });
+
     mockFetchSystemConfig.mockResolvedValue({
-      available_tools: [{ id: "web_search_mcp", label: "Web Search" }],
+      available_tools: [{ id: "web_search_mcp", label: "Web Search", group: "text" }],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "openai/test-model",
       framework_version: "0.3.0",

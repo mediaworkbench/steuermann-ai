@@ -24,7 +24,7 @@ from backend.circuit_breaker import (
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
 from backend.db import SettingsStore, WorkspaceVersionConflictError
 from backend.rate_limit import limiter
-from backend.auth import CurrentUser, resolve_current_user
+from backend.auth import ADMIN_ROLE, CurrentUser, resolve_current_user
 from backend.single_user import require_api_access
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
@@ -1123,6 +1123,22 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     return settings
 
 
+def _resolve_allowed_tools(request: Request, current_user: CurrentUser) -> Optional[List[str]]:
+    """Resolve the role's tool allowlist for server-side enforcement in the graph.
+
+    Returns ``None`` (no restriction) for administrators or when no role-tool store
+    is wired (defensive — some unit/dev setups). For other roles returns the stored
+    allowlist, or ``[]`` (block all) when the role has no row — fail-closed.
+    """
+    if current_user.role == ADMIN_ROLE:
+        return None
+    store = getattr(request.app.state, "role_tool_store", None)
+    if store is None:
+        return None
+    allowed = store.get_allowed_tools(current_user.role)
+    return allowed if allowed is not None else []
+
+
 def _clear_invalid_chat_model_preference(
     user_id: str,
     settings_store: SettingsStore,
@@ -1400,6 +1416,7 @@ async def chat(
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
+        "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": request_body.conversation_id} if request_body.conversation_id else {}),
         "attachments": [
@@ -1768,6 +1785,7 @@ async def chat_stream(
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,
+        "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": conversation_id} if conversation_id else {}),
         "turn_id": turn_id,

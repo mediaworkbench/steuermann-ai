@@ -301,7 +301,6 @@ def my_tool(input_str: str) -> str:
 tools:
   - name: my_tool
     type: langchain_function
-    enabled: true
 ```
 
 ### Pattern 2: Tool Classes with Setup
@@ -333,7 +332,6 @@ tools.append(tool_instance)
 tools:
   - name: api_tool
     type: mcp_server
-    enabled: true
     config:
       server_url: http://localhost:8002
       timeout: 30

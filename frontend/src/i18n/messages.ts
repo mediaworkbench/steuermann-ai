@@ -162,6 +162,7 @@ export type Messages = {
     language: string;
     toolSettings: string;
     loadingTools: string;
+    noToolsAvailable: string;
     ragConfiguration: string;
     ragEnabled: string;
     loadingDefaults: string;
@@ -613,6 +614,22 @@ export type Messages = {
     avgLatency: string;
     minLatency: string;
   };
+  toolGroups: {
+    text: string;
+    vision: string;
+    auxiliary: string;
+  };
+  roleTools: {
+    title: string;
+    description: string;
+    save: string;
+    saved: string;
+    saveFailed: string;
+    loadFailed: string;
+    loading: string;
+    roleUser: string;
+    roleResearcher: string;
+  };
 };
 
 export const messages: Record<Locale, Messages> = {
@@ -780,6 +797,7 @@ export const messages: Record<Locale, Messages> = {
       language: "Language",
       toolSettings: "Tool Settings",
       loadingTools: "Loading tools...",
+      noToolsAvailable: "No tools available.",
       ragConfiguration: "RAG Configuration",
       ragEnabled: "Enable Knowledge Base",
       loadingDefaults: "Loading defaults...",
@@ -1231,6 +1249,22 @@ export const messages: Record<Locale, Messages> = {
       avgLatency: "Avg Latency",
       minLatency: "Min Latency",
     },
+    toolGroups: {
+      text: "Text tools",
+      vision: "Vision tools",
+      auxiliary: "Auxiliary tools",
+    },
+    roleTools: {
+      title: "Role tool access",
+      description: "Choose which tools each role may use. Users can still turn allowed tools on or off individually. Administrators always have access to every tool.",
+      save: "Save",
+      saved: "Tool access saved",
+      saveFailed: "Failed to save tool access",
+      loadFailed: "Failed to load tool access",
+      loading: "Loading tools...",
+      roleUser: "User",
+      roleResearcher: "Researcher",
+    },
   },
   de: {
     common: {
@@ -1396,6 +1430,7 @@ export const messages: Record<Locale, Messages> = {
       language: "Sprache",
       toolSettings: "Werkzeug-Einstellungen",
       loadingTools: "Werkzeuge werden geladen...",
+      noToolsAvailable: "Keine Werkzeuge verfügbar.",
       ragConfiguration: "RAG-Konfiguration",
       ragEnabled: "Wissensdatenbank aktivieren",
       loadingDefaults: "Standardwerte werden geladen...",
@@ -1846,6 +1881,22 @@ export const messages: Record<Locale, Messages> = {
       maxLatency: "Max-Latenz",
       avgLatency: "Durchschn.-Latenz",
       minLatency: "Min-Latenz",
+    },
+    toolGroups: {
+      text: "Text-Werkzeuge",
+      vision: "Vision-Werkzeuge",
+      auxiliary: "Hilfs-Werkzeuge",
+    },
+    roleTools: {
+      title: "Werkzeugzugriff nach Rolle",
+      description: "Legen Sie fest, welche Werkzeuge jede Rolle verwenden darf. Nutzer können erlaubte Werkzeuge weiterhin einzeln ein- oder ausschalten. Administratoren haben immer Zugriff auf alle Werkzeuge.",
+      save: "Speichern",
+      saved: "Werkzeugzugriff gespeichert",
+      saveFailed: "Werkzeugzugriff konnte nicht gespeichert werden",
+      loadFailed: "Werkzeugzugriff konnte nicht geladen werden",
+      loading: "Werkzeuge werden geladen...",
+      roleUser: "Nutzer",
+      roleResearcher: "Forscher",
     },
   },
 };

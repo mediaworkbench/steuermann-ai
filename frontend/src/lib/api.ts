@@ -1,3 +1,11 @@
+export type ToolGroup = "text" | "vision" | "auxiliary";
+
+export interface ToolCatalogItem {
+  id: string;
+  label: string;
+  group: ToolGroup;
+}
+
 export interface UserSettings {
   user_id: string;
   tool_toggles: Record<string, boolean>;
@@ -8,6 +16,9 @@ export interface UserSettings {
   theme?: string;
   language: string;
   updated_at: string | null;
+  // Server-computed allowlist of tool ids for this user's role (admin ⇒ all).
+  // Read-only — never sent on save.
+  allowed_tools?: string[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
@@ -62,7 +73,7 @@ export async function fetchAvailableModels(): Promise<string[]> {
 }
 
 export interface SystemConfig {
-  available_tools: Array<{ id: string; label: string }>;
+  available_tools: ToolCatalogItem[];
   rag_defaults: { collection_name: string; top_k: number };
   default_model: string;
   framework_version: string;
@@ -142,6 +153,48 @@ export async function fetchSystemConfig(): Promise<SystemConfig | null> {
     return (await response.json()) as SystemConfig;
   } catch (error) {
     console.error("Error fetching system config:", error);
+    return null;
+  }
+}
+
+export interface RoleToolsConfig {
+  tools: ToolCatalogItem[];
+  roles: Record<string, string[]>;
+}
+
+// Admin-only: full tool catalog + each configurable role's allowed tool ids.
+export async function fetchRoleTools(): Promise<RoleToolsConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/role-tools`);
+    if (!response.ok) {
+      console.error(`Failed to fetch role tools: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RoleToolsConfig;
+  } catch (error) {
+    console.error("Error fetching role tools:", error);
+    return null;
+  }
+}
+
+// Admin-only: set the explicit allowed tool ids for a configurable role.
+export async function updateRoleTools(
+  role: string,
+  allowedTools: string[]
+): Promise<RoleToolsConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/role-tools/${encodeURIComponent(role)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowed_tools: allowedTools }),
+    });
+    if (!response.ok) {
+      console.error(`Failed to update role tools: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RoleToolsConfig;
+  } catch (error) {
+    console.error("Error updating role tools:", error);
     return null;
   }
 }

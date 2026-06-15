@@ -8,6 +8,7 @@ import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
+import { RoleToolPermissionsSection } from "@/components/product/RoleToolPermissionsSection";
 import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -338,6 +339,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
           </Button>
         </div>
       </Card>
+
+      {/* Per-role tool access (self-contained: loads + saves its own state) */}
+      <RoleToolPermissionsSection />
 
       {/* Danger Zone */}
       <Card className="md:col-span-2 !ring-destructive/30">

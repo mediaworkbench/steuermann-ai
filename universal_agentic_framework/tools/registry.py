@@ -325,14 +325,16 @@ class ToolRegistry:
         self._extra_tools_dir = Path(extra_tools_dir) if extra_tools_dir else None
 
     def discover_and_load(self) -> List[BaseTool]:
-        """Discover manifests, honor config enables, and load tools."""
+        """Discover manifests and load every tool.
+
+        Tool availability is no longer gated by a per-tool ``enabled`` flag — in
+        explicit mode only the tools listed in config are collected; in
+        auto-discover mode built-ins are added. Role/user-level availability is
+        enforced downstream at request time (see ``node_load_tools``).
+        """
 
         manifests = self._collect_manifests()
         for manifest in manifests:
-            if not self._is_enabled(manifest):
-                logger.info("Tool disabled via config", extra={"tool": manifest.name})
-                continue
-
             try:
                 tool = self._load_tool(manifest)
                 self.tools[manifest.name] = tool
@@ -544,17 +546,6 @@ class ToolRegistry:
     def _get_profile_language(self) -> str:
         """Get profile language from instance variable or default to 'en'."""
         return self.profile_language or "en"
-
-    def _is_enabled(self, manifest: ToolManifest) -> bool:
-        """Return enabled flag from config entry or manifest default (True)."""
-        manifest_default = True
-        if manifest.config and isinstance(manifest.config, dict):
-            manifest_default = manifest.config.get("enabled", True)
-        for entry in self._tools_entries():
-            if entry.get("name") == manifest.name:
-                # If user lists a tool in config, treat it as enabled unless explicitly false
-                return entry.get("enabled", True)
-        return manifest_default
 
     # ------------------------------------------------------------------
     # Helpers

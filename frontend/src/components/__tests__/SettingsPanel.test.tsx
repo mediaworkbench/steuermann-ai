@@ -50,8 +50,8 @@ describe("SettingsPanel (user controls)", () => {
 
     mockFetchSystemConfig.mockResolvedValue({
       available_tools: [
-        { id: "web_search_mcp", label: "Web Search" },
-        { id: "calculator_tool", label: "Calculator" },
+        { id: "web_search_mcp", label: "Web Search", group: "text" },
+        { id: "calculator_tool", label: "Calculator", group: "auxiliary" },
       ],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "openai/test-model",
@@ -138,6 +138,15 @@ describe("SettingsPanel (user controls)", () => {
         })
       );
     });
+  });
+
+  test("hides tools not allowed for the user's role", async () => {
+    const restricted = { ...BASE_SETTINGS, allowed_tools: ["calculator_tool"] };
+    render(<SettingsPanel settings={restricted} loading={false} onSave={jest.fn()} />);
+
+    // Allowed tool is shown; disallowed tool is filtered out entirely.
+    await screen.findByText("Calculator");
+    expect(screen.queryByText("Web Search")).not.toBeInTheDocument();
   });
 
   test("save payload includes all settings fields (read-modify-write)", async () => {

@@ -1,6 +1,6 @@
 name: "datetime_tool"
 version: "1.0.0"
-category: "utilities"
+category: "auxiliary"
 description: "Get current date/time and perform datetime operations"
 
 # Language-specific descriptions (used by semantic tool routing)

@@ -144,6 +144,8 @@ theme:
     assert body["profile"]["role_label"] == "Clinical Assistant"
     assert body["profile"]["app_name"] == "Med Console"
     assert body["available_tools"][0]["id"] == "datetime_tool"
+    # Catalog items carry a UI group resolved from the tool manifest category.
+    assert body["available_tools"][0]["group"] in {"text", "vision", "auxiliary"}
 
 
 def test_system_config_context_window_override_wins(monkeypatch, tmp_path):

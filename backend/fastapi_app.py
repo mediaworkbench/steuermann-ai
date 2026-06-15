@@ -25,6 +25,7 @@ from backend.routers.rag_search import router as rag_search_router
 from backend.db import (
     LLMCapabilityProbeStore,
     SettingsStore,
+    RoleToolPermissionStore,
     AnalyticsStore,
     ConversationStore,
     ConversationAttachmentStore,
@@ -185,6 +186,30 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _seed_default_role_tool_permissions(role_tool_store: RoleToolPermissionStore) -> None:
+    """Grant 'user' and 'researcher' the full tool catalog when unconfigured.
+
+    Idempotent: only seeds a role that has no row yet, so it never clobbers an
+    admin's saved allowlist. Failures never block startup.
+    """
+    from backend.auth import RESEARCHER_ROLE, USER_ROLE
+    from backend.routers.settings import _catalog_tool_ids
+
+    try:
+        catalog_ids = _catalog_tool_ids()
+    except Exception as exc:  # pragma: no cover - never block startup on seeding
+        logger.error("Failed to load tool catalog for role seeding: %s", exc)
+        return
+
+    for role in (USER_ROLE, RESEARCHER_ROLE):
+        try:
+            if role_tool_store.get_allowed_tools(role) is None:
+                role_tool_store.set_allowed_tools(role, catalog_ids)
+                logger.info("Seeded default tool permissions for role '%s'", role)
+        except Exception as exc:  # pragma: no cover - never block startup on seeding
+            logger.error("Failed to seed tool permissions for role '%s': %s", role, exc)
+
+
 def _build_chat_workspace_config() -> dict[str, object]:
     attachments_root = os.getenv("CHAT_ATTACHMENTS_ROOT", "/tmp/steuermann-ai/chat-workspaces")
     workspace_root = os.getenv("CHAT_WORKSPACE_ROOT", "").strip() or None
@@ -226,6 +251,13 @@ async def lifespan(app: FastAPI):
     app.state.conversation_workspace_store = ConversationWorkspaceStore(db_pool)
     app.state.workspace_document_store = WorkspaceDocumentStore(db_pool)
     app.state.user_store = UserStore(db_pool)
+    app.state.role_tool_store = RoleToolPermissionStore(db_pool)
+
+    # Seed default role→tool permissions so a fresh deployment grants 'user' and
+    # 'researcher' the full tool catalog (admins narrow from there). Only seeds when
+    # a role has no row — never overrides admin edits. A still-missing row stays
+    # fail-closed (block all) at request time.
+    _seed_default_role_tool_permissions(app.state.role_tool_store)
 
     # Seed the bootstrap administrator from env config (idempotent — no-op if it exists).
     admin_username = os.getenv("AUTH_USERNAME", "").strip()

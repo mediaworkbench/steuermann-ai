@@ -8,6 +8,7 @@ import {
   fetchSystemConfig,
   resetMyData,
   type SystemConfig,
+  type ToolCatalogItem,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
@@ -15,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
-import { OptionChecklist } from "@/components/product/OptionChecklist";
 import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
+import { GroupedToolChecklist } from "@/components/product/GroupedToolChecklist";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -38,19 +39,20 @@ const LANGUAGE_LABELS: Record<string, string> = {
   es: "Español",
 };
 
-const FALLBACK_TOOLS = [
-  { id: "web_search_mcp", label: "Web Search" },
-  { id: "extract_webpage_mcp", label: "Extract Webpage" },
-  { id: "analyze_image_tool", label: "Analyze Image" },
-  { id: "ocr_tool", label: "OCR" },
-  { id: "analyze_document_tool", label: "Analyze Document" },
-  { id: "analyze_chart_tool", label: "Analyze Chart" },
-  { id: "image_metadata_tool", label: "Image Metadata" },
-  { id: "read_barcodes_tool", label: "Read Barcodes" },
-  { id: "datetime_tool", label: "Datetime" },
-  { id: "calculator_tool", label: "Calculator" },
-  { id: "map_tool", label: "Map" },
-  { id: "file_ops_tool", label: "File Ops" },
+const FALLBACK_TOOLS: ToolCatalogItem[] = [
+  { id: "web_search_mcp", label: "Web Search", group: "text" },
+  { id: "extract_webpage_mcp", label: "Extract Webpage", group: "text" },
+  { id: "file_ops_tool", label: "File Ops", group: "text" },
+  { id: "csv_analyze_tool", label: "CSV Analyze", group: "text" },
+  { id: "analyze_image_tool", label: "Analyze Image", group: "vision" },
+  { id: "ocr_tool", label: "OCR", group: "vision" },
+  { id: "analyze_document_tool", label: "Analyze Document", group: "vision" },
+  { id: "analyze_chart_tool", label: "Analyze Chart", group: "vision" },
+  { id: "image_metadata_tool", label: "Image Metadata", group: "vision" },
+  { id: "read_barcodes_tool", label: "Read Barcodes", group: "vision" },
+  { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
+  { id: "calculator_tool", label: "Calculator", group: "auxiliary" },
+  { id: "map_tool", label: "Map", group: "auxiliary" },
 ];
 
 const USER_MODEL_ROLES = ["chat"];
@@ -265,15 +267,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {configLoading ? (
           <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</p>
         ) : (
-          <OptionChecklist
-            items={(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => ({
-              key: tool.id,
-              checked: toolToggles[tool.id] ?? true,
-              onToggle: () => handleToolToggle(tool.id),
-              label: tool.label,
-              alignment: "center" as const,
-              checkboxClassName: "w-5 h-5",
-            }))}
+          <GroupedToolChecklist
+            tools={(systemConfig?.available_tools || FALLBACK_TOOLS).filter(
+              (tool) => !settings?.allowed_tools || settings.allowed_tools.includes(tool.id)
+            )}
+            isChecked={(toolId) => toolToggles[toolId] ?? true}
+            onToggle={handleToolToggle}
           />
         )}
         </div>

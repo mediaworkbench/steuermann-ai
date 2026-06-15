@@ -14,9 +14,17 @@ import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.db import SettingsStore, LLMCapabilityProbeStore
+from backend.db import SettingsStore, LLMCapabilityProbeStore, RoleToolPermissionStore
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
-from backend.auth import CurrentUser, current_user_id, resolve_current_user
+from backend.auth import (
+    ADMIN_ROLE,
+    RESEARCHER_ROLE,
+    USER_ROLE,
+    CurrentUser,
+    current_user_id,
+    require_admin,
+    resolve_current_user,
+)
 from backend.single_user import require_api_access
 from backend.version import get_framework_version
 from universal_agentic_framework.cli.ingest import resolve_runtime_ingestion_defaults
@@ -90,6 +98,22 @@ class UserSettingsResponse(BaseModel):
     theme: str
     language: str
     updated_at: Optional[str]
+    # Server-computed allowlist of tool ids for this user's role (admin ⇒ all).
+    # Read-only: never accepted on the writable `UserSettings` input model.
+    allowed_tools: List[str] = Field(default_factory=list)
+
+
+# Roles whose tool access an admin can configure (administrators are always unrestricted).
+CONFIGURABLE_ROLES = (USER_ROLE, RESEARCHER_ROLE)
+
+
+class RoleToolsResponse(BaseModel):
+    tools: List[Dict[str, str]]  # full catalog: {id, label, group}
+    roles: Dict[str, List[str]]  # role_name -> allowed tool ids
+
+
+class RoleToolsUpdate(BaseModel):
+    allowed_tools: List[str]
 
 
 class SystemConfigResponse(BaseModel):
@@ -119,6 +143,37 @@ def _get_settings_store(request: Request) -> SettingsStore:
     if store is None:
         raise HTTPException(status_code=503, detail="Settings store unavailable")
     return store
+
+
+def _get_role_tool_store(request: Request) -> RoleToolPermissionStore:
+    store = getattr(request.app.state, "role_tool_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Role tool store unavailable")
+    return store
+
+
+def _resolve_user_allowed_tools(request: Request, current_user: CurrentUser) -> List[str]:
+    """Tool ids the user may use: admin ⇒ all; else the role allowlist (``[]`` if unconfigured).
+
+    Defensive: when no role-tool store is wired (some dev/test setups) nothing is
+    hidden — the full catalog is returned.
+    """
+    if current_user.role == ADMIN_ROLE:
+        return _catalog_tool_ids()
+    store = getattr(request.app.state, "role_tool_store", None)
+    if store is None:
+        return _catalog_tool_ids()
+    allowed = store.get_allowed_tools(current_user.role)
+    return allowed if allowed is not None else []
+
+
+def _role_tools_snapshot(store: RoleToolPermissionStore) -> Dict[str, Any]:
+    """Catalog + per-configurable-role allowlists for the admin UI."""
+    roles: Dict[str, List[str]] = {}
+    for role in CONFIGURABLE_ROLES:
+        stored = store.get_allowed_tools(role)
+        roles[role] = stored if stored is not None else []
+    return {"tools": _load_tool_catalog(), "roles": roles}
 
 
 def _get_probe_store(request: Request) -> Optional[LLMCapabilityProbeStore]:
@@ -306,6 +361,7 @@ def get_user_settings(
     """Retrieve the authenticated user's persisted settings or defaults."""
     effective_user_id = current_user.user_id
     store = _get_settings_store(request)
+    allowed_tools = _resolve_user_allowed_tools(request, current_user)
     record = store.get_user_settings(effective_user_id)
     if record is None:
         return {
@@ -318,7 +374,9 @@ def get_user_settings(
             "theme": "auto",
             "language": "en",
             "updated_at": None,
+            "allowed_tools": allowed_tools,
         }
+    record["allowed_tools"] = allowed_tools
     return record
 
 
@@ -413,8 +471,49 @@ async def update_user_settings(
     # Trigger curated reprobe if preferred_model changed
     if preferred_model and preferred_model != old_model:
         _trigger_reprobe_on_model_change(request, preferred_model)
-    
+
+    # allowed_tools is server-computed and read-only — surface the current value.
+    record["allowed_tools"] = _resolve_user_allowed_tools(request, current_user)
     return record
+
+
+@router.get("/admin/role-tools", response_model=RoleToolsResponse)
+def get_role_tools(
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin view: full tool catalog + each configurable role's allowed tool ids."""
+    return _role_tools_snapshot(_get_role_tool_store(request))
+
+
+@router.put("/admin/role-tools/{role_name}", response_model=RoleToolsResponse)
+def update_role_tools(
+    role_name: str,
+    payload: RoleToolsUpdate,
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: set the explicit tool allowlist for a configurable role.
+
+    Administrators are always unrestricted, so they cannot be configured here.
+    Submitted ids are validated against the catalog and stored in catalog order.
+    """
+    if role_name not in CONFIGURABLE_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Role '{role_name}' is not configurable. Configurable roles: {list(CONFIGURABLE_ROLES)}",
+        )
+    catalog_ids = _catalog_tool_ids()
+    catalog_set = set(catalog_ids)
+    requested = set(payload.allowed_tools)
+    unknown = sorted(requested - catalog_set)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown tool ids: {unknown}")
+    # Store deduplicated, in catalog order, always as an explicit list.
+    cleaned = [tid for tid in catalog_ids if tid in requested]
+    store = _get_role_tool_store(request)
+    store.set_allowed_tools(role_name, cleaned)
+    return _role_tools_snapshot(store)
 
 
 @router.get("/models")
@@ -435,16 +534,10 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
     try:
         profile_id = get_active_profile_id()
         core_config = load_core_config()
-        tools_config = load_tools_config()
         profile_metadata = load_profile_metadata(profile_id=profile_id)
         profile_ui = load_profile_ui_config(profile_id=profile_id)
 
-        available_tools = []
-        for tool in tools_config.tools:
-            if tool.enabled:
-                tool_name = tool.name
-                if tool_name:
-                    available_tools.append({"id": tool_name, "label": _format_tool_name(tool_name)})
+        available_tools = _load_tool_catalog()
 
         rag_cfg = core_config.rag
         collection_name = _resolve_env_placeholder(
@@ -1090,6 +1183,58 @@ def _format_tool_name(name: str) -> str:
         word.upper() if word.lower() in _ACRONYMS else word.capitalize()
         for word in pretty.split()
     )
+
+
+# The three UI tool groups (also the column order on the admin + settings pages).
+TOOL_GROUPS = ("text", "vision", "auxiliary")
+
+
+def _repo_root() -> Path:
+    """Repository root, used to resolve relative tool paths from tools.yaml."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _normalize_tool_group(category: Optional[str]) -> str:
+    """Map a manifest ``category`` to one of the three UI tool groups.
+
+    Unknown/missing categories fall back to ``auxiliary`` so a tool always lands
+    in a column rather than disappearing.
+    """
+    cat = (category or "").strip().lower()
+    return cat if cat in TOOL_GROUPS else "auxiliary"
+
+
+def _resolve_tool_manifest_category(tool_path: str) -> Optional[str]:
+    """Best-effort read of the ``category`` field from a tool's ``tool.yaml``."""
+    if not tool_path:
+        return None
+    path = Path(tool_path)
+    if not path.is_absolute():
+        path = _repo_root() / tool_path
+    category = _load_yaml_file(path / "tool.yaml").get("category")
+    return category if isinstance(category, str) else None
+
+
+def _load_tool_catalog() -> List[Dict[str, str]]:
+    """Return the full tool catalog — ``{id, label, group}`` for every configured tool.
+
+    Single source of truth for the tool list, reused by ``/system-config``, the
+    admin role-tools endpoint, ``/settings/me``, and startup seeding. ``group`` is
+    derived from each tool's manifest ``category`` (text | vision | auxiliary).
+    """
+    catalog: List[Dict[str, str]] = []
+    for tool in load_tools_config().tools:
+        tool_name = getattr(tool, "name", None)
+        if not tool_name:
+            continue
+        group = _normalize_tool_group(_resolve_tool_manifest_category(getattr(tool, "path", "") or ""))
+        catalog.append({"id": tool_name, "label": _format_tool_name(tool_name), "group": group})
+    return catalog
+
+
+def _catalog_tool_ids() -> List[str]:
+    """All tool ids in the catalog (used for admin validation + seeding/admin defaults)."""
+    return [item["id"] for item in _load_tool_catalog()]
 
 
 def _resolve_env_placeholder(value: Any, default: str) -> str:

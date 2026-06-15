@@ -10,6 +10,7 @@ interface UseComposerSettingsResult {
   handleRagToggle: () => Promise<void>;
   toolToggles: Record<string, boolean>;
   handleToolToggle: (toolId: string) => Promise<void>;
+  allowedTools: string[] | null; // role-allowed tool ids (null = not yet loaded / no restriction)
   selectedChatModel: string;
   availableChatModels: string[];
   handleModelChange: (model: string) => Promise<void>;
@@ -23,6 +24,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
+  const [allowedTools, setAllowedTools] = useState<string[] | null>(null);
   const [chatModel, setChatModel] = useState<string | null>(null);
   const [availableChatModels, setAvailableChatModels] = useState<string[]>([]);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
@@ -48,6 +50,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
       setRagConfig(cfg);
       setRagEnabled((cfg.enabled as boolean) !== false);
       if (s.tool_toggles) setToolToggles(s.tool_toggles);
+      if (s.allowed_tools) setAllowedTools(s.allowed_tools);
       const model = s.preferred_models?.chat ?? s.preferred_model ?? null;
       setChatModel(model);
       preferredModelsRef.current = s.preferred_models ?? {};
@@ -105,6 +108,7 @@ export function useComposerSettings(): UseComposerSettingsResult {
     handleRagToggle,
     toolToggles,
     handleToolToggle,
+    allowedTools,
     selectedChatModel,
     availableChatModels,
     handleModelChange,

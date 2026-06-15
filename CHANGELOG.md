@@ -28,6 +28,16 @@
   role checks and ownership as defense in depth. The proxy strips any client-supplied
   `x-authenticated-*` / `x-chat-token` headers so identity and role cannot be spoofed. With
   authentication disabled, the app runs as a single bootstrap-admin user for local development.
+* **Role-based tool access.** Administrators choose which tools each role (`user`, `researcher`) may
+  use on the Admin page; users then turn allowed tools on/off individually in Settings. The per-role
+  allowlist lives in a new `role_tool_permissions` table and is enforced **server-side** in the graph's
+  `load_tools` node (in both `/api/chat` and `/api/chat/stream`) — a user can never invoke a tool their
+  role disallows, even if the UI is bypassed. Administrators always have every tool; a role with no
+  stored allowlist is blocked from all tools (fail-closed), and a fresh deployment seeds `user` and
+  `researcher` with the full catalog. The legacy per-tool `enabled:` flag in `tools.yaml` is removed
+  (the file is now purely the loaded-tool catalog), and the unused `mcp_stub` test tool was deleted.
+  On the Admin and Settings pages tools are grouped into **Text / Vision / Auxiliary** columns, derived
+  from each tool's manifest `category`.
 
 ### [0.4.4] — Inspector: full traceability of post-response nodes
 

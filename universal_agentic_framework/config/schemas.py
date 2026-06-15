@@ -496,7 +496,6 @@ class AgentsConfig(BaseModel):
 class ToolDefinition(BaseModel):
     name: str
     path: str
-    enabled: bool = True
     model_config = ConfigDict(extra="allow")
 
 

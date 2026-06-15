@@ -27,6 +27,7 @@ interface ToolsMenuProps {
   systemConfig: SystemConfig | null;
   toolToggles: Record<string, boolean>;
   onToolToggle: (toolId: string) => void;
+  allowedTools: string[] | null; // role-allowed tool ids; null = no restriction
 }
 
 export function ToolsMenu({
@@ -36,7 +37,11 @@ export function ToolsMenu({
   systemConfig,
   toolToggles,
   onToolToggle,
+  allowedTools,
 }: ToolsMenuProps) {
+  const visibleTools = (systemConfig?.available_tools ?? FALLBACK_TOOLS).filter(
+    (tool) => !allowedTools || allowedTools.includes(tool.id)
+  );
   return (
     <div className="relative">
       <Button
@@ -54,7 +59,7 @@ export function ToolsMenu({
           <div aria-hidden="true" className="fixed inset-0 z-10" onClick={onClose} />
           <div className="absolute bottom-full left-0 z-20 mb-2 min-w-50 rounded-xl border border-border bg-surface py-2 shadow-lg">
             <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
-            {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
+            {visibleTools.map((tool) => {
               const enabled = toolToggles[tool.id] !== false;
               return (
                 <Button

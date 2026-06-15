@@ -80,6 +80,7 @@ export function ChatInterface() {
     handleRagToggle,
     toolToggles,
     handleToolToggle,
+    allowedTools,
     selectedChatModel,
     availableChatModels,
     handleModelChange,
@@ -431,6 +432,7 @@ export function ChatInterface() {
             onWorkspaceSidebarToggle={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
             toolToggles={toolToggles}
             onToolToggle={handleToolToggle}
+            allowedTools={allowedTools}
             systemConfig={systemConfig}
             selectedChatModel={selectedChatModel}
             availableChatModels={availableChatModels}

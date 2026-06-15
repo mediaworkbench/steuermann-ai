@@ -78,6 +78,7 @@ def init_db_pool() -> DatabasePool:
 def _ensure_core_tables(db_pool: DatabasePool) -> None:
     """Initialize the core schema expected by tests and runtime code."""
     _ensure_settings_table(db_pool)
+    _ensure_role_tool_permissions_table(db_pool)
     _ensure_llm_probe_table(db_pool)
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
@@ -110,6 +111,26 @@ def _ensure_settings_table(db_pool: DatabasePool) -> None:
                 "ALTER TABLE IF EXISTS user_settings "
                 "ADD COLUMN IF NOT EXISTS preferred_models JSONB NOT NULL DEFAULT '{}'::jsonb;"
             )
+        conn.commit()
+
+
+def _ensure_role_tool_permissions_table(db_pool: DatabasePool) -> None:
+    """Admin-controlled allowlist of tool ids per role.
+
+    A present row is authoritative for that role (an empty list blocks every
+    tool). A *missing* row means the role is unconfigured and is treated as
+    fail-closed (block all) by callers; `administrator` is never stored.
+    """
+    statement = """
+        CREATE TABLE IF NOT EXISTS role_tool_permissions (
+            role_name     TEXT PRIMARY KEY,
+            allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
         conn.commit()
 
 
@@ -344,6 +365,65 @@ class SettingsStore:
                 row = cur.fetchone()
             conn.commit()
         return _normalize_settings_row(row)
+
+
+class RoleToolPermissionStore:
+    """Per-role tool allowlists (admin-controlled).
+
+    ``get_allowed_tools`` returns ``None`` when a role has no row — callers
+    interpret that as fail-closed (block all). ``administrator`` is never stored
+    (admins are always unrestricted).
+    """
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_role_tool_permissions_table(self._db_pool)
+
+    @staticmethod
+    def _coerce_tool_list(value: Any) -> List[str]:
+        if isinstance(value, str):
+            value = json.loads(value)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value]
+
+    def get_allowed_tools(self, role_name: str) -> Optional[List[str]]:
+        """Return the stored allowlist for a role, or ``None`` if no row exists."""
+        statement = "SELECT allowed_tools FROM role_tool_permissions WHERE role_name = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (role_name,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._coerce_tool_list(row.get("allowed_tools"))
+
+    def get_all_role_permissions(self) -> Dict[str, Optional[List[str]]]:
+        """Return ``{role_name: allowed_tools}`` for every stored role."""
+        statement = "SELECT role_name, allowed_tools FROM role_tool_permissions;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        return {row["role_name"]: self._coerce_tool_list(row.get("allowed_tools")) for row in rows}
+
+    def set_allowed_tools(self, role_name: str, tools: List[str]) -> List[str]:
+        """Upsert the explicit allowlist for a role (stored verbatim, even when full)."""
+        normalized = [str(item) for item in (tools or [])]
+        statement = """
+            INSERT INTO role_tool_permissions (role_name, allowed_tools, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (role_name) DO UPDATE SET
+                allowed_tools = EXCLUDED.allowed_tools,
+                updated_at = NOW()
+            RETURNING allowed_tools;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (role_name, extras.Json(normalized)))
+                row = cur.fetchone()
+            conn.commit()
+        return self._coerce_tool_list(row.get("allowed_tools")) if row else normalized
 
 
 class LLMCapabilityProbeStore:

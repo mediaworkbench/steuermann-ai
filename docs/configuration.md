@@ -511,15 +511,12 @@ backstory: "" # Missing context
 tools:
   - name: "patient_database"                    # Unique tool identifier
     path: "universal_agentic_framework/tools/patient_database"  # Path relative to repository root
-    enabled: true
 
   - name: "medical_calculator"
     path: "universal_agentic_framework/tools/medical_calculator"
-    enabled: true
 
   - name: "datetime_tool"                        # Built-in framework tool
     path: "universal_agentic_framework/tools/datetime"
-    enabled: true
 ```
 
 **Tool discovery:**
@@ -527,6 +524,7 @@ tools:
 - All tools (built-in and custom) live in `universal_agentic_framework/tools/<name>/`
 - Each tool directory requires `__init__.py`, `tool.py`, and `tool.yaml`
 - All tools must be explicitly listed here to be loaded (`loading_mode: explicit`)
+- There is **no per-tool `enabled` flag** — every listed tool is loaded; remove an entry to stop it loading. Which roles/users may *use* a tool is controlled at runtime (admin per-role allowlist in the `role_tool_permissions` table + per-user `tool_toggles`), enforced server-side in `node_load_tools`. See [tools.md § Controlling Tool Access](tools.md#controlling-tool-access).
 - A `plugins/` directory for profile-specific tools is planned but does not exist yet
 
 ---
