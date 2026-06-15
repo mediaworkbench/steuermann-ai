@@ -7,6 +7,7 @@ import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { useWorkspacePanel } from "@/context/WorkspacePanelContext";
 import { Button } from "@/components/ui/button";
 import type { WorkspacePanelProps, WorkspaceTabId } from "./types";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { DocumentsTab } from "./DocumentsTab";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { MemoryTab } from "./MemoryTab";
@@ -68,17 +69,21 @@ export function WorkspacePanel({
   return (
     <>
       {/* Toggle button (visible on mobile/tablet) */}
-      <Button
-        type="button"
-        onClick={onToggle}
-        variant="primary"
-        size="sm"
-        className="fixed bottom-20 right-4 z-40 rounded-full p-3 shadow-lg transition-colors md:hidden"
-        title={t("workspace.toggleSidebar")}
-        aria-label={t("workspace.toggleSidebar")}
-      >
-        {isOpen ? <X size={24} /> : <Folder size={24} />}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger render={
+          <Button
+            type="button"
+            onClick={onToggle}
+            variant="primary"
+            size="sm"
+            className="fixed bottom-20 right-4 z-40 rounded-full p-3 shadow-lg transition-colors md:hidden"
+            aria-label={t("workspace.toggleSidebar")}
+          >
+            {isOpen ? <X size={24} /> : <Folder size={24} />}
+          </Button>
+        } />
+        <TooltipContent>{t("workspace.toggleSidebar")}</TooltipContent>
+      </Tooltip>
 
       {/* Sidebar overlay (mobile) */}
       {isOpen && (
@@ -113,29 +118,32 @@ export function WorkspacePanel({
             const showCount = active && count > 0;
             const TabIcon = iconMap[tab.icon];
             return (
-              <Button
-                type="button"
-                key={tab.id}
-                role="tab"
-                aria-selected={active}
-                aria-label={label}
-                title={label}
-                onClick={() => setActiveTab(tab.id)}
-                variant="ghost"
-                size="sm"
-                className={`group flex shrink-0 items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
-                  ${active
-                    ? "bg-primary/10 text-primary px-2.5 py-1.5"
-                    : "text-muted-foreground hover:text-foreground hover:bg-surface-muted p-1.5"}`}
-              >
-                <TabIcon size={16} />
-                {active && <span className="whitespace-nowrap">{label}</span>}
-                {showCount && (
-                  <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">
-                    {count}
-                  </span>
-                )}
-              </Button>
+              <Tooltip key={tab.id}>
+                <TooltipTrigger render={
+                  <Button
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-label={label}
+                    onClick={() => setActiveTab(tab.id)}
+                    variant="ghost"
+                    size="sm"
+                    className={`group flex shrink-0 items-center gap-1.5 rounded-lg text-xs font-medium transition-colors
+                      ${active
+                        ? "bg-primary/10 text-primary px-2.5 py-1.5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-surface-muted p-1.5"}`}
+                  >
+                    <TabIcon size={16} />
+                    {active && <span className="whitespace-nowrap">{label}</span>}
+                    {showCount && (
+                      <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">
+                        {count}
+                      </span>
+                    )}
+                  </Button>
+                } />
+                <TooltipContent>{label}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

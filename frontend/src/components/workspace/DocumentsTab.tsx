@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -254,28 +255,32 @@ export function DocumentsTab({
       >
         {/* Thumbnail (images) or file-type icon */}
         {isImage ? (
-          <button
-            type="button"
-            className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
-            onClick={() => setLightboxDoc(doc)}
-            title={t("workspace.thumbnailClickHint")}
-            aria-label={t("workspace.thumbnailClickHint")}
-          >
-            <Image
-              src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
-              alt={doc.filename}
-              fill
-              sizes="64px"
-              unoptimized
-              className="object-cover"
-            />
-            <span
-              className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
-              style={{ fontSize: "8px", lineHeight: "13px" }}
-            >
-              {formatFileSize(doc.size_bytes)}
-            </span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger render={
+              <button
+                type="button"
+                className="relative h-11 w-16 shrink-0 cursor-pointer overflow-hidden rounded bg-surface-elevated"
+                onClick={() => setLightboxDoc(doc)}
+                aria-label={t("workspace.thumbnailClickHint")}
+              >
+                <Image
+                  src={`/api/proxy/api/workspace/documents/${doc.id}/thumbnail`}
+                  alt={doc.filename}
+                  fill
+                  sizes="64px"
+                  unoptimized
+                  className="object-cover"
+                />
+                <span
+                  className="absolute bottom-0 left-0 right-0 text-center bg-foreground/55 text-background truncate px-0.5"
+                  style={{ fontSize: "8px", lineHeight: "13px" }}
+                >
+                  {formatFileSize(doc.size_bytes)}
+                </span>
+              </button>
+            } />
+            <TooltipContent>{t("workspace.thumbnailClickHint")}</TooltipContent>
+          </Tooltip>
         ) : isCsv ? (
           <Grid3x3 size={16} className="shrink-0 text-muted-foreground" data-testid="csv-icon" />
         ) : (

@@ -3,6 +3,7 @@
 import { useI18n } from "@/hooks/useI18n";
 import { AlertCircle, ArrowRight, CheckCircle } from "lucide-react";
 import { iconMap } from "@/lib/iconMap";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { WorkspaceTabState } from "./WorkspaceTabState";
 import { WorkspaceInlineBadge } from "./WorkspaceInlineBadge";
 import { WorkspaceSectionLabel } from "./WorkspaceSectionLabel";
@@ -210,14 +211,18 @@ function NodeRow({
   return (
     <li className="rounded-lg border border-border bg-surface-muted px-2.5 py-1.5">
       {linkToOutputs ? (
-        <button
-          type="button"
-          onClick={onOpenOutputs}
-          title={t("workspace.viewToolResults")}
-          className="group/row flex w-full items-center gap-2 text-left"
-        >
-          {rowContent}
-        </button>
+        <Tooltip>
+          <TooltipTrigger render={
+            <button
+              type="button"
+              onClick={onOpenOutputs}
+              className="group/row flex w-full items-center gap-2 text-left"
+            >
+              {rowContent}
+            </button>
+          } />
+          <TooltipContent>{t("workspace.viewToolResults")}</TooltipContent>
+        </Tooltip>
       ) : (
         <div className="flex items-center gap-2">{rowContent}</div>
       )}

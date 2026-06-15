@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Check, Copy, Pencil } from "lucide-react";
 import { ChatMessageShell } from "@/components/product/ChatMessageShell";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 import type { Message } from "@/lib/types";
@@ -119,37 +120,53 @@ export function UserMessage({ message, index, onEdit, loading }: UserMessageProp
 
             {/* User message action bar */}
             <div className="flex items-center gap-0.5 mr-1 mt-0.5">
-              <Button
-                onClick={handleCopy}
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={`p-1 rounded transition-colors cursor-pointer ${
-                  copied
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-primary hover:bg-primary/10"
-                }`}
-                aria-label={t("chat.copyMessage")}
-                title={t("chat.copyMessage")}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  setEditValue(message.content);
-                  setEditing(true);
-                }}
-                disabled={loading}
-                variant="ghost"
-                size="sm"
-                className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10
-                           transition-colors disabled:opacity-40 cursor-pointer"
-                aria-label="Edit message"
-                title={t("workspace.edit")}
-              >
-                <Pencil size={14} />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      onClick={handleCopy}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1 rounded transition-colors cursor-pointer ${
+                        copied
+                          ? "text-primary"
+                          : "text-muted-foreground hover:text-primary hover:bg-primary/10"
+                      }`}
+                      aria-label={t("chat.copyMessage")}
+                    >
+                      {copied ? <Check size={14} /> : <Copy size={14} />}
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {t("chat.copyMessage")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setEditValue(message.content);
+                        setEditing(true);
+                      }}
+                      disabled={loading}
+                      variant="ghost"
+                      size="sm"
+                      className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10
+                                 transition-colors disabled:opacity-40 cursor-pointer"
+                      aria-label="Edit message"
+                    >
+                      <Pencil size={14} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {t("workspace.edit")}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </>
         )}

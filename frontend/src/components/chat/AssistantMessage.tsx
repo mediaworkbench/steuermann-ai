@@ -9,6 +9,7 @@ import { ReasoningBox } from "@/components/ReasoningBox";
 import { EvidenceChips } from "@/components/workspace/EvidenceChips";
 import { ChatMessageShell } from "@/components/product/ChatMessageShell";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useI18n } from "@/hooks/useI18n";
 import type { Message } from "@/lib/types";
 import type { WorkspaceTabId } from "@/components/workspace/types";
@@ -89,40 +90,56 @@ export function AssistantMessage({
 
           {/* Feedback buttons */}
           <div className="flex items-center gap-1 ml-1">
-            <Button
-              type="button"
-              onClick={() => onFeedback(index, "up")}
-              disabled={loading}
-              variant="ghost"
-              size="sm"
-              className={`p-1 rounded transition-colors cursor-pointer
-                ${
-                  message.feedback === "up"
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                } disabled:opacity-40`}
-              aria-label="Thumbs up"
-              title={t("chat.feedbackSaved")}
-            >
-              <ThumbsUp size={15} />
-            </Button>
-            <Button
-              type="button"
-              onClick={() => onFeedback(index, "down")}
-              disabled={loading}
-              variant="ghost"
-              size="sm"
-              className={`p-1 rounded transition-colors cursor-pointer
-                ${
-                  message.feedback === "down"
-                    ? "bg-destructive/10 text-destructive"
-                    : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                } disabled:opacity-40`}
-              aria-label="Thumbs down"
-              title="Poor response"
-            >
-              <ThumbsDown size={15} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    onClick={() => onFeedback(index, "up")}
+                    disabled={loading}
+                    variant="ghost"
+                    size="sm"
+                    className={`p-1 rounded transition-colors cursor-pointer
+                      ${
+                        message.feedback === "up"
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                      } disabled:opacity-40`}
+                    aria-label="Thumbs up"
+                  >
+                    <ThumbsUp size={15} />
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                {t("chat.feedbackSaved")}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    onClick={() => onFeedback(index, "down")}
+                    disabled={loading}
+                    variant="ghost"
+                    size="sm"
+                    className={`p-1 rounded transition-colors cursor-pointer
+                      ${
+                        message.feedback === "down"
+                          ? "bg-destructive/10 text-destructive"
+                          : "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      } disabled:opacity-40`}
+                    aria-label="Thumbs down"
+                  >
+                    <ThumbsDown size={15} />
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                Poor response
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
     </ChatMessageShell>

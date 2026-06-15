@@ -8,6 +8,7 @@ import rehypeKatex from "rehype-katex";
 import { Highlight, themes } from "prism-react-renderer";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/useTheme";
 import { linkFootnotes, normalizeMath } from "@/lib/markdown";
 import type { Source } from "@/lib/types";
@@ -32,21 +33,25 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
     <div className="my-2 overflow-hidden rounded-lg border border-border">
       <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3 py-1">
         <span className="select-none font-mono text-xs text-muted-foreground">{language}</span>
-        <Button
-          type="button"
-          onClick={handleCopy}
-          variant="ghost"
-          size="sm"
-          className={`p-1 rounded transition-colors cursor-pointer ${
-            copied
-              ? "text-primary"
-              : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
-          }`}
-          aria-label="Copy code"
-          title="Copy code"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger render={
+            <Button
+              type="button"
+              onClick={handleCopy}
+              variant="ghost"
+              size="sm"
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                copied
+                  ? "text-primary"
+                  : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+              }`}
+              aria-label="Copy code"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </Button>
+          } />
+          <TooltipContent>Copy code</TooltipContent>
+        </Tooltip>
       </div>
       <Highlight code={code} language={language} theme={theme}>
         {({ className, style, tokens, getLineProps, getTokenProps }) => (

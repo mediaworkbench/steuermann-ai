@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Download, LogOut, Pin } from "lucide-react";
 import { ExportDialog } from "./ExportDialog";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AUTH_ENABLED } from "@/lib/runtime";
 import type { Conversation } from "@/lib/types";
@@ -84,35 +85,51 @@ export function Header({ chatTitle = "AI Agent", activeConversation }: HeaderPro
       <div className="flex items-center gap-3">
         {/* Export button — only when a conversation is active */}
         {activeConversation && (
-          <Button
-            type="button"
-            onClick={() => setShowExport(true)}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-foreground hover:text-primary text-sm group min-h-11 min-w-11 justify-center"
-            title={t("header.exportConversation")}
-          >
-            <Download
-              size={18}
-              className="group-hover:scale-110 transition-transform"
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  onClick={() => setShowExport(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-foreground hover:text-primary text-sm group min-h-11 min-w-11 justify-center"
+                >
+                  <Download
+                    size={18}
+                    className="group-hover:scale-110 transition-transform"
+                  />
+                  <span className="hidden lg:inline">{t("header.exportChat")}</span>
+                </Button>
+              }
             />
-            <span className="hidden lg:inline">{t("header.exportChat")}</span>
-          </Button>
+            <TooltipContent>
+              {t("header.exportConversation")}
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {AUTH_ENABLED && (
-          <Button
-            type="button"
-            onClick={handleLogout}
-            disabled={loggingOut}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-foreground hover:text-destructive text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
-            title={t("header.signOut")}
-          >
-            <LogOut size={18} />
-            <span className="hidden sm:inline">{loggingOut ? t("header.signingOut") : t("header.signOut")}</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-foreground hover:text-destructive text-sm font-medium min-h-11 min-w-11 justify-center md:justify-start disabled:opacity-50"
+                >
+                  <LogOut size={18} />
+                  <span className="hidden sm:inline">{loggingOut ? t("header.signingOut") : t("header.signOut")}</span>
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {t("header.signOut")}
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
 

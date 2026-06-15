@@ -6,6 +6,7 @@ import { AttachMenu } from "./AttachMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContextWindowMenu } from "./ContextWindowMenu";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatModelName } from "@/components/product/modelSelection";
@@ -146,28 +147,44 @@ export function ChatComposer({
                 key={attachment.id}
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-muted px-3 py-1.5 text-xs text-foreground transition-colors"
               >
-                <Button
-                  type="button"
-                  onClick={() => onAttachmentPillClick(attachment)}
-                  variant="ghost"
-                  size="sm"
-                  className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
-                  title={t("chat.insertReference")}
-                >
-                  <FileText size={14} className="text-primary" />
-                  <span className="font-medium">{attachment.original_name}</span>
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => onAttachmentDelete(attachment.id)}
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
-                  aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
-                  title={t("chat.deleteAttachment")}
-                >
-                  <X size={14} className="text-muted-foreground" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        onClick={() => onAttachmentPillClick(attachment)}
+                        variant="ghost"
+                        size="sm"
+                        className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
+                      >
+                        <FileText size={14} className="text-primary" />
+                        <span className="font-medium">{attachment.original_name}</span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>
+                    {t("chat.insertReference")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        onClick={() => onAttachmentDelete(attachment.id)}
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
+                        aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
+                      >
+                        <X size={14} className="text-muted-foreground" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>
+                    {t("chat.deleteAttachment")}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             ))}
             {uploadingAttachment && (
@@ -223,39 +240,55 @@ export function ChatComposer({
               />
 
               {/* RAG toggle */}
-              <Button
-                type="button"
-                onClick={onRagToggle}
-                disabled={isStreaming}
-                title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
-                variant="ghost"
-                size="sm"
-                className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
-                  ragEnabled
-                    ? "text-primary hover:bg-primary/10"
-                    : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                }`}
-              >
-                <Database size={20} />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onRagToggle}
+                      disabled={isStreaming}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                        ragEnabled
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Database size={20} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                </TooltipContent>
+              </Tooltip>
 
               {/* Workspace panel toggle */}
-              <Button
-                type="button"
-                onClick={onWorkspaceSidebarToggle}
-                title={t("chat.toggleWorkspaceSidebar")}
-                aria-label={t("chat.toggleWorkspaceSidebar")}
-                aria-pressed={workspaceSidebarOpen}
-                variant="ghost"
-                size="sm"
-                className={`p-1.5 rounded-lg transition-colors ${
-                  workspaceSidebarOpen
-                    ? "text-primary hover:bg-primary/10"
-                    : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                }`}
-              >
-                {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onWorkspaceSidebarToggle}
+                      aria-label={t("chat.toggleWorkspaceSidebar")}
+                      aria-pressed={workspaceSidebarOpen}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        workspaceSidebarOpen
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {t("chat.toggleWorkspaceSidebar")}
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Spacer */}
@@ -321,17 +354,25 @@ export function ChatComposer({
                     <StopCircle size={20} />
                   </Button>
                   {input.trim() && (
-                    <Button
-                      type="button"
-                      onClick={onSend}
-                      aria-label={t("chat.queueMessage")}
-                      title={t("chat.queueMessage")}
-                      variant="primary"
-                      size="sm"
-                      className="h-8 w-8 rounded-lg p-0"
-                    >
-                      <ArrowUp size={20} />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            onClick={onSend}
+                            aria-label={t("chat.queueMessage")}
+                            variant="primary"
+                            size="sm"
+                            className="h-8 w-8 rounded-lg p-0"
+                          >
+                            <ArrowUp size={20} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        {t("chat.queueMessage")}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </>
               ) : (

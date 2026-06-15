@@ -1,5 +1,7 @@
 "use client";
 
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+
 interface ContextRingIndicatorProps {
   contextTokens: number;
   maxContextTokens: number | null | undefined;
@@ -22,17 +24,22 @@ export function ContextRingIndicator({ contextTokens, maxContextTokens }: Contex
   if (!maxContextTokens) {
     const tooltip = `Context: ${contextTokens.toLocaleString()} tokens (window size unknown)`;
     return (
-      <div className="flex items-center gap-1 text-muted-foreground" title={tooltip} aria-label={tooltip}>
-        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
-          <circle
-            cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
-            fill="none" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.25"
-          />
-        </svg>
-        <span className="text-[10px] font-medium tabular-nums leading-none select-none">
-          {formatCompact(contextTokens)}
-        </span>
-      </div>
+      <Tooltip>
+        <TooltipTrigger>
+          <div className="flex items-center gap-1 text-muted-foreground" aria-label={tooltip}>
+            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+              <circle
+                cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
+                fill="none" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.25"
+              />
+            </svg>
+            <span className="text-[10px] font-medium tabular-nums leading-none select-none">
+              {formatCompact(contextTokens)}
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
     );
   }
 
@@ -52,23 +59,28 @@ export function ContextRingIndicator({ contextTokens, maxContextTokens }: Contex
       : `Context window: ${displayPct}% used (${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens)`;
 
   return (
-    <div className={`flex items-center gap-1 ${colorClass}`} title={tooltip} aria-label={tooltip}>
-      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
-        <circle
-          cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
-          fill="none" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.15"
-        />
-        <circle
-          cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
-          fill="none" stroke="currentColor" strokeWidth="2.5"
-          strokeDasharray={`${filled} ${CIRCUMFERENCE - filled}`}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-        />
-      </svg>
-      <span className="text-[10px] font-medium tabular-nums leading-none select-none">
-        {displayPct}%
-      </span>
-    </div>
+    <Tooltip>
+      <TooltipTrigger>
+        <div className={`flex items-center gap-1 ${colorClass}`} aria-label={tooltip}>
+          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+            <circle
+              cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
+              fill="none" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.15"
+            />
+            <circle
+              cx={SIZE / 2} cy={SIZE / 2} r={RADIUS}
+              fill="none" stroke="currentColor" strokeWidth="2.5"
+              strokeDasharray={`${filled} ${CIRCUMFERENCE - filled}`}
+              strokeLinecap="round"
+              transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+            />
+          </svg>
+          <span className="text-[10px] font-medium tabular-nums leading-none select-none">
+            {displayPct}%
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }

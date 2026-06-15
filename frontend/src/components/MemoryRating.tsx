@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { rateMemory } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Star } from "lucide-react";
 
 interface MemoryRatingProps {
@@ -71,26 +72,29 @@ export function MemoryRating({
           ? getRateLabel(star)
           : `Rate ${star} star${star === 1 ? "" : "s"}`;
         return (
-          <Button
-            key={star}
-            type="button"
-            onClick={() => handleRate(star)}
-            onMouseEnter={() => setHover(star)}
-            onMouseLeave={() => setHover(0)}
-            disabled={saving}
-            variant="ghost"
-            size="sm"
-            aria-label={label}
-            title={label}
-            className={[
-              "cursor-pointer rounded p-0.5 transition-colors",
-              isFilled ? "text-warning" : "text-muted-foreground",
-              "hover:text-warning",
-              "disabled:cursor-not-allowed disabled:opacity-60",
-            ].join(" ")}
-          >
-            <Star size={compact ? 13 : 15} className={isFilled ? "text-warning" : "text-muted-foreground"} />
-          </Button>
+          <Tooltip key={star}>
+            <TooltipTrigger render={
+              <Button
+                type="button"
+                onClick={() => handleRate(star)}
+                onMouseEnter={() => setHover(star)}
+                onMouseLeave={() => setHover(0)}
+                disabled={saving}
+                variant="ghost"
+                size="sm"
+                aria-label={label}
+                className={[
+                  "cursor-pointer rounded p-0.5 transition-colors",
+                  isFilled ? "text-warning" : "text-muted-foreground",
+                  "hover:text-warning",
+                  "disabled:cursor-not-allowed disabled:opacity-60",
+                ].join(" ")}
+              >
+                <Star size={compact ? 13 : 15} className={isFilled ? "text-warning" : "text-muted-foreground"} />
+              </Button>
+            } />
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
         );
       })}
       {showStatus && (
