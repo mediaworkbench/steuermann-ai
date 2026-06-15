@@ -292,9 +292,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   }
                 />
                 <DropdownMenuContent
-                  side="right"
+                  side="top"
                   align="end"
-                  sideOffset={8}
+                  sideOffset={4}
                   className="w-48"
                 >
                   <DropdownMenuItem onClick={memoryLink}>
