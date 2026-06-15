@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import type { UserRole } from "@/lib/auth/session";
+import { hardNavigate } from "@/lib/navigation";
 
 const VALID_ROLES: readonly UserRole[] = ["user", "researcher", "administrator"];
 
@@ -52,9 +53,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/session")
-      .then((res) => res.json())
-      .then((data: { user?: Partial<CurrentUser> | null }) => {
+
+    // `initial` gates the redirect-on-logout: on first load an unauthenticated result is
+    // expected (the middleware sends those to /login), but a *later* refetch that comes back
+    // empty means the session was revoked (suspended/deleted) → log the user out.
+    async function refresh(initial: boolean) {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        const data = (await res.json()) as {
+          enabled?: boolean;
+          user?: Partial<CurrentUser> | null;
+        };
         if (cancelled) return;
         const u = data?.user;
         if (u && u.userId) {
@@ -66,16 +75,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             role: normalizeRole(u.role),
             mustChangePassword: Boolean(u.mustChangePassword),
           });
+        } else if (!initial && data?.enabled) {
+          // Session was revoked mid-use — the route cleared the cookie; bounce to login.
+          hardNavigate("/login");
         }
-      })
-      .catch(() => {
-        /* leave EMPTY; middleware redirects unauthenticated page loads to /login */
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      } catch {
+        /* leave state as-is; middleware handles unauthenticated page loads */
+      } finally {
+        if (!cancelled && initial) setLoading(false);
+      }
+    }
+
+    refresh(true);
+
+    // Re-validate when the tab regains focus so role changes / revocations propagate
+    // without a full reload.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

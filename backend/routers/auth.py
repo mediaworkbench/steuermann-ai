@@ -41,6 +41,14 @@ class LoginResponse(BaseModel):
     must_change_password: bool
 
 
+class MeResponse(BaseModel):
+    user_id: str
+    username: str
+    email: str
+    role: str
+    must_change_password: bool
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=1024)
     new_password: str = Field(..., min_length=1, max_length=1024)
@@ -86,6 +94,25 @@ def login(body: LoginRequest, request: Request) -> LoginResponse:
         email=record.get("email") or "",
         role=role,
         must_change_password=bool(record.get("must_change_password", False)),
+    )
+
+
+@router.get("/me", response_model=MeResponse)
+def me(request: Request, current_user: CurrentUser = Depends(resolve_current_user)) -> MeResponse:
+    """Return the caller's authoritative identity (DB-fresh role/status via re-validation).
+
+    ``resolve_current_user`` already rejects deleted (401) / suspended (403) accounts and
+    resolves the current DB role, so the frontend can trust this over the JWT's stale
+    claims. (The `/api/auth/*` exemption means a forced-change user can still call this.)
+    """
+    store = getattr(request.app.state, "user_store", None)
+    record = store.get_user_by_id(current_user.user_id) if store is not None else None
+    return MeResponse(
+        user_id=current_user.user_id,
+        username=current_user.username,
+        email=(record or {}).get("email") or "",
+        role=current_user.role,
+        must_change_password=bool((record or {}).get("must_change_password", False)),
     )
 
 

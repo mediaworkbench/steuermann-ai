@@ -60,7 +60,9 @@ describe("useRole via SessionProvider", () => {
   test("calls the session endpoint", async () => {
     mockSession({ userId: "u", username: "u", role: "user" });
     renderHook(() => useRole(), { wrapper });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/auth/session"));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/auth/session", expect.anything())
+    );
   });
 });
 

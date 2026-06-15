@@ -117,6 +117,40 @@ class TestLogin:
         assert resp.status_code == 403
 
 
+class TestMe:
+    """GET /api/auth/me returns the DB-fresh identity (re-validated, role-authoritative)."""
+
+    def _hdr(self, uid="u-1", role="administrator", username="alice"):
+        return {
+            "x-authenticated-user-id": uid,
+            "x-authenticated-username": username,
+            "x-authenticated-role": role,
+        }
+
+    def test_me_returns_db_fresh_role(self, monkeypatch):
+        rec = _user_record(user_id="u-1", username="alice", email="a@x.com", role_name="user")
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        # Header still claims administrator, but the DB demoted them to user.
+        resp = client.get("/api/auth/me", headers=self._hdr(role="administrator"))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["role"] == "user"
+        assert body["email"] == "a@x.com"
+        assert body["user_id"] == "u-1"
+
+    def test_me_rejects_suspended_403(self, monkeypatch):
+        rec = _user_record(user_id="u-1", role_name="user", status="suspended")
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/auth/me", headers=self._hdr()).status_code == 403
+
+    def test_me_rejects_deleted_401(self, monkeypatch):
+        store = FakeUserStore()  # u-1 absent
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        assert client.get("/api/auth/me", headers=self._hdr()).status_code == 401
+
+
 class TestChangePassword:
     def test_change_password_success_dev_bypass(self, monkeypatch):
         rec = _user_record(password_hash=hash_password("old-password"))
