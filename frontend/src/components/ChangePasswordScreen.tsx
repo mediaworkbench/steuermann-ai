@@ -2,7 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { hardNavigate } from "@/lib/navigation";
 
 const MIN_LENGTH = 8;
@@ -45,8 +47,6 @@ export function ChangePasswordScreen() {
         return;
       }
 
-      // Hard navigation so the re-minted session cookie (must_change_password cleared) is
-      // picked up fresh by the middleware and the app loads.
       hardNavigate("/");
     } finally {
       setSubmitting(false);
@@ -54,82 +54,79 @@ export function ChangePasswordScreen() {
   }
 
   return (
-    <div
-      className="fixed inset-0 w-screen h-screen overflow-auto text-foreground"
-      style={{ background: "var(--login-main-bg)" }}
-    >
-      <div className="min-h-full w-full flex items-center justify-center px-6 py-10">
-        <section
-          className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/88 p-8 backdrop-blur-xl lg:p-10"
-          style={{ boxShadow: "var(--login-panel-shadow)" }}
-        >
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">Security</p>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight">Set a new password</h1>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Your account uses a temporary password. Choose a new password to continue.
-          </p>
-
-          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-            <label className="block" htmlFor="current-password">
-              <span className="mb-2 block text-sm font-semibold text-foreground/80">
-                Current (temporary) password
-              </span>
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-              />
-            </label>
-
-            <label className="block" htmlFor="new-password">
-              <span className="mb-2 block text-sm font-semibold text-foreground/80">New password</span>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                required
-              />
-            </label>
-
-            <label className="block" htmlFor="confirm-password">
-              <span className="mb-2 block text-sm font-semibold text-foreground/80">
-                Confirm new password
-              </span>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-              />
-            </label>
-
-            {error && (
-              <div
-                role="alert"
-                className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-              >
-                {error}
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              disabled={submitting}
-              variant="primary"
-              size="lg"
-              className="w-full rounded-full"
-            >
-              {submitting ? "Saving…" : "Change password"}
-            </Button>
-          </form>
-        </section>
+    <div className="flex min-h-svh w-full flex-col items-center justify-center bg-muted p-6 md:p-10">
+      <div className="w-full max-w-sm md:max-w-md">
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">Set a new password</CardTitle>
+              <CardDescription>
+                Your account uses a temporary password. Choose a new password to continue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit}>
+                <div className="flex flex-col gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="current-password">
+                      Current (temporary) password
+                    </Label>
+                    <Input
+                      id="current-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="new-password">New password</Label>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="confirm-password">
+                      Confirm new password
+                    </Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      required
+                    />
+                  </div>
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                    >
+                      {error}
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-foreground text-background hover:bg-foreground/90"
+                  >
+                    {submitting ? "Saving\u2026" : "Change password"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+          <div className="text-balance text-center text-xs text-muted-foreground">
+            Passwords must be at least {MIN_LENGTH} characters long.
+          </div>
+        </div>
       </div>
     </div>
   );

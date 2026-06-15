@@ -2,8 +2,11 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { ShipWheel } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useProfile } from "@/hooks/useProfile";
 import { useI18n } from "@/hooks/useI18n";
 import { AUTH_ENABLED } from "@/lib/runtime";
@@ -39,8 +42,6 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
         return;
       }
 
-      // Hard navigation so the server middleware re-runs with the new session cookie:
-      // users with a temporary password are redirected to /change-password before the app.
       hardNavigate(nextPath);
     } finally {
       setSubmitting(false);
@@ -49,75 +50,101 @@ export function LoginScreen({ nextPath }: LoginScreenProps) {
 
   if (!AUTH_ENABLED) {
     return (
-      <div className="min-h-screen text-foreground flex items-center justify-center px-6 py-12" style={{ background: "var(--login-dev-bg)" }}>
-        <div className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/85 backdrop-blur-xl p-8" style={{ boxShadow: "var(--login-card-shadow)" }}>
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.developmentMode")}</p>
-          <h1 className="mt-4 text-4xl font-bold tracking-tight">{t("login.authDisabled")}</h1>
-          <p className="mt-4 text-muted-foreground leading-7">
-            {t("login.authDisabledDescription")}
-          </p>
-          <Button asChild variant="primary" size="lg" className="mt-8 rounded-full">
-            <Link href="/" prefetch={false}>
-            {t("login.enterApplication", { app: profile.appName || t("login.applicationFallback") })}
-            </Link>
-          </Button>
+      <div className="flex min-h-svh w-full flex-col items-center justify-center bg-muted p-6 md:p-10">
+        <div className="w-full max-w-sm md:max-w-xl">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xs font-mono uppercase tracking-widest text-primary/80">
+                {t("login.developmentMode")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <h1 className="text-2xl font-bold tracking-tight">{t("login.authDisabled")}</h1>
+              <p className="text-sm text-muted-foreground leading-6">
+                {t("login.authDisabledDescription")}
+              </p>
+              <Button asChild variant="default" className="w-full">
+                <Link href="/" prefetch={false}>
+                  {t("login.enterApplication", { app: profile.appName || t("login.applicationFallback") })}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-auto text-foreground" style={{ background: "var(--login-main-bg)" }}>
-      <div className="min-h-full w-full flex items-center justify-center px-6 py-10">
-        <section className="w-full max-w-xl rounded-4xl border border-border/60 bg-surface/88 p-8 backdrop-blur-xl lg:p-10" style={{ boxShadow: "var(--login-panel-shadow)" }}>
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-primary/80">{t("login.login")}</p>
-          <h2 className="mt-4 text-3xl font-bold tracking-tight">{t("login.welcomeTo", { app: profile.appName || t("login.platformFallback") })}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {t("login.signInAsRole", { role: profile.roleLabel.toLowerCase() })}
-          </p>
-
-          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-foreground/80">{t("login.username")}</span>
-              <Input
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder={t("login.enterUsername")}
-                required
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-foreground/80">{t("login.password")}</span>
-              <Input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder={t("login.enterPassword")}
-                required
-              />
-            </label>
-
-            {error && (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
+    <div className="flex min-h-svh w-full flex-col items-center justify-center bg-muted p-6 md:p-10">
+      <div className="w-full max-w-sm md:max-w-md">
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mb-2 flex justify-center">
+                <ShipWheel className="size-8 text-foreground" />
               </div>
-            )}
-
-            <Button
-              type="submit"
-              disabled={submitting}
-              variant="primary"
-              size="lg"
-              className="w-full rounded-full"
-            >
-              {submitting ? t("login.signingIn") : t("login.signIn")}
-            </Button>
-          </form>
-        </section>
+              <CardTitle className="text-xl">
+                {t("login.welcomeTo", { app: profile.appName || t("login.platformFallback") })}
+              </CardTitle>
+              <CardDescription>
+                {t("login.signInAsRole")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit}>
+                <div className="flex flex-col gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="username">{t("login.username")}</Label>
+                    <Input
+                      id="username"
+                      type="text"
+                      autoComplete="username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder={t("login.enterUsername")}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">{t("login.password")}</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={t("login.enterPassword")}
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Forgot your password? Contact your Administrator.
+                    </p>
+                  </div>
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                    >
+                      {error}
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-foreground text-background hover:bg-foreground/90"
+                  >
+                    {submitting ? t("login.signingIn") : t("login.signIn")}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+          <div className="px-6 text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 [&_a]:hover:text-primary">
+            By clicking continue, you agree to our{" "}
+            <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.
+          </div>
+        </div>
       </div>
     </div>
   );
