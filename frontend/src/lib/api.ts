@@ -1,4 +1,10 @@
-import { CURRENT_USER_ID } from "@/lib/runtime";
+export type ToolGroup = "text" | "vision" | "auxiliary";
+
+export interface ToolCatalogItem {
+  id: string;
+  label: string;
+  group: ToolGroup;
+}
 
 export interface UserSettings {
   user_id: string;
@@ -10,13 +16,16 @@ export interface UserSettings {
   theme?: string;
   language: string;
   updated_at: string | null;
+  // Server-computed allowlist of tool ids for this user's role (admin ⇒ all).
+  // Read-only — never sent on save.
+  allowed_tools?: string[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
 
-export async function fetchUserSettings(userId: string): Promise<UserSettings | null> {
+export async function fetchUserSettings(): Promise<UserSettings | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/settings/user/${userId}`);
+    const response = await fetch(`${API_BASE}/api/settings/me`);
     if (!response.ok) {
       console.error(`Failed to fetch settings: ${response.status}`);
       return null;
@@ -29,11 +38,10 @@ export async function fetchUserSettings(userId: string): Promise<UserSettings | 
 }
 
 export async function updateUserSettings(
-  userId: string,
   settings: Partial<Omit<UserSettings, "user_id" | "updated_at">>
 ): Promise<UserSettings | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/settings/user/${userId}`, {
+    const response = await fetch(`${API_BASE}/api/settings/me`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
@@ -65,7 +73,7 @@ export async function fetchAvailableModels(): Promise<string[]> {
 }
 
 export interface SystemConfig {
-  available_tools: Array<{ id: string; label: string }>;
+  available_tools: ToolCatalogItem[];
   rag_defaults: { collection_name: string; top_k: number };
   default_model: string;
   framework_version: string;
@@ -145,6 +153,48 @@ export async function fetchSystemConfig(): Promise<SystemConfig | null> {
     return (await response.json()) as SystemConfig;
   } catch (error) {
     console.error("Error fetching system config:", error);
+    return null;
+  }
+}
+
+export interface RoleToolsConfig {
+  tools: ToolCatalogItem[];
+  roles: Record<string, string[]>;
+}
+
+// Admin-only: full tool catalog + each configurable role's allowed tool ids.
+export async function fetchRoleTools(): Promise<RoleToolsConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/role-tools`);
+    if (!response.ok) {
+      console.error(`Failed to fetch role tools: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RoleToolsConfig;
+  } catch (error) {
+    console.error("Error fetching role tools:", error);
+    return null;
+  }
+}
+
+// Admin-only: set the explicit allowed tool ids for a configurable role.
+export async function updateRoleTools(
+  role: string,
+  allowedTools: string[]
+): Promise<RoleToolsConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/role-tools/${encodeURIComponent(role)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowed_tools: allowedTools }),
+    });
+    if (!response.ok) {
+      console.error(`Failed to update role tools: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as RoleToolsConfig;
+  } catch (error) {
+    console.error("Error updating role tools:", error);
     return null;
   }
 }
@@ -468,7 +518,6 @@ import type {
 } from "@/lib/types";
 
 export async function createConversation(
-  userId: string = CURRENT_USER_ID,
   title: string = "New conversation",
   language: string = "en",
 ): Promise<Conversation | null> {
@@ -476,7 +525,7 @@ export async function createConversation(
     const response = await fetch(`${API_BASE}/api/conversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, title, language }),
+      body: JSON.stringify({ title, language }),
     });
     if (!response.ok) {
       console.error(`Failed to create conversation: ${response.status}`);
@@ -490,14 +539,12 @@ export async function createConversation(
 }
 
 export async function fetchConversations(
-  userId: string = CURRENT_USER_ID,
   limit: number = 50,
   offset: number = 0,
   q?: string,
 ): Promise<ConversationListResponse | null> {
   try {
     const params = new URLSearchParams({
-      user_id: userId,
       limit: String(limit),
       offset: String(offset),
     });
@@ -600,13 +647,11 @@ export async function rateMemory(memoryId: string, rating: number): Promise<bool
 }
 
 export async function fetchMemories(
-  userId: string = CURRENT_USER_ID,
   limit: number = 50,
   offset: number = 0,
 ): Promise<import("@/lib/types").MemoryListResponse | null> {
   try {
     const params = new URLSearchParams({
-      user_id: userId,
       limit: String(limit),
       offset: String(offset),
     });
@@ -622,11 +667,9 @@ export async function fetchMemories(
   }
 }
 
-export async function fetchMemoryStats(
-  userId: string = CURRENT_USER_ID,
-): Promise<import("@/lib/types").MemoryStats | null> {
+export async function fetchMemoryStats(): Promise<import("@/lib/types").MemoryStats | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/memories/stats?user_id=${encodeURIComponent(userId)}`);
+    const response = await fetch(`${API_BASE}/api/memories/stats`);
     if (!response.ok) {
       console.error(`Failed to fetch memory stats: ${response.status}`);
       return null;
@@ -685,12 +728,10 @@ export async function fetchConversationAttachments(
 export async function uploadConversationAttachment(
   conversationId: string,
   file: File,
-  userId: string = CURRENT_USER_ID,
 ): Promise<ConversationAttachment | null> {
   try {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("user_id", userId);
 
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/attachments`, {
       method: "POST",
@@ -769,7 +810,6 @@ export async function runWorkspaceAction(
   conversationId: string,
   message: string,
   workspaceAction: WorkspaceActionRequest,
-  userId: string = CURRENT_USER_ID,
   language: string = "en",
 ): Promise<ChatResponse | null> {
   try {
@@ -778,7 +818,6 @@ export async function runWorkspaceAction(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        user_id: userId,
         language,
         conversation_id: conversationId,
         workspace_action: workspaceAction,
@@ -865,5 +904,100 @@ export async function fetchRagCollections(): Promise<RagCollectionsResponse | nu
   } catch (error) {
     console.error("Error fetching RAG collections:", error);
     return null;
+  }
+}
+
+// ── Admin: user & role management (administrator-only; enforced server-side) ──
+
+export interface AdminUser {
+  user_id: string;
+  username: string;
+  email: string;
+  role_name: string | null;
+  status: string;
+  must_change_password: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminRole {
+  role_id: number;
+  role_name: string;
+  description?: string | null;
+}
+
+/** List users (paginated). Returns null on failure. */
+export async function fetchUsers(
+  limit: number = 100,
+  offset: number = 0,
+): Promise<{ users: AdminUser[]; total: number } | null> {
+  try {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    const response = await fetch(`${API_BASE}/api/admin/users?${params}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch users: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as { users: AdminUser[]; total: number };
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return null;
+  }
+}
+
+/** List the fixed roles. Returns [] on failure. */
+export async function fetchRoles(): Promise<AdminRole[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/roles`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.roles || []) as AdminRole[];
+  } catch (error) {
+    console.error("Error fetching roles:", error);
+    return [];
+  }
+}
+
+async function _detail(response: Response, fallback: string): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+  return payload?.detail || fallback;
+}
+
+/** Create a user. Throws Error(detail) on failure (e.g. 409 duplicate, 400 bad role). */
+export async function createUser(body: {
+  username: string;
+  email: string;
+  role: string;
+}): Promise<{ user: AdminUser; temporary_password: string }> {
+  const response = await fetch(`${API_BASE}/api/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await _detail(response, "Failed to create user"));
+  return (await response.json()) as { user: AdminUser; temporary_password: string };
+}
+
+/** Update a user's role/status and/or reset their password. Throws Error(detail) on failure. */
+export async function updateUser(
+  userId: string,
+  body: { role?: string; status?: string; reset_password?: boolean },
+): Promise<{ user: AdminUser; temporary_password?: string }> {
+  const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await _detail(response, "Failed to update user"));
+  return (await response.json()) as { user: AdminUser; temporary_password?: string };
+}
+
+/** Delete a user. Throws Error(detail) on failure (e.g. last-admin / self guardrails). */
+export async function deleteUser(userId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(await _detail(response, "Failed to delete user"));
   }
 }

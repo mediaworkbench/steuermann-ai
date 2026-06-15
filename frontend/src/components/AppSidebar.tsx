@@ -9,12 +9,14 @@ import {
   Download,
   LogOut,
   MoreVertical,
+  ShipWheel,
   Pencil,
   Pin,
   Plus,
   Settings,
   ShieldCheck,
   Trash2,
+  Users,
 } from "lucide-react";
 
 import {
@@ -69,7 +71,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
-  const { isAdmin } = useRole();
+  const { isAdmin, canAccessRag } = useRole();
   const {
     conversations,
     activeId,
@@ -125,7 +127,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <Sidebar collapsible="offcanvas" {...props}>
         <SidebarHeader className="min-h-16 md:min-h-20 justify-center px-4">
           <div className="flex flex-col w-full">
-            <span className="text-sidebar-foreground text-base font-bold truncate">{appTitle}</span>
+            <span className="text-sidebar-foreground text-base font-bold truncate flex items-center gap-2">
+              <ShipWheel size={20} />
+              {appTitle}
+            </span>
             {frameworkVersion !== "unknown" && (
               <span className="text-sidebar-foreground/50 text-xs font-mono">v{frameworkVersion}</span>
             )}
@@ -207,41 +212,59 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </p>
           )}
 
-          {isAdmin && (
+          {(isAdmin || canAccessRag) && (
             <SidebarGroup>
               <SidebarGroupLabel>{t("sidebar.administration")}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.metrics")}
-                      onClick={() => router.push("/metrics")}
-                      className="justify-start"
-                    >
-                      <BarChart3 />
-                      <span>{t("header.metrics")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.ragExplorer")}
-                      onClick={() => router.push("/admin/rag")}
-                      className="justify-start"
-                    >
-                      <Compass />
-                      <span>{t("header.ragExplorer")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={t("header.admin")}
-                      onClick={() => router.push("/admin")}
-                      className="justify-start"
-                    >
-                      <ShieldCheck />
-                      <span>{t("header.admin")}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.metrics")}
+                        onClick={() => router.push("/metrics")}
+                        className="justify-start"
+                      >
+                        <BarChart3 />
+                        <span>{t("header.metrics")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {canAccessRag && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.ragExplorer")}
+                        onClick={() => router.push("/admin/rag")}
+                        className="justify-start"
+                      >
+                        <Compass />
+                        <span>{t("header.ragExplorer")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip="Users"
+                        onClick={() => router.push("/admin/users")}
+                        className="justify-start"
+                      >
+                        <Users />
+                        <span>Users</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("header.admin")}
+                        onClick={() => router.push("/admin")}
+                        className="justify-start"
+                      >
+                        <ShieldCheck />
+                        <span>{t("header.admin")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

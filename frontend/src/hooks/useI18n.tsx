@@ -4,7 +4,6 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { messages, type Locale, type Messages } from "@/i18n/messages";
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/hooks/useTheme";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 
 type MessageKey = string;
 
@@ -48,7 +47,7 @@ function toDate(value: Date | string | number): Date {
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>("en");
-  const { settings } = useSettings(CURRENT_USER_ID);
+  const { settings } = useSettings();
   const { setTheme } = useTheme();
 
   useEffect(() => {

@@ -10,6 +10,14 @@ import {
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://fastapi:8001";
 const CHAT_ACCESS_TOKEN = process.env.CHAT_ACCESS_TOKEN || "";
 
+// Trust headers the backend honors — always set by the proxy, never trusted from the client.
+const SPOOFABLE_TRUST_HEADERS = new Set([
+  "x-chat-token",
+  "x-authenticated-user-id",
+  "x-authenticated-username",
+  "x-authenticated-role",
+]);
+
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "keep-alive",
@@ -41,9 +49,13 @@ async function forward(request: NextRequest, path: string[]) {
 
   const headers = new Headers();
   request.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
-      headers.set(key, value);
+    const lower = key.toLowerCase();
+    // Strip hop-by-hop headers AND any client-supplied trust headers — these are set
+    // exclusively by the proxy below so a client can never spoof identity/role.
+    if (HOP_BY_HOP_HEADERS.has(lower) || SPOOFABLE_TRUST_HEADERS.has(lower)) {
+      return;
     }
+    headers.set(key, value);
   });
 
   if (CHAT_ACCESS_TOKEN.trim()) {
@@ -52,6 +64,7 @@ async function forward(request: NextRequest, path: string[]) {
   if (session) {
     headers.set("x-authenticated-user-id", session.userId);
     headers.set("x-authenticated-username", session.username);
+    headers.set("x-authenticated-role", session.role);
   }
 
   let body: BodyInit | undefined;

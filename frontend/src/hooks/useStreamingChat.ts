@@ -7,11 +7,11 @@ import type { ChatResponse, NodeTraceEntry } from "@/lib/types";
 
 export interface StreamingChatParams {
   message: string;
-  userId: string;
   conversationId: string | null;
   attachmentIds: string[];
   documentIds: string[];
   ragEnabled: boolean;
+  disabledTools: string[]; // tools quick-disabled for this chat (this inference only)
 }
 
 /** Signalled mid-stream when the model is about to write back to a document. */
@@ -138,11 +138,11 @@ export function useStreamingChat(): UseStreamingChatReturn {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: params.message,
-            user_id: params.userId,
             conversation_id: params.conversationId,
             attachment_ids: params.attachmentIds,
             document_ids: params.documentIds,
             rag_enabled: params.ragEnabled,
+            disabled_tools: params.disabledTools,
           }),
           signal: controller.signal,
         });

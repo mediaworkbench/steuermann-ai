@@ -37,8 +37,11 @@ class FakeConversationStore:
     def create_conversation(self, conversation_id: str, user_id: str) -> None:
         self._conversations[conversation_id] = {"id": conversation_id, "user_id": user_id}
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        return self._conversations.get(conversation_id)
+    def get_conversation(self, conversation_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        conv = self._conversations.get(conversation_id)
+        if conv is None or (user_id is not None and conv["user_id"] != user_id):
+            return None
+        return conv
 
     def add_message(self, **kwargs) -> Dict[str, Any]:
         self.messages.append(kwargs)
@@ -355,6 +358,31 @@ def test_chat_forwards_attachment_context(client) -> None:
     }
 
 
+def test_chat_rejects_other_users_conversation(client) -> None:
+    """A user must not chat into (or read history from) another user's conversation."""
+    test_client, conversation_store, _ = client
+    conversation_store.create_conversation("conv-u2", "u2")
+
+    response = test_client.post(
+        "/api/chat",
+        json={"message": "leak history", "language": "en", "conversation_id": "conv-u2"},
+    )
+    assert response.status_code == 404
+    # Nothing was persisted into the other user's conversation.
+    assert all(m.get("conversation_id") != "conv-u2" for m in conversation_store.messages)
+
+
+def test_chat_stream_rejects_other_users_conversation(client) -> None:
+    test_client, conversation_store, _ = client
+    conversation_store.create_conversation("conv-u2b", "u2")
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={"message": "leak", "language": "en", "conversation_id": "conv-u2b"},
+    )
+    assert response.status_code == 404
+
+
 def test_chat_rejects_attachment_ids_without_conversation_id(client) -> None:
     test_client, _, _ = client
 
@@ -391,6 +419,28 @@ def test_chat_forwards_llm_capability_probes(client) -> None:
     assert probes
     assert probes[0]["provider_id"] == "lmstudio"
     assert probes[0]["capability_mismatch"] is True
+
+
+def test_chat_forwards_per_chat_disabled_tools(client) -> None:
+    """Tools quick-disabled for this chat are overlaid as tool_toggles=False for this
+    inference only (the user's saved settings are not modified)."""
+    test_client, _, fake_async_client = client
+
+    response = test_client.post(
+        "/api/chat",
+        json={
+            "message": "hi",
+            "user_id": "u1",
+            "language": "en",
+            "conversation_id": "conv-1",
+            "disabled_tools": ["datetime_tool", "calculator_tool"],
+        },
+    )
+
+    assert response.status_code == 200
+    forwarded_toggles = fake_async_client.last_request_json["user_settings"]["tool_toggles"]
+    assert forwarded_toggles["datetime_tool"] is False
+    assert forwarded_toggles["calculator_tool"] is False
 
 
 def test_resolve_provider_endpoint_uses_named_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:

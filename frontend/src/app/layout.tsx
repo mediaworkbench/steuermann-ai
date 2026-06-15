@@ -6,18 +6,14 @@ import { LayoutShell } from "@/components/LayoutShell";
 import { ProfileProvider } from "@/hooks/useProfile";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
-import { RoleProvider } from "@/context/RoleContext";
+import { SessionProvider } from "@/context/SessionContext";
 
 
 export const metadata: Metadata = {
   title: "Steuermann",
   description: "Modern AI agent orchestration platform",
   icons: {
-    icon: [
-      { url: "/favicon.ico" },
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
-    ],
+    icon: { url: "/icon.svg", type: "image/svg+xml" },
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   manifest: "/manifest.webmanifest",
@@ -39,13 +35,13 @@ export default function RootLayout({
     <html lang="en" className="font-sans">
       <body className="bg-background text-foreground h-screen overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
-          <I18nProvider>
-            <RoleProvider>
+          <SessionProvider>
+            <I18nProvider>
               <ProfileProvider>
                 <LayoutShell>{children}</LayoutShell>
               </ProfileProvider>
-            </RoleProvider>
-          </I18nProvider>
+            </I18nProvider>
+          </SessionProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -280,6 +280,7 @@ class GraphState(TypedDict, total=False):
     profile_name: str  # Fork identifier for metrics
     profile_id: str  # Active deployment profile identifier
     user_settings: Dict[str, Any]  # User preferences: tool_toggles, rag_config, preferred_model, theme, language
+    allowed_tools: Optional[List[str]]  # Role tool allowlist (None = no restriction; [] = block all)
     llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
     loaded_memory: List[Dict[str, Any]]
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
@@ -399,6 +400,20 @@ def node_load_tools(state: GraphState) -> GraphState:
                     profile_id, conversation_language, tools_config, profile_tools_dir
                 )
             )
+
+            # Role tool gate (admin-controlled allowlist) — applied before user toggles.
+            # None = no restriction (admins / unconfigured callers); [] = block all.
+            allowed_tools = state.get("allowed_tools")
+            if allowed_tools is not None:
+                allowed_set = set(allowed_tools)
+                before = len(tools)
+                tools = [t for t in tools if t.name in allowed_set]
+                logger.info(
+                    "Tools filtered by role allowlist",
+                    original_count=before,
+                    filtered_count=len(tools),
+                    allowed_count=len(allowed_set),
+                )
 
             # Filter tools based on user settings (tool_toggles)
             user_settings = state.get("user_settings", {})

@@ -2,6 +2,7 @@
 
 import { Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/hooks/useI18n";
 import type { SystemConfig } from "@/lib/api";
 
 const FALLBACK_TOOLS = [
@@ -25,8 +26,10 @@ interface ToolsMenuProps {
   onToggle: () => void;
   onClose: () => void;
   systemConfig: SystemConfig | null;
-  toolToggles: Record<string, boolean>;
-  onToolToggle: (toolId: string) => void;
+  toolToggles: Record<string, boolean>; // saved Settings preference — gates menu membership
+  onToolToggle: (toolId: string) => void; // per-chat quick disable/enable
+  disabledTools: string[]; // tools turned off for this chat (shown OFF, not hidden)
+  allowedTools: string[] | null; // role-allowed tool ids; null = no restriction
 }
 
 export function ToolsMenu({
@@ -36,7 +39,16 @@ export function ToolsMenu({
   systemConfig,
   toolToggles,
   onToolToggle,
+  disabledTools,
+  allowedTools,
 }: ToolsMenuProps) {
+  const { t } = useI18n();
+  // Membership = role-allowed AND enabled in Settings (a tool turned off in Settings
+  // is hidden here). The per-chat quick toggle (disabledTools) only flips ON/OFF —
+  // a tool turned off for this chat stays listed so it can be re-enabled.
+  const visibleTools = (systemConfig?.available_tools ?? FALLBACK_TOOLS).filter(
+    (tool) => (!allowedTools || allowedTools.includes(tool.id)) && toolToggles[tool.id] !== false
+  );
   return (
     <div className="relative">
       <Button
@@ -53,9 +65,12 @@ export function ToolsMenu({
         <>
           <div aria-hidden="true" className="fixed inset-0 z-10" onClick={onClose} />
           <div className="absolute bottom-full left-0 z-20 mb-2 min-w-50 rounded-xl border border-border bg-surface py-2 shadow-lg">
-            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
-            {(systemConfig?.available_tools ?? FALLBACK_TOOLS).map((tool) => {
-              const enabled = toolToggles[tool.id] !== false;
+            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t("chat.toolsMenuTitle")}</p>
+            {visibleTools.length === 0 && (
+              <p className="px-3 py-2 text-sm text-muted-foreground">{t("chat.noToolsEnabled")}</p>
+            )}
+            {visibleTools.map((tool) => {
+              const enabled = !disabledTools.includes(tool.id);
               return (
                 <Button
                   key={tool.id}

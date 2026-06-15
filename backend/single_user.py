@@ -10,10 +10,6 @@ def get_single_user_id() -> str:
     return os.getenv("AUTH_USERNAME", "anonymous").strip() or "anonymous"
 
 
-def get_effective_user_id(requested_user_id: Optional[str] = None) -> str:
-    return get_single_user_id()
-
-
 def require_api_access(
     x_chat_token: Optional[str] = Header(default=None),
     authorization: Optional[str] = Header(default=None),

@@ -71,7 +71,9 @@ docker compose logs langgraph | grep -i "prefilter\|similarity\|intent\|tool_sel
 | Spread-gate failure | The top tool score is high but the second-best is too close; the gate suppresses selection; lower `min_spread` in `tool_routing` config |
 | Intent boost not triggering | The boost keywords must appear in the message; check the [Quick Reference table](tools.md#quick-reference) for the exact trigger patterns |
 | `tool_calling_mode` downgraded to `structured` | If the capability probe is missing or stale, native mode is disabled; use `POST /api/llm/reprobe` to refresh |
-| Tool disabled in profile | Check `config/profiles/<profile_id>/tools.yaml` — the tool may be set to `enabled: false` |
+| Tool not loaded in profile | Confirm the tool is listed in `config/profiles/<profile_id>/tools.yaml` (there is no `enabled` flag — an unlisted tool is not loaded) |
+| Tool blocked for the user's role | The admin may not have granted it to that role. Check the role allowlist on the **Admin** page (`role_tool_permissions` table); a role with no row is blocked from **all** tools (fail-closed). Administrators always have every tool |
+| Tool toggled off by the user | The user may have disabled it in **Settings** (`tool_toggles`) — re-enable it there |
 
 ---
 

@@ -154,7 +154,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Set initial model
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -171,7 +171,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Change model - should trigger reprobe
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -194,7 +194,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Set initial model
         client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -209,7 +209,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Update settings without changing model
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {"web_search": True},  # Changed, but model didn't
                 "rag_config": {"collection": "test", "top_k": 10},
@@ -230,7 +230,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Initially no preferred model
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -246,7 +246,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Now select a model - should trigger reprobe
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -270,7 +270,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Update settings with model change - should still succeed
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -291,7 +291,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Start with no model
         client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -306,7 +306,7 @@ class TestReprobeTriggersOnSettingsChange:
         
         # Update other settings, still no model
         response = client.post(
-            "/api/settings/user/test_user",
+            "/api/settings/me",
             json={
                 "tool_toggles": {"web_search": True},
                 "rag_config": {"collection": "test", "top_k": 10},
@@ -331,7 +331,7 @@ class TestReprobeWithMultipleUsers:
         
         # User 1 selects a model - should trigger reprobe
         response1 = client.post(
-            "/api/settings/user/user_1",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},
@@ -346,7 +346,7 @@ class TestReprobeWithMultipleUsers:
         
         # User 2 selects a model - should trigger reprobe again
         response2 = client.post(
-            "/api/settings/user/user_2",
+            "/api/settings/me",
             json={
                 "tool_toggles": {},
                 "rag_config": {"collection": "", "top_k": 5},

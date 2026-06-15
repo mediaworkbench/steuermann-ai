@@ -8,6 +8,7 @@ import {
   fetchSystemConfig,
   resetMyData,
   type SystemConfig,
+  type ToolCatalogItem,
 } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
@@ -15,15 +16,15 @@ import { Button } from "@/components/ui/button";
 import { DangerConfirmDialog } from "@/components/product/DangerConfirmDialog";
 import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
-import { OptionChecklist } from "@/components/product/OptionChecklist";
 import { OptionCheckboxRow } from "@/components/product/OptionCheckboxRow";
+import { GroupedToolChecklist } from "@/components/product/GroupedToolChecklist";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 export interface SettingsPanelProps {
   settings: UserSettings | null;
@@ -38,19 +39,20 @@ const LANGUAGE_LABELS: Record<string, string> = {
   es: "Español",
 };
 
-const FALLBACK_TOOLS = [
-  { id: "web_search_mcp", label: "Web Search" },
-  { id: "extract_webpage_mcp", label: "Extract Webpage" },
-  { id: "analyze_image_tool", label: "Analyze Image" },
-  { id: "ocr_tool", label: "OCR" },
-  { id: "analyze_document_tool", label: "Analyze Document" },
-  { id: "analyze_chart_tool", label: "Analyze Chart" },
-  { id: "image_metadata_tool", label: "Image Metadata" },
-  { id: "read_barcodes_tool", label: "Read Barcodes" },
-  { id: "datetime_tool", label: "Datetime" },
-  { id: "calculator_tool", label: "Calculator" },
-  { id: "map_tool", label: "Map" },
-  { id: "file_ops_tool", label: "File Ops" },
+const FALLBACK_TOOLS: ToolCatalogItem[] = [
+  { id: "web_search_mcp", label: "Web Search", group: "text" },
+  { id: "extract_webpage_mcp", label: "Extract Webpage", group: "text" },
+  { id: "file_ops_tool", label: "File Ops", group: "text" },
+  { id: "csv_analyze_tool", label: "CSV Analyze", group: "text" },
+  { id: "analyze_image_tool", label: "Analyze Image", group: "vision" },
+  { id: "ocr_tool", label: "OCR", group: "vision" },
+  { id: "analyze_document_tool", label: "Analyze Document", group: "vision" },
+  { id: "analyze_chart_tool", label: "Analyze Chart", group: "vision" },
+  { id: "image_metadata_tool", label: "Image Metadata", group: "vision" },
+  { id: "read_barcodes_tool", label: "Read Barcodes", group: "vision" },
+  { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
+  { id: "calculator_tool", label: "Calculator", group: "auxiliary" },
+  { id: "map_tool", label: "Map", group: "auxiliary" },
 ];
 
 const USER_MODEL_ROLES = ["chat"];
@@ -62,7 +64,7 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
     settings?.tool_toggles || {}
   );
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>(
-    settings?.rag_config || { collection: "", top_k: 5, enabled: true }
+    settings?.rag_config || { top_k: 5, enabled: true }
   );
   const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(
     settings?.preferred_models || {}
@@ -87,8 +89,8 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
   useEffect(() => {
     if (settings) {
       setToolToggles(settings.tool_toggles || {});
-      const ragDefault = { collection: systemConfig?.rag_defaults.collection_name || "framework", top_k: systemConfig?.rag_defaults.top_k || 5 };
-      setRagConfig(settings.rag_config && settings.rag_config.collection ? settings.rag_config : ragDefault);
+      const ragDefault = { top_k: systemConfig?.rag_defaults.top_k || 5 };
+      setRagConfig(settings.rag_config || ragDefault);
       setPreferredModels(settings.preferred_models || {});
       setLanguage(settings.language || "en");
       setAnalyticsPreferences(settings.analytics_preferences || {});
@@ -208,16 +210,17 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
           {/* Language */}
           <div>
             <p className="text-sm text-muted-foreground mb-2">{t("settingsPanel.language")}</p>
-            <Select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              aria-label={t("settingsPanel.language")}
-            >
-              {(systemConfig?.supported_languages || ["en"]).map((code) => (
-                <option key={code} value={code}>
-                  {LANGUAGE_LABELS[code] || code.toUpperCase()}
-                </option>
-              ))}
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger aria-label={t("settingsPanel.language")} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(systemConfig?.supported_languages || ["en"]).map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {LANGUAGE_LABELS[code] || code.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           {/* Sounds */}
@@ -264,15 +267,12 @@ export function SettingsPanel({ settings, loading, onSave }: SettingsPanelProps)
         {configLoading ? (
           <p className="text-sm text-muted-foreground">{t("settingsPanel.loadingTools")}</p>
         ) : (
-          <OptionChecklist
-            items={(systemConfig?.available_tools || FALLBACK_TOOLS).map((tool) => ({
-              key: tool.id,
-              checked: toolToggles[tool.id] ?? true,
-              onToggle: () => handleToolToggle(tool.id),
-              label: tool.label,
-              alignment: "center" as const,
-              checkboxClassName: "w-5 h-5",
-            }))}
+          <GroupedToolChecklist
+            tools={(systemConfig?.available_tools || FALLBACK_TOOLS).filter(
+              (tool) => !settings?.allowed_tools || settings.allowed_tools.includes(tool.id)
+            )}
+            isChecked={(toolId) => toolToggles[toolId] ?? true}
+            onToggle={handleToolToggle}
           />
         )}
         </div>

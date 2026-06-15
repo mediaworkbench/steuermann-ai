@@ -1,6 +1,6 @@
 name: "map_tool"
 version: "1.0.0"
-category: "utilities"
+category: "auxiliary"
 description: "Geocode locations and measure distances using OpenStreetMap"
 
 descriptions:

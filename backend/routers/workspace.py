@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 
 from backend.attachments import AttachmentValidationError, UserWorkspaceFileManager, WorkspaceValidationError
 from backend.db import WorkspaceDocumentStore, WorkspaceVersionConflictError
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import CurrentUser, resolve_current_user
+from backend.single_user import require_api_access
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,7 @@ def _thumb_path(stored_path: str) -> Path:
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
     """Upload a new document or image to user workspace.
 
@@ -276,7 +278,7 @@ async def upload_document(
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
 
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     document_id = str(uuid.uuid4())
     filename = file.filename or "document.txt"
 
@@ -330,13 +332,14 @@ async def list_documents(
     request: Request,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
     """List all documents in user workspace.
     
     Returns documents ordered by most recently updated first.
     """
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     
     try:
         documents = document_store.list_documents(
@@ -357,13 +360,14 @@ async def list_documents(
 async def get_document(
     document_id: str,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
     """Fetch a document by ID with full content.
     
     Ownership is enforced: user can only access their own documents.
     """
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     
     try:
         doc = document_store.get_document(document_id=document_id, user_id=effective_user_id)
@@ -383,6 +387,7 @@ async def update_document(
     document_id: str,
     file: UploadFile = File(...),
     expected_version: Optional[int] = Form(default=None),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
     """Overwrite a text document with new content.
 
@@ -392,7 +397,7 @@ async def update_document(
     """
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
 
     try:
         # Verify document exists and belongs to user
@@ -463,9 +468,10 @@ async def patch_document(
     document_id: str,
     body: WorkspaceDocumentPatch,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> WorkspaceDocumentResponse:
     """Rename a workspace document."""
-    effective_user_id = get_effective_user_id(request)
+    effective_user_id = current_user.user_id
     document_store = _get_document_store(request)
 
     if not body.filename:
@@ -510,6 +516,7 @@ async def patch_document(
 async def delete_document(
     document_id: str,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Response:
     """Delete a document (hard delete).
     
@@ -517,7 +524,7 @@ async def delete_document(
     """
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     
     try:
         # Verify document exists and belongs to user
@@ -553,6 +560,7 @@ async def delete_document(
 async def download_document(
     document_id: str,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> FileResponse:
     """Download current saved content of a document.
     
@@ -560,7 +568,7 @@ async def download_document(
     """
     file_manager = _get_file_manager(request)
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
     
     try:
         # Verify document exists and belongs to user
@@ -595,6 +603,7 @@ async def download_document(
 async def get_document_thumbnail(
     document_id: str,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> FileResponse:
     """Return a JPEG thumbnail (max 320×240) for an image workspace document.
 
@@ -604,7 +613,7 @@ async def get_document_thumbnail(
     from PIL import Image as PilImage  # noqa: PLC0415 — lazy import; Pillow is optional dep
 
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
 
     doc = document_store.get_document(document_id=document_id, user_id=effective_user_id)
     if not doc:
@@ -632,6 +641,7 @@ async def get_document_thumbnail(
 @router.delete("/documents", status_code=200)
 async def delete_all_documents(
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
     """Delete all workspace documents for the current user.
 
@@ -639,7 +649,7 @@ async def delete_all_documents(
     cleaned up on a best-effort basis so the database is always consistent.
     """
     document_store = _get_document_store(request)
-    effective_user_id = get_effective_user_id()
+    effective_user_id = current_user.user_id
 
     try:
         docs = document_store.list_documents(user_id=effective_user_id, limit=10000, offset=0)
@@ -671,9 +681,10 @@ async def list_document_versions(
     document_id: str,
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> List[WorkspaceDocumentVersionResponse]:
     """List historical version snapshots for a document (no content_text)."""
-    effective_user_id = get_effective_user_id(request)
+    effective_user_id = current_user.user_id
     document_store = _get_document_store(request)
 
     existing = document_store.get_document(document_id=document_id, user_id=effective_user_id)
@@ -694,9 +705,10 @@ async def get_document_version(
     document_id: str,
     version: int,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> WorkspaceDocumentVersionWithContentResponse:
     """Get a specific historical version with full content_text."""
-    effective_user_id = get_effective_user_id(request)
+    effective_user_id = current_user.user_id
     document_store = _get_document_store(request)
 
     row = document_store.get_document_version(
@@ -715,9 +727,10 @@ async def restore_document_version(
     document_id: str,
     version: int,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> WorkspaceDocumentResponse:
     """Restore a historical version: saves current state as a snapshot, then applies old content as new version."""
-    effective_user_id = get_effective_user_id(request)
+    effective_user_id = current_user.user_id
     document_store = _get_document_store(request)
     file_manager = _get_file_manager(request)
 

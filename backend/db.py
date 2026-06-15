@@ -78,6 +78,7 @@ def init_db_pool() -> DatabasePool:
 def _ensure_core_tables(db_pool: DatabasePool) -> None:
     """Initialize the core schema expected by tests and runtime code."""
     _ensure_settings_table(db_pool)
+    _ensure_role_tool_permissions_table(db_pool)
     _ensure_llm_probe_table(db_pool)
     _ensure_admin_tables(db_pool)
     _ensure_analytics_tables(db_pool)
@@ -110,6 +111,26 @@ def _ensure_settings_table(db_pool: DatabasePool) -> None:
                 "ALTER TABLE IF EXISTS user_settings "
                 "ADD COLUMN IF NOT EXISTS preferred_models JSONB NOT NULL DEFAULT '{}'::jsonb;"
             )
+        conn.commit()
+
+
+def _ensure_role_tool_permissions_table(db_pool: DatabasePool) -> None:
+    """Admin-controlled allowlist of tool ids per role.
+
+    A present row is authoritative for that role (an empty list blocks every
+    tool). A *missing* row means the role is unconfigured and is treated as
+    fail-closed (block all) by callers; `administrator` is never stored.
+    """
+    statement = """
+        CREATE TABLE IF NOT EXISTS role_tool_permissions (
+            role_name     TEXT PRIMARY KEY,
+            allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
         conn.commit()
 
 
@@ -164,15 +185,26 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             email TEXT UNIQUE NOT NULL,
             role_id INTEGER REFERENCES roles(role_id),
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+            password_hash TEXT,
+            must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
-    
+
     # Create index on username and email for faster lookups
     index_statement = """
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    """
+
+    # The three fixed roles are always present. No custom roles are supported.
+    roles_seed_statement = """
+        INSERT INTO roles (role_name, description) VALUES
+            ('user', 'Standard user'),
+            ('researcher', 'Standard user plus access to the RAG explorer'),
+            ('administrator', 'Full access including user management')
+        ON CONFLICT (role_name) DO NOTHING;
     """
 
     with db_pool.connection() as conn:
@@ -180,13 +212,18 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             cur.execute(roles_statement)
             cur.execute(users_statement)
             cur.execute(index_statement)
+            cur.execute(roles_seed_statement)
         conn.commit()
 
-    # Legacy compatibility: keep password_hash column if older databases already have it.
+    # Idempotent column adds so existing databases gain the auth columns.
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS password_hash TEXT;"
+            )
+            cur.execute(
+                "ALTER TABLE IF EXISTS users "
+                "ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;"
             )
         conn.commit()
 
@@ -328,6 +365,65 @@ class SettingsStore:
                 row = cur.fetchone()
             conn.commit()
         return _normalize_settings_row(row)
+
+
+class RoleToolPermissionStore:
+    """Per-role tool allowlists (admin-controlled).
+
+    ``get_allowed_tools`` returns ``None`` when a role has no row — callers
+    interpret that as fail-closed (block all). ``administrator`` is never stored
+    (admins are always unrestricted).
+    """
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_role_tool_permissions_table(self._db_pool)
+
+    @staticmethod
+    def _coerce_tool_list(value: Any) -> List[str]:
+        if isinstance(value, str):
+            value = json.loads(value)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value]
+
+    def get_allowed_tools(self, role_name: str) -> Optional[List[str]]:
+        """Return the stored allowlist for a role, or ``None`` if no row exists."""
+        statement = "SELECT allowed_tools FROM role_tool_permissions WHERE role_name = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (role_name,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        return self._coerce_tool_list(row.get("allowed_tools"))
+
+    def get_all_role_permissions(self) -> Dict[str, Optional[List[str]]]:
+        """Return ``{role_name: allowed_tools}`` for every stored role."""
+        statement = "SELECT role_name, allowed_tools FROM role_tool_permissions;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        return {row["role_name"]: self._coerce_tool_list(row.get("allowed_tools")) for row in rows}
+
+    def set_allowed_tools(self, role_name: str, tools: List[str]) -> List[str]:
+        """Upsert the explicit allowlist for a role (stored verbatim, even when full)."""
+        normalized = [str(item) for item in (tools or [])]
+        statement = """
+            INSERT INTO role_tool_permissions (role_name, allowed_tools, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (role_name) DO UPDATE SET
+                allowed_tools = EXCLUDED.allowed_tools,
+                updated_at = NOW()
+            RETURNING allowed_tools;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (role_name, extras.Json(normalized)))
+                row = cur.fetchone()
+            conn.commit()
+        return self._coerce_tool_list(row.get("allowed_tools")) if row else normalized
 
 
 class LLMCapabilityProbeStore:
@@ -507,7 +603,8 @@ class UserStore:
         
         # Get paginated results
         statement = """
-            SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status, u.created_at, u.updated_at
+            SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status,
+                   u.must_change_password, u.created_at, u.updated_at
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             ORDER BY u.created_at DESC
@@ -520,10 +617,26 @@ class UserStore:
         
         return [_normalize_user_row(row) for row in rows], total
 
+    def count_admins(self, active_only: bool = True) -> int:
+        """Count users with the administrator role (active only by default)."""
+        statement = """
+            SELECT COUNT(*) AS count
+            FROM users u JOIN roles r ON u.role_id = r.role_id
+            WHERE r.role_name = 'administrator'
+        """
+        if active_only:
+            statement += " AND u.status = 'active'"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement + ";")
+                row = cur.fetchone()
+        return int(row["count"]) if row else 0
+
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific user by ID."""
         statement = """
-            SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status, u.created_at, u.updated_at
+            SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status,
+                   u.must_change_password, u.created_at, u.updated_at
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.user_id = %s;
@@ -555,17 +668,27 @@ class UserStore:
         if status not in ("active", "inactive", "suspended"):
             raise ValueError(f"Invalid status: {status}")
         
-        statement = """
-            UPDATE users SET status = %s, updated_at = NOW()
-            WHERE user_id = %s
-            RETURNING user_id, username, email, role_id, status, created_at, updated_at;
-        """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (status, user_id))
-                row = cur.fetchone()
+                cur.execute(
+                    "UPDATE users SET status = %s, updated_at = NOW() WHERE user_id = %s RETURNING user_id;",
+                    (status, user_id),
+                )
+                updated = cur.fetchone()
+                row = None
+                if updated is not None:
+                    cur.execute(
+                        """
+                        SELECT u.user_id, u.username, u.email, u.role_id, r.role_name,
+                               u.status, u.must_change_password, u.created_at, u.updated_at
+                        FROM users u LEFT JOIN roles r ON u.role_id = r.role_id
+                        WHERE u.user_id = %s;
+                        """,
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
             conn.commit()
-        
+
         return _normalize_user_row(row) if row else {}
 
     def delete_user(self, user_id: str) -> bool:
@@ -610,7 +733,7 @@ class UserStore:
         """Return user record including password_hash for login validation."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.password_hash,
-                   u.role_id, r.role_name, u.status
+                   u.role_id, r.role_name, u.status, u.must_change_password
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.username = %s;
@@ -621,52 +744,163 @@ class UserStore:
                 row = cur.fetchone()
         return dict(row) if row else None
 
+    def get_user_by_id_with_hash(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return user record including password_hash, keyed by the trusted user id."""
+        statement = """
+            SELECT u.user_id, u.username, u.email, u.password_hash,
+                   u.role_id, r.role_name, u.status, u.must_change_password
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.role_id
+            WHERE u.user_id = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id,))
+                row = cur.fetchone()
+        return dict(row) if row else None
+
+    def _resolve_role_id(self, cur, role_name: str) -> int:
+        """Resolve an existing role_id. Raises if the role is not one of the fixed roles."""
+        cur.execute("SELECT role_id FROM roles WHERE role_name = %s;", (role_name,))
+        role_row = cur.fetchone()
+        if not role_row:
+            raise ValueError(f"Unknown role: {role_name!r}")
+        return role_row["role_id"]
+
     def create_user_with_password(
         self,
         user_id: str,
         username: str,
         email: str,
         password_hash: str,
-        role_name: str = "viewer",
+        role_name: str,
+        must_change_password: bool = False,
     ) -> Dict[str, Any]:
-        """Create a user with a bcrypt password hash and the given role."""
+        """Create a user with an argon2id password hash and an existing role.
+
+        ``role_name`` must be one of the fixed seeded roles — unknown roles raise
+        ``ValueError`` (custom roles are not supported).
+        """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                # Ensure role exists.
-                cur.execute("SELECT role_id FROM roles WHERE role_name = %s;", (role_name,))
-                role_row = cur.fetchone()
-                if role_row:
-                    role_id = role_row["role_id"]
-                else:
-                    cur.execute(
-                        "INSERT INTO roles (role_name) VALUES (%s) "
-                        "ON CONFLICT (role_name) DO NOTHING RETURNING role_id;",
-                        (role_name,),
-                    )
-                    inserted = cur.fetchone()
-                    if inserted:
-                        role_id = inserted["role_id"]
-                    else:
-                        cur.execute(
-                            "SELECT role_id FROM roles WHERE role_name = %s;",
-                            (role_name,),
-                        )
-                        role_row = cur.fetchone()
-                        if not role_row:
-                            raise ValueError(f"Failed to resolve role_id for role '{role_name}'")
-                        role_id = role_row["role_id"]
-
+                role_id = self._resolve_role_id(cur, role_name)
                 cur.execute(
                     """
-                    INSERT INTO users (user_id, username, email, password_hash, role_id, status)
-                    VALUES (%s, %s, %s, %s, %s, 'active')
-                    RETURNING user_id, username, email, role_id, status, created_at, updated_at;
+                    INSERT INTO users (user_id, username, email, password_hash, role_id,
+                                       status, must_change_password)
+                    VALUES (%s, %s, %s, %s, %s, 'active', %s)
+                    RETURNING user_id, username, email, role_id, status,
+                              must_change_password, created_at, updated_at;
                     """,
-                    (user_id, username, email, password_hash, role_id),
+                    (user_id, username, email, password_hash, role_id, must_change_password),
                 )
                 row = cur.fetchone()
+                # Re-read with the role name joined for a complete normalized row.
+                if row is not None:
+                    cur.execute(
+                        """
+                        SELECT u.user_id, u.username, u.email, u.role_id, r.role_name,
+                               u.status, u.must_change_password, u.created_at, u.updated_at
+                        FROM users u LEFT JOIN roles r ON u.role_id = r.role_id
+                        WHERE u.user_id = %s;
+                        """,
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
             conn.commit()
         return _normalize_user_row(row)
+
+    def set_password_hash(
+        self,
+        user_id: str,
+        password_hash: str,
+        must_change_password: bool = False,
+    ) -> bool:
+        """Set a user's password hash and the must-change flag. Returns True if a row changed."""
+        statement = """
+            UPDATE users
+            SET password_hash = %s, must_change_password = %s, updated_at = NOW()
+            WHERE user_id = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (password_hash, must_change_password, user_id))
+                changed = cur.rowcount > 0
+            conn.commit()
+        return changed
+
+    def update_user_role(self, user_id: str, role_name: str) -> Dict[str, Any]:
+        """Assign an existing fixed role to a user. Unknown roles raise ValueError."""
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                role_id = self._resolve_role_id(cur, role_name)
+                cur.execute(
+                    """
+                    UPDATE users SET role_id = %s, updated_at = NOW()
+                    WHERE user_id = %s
+                    RETURNING user_id;
+                    """,
+                    (role_id, user_id),
+                )
+                updated = cur.fetchone()
+                row = None
+                if updated is not None:
+                    cur.execute(
+                        """
+                        SELECT u.user_id, u.username, u.email, u.role_id, r.role_name,
+                               u.status, u.must_change_password, u.created_at, u.updated_at
+                        FROM users u LEFT JOIN roles r ON u.role_id = r.role_id
+                        WHERE u.user_id = %s;
+                        """,
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
+            conn.commit()
+        return _normalize_user_row(row) if row else {}
+
+    def seed_bootstrap_admin(
+        self,
+        username: str,
+        email: str,
+        password_hash: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Idempotently seed the bootstrap administrator from env config.
+
+        The bootstrap admin's ``user_id`` equals its ``username`` so the identity is
+        identical in both the auth-enabled (DB login) and dev-bypass (env) paths.
+        Does nothing if a user with this username already exists.
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT user_id FROM users WHERE username = %s;", (username,))
+                if cur.fetchone():
+                    return None
+                role_id = self._resolve_role_id(cur, "administrator")
+                cur.execute(
+                    """
+                    INSERT INTO users (user_id, username, email, password_hash, role_id,
+                                       status, must_change_password)
+                    VALUES (%s, %s, %s, %s, %s, 'active', FALSE)
+                    ON CONFLICT DO NOTHING
+                    RETURNING user_id;
+                    """,
+                    (username, username, email, password_hash, role_id),
+                )
+                inserted = cur.fetchone()
+                row = None
+                if inserted is not None:
+                    cur.execute(
+                        """
+                        SELECT u.user_id, u.username, u.email, u.role_id, r.role_name,
+                               u.status, u.must_change_password, u.created_at, u.updated_at
+                        FROM users u LEFT JOIN roles r ON u.role_id = r.role_id
+                        WHERE u.user_id = %s;
+                        """,
+                        (username,),
+                    )
+                    row = cur.fetchone()
+            conn.commit()
+        return _normalize_user_row(row) if row else None
 
 
 def _normalize_user_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -684,6 +918,7 @@ def _normalize_user_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "role_id": row.get("role_id"),
         "role_name": row.get("role_name"),
         "status": row.get("status"),
+        "must_change_password": bool(row.get("must_change_password", False)),
         "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at) if created_at else None,
         "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else str(updated_at) if updated_at else None,
     }
@@ -1149,27 +1384,34 @@ class ConversationStore:
 
         return [_normalize_conversation_row(r) for r in rows], total
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        """Get a single conversation (without messages)."""
+    def get_conversation(self, conversation_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single conversation (without messages), scoped to its owner.
+
+        ``user_id`` is required: a conversation owned by a different user resolves to
+        ``None`` (the router turns that into a 404), so ownership cannot be bypassed.
+        """
         statement = """
             SELECT id, user_id, title, language, profile_name,
                    pinned, metadata, created_at, updated_at
-            FROM conversations WHERE id = %s;
+            FROM conversations WHERE id = %s AND user_id = %s;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (conversation_id,))
+                cur.execute(statement, (conversation_id, user_id))
                 row = cur.fetchone()
         return _normalize_conversation_row(row) if row else None
 
     def update_conversation(
-        self, conversation_id: str, **fields: Any
+        self, conversation_id: str, user_id: str, **fields: Any
     ) -> Optional[Dict[str, Any]]:
-        """Update mutable conversation fields (title, pinned, language, metadata)."""
+        """Update mutable conversation fields (title, pinned, language, metadata).
+
+        Scoped to ``user_id``: a non-owner update matches no row and returns ``None``.
+        """
         allowed = {"title", "pinned", "language", "metadata"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
-            return self.get_conversation(conversation_id)
+            return self.get_conversation(conversation_id, user_id)
 
         set_clauses = []
         params: list[Any] = []
@@ -1182,10 +1424,11 @@ class ConversationStore:
                 params.append(value)
         set_clauses.append("updated_at = NOW()")
         params.append(conversation_id)
+        params.append(user_id)
 
         statement = f"""
             UPDATE conversations SET {', '.join(set_clauses)}
-            WHERE id = %s
+            WHERE id = %s AND user_id = %s
             RETURNING id, user_id, title, language, profile_name,
                       pinned, metadata, created_at, updated_at;
         """
@@ -1196,12 +1439,12 @@ class ConversationStore:
             conn.commit()
         return _normalize_conversation_row(row) if row else None
 
-    def delete_conversation(self, conversation_id: str) -> bool:
-        """Hard-delete a conversation and its messages (CASCADE)."""
-        statement = "DELETE FROM conversations WHERE id = %s;"
+    def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
+        """Hard-delete a conversation and its messages (CASCADE), scoped to its owner."""
+        statement = "DELETE FROM conversations WHERE id = %s AND user_id = %s;"
         with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(statement, (conversation_id,))
+                cur.execute(statement, (conversation_id, user_id))
                 deleted = cur.rowcount > 0
             conn.commit()
         return deleted
@@ -1268,19 +1511,31 @@ class ConversationStore:
         return [_normalize_message_row(r) for r in rows]
 
     def update_message_feedback(
-        self, message_id: int, feedback: Optional[str]
+        self, message_id: int, feedback: Optional[str], conversation_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         if feedback is not None and feedback not in ("up", "down"):
             raise ValueError(f"Invalid feedback: {feedback}")
-        statement = """
-            UPDATE messages SET feedback = %s
-            WHERE id = %s
-            RETURNING id, conversation_id, role, content, tokens_used, model_name,
-                      response_time_ms, tools_used, feedback, metadata, created_at;
-        """
+        # When conversation_id is supplied, scope the update to it so a message can only
+        # be rated through its own (ownership-verified) conversation.
+        if conversation_id is not None:
+            statement = """
+                UPDATE messages SET feedback = %s
+                WHERE id = %s AND conversation_id = %s
+                RETURNING id, conversation_id, role, content, tokens_used, model_name,
+                          response_time_ms, tools_used, feedback, metadata, created_at;
+            """
+            params: tuple = (feedback, message_id, conversation_id)
+        else:
+            statement = """
+                UPDATE messages SET feedback = %s
+                WHERE id = %s
+                RETURNING id, conversation_id, role, content, tokens_used, model_name,
+                          response_time_ms, tools_used, feedback, metadata, created_at;
+            """
+            params = (feedback, message_id)
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (feedback, message_id))
+                cur.execute(statement, params)
                 row = cur.fetchone()
             conn.commit()
         return _normalize_message_row(row) if row else None
@@ -1314,9 +1569,9 @@ class ConversationStore:
     # ── Export ──────────────────────────────────────────────────────────
 
     def export_conversation(
-        self, conversation_id: str, fmt: str = "json"
+        self, conversation_id: str, user_id: str, fmt: str = "json"
     ) -> Optional[Dict[str, Any] | str]:
-        conv = self.get_conversation(conversation_id)
+        conv = self.get_conversation(conversation_id, user_id)
         if not conv:
             return None
         msgs = self.get_messages(conversation_id, limit=10000)

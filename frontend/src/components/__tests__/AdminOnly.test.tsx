@@ -8,7 +8,7 @@ const mockUseRole = useRole as jest.MockedFunction<typeof useRole>;
 
 describe("AdminOnly", () => {
   test("renders null while role is loading", () => {
-    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, roleLoading: true });
+    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, canAccessRag: false, roleLoading: true });
 
     const { container } = render(
       <AdminOnly>
@@ -21,7 +21,7 @@ describe("AdminOnly", () => {
   });
 
   test("renders children when admin and not loading", () => {
-    mockUseRole.mockReturnValue({ role: "administrator", isAdmin: true, roleLoading: false });
+    mockUseRole.mockReturnValue({ role: "administrator", isAdmin: true, canAccessRag: true, roleLoading: false });
 
     render(
       <AdminOnly>
@@ -33,7 +33,7 @@ describe("AdminOnly", () => {
   });
 
   test("renders null for non-admin with no fallback", () => {
-    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, roleLoading: false });
+    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, canAccessRag: false, roleLoading: false });
 
     const { container } = render(
       <AdminOnly>
@@ -46,7 +46,7 @@ describe("AdminOnly", () => {
   });
 
   test("renders fallback for non-admin", () => {
-    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, roleLoading: false });
+    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, canAccessRag: false, roleLoading: false });
 
     render(
       <AdminOnly fallback={<span>access denied</span>}>
@@ -59,7 +59,7 @@ describe("AdminOnly", () => {
   });
 
   test("renders children and not fallback when admin", () => {
-    mockUseRole.mockReturnValue({ role: "administrator", isAdmin: true, roleLoading: false });
+    mockUseRole.mockReturnValue({ role: "administrator", isAdmin: true, canAccessRag: true, roleLoading: false });
 
     render(
       <AdminOnly fallback={<span>access denied</span>}>
@@ -72,7 +72,7 @@ describe("AdminOnly", () => {
   });
 
   test("does not render fallback while loading (prevents premature access denied flash)", () => {
-    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, roleLoading: true });
+    mockUseRole.mockReturnValue({ role: "user", isAdmin: false, canAccessRag: false, roleLoading: true });
 
     render(
       <AdminOnly fallback={<span>access denied</span>}>

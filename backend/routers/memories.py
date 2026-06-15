@@ -7,7 +7,8 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import current_user_id
+from backend.single_user import require_api_access
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.memory import MemoryDeleteBackend, MemoryRatingBackend
 from universal_agentic_framework.memory.factory import build_memory_backend
@@ -85,7 +86,7 @@ async def list_memories(
     limit: int = Query(default=50, ge=1, le=500),
     query: Optional[str] = Query(default=None),
     include_related: bool = Query(default=False),
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ):
     cfg = load_core_config()
     backend = build_memory_backend(cfg)
@@ -127,7 +128,7 @@ async def list_memories(
 @router.get("/stats")
 async def memory_stats(
     sample_limit: int = Query(default=500, ge=1, le=5000),
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ):
     cfg = load_core_config()
     backend = build_memory_backend(cfg)
@@ -185,7 +186,7 @@ async def memory_stats(
 @router.get("/{memory_id}")
 async def get_memory(
     memory_id: str,
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ):
     cfg = load_core_config()
     backend = build_memory_backend(cfg)
@@ -209,7 +210,7 @@ async def rate_memory(
     memory_id: str,
     body: MemoryRatingRequest,
     request: Request,
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ):
     """Rate a memory (1-5 stars) for importance scoring."""
     cfg = load_core_config()
@@ -247,7 +248,7 @@ async def rate_memory(
 @router.delete("/{memory_id}")
 async def delete_memory(
     memory_id: str,
-    user_id: str = Depends(get_effective_user_id),
+    user_id: str = Depends(current_user_id),
 ):
     cfg = load_core_config()
     backend = build_memory_backend(cfg)

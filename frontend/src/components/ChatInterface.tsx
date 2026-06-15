@@ -79,7 +79,7 @@ export function ChatInterface() {
     ragEnabled,
     handleRagToggle,
     toolToggles,
-    handleToolToggle,
+    allowedTools,
     selectedChatModel,
     availableChatModels,
     handleModelChange,
@@ -212,13 +212,34 @@ export function ChatInterface() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
+  // Per-chat quick-disabled tools (transient, in-memory): which of the user's
+  // enabled tools are turned off for the current conversation. Kept per conversation
+  // and applied to that chat's inferences only — it never touches saved Settings.
+  const [disabledToolsByConv, setDisabledToolsByConv] = useState<Record<string, string[]>>({});
+  const convKey = activeId ?? "";
+  const chatDisabledTools = disabledToolsByConv[convKey] ?? [];
+
+  const handleChatToolToggle = useCallback(
+    (toolId: string) => {
+      setDisabledToolsByConv((prev) => {
+        const current = prev[convKey] ?? [];
+        const next = current.includes(toolId)
+          ? current.filter((id) => id !== toolId)
+          : [...current, toolId];
+        return { ...prev, [convKey]: next };
+      });
+    },
+    [convKey],
+  );
+
   const buildSendOptions = useCallback(
     () => ({
       attachmentIds: attachments.map((a) => a.id),
       documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
       ragEnabled,
+      disabledTools: disabledToolsByConv[convKey] ?? [],
     }),
-    [attachments, activeWorkspaceDocId, ragEnabled],
+    [attachments, activeWorkspaceDocId, ragEnabled, disabledToolsByConv, convKey],
   );
 
   const flushActiveDocBeforeSend = useCallback(async (): Promise<boolean> => {
@@ -430,7 +451,9 @@ export function ChatInterface() {
             workspaceSidebarOpen={workspaceSidebarOpen}
             onWorkspaceSidebarToggle={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
             toolToggles={toolToggles}
-            onToolToggle={handleToolToggle}
+            onToolToggle={handleChatToolToggle}
+            disabledTools={chatDisabledTools}
+            allowedTools={allowedTools}
             systemConfig={systemConfig}
             selectedChatModel={selectedChatModel}
             availableChatModels={availableChatModels}

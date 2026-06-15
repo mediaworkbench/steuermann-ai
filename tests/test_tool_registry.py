@@ -34,78 +34,62 @@ def test_loads_datetime_tool() -> None:
     assert "datetime_tool" in registry.tools
 
 
-def test_skips_disabled_tool() -> None:
-    registry = ToolRegistry(
-        {
-            "tools": [
-                {
-                    "name": "datetime_tool",
-                    "path": "universal_agentic_framework/tools/datetime",
-                    "enabled": False,
-                }
-            ]
-        },
-        base_dir=_repo_root(),
+def _write_mcp_manifest(tmp_path: Path, *, server_url: str = "http://localhost:9999") -> Path:
+    """Create a temporary ``type: mcp_server`` tool manifest and return its dir."""
+    tool_dir = tmp_path / "temp_mcp"
+    tool_dir.mkdir(parents=True)
+    tool_dir.joinpath("tool.yaml").write_text(
+        f"""
+name: temp_mcp
+type: mcp_server
+config:
+  server_url: {server_url}
+        """,
+        encoding="utf-8",
     )
-
-    tools = registry.discover_and_load()
-
-    assert tools == []
-    assert "datetime_tool" not in registry.tools
+    return tool_dir
 
 
-def test_loads_mcp_stub() -> None:
+def test_loads_mcp_server_tool(tmp_path: Path) -> None:
+    tool_dir = _write_mcp_manifest(tmp_path)
     registry = ToolRegistry(
-        {
-            "tools": [
-                {
-                    "name": "mcp_stub",
-                    "path": "universal_agentic_framework/tools/mcp_stub",
-                    "type": "mcp_server",
-                    "config": {"server_url": "http://localhost:9999"},
-                }
-            ]
-        },
+        {"tools": [{"name": "temp_mcp", "path": str(tool_dir)}]},
         base_dir=_repo_root(),
     )
 
     registry.discover_and_load()
 
-    assert "mcp_stub" in registry.tools
-    tool = registry.tools["mcp_stub"]
+    assert "temp_mcp" in registry.tools
+    tool = registry.tools["temp_mcp"]
     assert isinstance(tool, MCPServerTool)
+    assert tool.server_url == "http://localhost:9999"
     # MCP now makes real HTTP calls, so expect connection failure message
     result = tool._run("ping")
     assert "invocation failed" in result or "Connection refused" in result
 
 
-def test_mcp_manifest_default_config_used() -> None:
+def test_mcp_manifest_default_config_used(tmp_path: Path) -> None:
+    tool_dir = _write_mcp_manifest(tmp_path, server_url="http://manifest-default:9999")
     registry = ToolRegistry(
-        {
-            "tools": [
-                {
-                    "name": "mcp_stub",
-                    # No config override; should fall back to manifest default
-                    "enabled": True,
-                }
-            ]
-        },
+        {"tools": [{"name": "temp_mcp", "path": str(tool_dir)}]},
         base_dir=_repo_root(),
     )
 
     registry.discover_and_load()
 
-    tool = registry.tools["mcp_stub"]
+    tool = registry.tools["temp_mcp"]
     assert isinstance(tool, MCPServerTool)
-    assert tool.server_url == "http://localhost:9999"
+    assert tool.server_url == "http://manifest-default:9999"
 
 
-def test_mcp_config_override_wins() -> None:
+def test_mcp_config_override_wins(tmp_path: Path) -> None:
+    tool_dir = _write_mcp_manifest(tmp_path, server_url="http://manifest-default:9999")
     registry = ToolRegistry(
         {
             "tools": [
                 {
-                    "name": "mcp_stub",
+                    "name": "temp_mcp",
+                    "path": str(tool_dir),
                     "config": {"server_url": "http://override:8888"},
                 }
             ]
@@ -115,29 +99,7 @@ def test_mcp_config_override_wins() -> None:
 
     registry.discover_and_load()
 
-    tool = registry.tools["mcp_stub"]
-    assert tool.server_url == "http://override:8888"
-
-
-def test_mcp_config_can_enable_disabled_manifest() -> None:
-    """Config entry with enabled true should load even if manifest default is false."""
-    registry = ToolRegistry(
-        {
-            "tools": [
-                {
-                    "name": "mcp_stub",
-                    "enabled": True,
-                    "config": {"server_url": "http://localhost:9999"},
-                }
-            ]
-        },
-        base_dir=_repo_root(),
-    )
-
-    registry.discover_and_load()
-
-    assert "mcp_stub" in registry.tools
-    assert isinstance(registry.tools["mcp_stub"], MCPServerTool)
+    assert registry.tools["temp_mcp"].server_url == "http://override:8888"
 
 
 def test_explicit_loading_mode_does_not_auto_discover() -> None:

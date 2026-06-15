@@ -53,8 +53,11 @@ class FakeConversationStore:
     def create_conversation(self, conversation_id: str, user_id: str) -> None:
         self._conversations[conversation_id] = {"id": conversation_id, "user_id": user_id}
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        return self._conversations.get(conversation_id)
+    def get_conversation(self, conversation_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        conv = self._conversations.get(conversation_id)
+        if conv is None or (user_id is not None and conv["user_id"] != user_id):
+            return None
+        return conv
 
     def add_message(self, **kwargs) -> Dict[str, Any]:
         self.messages.append(kwargs)

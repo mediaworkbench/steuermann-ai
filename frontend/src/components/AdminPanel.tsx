@@ -8,6 +8,7 @@ import { DangerOptionsList } from "@/components/product/DangerOptionsList";
 import { DangerSelectionActions } from "@/components/product/DangerSelectionActions";
 import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
+import { RoleToolPermissionsSection } from "@/components/product/RoleToolPermissionsSection";
 import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -38,9 +39,10 @@ const ADMIN_MODEL_ROLES = ["vision", "auxiliary"];
 export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   const { t, formatDateTime } = useI18n();
 
-  // Full rag_config read from server — we only expose collection + threshold here
+  // Full rag_config read from server — we only expose the similarity threshold here.
+  // The collection is shared/locked to the profile config and shown read-only.
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>(
-    settings?.rag_config || { collection: "", top_k: 5, enabled: true }
+    settings?.rag_config || { top_k: 5, enabled: true }
   );
   // Full preferred_models — we only expose vision + auxiliary here
   const [preferredModels, setPreferredModels] = useState<Record<string, string | null>>(
@@ -72,13 +74,8 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
   // Read-modify-write: sync all fields from server on load so saves don't wipe user-owned keys
   useEffect(() => {
     if (settings) {
-      const ragDefault = {
-        collection: systemConfig?.rag_defaults.collection_name || "framework",
-        top_k: systemConfig?.rag_defaults.top_k || 5,
-      };
-      setRagConfig(
-        settings.rag_config && settings.rag_config.collection ? settings.rag_config : ragDefault
-      );
+      const ragDefault = { top_k: systemConfig?.rag_defaults.top_k || 5 };
+      setRagConfig(settings.rag_config || ragDefault);
       setPreferredModels(settings.preferred_models || {});
     }
   }, [settings, systemConfig]);
@@ -282,12 +279,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
             <Label className="mb-2 block">
               {t("settingsPanel.knowledgeCollection", { value: systemConfig?.rag_defaults.collection_name || "framework" })}
             </Label>
-            <Input
-              type="text"
-              value={(ragConfig.collection as string) || systemConfig?.rag_defaults.collection_name || "framework"}
-              onChange={(e) => handleRagConfigChange("collection", e.target.value)}
-              placeholder={systemConfig?.rag_defaults.collection_name || "e.g., framework"}
-            />
+            <p className="text-sm text-muted-foreground">
+              {systemConfig?.rag_defaults.collection_name || "framework"}
+            </p>
           </div>
           <div>
             <Label className="mb-2 block">{t("settingsPanel.similarityThreshold")}</Label>
@@ -345,6 +339,9 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
           </Button>
         </div>
       </Card>
+
+      {/* Per-role tool access (self-contained: loads + saves its own state) */}
+      <RoleToolPermissionsSection />
 
       {/* Danger Zone */}
       <Card className="md:col-span-2 !ring-destructive/30">

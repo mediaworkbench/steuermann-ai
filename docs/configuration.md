@@ -511,15 +511,12 @@ backstory: "" # Missing context
 tools:
   - name: "patient_database"                    # Unique tool identifier
     path: "universal_agentic_framework/tools/patient_database"  # Path relative to repository root
-    enabled: true
 
   - name: "medical_calculator"
     path: "universal_agentic_framework/tools/medical_calculator"
-    enabled: true
 
   - name: "datetime_tool"                        # Built-in framework tool
     path: "universal_agentic_framework/tools/datetime"
-    enabled: true
 ```
 
 **Tool discovery:**
@@ -527,6 +524,7 @@ tools:
 - All tools (built-in and custom) live in `universal_agentic_framework/tools/<name>/`
 - Each tool directory requires `__init__.py`, `tool.py`, and `tool.yaml`
 - All tools must be explicitly listed here to be loaded (`loading_mode: explicit`)
+- There is **no per-tool `enabled` flag** — every listed tool is loaded; remove an entry to stop it loading. Which roles/users may *use* a tool is controlled at runtime (admin per-role allowlist in the `role_tool_permissions` table + per-user `tool_toggles`), enforced server-side in `node_load_tools`. See [tools.md § Controlling Tool Access](tools.md#controlling-tool-access).
 - A `plugins/` directory for profile-specific tools is planned but does not exist yet
 
 ---
@@ -712,6 +710,37 @@ CHAT_WORKSPACE_RETENTION_HOURS=24
 DEBUG=false
 LOG_LEVEL=INFO
 ```
+
+### Authentication
+
+```bash
+# Master switch. false → single bootstrap-admin dev bypass (no login). true → DB-backed
+# multi-user login. Shared by the FastAPI and Next.js containers (one value).
+AUTH_ENABLED=true
+
+# Bootstrap administrator, seeded into the users table on first start.
+AUTH_USERNAME=admin
+AUTH_ADMIN_EMAIL=admin@example.com
+# argon2id hash of the bootstrap password. Generate with:
+#   poetry run python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('your-password'))"
+# Wrap in single quotes in .env so the '$' chars stay literal under Docker Compose.
+AUTH_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'
+
+# JWT signing secret for the session cookie. Generate: python -c "import secrets; print(secrets.token_hex(32))"
+AUTH_SESSION_SECRET=change-me
+
+# Shared proxy↔backend secret. The backend is internal-only and trusts identity/role headers
+# only from the proxy, which authenticates this token. Generate as above.
+CHAT_ACCESS_TOKEN=change-me
+
+# Role assumed by the AUTH_ENABLED=false dev bypass. Values: user | researcher | administrator
+NEXT_PUBLIC_AUTH_USER_ROLE=administrator
+```
+
+Roles are fixed: **user**, **researcher** (user + RAG explorer), **administrator** (full access +
+user management). Additional accounts are created in-app at `/admin/users` (administrator only) —
+each receives a one-time temporary password and must change it on first login. Passwords are
+hashed/verified with argon2id on the backend.
 
 LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=false` to disable probing globally, or `LLM_CAPABILITY_PROBE_ON_STARTUP=false` to keep probing enabled but skip the automatic startup probe.
 

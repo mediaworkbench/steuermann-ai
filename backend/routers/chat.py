@@ -24,7 +24,8 @@ from backend.circuit_breaker import (
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
 from backend.db import SettingsStore, WorkspaceVersionConflictError
 from backend.rate_limit import limiter
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import ADMIN_ROLE, CurrentUser, resolve_current_user
+from backend.single_user import require_api_access
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
@@ -164,6 +165,9 @@ class ChatRequest(BaseModel):
     document_ids: List[str] = Field(default_factory=list, max_length=20)
     preferred_model: Optional[str] = Field(default=None, max_length=256)
     rag_enabled: Optional[bool] = None  # Per-message override; None = use stored user setting
+    # Tools the user quick-disabled for *this* chat in the composer. Applied to this
+    # inference only (never persisted to the user's saved settings).
+    disabled_tools: List[str] = Field(default_factory=list, max_length=100)
     workspace_action: Optional["WorkspaceActionRequest"] = None
 
     @field_validator("user_id")
@@ -586,6 +590,7 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
 
 async def _generate_conversation_title(
     conversation_id: str,
+    user_id: str,
     user_message: str,
     assistant_message: str,
     conv_store,
@@ -619,7 +624,7 @@ async def _generate_conversation_title(
             resp.raise_for_status()
             title = resp.json()["choices"][0]["message"]["content"].strip()
             if title:
-                conv_store.update_conversation(conversation_id, title=title)
+                conv_store.update_conversation(conversation_id, user_id, title=title)
                 logger.debug("Auto-title generated for conversation %s: %s", conversation_id, title)
     except Exception as exc:
         logger.debug("Auto-title generation failed (non-critical): %s", exc)
@@ -800,11 +805,9 @@ def _execute_workspace_action(
         except Exception as exc:
             logger.warning("Failed to log workspace operation: %s", exc)
 
-    conv = conversation_store.get_conversation(conversation_id)
+    conv = conversation_store.get_conversation(conversation_id, effective_user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if conv.get("user_id") != effective_user_id:
-        raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
     if action.operation == "copy_to_workspace":
         if not action.attachment_id:
@@ -1123,6 +1126,22 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     return settings
 
 
+def _resolve_allowed_tools(request: Request, current_user: CurrentUser) -> Optional[List[str]]:
+    """Resolve the role's tool allowlist for server-side enforcement in the graph.
+
+    Returns ``None`` (no restriction) for administrators or when no role-tool store
+    is wired (defensive — some unit/dev setups). For other roles returns the stored
+    allowlist, or ``[]`` (block all) when the role has no row — fail-closed.
+    """
+    if current_user.role == ADMIN_ROLE:
+        return None
+    store = getattr(request.app.state, "role_tool_store", None)
+    if store is None:
+        return None
+    allowed = store.get_allowed_tools(current_user.role)
+    return allowed if allowed is not None else []
+
+
 def _clear_invalid_chat_model_preference(
     user_id: str,
     settings_store: SettingsStore,
@@ -1313,12 +1332,36 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
         return normalized_request, None
 
 
+def _require_conversation_ownership(request: Request, conversation_id: Optional[str], user_id: str) -> None:
+    """Reject a request whose conversation_id is not owned by the authenticated user.
+
+    A provided conversation_id becomes the LangGraph checkpoint thread (its history is
+    merged into the prompt) and the persistence target, so it must belong to the caller —
+    otherwise another user's history could be read or written via a known conversation id.
+    Empty/absent ids are ephemeral and allowed.
+    """
+    cid = (conversation_id or "").strip()
+    if not cid:
+        return
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None:
+        return
+    if store.get_conversation(cid, user_id) is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
-async def chat(request: Request, request_body: ChatRequest, background_tasks: BackgroundTasks) -> ChatResponse:
+async def chat(
+    request: Request,
+    request_body: ChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(resolve_current_user),
+) -> ChatResponse:
     """Route a chat request to the LangGraph container."""
     start_time = time.time()
-    effective_user_id = get_effective_user_id(request_body.user_id)
+    effective_user_id = current_user.user_id
+    _require_conversation_ownership(request, request_body.conversation_id, effective_user_id)
 
     if request_body.workspace_action is not None:
         workspace_result = _execute_workspace_action(request, request_body, effective_user_id)
@@ -1359,6 +1402,16 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
         rag_cfg["enabled"] = request_body.rag_enabled
         user_settings["rag_config"] = rag_cfg
 
+    # Per-chat quick-disabled tools: overlay onto tool_toggles for THIS inference only
+    # (the role gate still runs first; this never re-enables a disallowed tool, and is
+    # never persisted to the user's saved settings).
+    if request_body.disabled_tools:
+        user_settings = dict(user_settings)
+        toggles = dict(user_settings.get("tool_toggles") or {})
+        for tool_id in request_body.disabled_tools:
+            toggles[tool_id] = False
+        user_settings["tool_toggles"] = toggles
+
     # Language source of truth: user settings → API request fallback → profile default
     effective_language = user_settings.get("language") or request_body.language or "en"
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
@@ -1376,6 +1429,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,  # Forward settings to LangGraph
+        "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": request_body.conversation_id} if request_body.conversation_id else {}),
         "attachments": [
@@ -1601,6 +1655,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
                 background_tasks.add_task(
                     _generate_conversation_title,
                     conversation_id=conversation_id,
+                    user_id=effective_user_id,
                     user_message=request_body.message,
                     assistant_message=assistant_msg,
                     conv_store=conv_store,
@@ -1663,6 +1718,7 @@ async def chat(request: Request, request_body: ChatRequest, background_tasks: Ba
 async def chat_stream(
     request: Request,
     request_body: ChatRequest,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Stream a chat request to LangGraph as Server-Sent Events.
 
@@ -1674,7 +1730,8 @@ async def chat_stream(
     writeback_pending, writeback, error. Terminates with ``data: [DONE]``.
     """
     start_time = time.time()
-    effective_user_id = get_effective_user_id(request_body.user_id)
+    effective_user_id = current_user.user_id
+    _require_conversation_ownership(request, request_body.conversation_id, effective_user_id)
 
     # workspace_action fast-path — never stream these
     if request_body.workspace_action is not None:
@@ -1711,6 +1768,16 @@ async def chat_stream(
         rag_cfg["enabled"] = request_body.rag_enabled
         user_settings["rag_config"] = rag_cfg
 
+    # Per-chat quick-disabled tools: overlay onto tool_toggles for THIS inference only
+    # (the role gate still runs first; this never re-enables a disallowed tool, and is
+    # never persisted to the user's saved settings).
+    if request_body.disabled_tools:
+        user_settings = dict(user_settings)
+        toggles = dict(user_settings.get("tool_toggles") or {})
+        for tool_id in request_body.disabled_tools:
+            toggles[tool_id] = False
+        user_settings["tool_toggles"] = toggles
+
     effective_language = user_settings.get("language") or request_body.language or "en"
     attachments = _resolve_request_attachments(request, request_body, effective_user_id)
     documents = _resolve_workspace_documents(request, request_body, effective_user_id, attachments=attachments)
@@ -1741,6 +1808,7 @@ async def chat_stream(
         "user_id": effective_user_id,
         "language": effective_language,
         "user_settings": user_settings,
+        "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": conversation_id} if conversation_id else {}),
         "turn_id": turn_id,
@@ -2007,6 +2075,7 @@ async def chat_stream(
                                             asyncio.create_task(
                                                 _generate_conversation_title(
                                                     conversation_id=conversation_id,
+                                                    user_id=effective_user_id,
                                                     user_message=request_body.message,
                                                     assistant_message="".join(_accumulated_tokens),
                                                     conv_store=_conv_store,

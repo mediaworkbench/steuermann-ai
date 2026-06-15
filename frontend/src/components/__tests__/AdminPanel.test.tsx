@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import {
   fetchLLMCapabilities,
   fetchSystemConfig,
+  fetchRoleTools,
   resetAllDatabases,
 } from "@/lib/api";
 
@@ -12,6 +13,8 @@ jest.mock("@/hooks/useI18n");
 jest.mock("@/lib/api", () => ({
   fetchLLMCapabilities: jest.fn(),
   fetchSystemConfig: jest.fn(),
+  fetchRoleTools: jest.fn(),
+  updateRoleTools: jest.fn(),
   triggerReingestAllDocuments: jest.fn(),
   resetAllDatabases: jest.fn(),
 }));
@@ -19,6 +22,7 @@ jest.mock("@/lib/api", () => ({
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
 const mockFetchLLMCapabilities = fetchLLMCapabilities as jest.MockedFunction<typeof fetchLLMCapabilities>;
+const mockFetchRoleTools = fetchRoleTools as jest.MockedFunction<typeof fetchRoleTools>;
 const mockResetAllDatabases = resetAllDatabases as jest.MockedFunction<typeof resetAllDatabases>;
 
 const BASE_SETTINGS = {
@@ -65,7 +69,8 @@ describe("AdminPanel", () => {
     mockUseI18n.mockReturnValue({
       locale: "en",
       setLocale: jest.fn(),
-      t: (key: string) => key,
+      t: (key: string, params?: Record<string, string | number>) =>
+        params ? `${key}|${Object.values(params).join("|")}` : key,
       formatDate: () => "",
       formatTime: () => "",
       formatDateTime: (value: string | number | Date) => String(value),
@@ -73,8 +78,16 @@ describe("AdminPanel", () => {
       formatRelativeTime: () => "",
     });
 
+    mockFetchRoleTools.mockResolvedValue({
+      tools: [
+        { id: "web_search_mcp", label: "Web Search", group: "text" },
+        { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
+      ],
+      roles: { user: ["web_search_mcp"], researcher: [] },
+    });
+
     mockFetchSystemConfig.mockResolvedValue({
-      available_tools: [{ id: "web_search_mcp", label: "Web Search" }],
+      available_tools: [{ id: "web_search_mcp", label: "Web Search", group: "text" }],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "openai/test-model",
       framework_version: "0.3.0",
@@ -126,7 +139,8 @@ describe("AdminPanel", () => {
     await screen.findAllByText("openai/test-model");
     expect(await axe(container)).toHaveNoViolations();
     expect(screen.getByText("probe_stale_forced_structured")).toBeInTheDocument();
-    expect(screen.getByText("settingsPanel.capabilitiesTtl")).toBeInTheDocument();
+    // The TTL label is rendered with an interpolated value (key|seconds in the test t()).
+    expect(screen.getByText((c) => c.includes("settingsPanel.capabilitiesTtl"))).toBeInTheDocument();
     expect(screen.queryByText("settingsPanel.capabilitiesLoading")).not.toBeInTheDocument();
   });
 
@@ -260,14 +274,10 @@ describe("AdminPanel", () => {
     render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
     await screen.findByText("adminPage.modelSection");
-    const selects = await screen.findAllByRole("combobox");
-    const hasVision = selects.some((el) =>
-      Array.from((el as HTMLSelectElement).options).some((o) => o.value.includes("vision-model"))
-    );
-    const hasAux = selects.some((el) =>
-      Array.from((el as HTMLSelectElement).options).some((o) => o.value.includes("aux-model"))
-    );
-    expect(hasVision).toBe(true);
-    expect(hasAux).toBe(true);
+    // The admin system-model section exposes vision + auxiliary roles…
+    await screen.findByText("settingsPanel.roleModelLabel|vision");
+    expect(screen.getByText("settingsPanel.roleModelLabel|auxiliary")).toBeInTheDocument();
+    // …but never the user-facing chat role.
+    expect(screen.queryByText("settingsPanel.roleModelLabel|chat")).not.toBeInTheDocument();
   });
 });

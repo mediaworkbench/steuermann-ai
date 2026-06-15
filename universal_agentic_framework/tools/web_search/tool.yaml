@@ -4,6 +4,7 @@
 
 name: "web_search_mcp"
 version: "1.0.0"
+category: "text"
 type: "mcp_server"
 description: |
   Web search and content extraction MCP server.

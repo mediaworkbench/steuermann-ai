@@ -91,14 +91,17 @@ class FakeConversationStore:
         total = len(result)
         return result[offset : offset + limit], total
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        return self._conversations.get(conversation_id)
+    def get_conversation(self, conversation_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        conv = self._conversations.get(conversation_id)
+        if conv is None or conv["user_id"] != user_id:
+            return None
+        return conv
 
     def update_conversation(
-        self, conversation_id: str, **fields: Any
+        self, conversation_id: str, user_id: str, **fields: Any
     ) -> Optional[Dict[str, Any]]:
         conv = self._conversations.get(conversation_id)
-        if not conv:
+        if not conv or conv["user_id"] != user_id:
             return None
         for k, v in fields.items():
             if k in {"title", "pinned", "language", "metadata"}:
@@ -106,8 +109,9 @@ class FakeConversationStore:
         conv["updated_at"] = datetime.now(timezone.utc).isoformat()
         return conv
 
-    def delete_conversation(self, conversation_id: str) -> bool:
-        if conversation_id in self._conversations:
+    def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
+        conv = self._conversations.get(conversation_id)
+        if conv is not None and conv["user_id"] == user_id:
             del self._conversations[conversation_id]
             self._messages = [
                 m for m in self._messages if m["conversation_id"] != conversation_id
@@ -151,18 +155,18 @@ class FakeConversationStore:
         return msgs[offset : offset + limit]
 
     def update_message_feedback(
-        self, message_id: int, feedback: Optional[str]
+        self, message_id: int, feedback: Optional[str], conversation_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         for m in self._messages:
-            if m["id"] == message_id:
+            if m["id"] == message_id and (conversation_id is None or m["conversation_id"] == conversation_id):
                 m["feedback"] = feedback
                 return m
         return None
 
     def export_conversation(
-        self, conversation_id: str, fmt: str = "json"
+        self, conversation_id: str, user_id: str, fmt: str = "json"
     ) -> Optional[Any]:
-        conv = self.get_conversation(conversation_id)
+        conv = self.get_conversation(conversation_id, user_id)
         if not conv:
             return None
         msgs = self.get_messages(conversation_id, limit=10000)
@@ -879,3 +883,48 @@ class TestUpdateAssistantNodeTraceByTurn:
     def test_no_match_returns_false(self):
         store, _pool = self._store(rowcount=0)
         assert store.update_assistant_node_trace_by_turn("missing", []) is False
+
+
+class TestOwnershipIsolation:
+    """A user must never reach another user's conversation (cross-user 404s)."""
+
+    def _seed_other_users_conversation(self, fake_store):
+        # Caller is "u1" (dev bypass); seed a conversation owned by "u2".
+        fake_store.create_conversation("other-conv", "u2", title="Secret")
+        fake_store.add_message(conversation_id="other-conv", role="user", content="hi")
+
+    def test_get_other_users_conversation_404(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        assert client.get("/api/conversations/other-conv").status_code == 404
+
+    def test_patch_other_users_conversation_404(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        resp = client.patch("/api/conversations/other-conv", json={"title": "hacked"})
+        assert resp.status_code == 404
+        assert fake_store._conversations["other-conv"]["title"] == "Secret"
+
+    def test_delete_other_users_conversation_404(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        assert client.delete("/api/conversations/other-conv").status_code == 404
+        assert "other-conv" in fake_store._conversations
+
+    def test_export_other_users_conversation_404(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        assert client.get("/api/conversations/other-conv/export").status_code == 404
+
+    def test_list_excludes_other_users(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        fake_store.create_conversation("mine", "u1", title="Mine")
+        body = client.get("/api/conversations").json()
+        ids = {c["id"] for c in body["conversations"]}
+        assert ids == {"mine"}
+
+    def test_feedback_on_other_users_message_404(self, client, fake_store):
+        self._seed_other_users_conversation(fake_store)
+        # Attempt to rate u2's message through u2's conversation as u1.
+        msg_id = fake_store._messages[-1]["id"]
+        resp = client.patch(
+            f"/api/conversations/other-conv/messages/{msg_id}/feedback",
+            json={"feedback": "up"},
+        )
+        assert resp.status_code == 404

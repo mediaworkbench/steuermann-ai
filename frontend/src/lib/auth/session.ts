@@ -1,7 +1,14 @@
 import { SignJWT } from "jose/jwt/sign";
 import { jwtVerify } from "jose/jwt/verify";
+import { MIN_SESSION_SECRET_LENGTH, isWeakSessionSecret } from "@/lib/auth/sessionSecret";
 
-export type UserRole = "user" | "administrator";
+export type UserRole = "user" | "researcher" | "administrator";
+
+const VALID_ROLES: readonly UserRole[] = ["user", "researcher", "administrator"];
+
+function normalizeRole(value: unknown): UserRole {
+  return VALID_ROLES.includes(value as UserRole) ? (value as UserRole) : "user";
+}
 
 export interface SessionUser {
   userId: string;
@@ -9,6 +16,7 @@ export interface SessionUser {
   displayName: string;
   email: string;
   role: UserRole;
+  mustChangePassword: boolean;
 }
 
 const SESSION_COOKIE_NAME = "uaf_session";
@@ -16,10 +24,26 @@ const SESSION_ISSUER = "steuermann-ai";
 const SESSION_AUDIENCE = "steuermann-ai-ui";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
+let _warnedWeakSecret = false;
+
 function getSessionSecret(): Uint8Array {
   const secret = process.env.AUTH_SESSION_SECRET?.trim();
   if (!secret) {
     throw new Error("AUTH_SESSION_SECRET is required when authentication is enabled");
+  }
+  if (isWeakSessionSecret(secret)) {
+    if (process.env.NODE_ENV === "production") {
+      // Fail closed: a default/short secret means JWTs are trivially forgeable.
+      throw new Error(
+        "AUTH_SESSION_SECRET is weak or a known default — set a strong value " +
+          `(≥ ${MIN_SESSION_SECRET_LENGTH} chars, e.g. \`python -c "import secrets; print(secrets.token_hex(32))"\`) in production.`
+      );
+    } else if (!_warnedWeakSecret) {
+      _warnedWeakSecret = true;
+      console.warn(
+        `[auth] AUTH_SESSION_SECRET is weak/default — acceptable for local dev, but set a strong value (≥ ${MIN_SESSION_SECRET_LENGTH} chars) before deploying.`
+      );
+    }
   }
   return new TextEncoder().encode(secret);
 }
@@ -49,6 +73,7 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
     displayName: user.displayName,
     email: user.email,
     role: user.role,
+    mustChangePassword: user.mustChangePassword,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.userId)
@@ -74,7 +99,8 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
     const username = typeof payload.username === "string" ? payload.username : "";
     const displayName = typeof payload.displayName === "string" ? payload.displayName : username;
     const email = typeof payload.email === "string" ? payload.email : "";
-    const role: UserRole = payload.role === "administrator" ? "administrator" : "user";
+    const role = normalizeRole(payload.role);
+    const mustChangePassword = payload.mustChangePassword === true;
 
     if (!userId || !username) {
       return null;
@@ -86,6 +112,7 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
       displayName,
       email,
       role,
+      mustChangePassword,
     };
   } catch {
     return null;

@@ -442,9 +442,12 @@ class TestResolveRagConfig:
         assert cfg["pill_score_threshold"] == 0.7
         assert cfg["timeout_seconds"] == 45
 
-    def test_user_collection_overrides_system(self):
-        cfg = resolve_rag_config({"collection": "user-col"}, self._sys_cfg())
-        assert cfg["collection_name"] == "user-col"
+    def test_user_collection_is_ignored_corpus_locked(self):
+        # The corpus is shared/locked: a per-user collection override is ignored, while
+        # other knobs (top_k) still apply.
+        cfg = resolve_rag_config({"collection": "user-col", "top_k": 3}, self._sys_cfg())
+        assert cfg["collection_name"] == "sys-collection"
+        assert cfg["top_k"] == 3
 
     def test_user_top_k_overrides_system(self):
         cfg = resolve_rag_config({"top_k": 3}, self._sys_cfg())

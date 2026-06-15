@@ -144,6 +144,8 @@ theme:
     assert body["profile"]["role_label"] == "Clinical Assistant"
     assert body["profile"]["app_name"] == "Med Console"
     assert body["available_tools"][0]["id"] == "datetime_tool"
+    # Catalog items carry a UI group resolved from the tool manifest category.
+    assert body["available_tools"][0]["group"] in {"text", "vision", "auxiliary"}
 
 
 def test_system_config_context_window_override_wins(monkeypatch, tmp_path):
@@ -394,7 +396,7 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _valid_model)
 
     response = client.post(
-        "/api/settings/user/u1",
+        "/api/settings/me",
         json={
             "analytics_preferences": {
                 "usage": {"showRequests": False}
@@ -424,7 +426,7 @@ def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
     monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _invalid_model)
 
     response = client.post(
-        "/api/settings/user/u1",
+        "/api/settings/me",
         json={
             "preferred_model": "user2-model",
             "theme": "auto",

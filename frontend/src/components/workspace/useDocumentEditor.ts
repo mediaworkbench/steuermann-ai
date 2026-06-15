@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { uploadConversationAttachment } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { ConversationAttachment } from "@/lib/types";
 import type { WorkspaceDocument } from "./types";
 import { mimeTypeForFilename, workspaceAuthHeaders } from "./utils";
@@ -211,7 +210,7 @@ export function useDocumentEditor({
     }
 
     try {
-      const uploaded = await uploadConversationAttachment(conversationId, file, CURRENT_USER_ID);
+      const uploaded = await uploadConversationAttachment(conversationId, file);
       if (!uploaded) {
         toast.error(t("workspace.reattachFailed"), { description: t("workspace.attachToChat") });
         return;

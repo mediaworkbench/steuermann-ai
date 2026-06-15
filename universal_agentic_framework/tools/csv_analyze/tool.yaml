@@ -1,4 +1,5 @@
 name: "csv_analyze_tool"
+category: "text"
 type: "langchain_tool"
 entry_point: "universal_agentic_framework.tools.csv_analyze.tool:CsvAnalyzeTool"
 descriptions:

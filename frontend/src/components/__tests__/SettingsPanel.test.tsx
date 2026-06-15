@@ -39,7 +39,8 @@ describe("SettingsPanel (user controls)", () => {
     mockUseI18n.mockReturnValue({
       locale: "en",
       setLocale: jest.fn(),
-      t: (key: string) => key,
+      t: (key: string, params?: Record<string, string | number>) =>
+        params ? `${key}|${Object.values(params).join("|")}` : key,
       formatDate: () => "",
       formatTime: () => "",
       formatDateTime: (value: string | number | Date) => String(value),
@@ -49,8 +50,8 @@ describe("SettingsPanel (user controls)", () => {
 
     mockFetchSystemConfig.mockResolvedValue({
       available_tools: [
-        { id: "web_search_mcp", label: "Web Search" },
-        { id: "calculator_tool", label: "Calculator" },
+        { id: "web_search_mcp", label: "Web Search", group: "text" },
+        { id: "calculator_tool", label: "Calculator", group: "auxiliary" },
       ],
       rag_defaults: { collection_name: "framework", top_k: 5 },
       default_model: "openai/test-model",
@@ -98,14 +99,11 @@ describe("SettingsPanel (user controls)", () => {
   test("shows only the chat model role, not vision or auxiliary", async () => {
     render(<SettingsPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    // Wait for model config to finish loading (cards appear after loading)
-    await screen.findByText("settingsPanel.roleModelLabel");
-    // vision role should not appear — it's admin-only
-    const selects = screen.getAllByRole("combobox");
-    const hasVisionOption = selects.some((el) =>
-      Array.from((el as HTMLSelectElement).options).some((o) => o.value.includes("vision-model"))
-    );
-    expect(hasVisionOption).toBe(false);
+    // The chat-role model selector appears once system config loads.
+    await screen.findByText("settingsPanel.roleModelLabel|chat");
+    // Vision/auxiliary roles are admin-only — never shown in user settings.
+    expect(screen.queryByText("settingsPanel.roleModelLabel|vision")).not.toBeInTheDocument();
+    expect(screen.queryByText("settingsPanel.roleModelLabel|auxiliary")).not.toBeInTheDocument();
   });
 
   test("does not render LLM capabilities table (admin feature)", async () => {
@@ -140,6 +138,15 @@ describe("SettingsPanel (user controls)", () => {
         })
       );
     });
+  });
+
+  test("hides tools not allowed for the user's role", async () => {
+    const restricted = { ...BASE_SETTINGS, allowed_tools: ["calculator_tool"] };
+    render(<SettingsPanel settings={restricted} loading={false} onSave={jest.fn()} />);
+
+    // Allowed tool is shown; disallowed tool is filtered out entirely.
+    await screen.findByText("Calculator");
+    expect(screen.queryByText("Web Search")).not.toBeInTheDocument();
   });
 
   test("save payload includes all settings fields (read-modify-write)", async () => {

@@ -1,6 +1,6 @@
 name: "file_ops_tool"
 version: "1.0.0"
-category: "utilities"
+category: "text"
 description: "Read, write, and list files and directories within a sandboxed workspace"
 
 # Language-specific descriptions (used by semantic tool routing)

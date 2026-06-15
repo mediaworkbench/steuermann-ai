@@ -2,6 +2,20 @@ import os
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_auth_env(monkeypatch):
+    """Keep tests independent of the deployment's `.env`.
+
+    The langsmith pytest plugin auto-loads `.env` into the process, so a real
+    `AUTH_ENABLED=true` / `CHAT_ACCESS_TOKEN` would otherwise leak into unit tests that
+    assume the single-user dev bypass. Default both off here; tests that exercise auth set
+    them explicitly (via their own ``monkeypatch.setenv`` / ``patch.dict``), which runs
+    after this fixture and takes precedence.
+    """
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+
+
 # Ensure config placeholder substitution succeeds in tests that call load_core_config() directly.
 os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
 os.environ.setdefault("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/v1")

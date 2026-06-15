@@ -14,7 +14,6 @@ import { useStreamingChat } from "@/hooks/useStreamingChat";
 import { fetchConversation } from "@/lib/api";
 import { toUiMessage } from "@/lib/messageMapping";
 import { isPostResponseNode } from "@/lib/nodeTrace";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import type { WritebackPending } from "@/hooks/useStreamingChat";
 import type { ChatResponse, Message, NodeTraceEntry } from "@/lib/types";
 
@@ -38,6 +37,7 @@ export interface SendMessageOptions {
   attachmentIds?: string[];
   documentIds?: string[];
   ragEnabled?: boolean;
+  disabledTools?: string[]; // tools quick-disabled for this chat (this inference only)
   replaceFromIndex?: number;
 }
 
@@ -411,7 +411,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
 
   const sendMessage = useCallback(
     async (userMessage: string, opts: SendMessageOptions = {}) => {
-      const { attachmentIds = [], documentIds = [], ragEnabled = true, replaceFromIndex } = opts;
+      const { attachmentIds = [], documentIds = [], ragEnabled = true, disabledTools = [], replaceFromIndex } = opts;
       let convId = activeId;
       const isFirstMessage = messages.length === 0 || replaceFromIndex === 0;
       if (!convId) {
@@ -454,11 +454,11 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
 
       await startStream({
         message: userMessage,
-        userId: CURRENT_USER_ID,
         conversationId: convId,
         attachmentIds,
         documentIds,
         ragEnabled,
+        disabledTools,
       });
 
       setLoading(false);

@@ -6,8 +6,9 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from backend.auth import CurrentUser, resolve_current_user
 from backend.db import AnalyticsStore
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.single_user import require_api_access
 
 
 router = APIRouter(prefix="/api", tags=["analytics"], dependencies=[Depends(require_api_access)])
@@ -100,7 +101,6 @@ async def get_cost_projection(
 
 @router.post("/analytics/log-event")
 async def log_event(
-    user_id: str | None = Query(default=None),
     event_type: str = Query(...),
     model_name: str | None = Query(default=None),
     tokens_used: int | None = Query(default=None),
@@ -108,10 +108,11 @@ async def log_event(
     status: str = Query(default="success"),
     profile_name: str | None = Query(default=None),
     request: Request = None,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, str]:
     """Log an analytics event."""
     store = _get_analytics_store(request)
-    effective_user_id = get_effective_user_id(user_id)
+    effective_user_id = current_user.user_id
     success = store.log_event(
         user_id=effective_user_id,
         event_type=event_type,

@@ -99,6 +99,10 @@ def resolve_rag_config(
 
     Returns a flat dict with keys: collection_name, top_k, pill_score_threshold,
     with_payload, with_vector, timeout_seconds.
+
+    The RAG corpus is shared across all users: ``collection_name`` always comes from the
+    profile/system config and is **never** overridable per user. Only non-corpus knobs
+    (``top_k``, ``pill_score_threshold``, ``timeout_seconds``) honor user overrides.
     """
     resolved: dict = {
         "collection_name": None,
@@ -118,10 +122,9 @@ def resolve_rag_config(
         resolved["with_vector"] = system_rag_config.with_vectors
         resolved["timeout_seconds"] = system_rag_config.timeout_seconds
 
-    # User overrides on top of system baseline
+    # User overrides on top of system baseline. NOTE: collection_name is intentionally
+    # NOT overridable — the corpus is shared and locked to the profile config.
     if user_rag_config:
-        if user_rag_config.get("collection"):
-            resolved["collection_name"] = user_rag_config["collection"]
         if user_rag_config.get("top_k") is not None:
             resolved["top_k"] = user_rag_config["top_k"]
         if user_rag_config.get("pill_score_threshold") is not None:

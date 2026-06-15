@@ -16,8 +16,8 @@ The framework supports two types of tools:
 **Discovery flow:**
 
 1. `ToolRegistry` scans `tools/` subdirectories for `tool.yaml` manifests
-2. Merges with `config/profiles/<id>/tools.yaml` overrides (profile can enable/disable)
-3. Loads enabled tools into `BaseTool` instances
+2. Merges with `config/profiles/<id>/tools.yaml` (which tools to load + per-tool config overrides)
+3. Loads every listed tool into a `BaseTool` instance (per-role/per-user access is enforced later, at request time)
 4. Graph node `node_load_tools` populates `GraphState.loaded_tools`
 5. `node_prefilter_tools` scores queries against tool descriptions and selects candidates for model-driven calling
 
@@ -39,7 +39,7 @@ universal_agentic_framework/tools/my_tool/
 ```yaml
 name: "my_tool"
 version: "1.0.0"
-category: "utilities"              # utilities, information_retrieval, communication
+category: "auxiliary"              # text | vision | auxiliary — drives the UI tool group (text/vision/auxiliary columns); anything else falls back to "auxiliary"
 description: "Short description for fallback"
 
 # These descriptions drive semantic routing — quality matters!
@@ -137,10 +137,11 @@ tools:
   # ... existing tools ...
   - name: my_tool
     path: universal_agentic_framework/tools/my_tool
-    enabled: true
     config:                        # Override tool.yaml defaults
       my_param: "custom_value"
 ```
+
+> There is no per-tool `enabled` flag — every entry listed in `tools.yaml` is loaded. Which roles/users may actually *use* a tool is controlled at runtime (admin per-role allowlist + per-user toggles); see [tools.md § Controlling Tool Access](tools.md#controlling-tool-access).
 
 ---
 
@@ -194,14 +195,12 @@ Multiple config entries can point to the same server with different `default_too
 tools:
   - name: my_mcp_search
     path: universal_agentic_framework/tools/my_mcp
-    enabled: true
     config:
       server_url: $MY_MCP_URL
       default_tool: search
 
   - name: my_mcp_extract
     path: universal_agentic_framework/tools/my_mcp
-    enabled: true
     config:
       server_url: $MY_MCP_URL
       default_tool: extract

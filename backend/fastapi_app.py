@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from backend.attachments import ChatAttachmentManager, ChatWorkspaceManager, UserWorkspaceFileManager
+from backend.routers.admin_users import router as admin_users_router
+from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
 from backend.routers.metrics import router as metrics_router
 from backend.routers.settings import router as settings_router
@@ -23,11 +25,13 @@ from backend.routers.rag_search import router as rag_search_router
 from backend.db import (
     LLMCapabilityProbeStore,
     SettingsStore,
+    RoleToolPermissionStore,
     AnalyticsStore,
     ConversationStore,
     ConversationAttachmentStore,
     ConversationWorkspaceStore,
     WorkspaceDocumentStore,
+    UserStore,
     init_db_pool,
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
@@ -182,6 +186,30 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _seed_default_role_tool_permissions(role_tool_store: RoleToolPermissionStore) -> None:
+    """Grant 'user' and 'researcher' the full tool catalog when unconfigured.
+
+    Idempotent: only seeds a role that has no row yet, so it never clobbers an
+    admin's saved allowlist. Failures never block startup.
+    """
+    from backend.auth import RESEARCHER_ROLE, USER_ROLE
+    from backend.routers.settings import _catalog_tool_ids
+
+    try:
+        catalog_ids = _catalog_tool_ids()
+    except Exception as exc:  # pragma: no cover - never block startup on seeding
+        logger.error("Failed to load tool catalog for role seeding: %s", exc)
+        return
+
+    for role in (USER_ROLE, RESEARCHER_ROLE):
+        try:
+            if role_tool_store.get_allowed_tools(role) is None:
+                role_tool_store.set_allowed_tools(role, catalog_ids)
+                logger.info("Seeded default tool permissions for role '%s'", role)
+        except Exception as exc:  # pragma: no cover - never block startup on seeding
+            logger.error("Failed to seed tool permissions for role '%s': %s", role, exc)
+
+
 def _build_chat_workspace_config() -> dict[str, object]:
     attachments_root = os.getenv("CHAT_ATTACHMENTS_ROOT", "/tmp/steuermann-ai/chat-workspaces")
     workspace_root = os.getenv("CHAT_WORKSPACE_ROOT", "").strip() or None
@@ -222,6 +250,32 @@ async def lifespan(app: FastAPI):
     app.state.conversation_attachment_store = ConversationAttachmentStore(db_pool)
     app.state.conversation_workspace_store = ConversationWorkspaceStore(db_pool)
     app.state.workspace_document_store = WorkspaceDocumentStore(db_pool)
+    app.state.user_store = UserStore(db_pool)
+    app.state.role_tool_store = RoleToolPermissionStore(db_pool)
+
+    # Seed default role→tool permissions so a fresh deployment grants 'user' and
+    # 'researcher' the full tool catalog (admins narrow from there). Only seeds when
+    # a role has no row — never overrides admin edits. A still-missing row stays
+    # fail-closed (block all) at request time.
+    _seed_default_role_tool_permissions(app.state.role_tool_store)
+
+    # Seed the bootstrap administrator from env config (idempotent — no-op if it exists).
+    admin_username = os.getenv("AUTH_USERNAME", "").strip()
+    admin_hash = os.getenv("AUTH_PASSWORD_HASH", "").strip()
+    admin_email = os.getenv("AUTH_ADMIN_EMAIL", "").strip() or f"{admin_username or 'admin'}@example.com"
+    if admin_username and admin_hash:
+        try:
+            seeded = app.state.user_store.seed_bootstrap_admin(
+                username=admin_username, email=admin_email, password_hash=admin_hash
+            )
+            if seeded:
+                logger.info("Seeded bootstrap administrator '%s'", admin_username)
+        except Exception as exc:  # pragma: no cover - never block startup on seeding
+            logger.error("Failed to seed bootstrap administrator: %s", exc)
+    else:
+        logger.warning(
+            "Bootstrap admin not seeded: AUTH_USERNAME and/or AUTH_PASSWORD_HASH are unset."
+        )
 
     attachment_manager = ChatAttachmentManager()
     app.state.chat_attachment_manager = attachment_manager
@@ -262,6 +316,8 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID"],
     )
 
+    app.include_router(auth_router)
+    app.include_router(admin_users_router)
     app.include_router(chat_router)
     app.include_router(settings_router)
     app.include_router(metrics_router)

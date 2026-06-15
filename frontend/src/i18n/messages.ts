@@ -162,6 +162,7 @@ export type Messages = {
     language: string;
     toolSettings: string;
     loadingTools: string;
+    noToolsAvailable: string;
     ragConfiguration: string;
     ragEnabled: string;
     loadingDefaults: string;
@@ -272,6 +273,8 @@ export type Messages = {
     addImage: string;
     addAttachment: string;
     toggleWorkspaceSidebar: string;
+    toolsMenuTitle: string;
+    noToolsEnabled: string;
     workspace: string;
     newConversation: string;
     copyMessage: string;
@@ -613,6 +616,22 @@ export type Messages = {
     avgLatency: string;
     minLatency: string;
   };
+  toolGroups: {
+    text: string;
+    vision: string;
+    auxiliary: string;
+  };
+  roleTools: {
+    title: string;
+    description: string;
+    save: string;
+    saved: string;
+    saveFailed: string;
+    loadFailed: string;
+    loading: string;
+    roleUser: string;
+    roleResearcher: string;
+  };
 };
 
 export const messages: Record<Locale, Messages> = {
@@ -733,7 +752,7 @@ export const messages: Record<Locale, Messages> = {
       enterApplication: "Enter {app}",
       login: "Login",
       welcomeTo: "Welcome to {app}",
-      signInAsRole: "Sign in as {role} using the operator account configured in the environment variables.",
+      signInAsRole: "Sign in with your credentials provided by your Administrator.",
       username: "Username",
       password: "Password",
       enterUsername: "Enter your username",
@@ -780,6 +799,7 @@ export const messages: Record<Locale, Messages> = {
       language: "Language",
       toolSettings: "Tool Settings",
       loadingTools: "Loading tools...",
+      noToolsAvailable: "No tools available.",
       ragConfiguration: "RAG Configuration",
       ragEnabled: "Enable Knowledge Base",
       loadingDefaults: "Loading defaults...",
@@ -890,6 +910,8 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Add image",
       addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
+      toolsMenuTitle: "Tools",
+      noToolsEnabled: "No tools enabled — turn them on in Settings.",
       workspace: "Workspace & Provenance",
       newConversation: "New conversation",
       copyMessage: "Copy message",
@@ -1231,6 +1253,22 @@ export const messages: Record<Locale, Messages> = {
       avgLatency: "Avg Latency",
       minLatency: "Min Latency",
     },
+    toolGroups: {
+      text: "Text tools",
+      vision: "Vision tools",
+      auxiliary: "Auxiliary tools",
+    },
+    roleTools: {
+      title: "Role tool access",
+      description: "Choose which tools each role may use. Users can still turn allowed tools on or off individually. Administrators always have access to every tool.",
+      save: "Save",
+      saved: "Tool access saved",
+      saveFailed: "Failed to save tool access",
+      loadFailed: "Failed to load tool access",
+      loading: "Loading tools...",
+      roleUser: "User",
+      roleResearcher: "Researcher",
+    },
   },
   de: {
     common: {
@@ -1349,7 +1387,7 @@ export const messages: Record<Locale, Messages> = {
       enterApplication: "{app} öffnen",
       login: "Anmeldung",
       welcomeTo: "Willkommen bei {app}",
-      signInAsRole: "Melde dich als {role} mit dem in den Umgebungsvariablen konfigurierten Operator-Konto an.",
+      signInAsRole: "Melde dich mit deinen von deinem Administrator bereitgestellten Anmeldedaten an.",
       username: "Benutzername",
       password: "Passwort",
       enterUsername: "Benutzernamen eingeben",
@@ -1396,6 +1434,7 @@ export const messages: Record<Locale, Messages> = {
       language: "Sprache",
       toolSettings: "Werkzeug-Einstellungen",
       loadingTools: "Werkzeuge werden geladen...",
+      noToolsAvailable: "Keine Werkzeuge verfügbar.",
       ragConfiguration: "RAG-Konfiguration",
       ragEnabled: "Wissensdatenbank aktivieren",
       loadingDefaults: "Standardwerte werden geladen...",
@@ -1506,6 +1545,8 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Bild hinzufügen",
       addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
+      toolsMenuTitle: "Werkzeuge",
+      noToolsEnabled: "Keine Werkzeuge aktiviert — in den Einstellungen aktivieren.",
       workspace: "Workspace & Provenance",
       newConversation: "Neue Unterhaltung",
       copyMessage: "Nachricht kopieren",
@@ -1846,6 +1887,22 @@ export const messages: Record<Locale, Messages> = {
       maxLatency: "Max-Latenz",
       avgLatency: "Durchschn.-Latenz",
       minLatency: "Min-Latenz",
+    },
+    toolGroups: {
+      text: "Text-Werkzeuge",
+      vision: "Vision-Werkzeuge",
+      auxiliary: "Hilfs-Werkzeuge",
+    },
+    roleTools: {
+      title: "Werkzeugzugriff nach Rolle",
+      description: "Legen Sie fest, welche Werkzeuge jede Rolle verwenden darf. Nutzer können erlaubte Werkzeuge weiterhin einzeln ein- oder ausschalten. Administratoren haben immer Zugriff auf alle Werkzeuge.",
+      save: "Speichern",
+      saved: "Werkzeugzugriff gespeichert",
+      saveFailed: "Werkzeugzugriff konnte nicht gespeichert werden",
+      loadFailed: "Werkzeugzugriff konnte nicht geladen werden",
+      loading: "Werkzeuge werden geladen...",
+      roleUser: "Nutzer",
+      roleResearcher: "Forscher",
     },
   },
 };

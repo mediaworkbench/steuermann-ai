@@ -12,7 +12,7 @@ Tools are registered in `config/profiles/<profile_id>/tools.yaml` and loaded at 
 2. **Layer 2 — LLM-driven selection:** The language model receives the candidate tools and decides which to call, in `native`, `structured`, or `react` mode depending on the model's capabilities.
 3. **Layer 3 — Validation:** Tool name and arguments are validated against schema. Failed calls are retried up to 2 times with error feedback.
 
-Individual tools can be enabled or disabled per profile — see [Enabling / Disabling Tools Per Profile](#enabling--disabling-tools-per-profile).
+Which tools each user may use is controlled by role — see [Controlling Tool Access](#controlling-tool-access).
 
 For the full selection architecture, see [tool_development_guide.md](tool_development_guide.md) § Tool Selection Architecture.
 
@@ -297,27 +297,29 @@ Decodes barcodes and QR codes from images using pyzbar.
 
 ---
 
-## Enabling / Disabling Tools Per Profile
+## Controlling Tool Access
 
-Each profile overlay can override the enabled state of individual tools in `config/profiles/<profile_id>/tools.yaml`:
+A profile's `config/profiles/<profile_id>/tools.yaml` is the **catalog** — the complete set of tools loaded for that profile. There is no per-tool `enabled` flag; every listed tool is loaded. (To stop a tool from loading at all, remove its entry from `tools.yaml`.) Profile-specific `config` overrides are still applied per entry:
 
 ```yaml
 # config/profiles/my-profile/tools.yaml
 tools:
-  - name: file_ops_tool
-    enabled: false        # disable for this profile
-
-  - name: read_barcodes_tool
-    enabled: true         # explicitly enable
-
   - name: web_search_mcp
-    enabled: true
+    path: universal_agentic_framework/tools/web_search
     config:
       region: en-us       # profile-specific config override
       max_results: 10
 ```
 
-The profile's `tools.yaml` is the sole source of truth — there is no base registry to inherit from.
+**Who may use each tool is decided at runtime, not in config:**
+
+1. **Per role (admin-controlled).** Administrators assign the allowed tools for each role (`user`, `researcher`) on the **Admin** page. The mapping is stored in the `role_tool_permissions` table and enforced **server-side** in the graph's `load_tools` node — a user can never invoke a tool their role isn't allowed, even if the UI is bypassed. Administrators always have access to every tool. A role with **no** stored row blocks all tools (fail-closed); on a fresh deployment `user` and `researcher` are seeded with the full catalog.
+2. **Per user — saved preference (Settings).** Each user enables/disables their allowed tools in **Settings** (persisted as `tool_toggles`). This is the user's standing preference and controls **which tools appear in the chat composer's Tools menu** — a tool turned off in Settings is hidden from the menu. A toggle can never re-enable a tool the role disallows.
+3. **Per user — per-chat quick toggle (composer).** The composer's **Tools** menu is a transient, per-conversation quick disable: clicking a tool turns it off for *that chat's* next inferences only (it stays listed, shown OFF, and can be re-enabled). This never changes the saved Settings preference. The disabled set is sent with each chat request (`disabled_tools`) and overlaid onto `tool_toggles` for that inference only.
+
+On the Admin and Settings pages tools are grouped into three columns — **Text**, **Vision**, and **Auxiliary** — derived from each tool's manifest `category` field.
+
+The profile's `tools.yaml` is the sole source of truth for the catalog — there is no base registry to inherit from.
 
 ---
 

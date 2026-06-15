@@ -1,26 +1,24 @@
 # Starter profile — authoritative tool catalog.
-# This is the complete tool list for this profile. Enable/disable tools here.
+# This is the complete list of tools loaded for this profile. Which tools each
+# role/user may actually use is controlled at runtime: admins assign tools per
+# role on the admin page, and users toggle within their allowed set in settings.
 # Vision tools (analyze_image, ocr, analyze_document, analyze_chart, image_metadata,
-# read_barcodes) require a multimodal model — disable them to reduce VRAM usage.
+# read_barcodes) require a multimodal model.
 
 loading_mode: explicit
 
 tools:
   - name: datetime_tool
     path: universal_agentic_framework/tools/datetime
-    enabled: true
 
   - name: calculator_tool
     path: universal_agentic_framework/tools/calculator
-    enabled: true
 
   - name: map_tool
     path: universal_agentic_framework/tools/map
-    enabled: true
 
   - name: file_ops_tool
     path: universal_agentic_framework/tools/file_ops
-    enabled: true
     config:
       sandbox_dir: ""
       max_read_size_bytes: 1048576
@@ -28,7 +26,6 @@ tools:
 
   - name: web_search_mcp
     path: universal_agentic_framework/tools/web_search
-    enabled: true
     config:
       server_url: $WEB_SEARCH_MCP_URL
       timeout: 30
@@ -38,7 +35,6 @@ tools:
 
   - name: extract_webpage_mcp
     path: universal_agentic_framework/tools/web_search
-    enabled: true
     config:
       server_url: $WEB_SEARCH_MCP_URL
       timeout: 30
@@ -48,34 +44,21 @@ tools:
 
   - name: analyze_image_tool
     path: universal_agentic_framework/tools/analyze_image
-    enabled: true
 
   - name: ocr_tool
     path: universal_agentic_framework/tools/ocr
-    enabled: true
 
   - name: analyze_document_tool
     path: universal_agentic_framework/tools/analyze_document
-    enabled: true
 
   - name: analyze_chart_tool
     path: universal_agentic_framework/tools/analyze_chart
-    enabled: true
 
   - name: image_metadata_tool
     path: universal_agentic_framework/tools/image_metadata
-    enabled: true
 
   - name: read_barcodes_tool
     path: universal_agentic_framework/tools/read_barcodes
-    enabled: true
 
   - name: csv_analyze_tool
     path: universal_agentic_framework/tools/csv_analyze
-    enabled: true
-
-  - name: mcp_stub
-    path: universal_agentic_framework/tools/mcp_stub
-    enabled: false
-    config:
-      server_url: http://localhost:9999

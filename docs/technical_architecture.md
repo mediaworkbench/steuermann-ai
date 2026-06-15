@@ -466,6 +466,42 @@ Runtime helper paths for performance/cache and crew result caching execute async
 
 ---
 
+### **4.7 Authentication & Authorization**
+
+Authentication is DB-backed and multi-user with three fixed roles — **user**, **researcher** (user
++ RAG explorer), **administrator** (full access + user management).
+
+**Trust model.** The FastAPI backend is internal-only and guarded by a shared `CHAT_ACCESS_TOKEN`
+(`require_api_access`). The only legitimate caller is the Next.js proxy, which authenticates the
+session JWT and forwards a *trusted* identity to the backend via `x-authenticated-user-id` /
+`x-authenticated-username` / `x-authenticated-role` headers. The proxy strips any client-supplied
+copies of those headers (and `x-chat-token`) so they cannot be spoofed. The backend resolves the
+current user from these headers (`resolve_current_user` in `backend/auth.py`) and **independently
+enforces** role gates (`require_admin`, `require_researcher_or_admin`) and per-user data ownership —
+defense in depth, not relying on the UI. When `AUTH_ENABLED=false`, the backend resolves to the
+single env user with the administrator role (local dev bypass).
+
+**Login.** `POST /api/auth/login` verifies username + password against the `users` table with
+argon2id and returns `{user_id, username, email, role, must_change_password}`; the Next.js login
+route mints the session JWT cookie. The bootstrap administrator is seeded from env
+(`AUTH_USERNAME` / `AUTH_PASSWORD_HASH` / `AUTH_ADMIN_EMAIL`) on startup.
+
+**Endpoints.**
+
+- `POST /api/auth/login`, `POST /api/auth/change-password` (forced first-login change clears
+  `must_change_password`).
+- `GET /api/admin/roles`, `GET/POST /api/admin/users`, `PATCH/DELETE /api/admin/users/{id}`
+  (administrator-only; auto-generated temporary passwords; last-admin and self-action guardrails).
+- `GET/POST /api/settings/me` (the authenticated user's settings; replaces the old
+  `/api/settings/user/{id}`).
+
+**Ownership.** Conversation reads/mutations (incl. attachments, messages, feedback, export,
+compaction), workspace documents, memories, and settings are scoped to the authenticated user — a
+non-owner request resolves to 404. Rate limiting buckets per authenticated user. The RAG corpus is
+shared (collection locked to profile config); the RAG explorer is researcher + administrator.
+
+---
+
 ## **5. Multi-Agent Layer: CrewAI Integration**
 
 **Status:** Fully implemented (4 crews: Research, Analytics, Code Gen, Planning). Disabled by default via `multi_agent_crews: false` in `config/features.yaml`.

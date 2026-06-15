@@ -6,7 +6,6 @@ import { useI18n } from "@/hooks/useI18n";
 import { useMetrics } from "@/hooks/useMetrics";
 import { useProfile } from "@/hooks/useProfile";
 import { useSettings } from "@/hooks/useSettings";
-import { CURRENT_USER_ID } from "@/lib/runtime";
 import { RefreshCw } from "lucide-react";
 import { MetricCard } from "@/components/MetricCard";
 import { MemoryMetricsPanel } from "@/components/MemoryMetricsPanel";
@@ -32,7 +31,6 @@ import { MetricsTrendsStatusSection } from "@/components/product/MetricsTrendsSt
 export default function MetricsPage() {
   const { t, formatTime, formatNumber } = useI18n();
   const profile = useProfile();
-  const userId = CURRENT_USER_ID;
   const today = useMemo(() => new Date(), []);
   const [activeTab, setActiveTab] = useState<"realtime" | "trends">("realtime");
   const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useMetrics(true, 10000);
@@ -52,7 +50,7 @@ export default function MetricsPage() {
   const [showLatencyMax, setShowLatencyMax] = useState(true);
   const [hasHydratedPreferences, setHasHydratedPreferences] = useState(false);
   const [saveStatus, setSaveStatus] = useState<MetricsSaveStatus>("idle");
-  const { settings, saveSettings } = useSettings(userId);
+  const { settings, saveSettings } = useSettings();
 
   const computedDays = useMemo(() => {
     if (!startDate || !endDate) return 0;

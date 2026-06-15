@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from pydantic import BaseModel, Field
 
 from backend.attachments import AttachmentValidationError, WorkspaceValidationError
-from backend.single_user import get_effective_user_id, require_api_access
+from backend.auth import CurrentUser, resolve_current_user
+from backend.single_user import require_api_access
 
 try:
     from universal_agentic_framework.monitoring.metrics import track_message_feedback as _track_message_feedback
@@ -33,7 +34,7 @@ router = APIRouter(
 # ── Request / Response Models ────────────────────────────────────────────
 
 class CreateConversationRequest(BaseModel):
-    user_id: str = Field(default="anonymous")
+    # Identity is derived from the authenticated session, never from the request body.
     title: str = Field(default="New conversation")
     language: str = Field(default="en")
     profile_name: Optional[str] = None
@@ -185,11 +186,15 @@ def _workspace_enabled() -> bool:
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
-async def create_conversation(body: CreateConversationRequest, request: Request):
+async def create_conversation(
+    body: CreateConversationRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Create a new conversation."""
     store = _get_store(request)
     conversation_id = str(uuid.uuid4())
-    effective_user_id = get_effective_user_id(body.user_id)
+    effective_user_id = current_user.user_id
     try:
         conv = store.create_conversation(
             conversation_id=conversation_id,
@@ -207,10 +212,10 @@ async def create_conversation(body: CreateConversationRequest, request: Request)
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
     request: Request,
-    user_id: str = Query(default="anonymous"),
     q: Optional[str] = Query(default=None, description="Substring search over title + message content"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """List conversations for a user (pinned first, then most-recently updated).
 
@@ -219,7 +224,7 @@ async def list_conversations(
     ``match_snippet`` of the matching message.
     """
     store = _get_store(request)
-    effective_user_id = get_effective_user_id(user_id)
+    effective_user_id = current_user.user_id
     conversations, total = store.list_conversations(
         user_id=effective_user_id,
         q=q,
@@ -235,10 +240,14 @@ async def list_conversations(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_conversation(conversation_id: str, request: Request):
+async def get_conversation(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Get a conversation with its full message history."""
     store = _get_store(request)
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     messages = store.get_messages(conversation_id)
@@ -247,27 +256,34 @@ async def get_conversation(conversation_id: str, request: Request):
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
 async def update_conversation(
-    conversation_id: str, body: UpdateConversationRequest, request: Request
+    conversation_id: str,
+    body: UpdateConversationRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Update conversation fields (title, pinned, language, metadata)."""
     store = _get_store(request)
     updates = body.model_dump(exclude_unset=True)
     if not updates:
-        conv = store.get_conversation(conversation_id)
+        conv = store.get_conversation(conversation_id, current_user.user_id)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
         return conv
-    conv = store.update_conversation(conversation_id, **updates)
+    conv = store.update_conversation(conversation_id, current_user.user_id, **updates)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
 
 
 @router.delete("/{conversation_id}", status_code=204)
-async def delete_conversation(conversation_id: str, request: Request):
+async def delete_conversation(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Delete a conversation and all its messages."""
     store = _get_store(request)
-    deleted = store.delete_conversation(conversation_id)
+    deleted = store.delete_conversation(conversation_id, current_user.user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)
@@ -285,10 +301,10 @@ async def upload_attachment(
     conversation_id: str,
     request: Request,
     file: UploadFile = File(...),
-    user_id: Optional[str] = Form(default=None),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Upload a text attachment for a conversation.
-    
+
     The uploaded file is persisted directly as a workspace document and the
     conversation stores only a reference to that canonical document.
     """
@@ -298,14 +314,10 @@ async def upload_attachment(
     file_manager = getattr(request.app.state, "user_workspace_file_manager", None)
     document_store = getattr(request.app.state, "workspace_document_store", None)
 
-    conv = store.get_conversation(conversation_id)
+    resolved_user_id = current_user.user_id
+    conv = store.get_conversation(conversation_id, resolved_user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    resolved_user_id = user_id or conv["user_id"]
-    resolved_user_id = get_effective_user_id(resolved_user_id)
-    if resolved_user_id != conv["user_id"]:
-        raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
     if file_manager is None or document_store is None:
         raise HTTPException(status_code=500, detail="Workspace document services are unavailable")
@@ -358,12 +370,16 @@ async def upload_attachment(
 
 
 @router.get("/{conversation_id}/attachments", response_model=AttachmentListResponse)
-async def list_attachments(conversation_id: str, request: Request):
+async def list_attachments(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """List active attachments for a conversation."""
     store = _get_store(request)
     attachment_store = _get_attachment_store(request)
 
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -371,12 +387,17 @@ async def list_attachments(conversation_id: str, request: Request):
 
 
 @router.delete("/{conversation_id}/attachments/{attachment_id}", status_code=204)
-async def delete_attachment(conversation_id: str, attachment_id: str, request: Request):
+async def delete_attachment(
+    conversation_id: str,
+    attachment_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Remove a document reference from a conversation."""
     store = _get_store(request)
     attachment_store = _get_attachment_store(request)
 
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -403,6 +424,7 @@ async def attach_from_workspace(
     conversation_id: str,
     body: AttachFromWorkspaceRequest,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Link an existing workspace document to a conversation as an attachment.
 
@@ -416,13 +438,10 @@ async def attach_from_workspace(
     if document_store is None:
         raise HTTPException(status_code=500, detail="Workspace document store not initialized")
 
-    conv = store.get_conversation(conversation_id)
+    effective_user_id = current_user.user_id
+    conv = store.get_conversation(conversation_id, effective_user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    effective_user_id = get_effective_user_id()
-    if effective_user_id != conv["user_id"]:
-        raise HTTPException(status_code=403, detail="Conversation does not belong to user")
 
     doc = document_store.get_document(document_id=body.document_id, user_id=effective_user_id)
     if not doc:
@@ -458,6 +477,7 @@ async def materialize_workspace_file(
     conversation_id: str,
     body: WorkspaceMaterializeRequest,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Copy a linked document into the conversation workspace for safe editing."""
     if not _workspace_enabled():
@@ -468,7 +488,7 @@ async def materialize_workspace_file(
     workspace_store = _get_workspace_store(request)
     workspace_manager = _get_workspace_manager(request)
 
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -510,7 +530,11 @@ async def materialize_workspace_file(
 
 
 @router.get("/{conversation_id}/workspace", response_model=WorkspaceResponse)
-async def get_workspace(conversation_id: str, request: Request):
+async def get_workspace(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Get workspace metadata and files for a conversation."""
     if not _workspace_enabled():
         raise HTTPException(status_code=403, detail="Chat workspace editing is disabled")
@@ -519,7 +543,7 @@ async def get_workspace(conversation_id: str, request: Request):
     workspace_store = _get_workspace_store(request)
     workspace_manager = _get_workspace_manager(request)
 
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -545,11 +569,14 @@ async def get_workspace(conversation_id: str, request: Request):
     status_code=201,
 )
 async def add_message(
-    conversation_id: str, body: AddMessageRequest, request: Request
+    conversation_id: str,
+    body: AddMessageRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Add a message to an existing conversation."""
     store = _get_store(request)
-    conv = store.get_conversation(conversation_id)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:
@@ -578,11 +605,15 @@ async def set_message_feedback(
     message_id: int,
     body: MessageFeedbackRequest,
     request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Set feedback (thumbs up/down) on a message."""
     store = _get_store(request)
+    conv = store.get_conversation(conversation_id, current_user.user_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     try:
-        msg = store.update_message_feedback(message_id, body.feedback)
+        msg = store.update_message_feedback(message_id, body.feedback, conversation_id=conversation_id)
         if not msg:
             raise HTTPException(status_code=404, detail="Message not found")
         if _track_message_feedback is not None:
@@ -599,7 +630,11 @@ _LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
 
 
 @router.post("/{conversation_id}/compact")
-async def compact_conversation(conversation_id: str, request: Request):
+async def compact_conversation(
+    conversation_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+):
     """Manually compress the LangGraph checkpoint for a conversation.
 
     Calls the LangGraph service's /compact endpoint, which force-runs the
@@ -611,11 +646,10 @@ async def compact_conversation(conversation_id: str, request: Request):
     ``{"status": "skipped", ...}`` if the conversation is too short to compress.
     """
     store = _get_store(request)
-    conv = store.get_conversation(conversation_id)
+    user_id = current_user.user_id
+    conv = store.get_conversation(conversation_id, user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    user_id = get_effective_user_id(conv.get("user_id", "anonymous"))
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -639,10 +673,11 @@ async def export_conversation(
     conversation_id: str,
     request: Request,
     fmt: str = Query(default="json", pattern="^(json|markdown)$"),
+    current_user: CurrentUser = Depends(resolve_current_user),
 ):
     """Export a conversation as JSON or Markdown."""
     store = _get_store(request)
-    result = store.export_conversation(conversation_id, fmt=fmt)
+    result = store.export_conversation(conversation_id, current_user.user_id, fmt=fmt)
     if result is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
