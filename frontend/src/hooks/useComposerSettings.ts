@@ -8,8 +8,7 @@ interface UseComposerSettingsResult {
   ragEnabled: boolean;
   ragConfig: Record<string, unknown>;
   handleRagToggle: () => Promise<void>;
-  toolToggles: Record<string, boolean>;
-  handleToolToggle: (toolId: string) => Promise<void>;
+  toolToggles: Record<string, boolean>; // saved Settings preference (gates composer-menu membership)
   allowedTools: string[] | null; // role-allowed tool ids (null = not yet loaded / no restriction)
   selectedChatModel: string;
   availableChatModels: string[];
@@ -87,14 +86,6 @@ export function useComposerSettings(): UseComposerSettingsResult {
     });
   }, [ragEnabled, ragConfig]);
 
-  const handleToolToggle = useCallback(async (toolId: string) => {
-    // Intentionally asymmetric: undefined means enabled (default-on).
-    // Do not simplify to !toolToggles[toolId] — that breaks the default-on behaviour.
-    const next = { ...toolToggles, [toolId]: toolToggles[toolId] !== false ? false : true };
-    setToolToggles(next);
-    await updateUserSettings({ tool_toggles: next });
-  }, [toolToggles]);
-
   const handleModelChange = useCallback(async (model: string) => {
     setChatModel(model);
     const merged = { ...preferredModelsRef.current, chat: model };
@@ -107,7 +98,6 @@ export function useComposerSettings(): UseComposerSettingsResult {
     ragConfig,
     handleRagToggle,
     toolToggles,
-    handleToolToggle,
     allowedTools,
     selectedChatModel,
     availableChatModels,

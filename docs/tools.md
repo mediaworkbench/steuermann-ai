@@ -314,7 +314,8 @@ tools:
 **Who may use each tool is decided at runtime, not in config:**
 
 1. **Per role (admin-controlled).** Administrators assign the allowed tools for each role (`user`, `researcher`) on the **Admin** page. The mapping is stored in the `role_tool_permissions` table and enforced **server-side** in the graph's `load_tools` node — a user can never invoke a tool their role isn't allowed, even if the UI is bypassed. Administrators always have access to every tool. A role with **no** stored row blocks all tools (fail-closed); on a fresh deployment `user` and `researcher` are seeded with the full catalog.
-2. **Per user (within the allowed set).** Each user can turn their allowed tools on/off individually in **Settings** (persisted as `tool_toggles`). A toggle can never re-enable a tool the role disallows.
+2. **Per user — saved preference (Settings).** Each user enables/disables their allowed tools in **Settings** (persisted as `tool_toggles`). This is the user's standing preference and controls **which tools appear in the chat composer's Tools menu** — a tool turned off in Settings is hidden from the menu. A toggle can never re-enable a tool the role disallows.
+3. **Per user — per-chat quick toggle (composer).** The composer's **Tools** menu is a transient, per-conversation quick disable: clicking a tool turns it off for *that chat's* next inferences only (it stays listed, shown OFF, and can be re-enabled). This never changes the saved Settings preference. The disabled set is sent with each chat request (`disabled_tools`) and overlaid onto `tool_toggles` for that inference only.
 
 On the Admin and Settings pages tools are grouped into three columns — **Text**, **Vision**, and **Auxiliary** — derived from each tool's manifest `category` field.
 

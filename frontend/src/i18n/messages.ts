@@ -273,6 +273,8 @@ export type Messages = {
     addImage: string;
     addAttachment: string;
     toggleWorkspaceSidebar: string;
+    toolsMenuTitle: string;
+    noToolsEnabled: string;
     workspace: string;
     newConversation: string;
     copyMessage: string;
@@ -908,6 +910,8 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Add image",
       addAttachment: "Add attachment",
       toggleWorkspaceSidebar: "Toggle workspace sidebar",
+      toolsMenuTitle: "Tools",
+      noToolsEnabled: "No tools enabled — turn them on in Settings.",
       workspace: "Workspace & Provenance",
       newConversation: "New conversation",
       copyMessage: "Copy message",
@@ -1541,6 +1545,8 @@ export const messages: Record<Locale, Messages> = {
       addImage: "Bild hinzufügen",
       addAttachment: "Anhang hinzufügen",
       toggleWorkspaceSidebar: "Workspace-Seitenleiste umschalten",
+      toolsMenuTitle: "Werkzeuge",
+      noToolsEnabled: "Keine Werkzeuge aktiviert — in den Einstellungen aktivieren.",
       workspace: "Workspace & Provenance",
       newConversation: "Neue Unterhaltung",
       copyMessage: "Nachricht kopieren",

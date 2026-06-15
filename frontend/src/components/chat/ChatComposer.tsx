@@ -40,6 +40,7 @@ interface ChatComposerProps {
   onWorkspaceSidebarToggle: () => void;
   toolToggles: Record<string, boolean>;
   onToolToggle: (toolId: string) => void;
+  disabledTools: string[];
   allowedTools: string[] | null;
   systemConfig: SystemConfig | null;
   selectedChatModel: string;
@@ -83,6 +84,7 @@ export function ChatComposer({
   onWorkspaceSidebarToggle,
   toolToggles,
   onToolToggle,
+  disabledTools,
   allowedTools,
   systemConfig,
   selectedChatModel,
@@ -216,6 +218,7 @@ export function ChatComposer({
                 systemConfig={systemConfig}
                 toolToggles={toolToggles}
                 onToolToggle={onToolToggle}
+                disabledTools={disabledTools}
                 allowedTools={allowedTools}
               />
 
