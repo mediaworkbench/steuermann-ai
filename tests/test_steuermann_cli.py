@@ -746,6 +746,24 @@ def test_load_env_file_reads_dotenv_without_overriding_process_env(
     assert env["BAR"] == "from-env"
 
 
+def test_parse_env_value_strips_inline_comments_and_quotes() -> None:
+    pv = steuermann._parse_env_value
+    # double-quoted value with trailing inline comment
+    assert pv('"Local Profile"  # Keep in sync') == "Local Profile"
+    # single-quoted argon2 hash (contains $ signs)
+    assert pv("'$argon2id$v=19$abc'") == "$argon2id$v=19$abc"
+    # unquoted value with inline comment
+    assert pv("lm-studio  # placeholder key") == "lm-studio"
+    # unquoted value, no comment
+    assert pv("http://host.docker.internal:1234/v1") == "http://host.docker.internal:1234/v1"
+    # hash inside value without preceding space is preserved
+    assert pv("pass#word") == "pass#word"
+    # empty value
+    assert pv("") == ""
+    # tab before hash
+    assert pv("value\t# comment") == "value"
+
+
 def test_docs_check_strict_fails_on_contract_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "docs").mkdir(parents=True)
     (tmp_path / "config" / "contracts").mkdir(parents=True)
@@ -1472,3 +1490,22 @@ def test_setup_init_embedding_endpoint_written(
     )
     assert local_core["llm"]["roles"]["embedding"]["api_base"] == "$EMBEDDING_SERVER"
     assert local_core["memory"]["embeddings"]["remote_endpoint"] == "$EMBEDDING_SERVER"
+
+
+# 16. _read_env_file_values correctly handles double-quoted values with inline comments.
+def test_read_env_file_values_inline_comments(tmp_path: Path) -> None:
+    env_text = (
+        'SIMPLE=plain\n'
+        'DOUBLE_QUOTED="Local Profile"  # Keep in sync\n'
+        "SINGLE_QUOTED='$argon2id$v=19$abc'\n"
+        'UNQUOTED=lm-studio  # placeholder\n'
+        'HASH_IN_VALUE=pass#word\n'
+    )
+    path = tmp_path / ".env"
+    path.write_text(env_text, encoding="utf-8")
+    result = setup_init._read_env_file_values(path)
+    assert result["SIMPLE"] == "plain"
+    assert result["DOUBLE_QUOTED"] == "Local Profile"
+    assert result["SINGLE_QUOTED"] == "$argon2id$v=19$abc"
+    assert result["UNQUOTED"] == "lm-studio"
+    assert result["HASH_IN_VALUE"] == "pass#word"

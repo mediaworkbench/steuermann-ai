@@ -162,6 +162,26 @@ def _prompt_password(label: str) -> str | None:
 # --- .env helpers ------------------------------------------------------------
 
 
+def _parse_env_value(raw: str) -> str:
+    """Parse a single .env value, stripping quotes and trailing inline comments.
+
+    Mirrors ``steuermann._parse_env_value`` — duplicated here to avoid an
+    import cycle (``steuermann`` imports this module at top level).
+    """
+    v = raw.strip()
+    if v.startswith('"'):
+        end = v.find('"', 1)
+        return v[1:end] if end != -1 else v[1:]
+    if v.startswith("'"):
+        end = v.find("'", 1)
+        return v[1:end] if end != -1 else v[1:]
+    for sep in (" #", "\t#"):
+        idx = v.find(sep)
+        if idx != -1:
+            v = v[:idx]
+    return v.strip()
+
+
 def _read_env_file_values(path: Path) -> dict[str, str]:
     """Read only the values written in ``path`` (no process environment).
 
@@ -177,7 +197,7 @@ def _read_env_file_values(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
+        values[key.strip()] = _parse_env_value(value)
     return values
 
 

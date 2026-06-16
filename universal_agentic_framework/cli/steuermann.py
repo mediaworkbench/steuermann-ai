@@ -200,6 +200,29 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _parse_env_value(raw: str) -> str:
+    """Parse a single .env value, stripping quotes and trailing inline comments.
+
+    Handles three forms:
+    - Double-quoted:  ``"Local Profile"  # comment`` → ``Local Profile``
+    - Single-quoted:  ``'$argon2id$...'``             → ``$argon2id$...``
+    - Unquoted:       ``lm-studio  # comment``         → ``lm-studio``
+    """
+    v = raw.strip()
+    if v.startswith('"'):
+        end = v.find('"', 1)
+        return v[1:end] if end != -1 else v[1:]
+    if v.startswith("'"):
+        end = v.find("'", 1)
+        return v[1:end] if end != -1 else v[1:]
+    # Unquoted: strip inline comment (must be preceded by whitespace).
+    for sep in (" #", "\t#"):
+        idx = v.find(sep)
+        if idx != -1:
+            v = v[:idx]
+    return v.strip()
+
+
 def _load_env_file(path: Path = Path(".env")) -> dict[str, str]:
     env = dict(os.environ)
     if not path.exists():
@@ -210,9 +233,7 @@ def _load_env_file(path: Path = Path(".env")) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        env.setdefault(key, value)
+        env.setdefault(key.strip(), _parse_env_value(value))
     return env
 
 
