@@ -561,7 +561,7 @@ def write_profile_llm_config(profile_id: str, role_cfg: dict[str, Any]) -> Path 
     if updated == current:
         return None
     core_path.write_text(
-        yaml.safe_dump(updated, sort_keys=False, allow_unicode=False), encoding="utf-8"
+        yaml.safe_dump(updated, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     return core_path
 
