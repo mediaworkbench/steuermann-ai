@@ -318,6 +318,13 @@ export type Messages = {
       debugPrompt: string;
     };
   };
+  providerHealth: {
+    offlineTitle: string;
+    degradedTitle: string;
+    retry: string;
+    checking: string;
+    composerHint: string;
+  };
   workspace: {
     loadFailed: string;
     saveFailed: string;
@@ -955,6 +962,13 @@ export const messages: Record<Locale, Messages> = {
         debugPrompt: "Help me debug this issue:\n\n",
       },
     },
+    providerHealth: {
+      offlineTitle: "LLM provider offline — chat is unavailable",
+      degradedTitle: "Some LLM services are unavailable — responses may be degraded",
+      retry: "Retry",
+      checking: "Checking…",
+      composerHint: "Chat is unavailable while the provider is offline",
+    },
     workspace: {
       loadFailed: "Load failed",
       saveFailed: "Save failed",
@@ -1589,6 +1603,13 @@ export const messages: Record<Locale, Messages> = {
         brainstormPrompt: "Gib mir kreative Ideen für ",
         debugPrompt: "Hilf mir beim Debuggen dieses Problems:\n\n",
       },
+    },
+    providerHealth: {
+      offlineTitle: "LLM-Anbieter offline — Chat nicht verfügbar",
+      degradedTitle: "Einige LLM-Dienste sind nicht verfügbar — Antworten könnten eingeschränkt sein",
+      retry: "Erneut versuchen",
+      checking: "Wird geprüft…",
+      composerHint: "Chat ist nicht verfügbar, solange der Anbieter offline ist",
     },
     workspace: {
       loadFailed: "Laden fehlgeschlagen",

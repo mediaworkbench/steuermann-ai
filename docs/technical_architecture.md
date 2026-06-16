@@ -424,6 +424,14 @@ Reason field propagates through entire pipeline:
 - ✅ Automatic downgrade (safer than failing on unsupported models)
 - ✅ Works across all provider types (LM Studio, Ollama, OpenAI-compatible)
 
+**Provider as a soft dependency:**
+
+The external LLM provider is treated as a *soft dependency* so the stack always boots to a serving state even when the provider (e.g. LM Studio) is unreachable:
+
+- LangGraph's startup embedding probe (`probe_embedding_provider_nonfatal` in `server.py`) is best-effort and **never raises** — it logs a warning and continues, so the container becomes healthy regardless. Runtime nodes connect lazily with their own retries once the provider returns.
+- FastAPI's startup capability probe runs in a background task (`asyncio.to_thread`), so a slow/offline provider cannot delay readiness (and therefore Next.js, which gates on FastAPI being healthy).
+- `GET /api/llm/health` exposes **live** reachability: it pings each distinct configured `api_base` (chat/embedding/vision/auxiliary, deduped) in parallel with a short timeout and returns `{status: online|degraded|offline, providers[], checked_at}` (`offline` when the chat endpoint is unreachable, `degraded` when only a secondary one is). Unlike `/api/llm/capabilities` (a stale DB read of the last capability probe), this is checked on demand. The frontend polls it to drive a global "Provider Offline" banner and to gate the chat composer's send button.
+
 ### **4.5 Response Handling**
 
 **Streaming path (primary):** `POST /api/chat/stream` returns `text/event-stream`. LangGraph exposes a matching `POST /stream` endpoint using `GRAPH.astream_events(version="v2")`. SSE event types:

@@ -130,6 +130,8 @@ llm:
 
 **Required roles:** `chat` and `embedding` must be present in every profile overlay. `vision` and `auxiliary` are optional — omitting them is valid.
 
+**Provider downtime does not block startup.** The external provider is a soft dependency: if it is unreachable when the stack starts, the services still boot (the LangGraph startup embedding probe is best-effort and never fails the container; the FastAPI capability probe runs in the background). The frontend shows a "Provider Offline" banner with a Retry button and disables chat send until the provider answers `GET /api/llm/health`; chat resumes automatically once it returns.
+
 **Role purposes:**
 
 - `chat` — primary conversational LLM *(required)*

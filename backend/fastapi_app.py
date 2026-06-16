@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -283,7 +284,12 @@ async def lifespan(app: FastAPI):
     app.state.user_workspace_file_manager = UserWorkspaceFileManager(attachment_manager=attachment_manager)
 
     _run_workspace_startup_cleanup(app)
-    _run_llm_capability_startup_probe(app)
+    # Run the capability probe off the event loop so a slow/offline provider can never
+    # delay readiness (and therefore Next.js, which gates on FastAPI being healthy).
+    # It is sync and already non-fatal; keep a reference so the task isn't GC'd.
+    app.state._cap_probe_task = asyncio.create_task(
+        asyncio.to_thread(_run_llm_capability_startup_probe, app)
+    )
 
     try:
         yield

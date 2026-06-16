@@ -124,7 +124,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 
 Authentication is session-based (httpOnly JWT cookie) and DB-backed: credentials are verified on the FastAPI backend with argon2id. The backend is reachable only through the Next.js proxy, which authenticates the session and forwards a trusted identity + role to the backend (guarded by a shared `CHAT_ACCESS_TOKEN`); the backend independently enforces role checks and per-user data ownership as defense in depth. Authentication can be disabled for local development, in which case the app runs as a single bootstrap-admin user.
 
-> Public-facing, multi-tenant, and zero-trust deployments are out of scope for this release, but will be a future feature.
+> Public-facing, ~~multi-tenant~~, and zero-trust deployments are out of scope for this release, but will be a future feature.
 
 ---
 

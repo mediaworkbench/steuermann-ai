@@ -58,8 +58,9 @@ USER appuser
 EXPOSE 8000
 EXPOSE 8001
 
-# Health check (increased start-period to allow embedding model pre-loading at startup)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+# Health check. Startup no longer blocks on the embedding provider (the probe is
+# best-effort and non-fatal), so the long start-period is no longer needed.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run LangGraph server

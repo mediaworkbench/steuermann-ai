@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -817,6 +818,106 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
         "profile_id": profile_id,
         "probe_ttl_seconds": int(os.getenv("LLM_CAPABILITY_PROBE_TTL_SECONDS", "3600")),
         "items": items,
+    }
+
+
+def _resolve_health_targets(core: Any) -> Tuple[Dict[str, List[str]], Optional[str]]:
+    """Return (api_base -> sorted roles, chat_api_base).
+
+    Collects the distinct provider endpoints across all configured roles so the
+    health check pings each URL only once. Unconfigured optional roles
+    (vision/auxiliary) raise and are skipped; the embedding endpoint is resolved
+    via its dedicated helper.
+    """
+    targets: Dict[str, List[str]] = {}
+    chat_base: Optional[str] = None
+
+    for role_name in ("chat", "vision", "auxiliary"):
+        try:
+            base = str(getattr(core.llm.get_role_provider(role_name), "api_base", "") or "").rstrip("/")
+        except Exception:
+            continue  # role not configured
+        if not base:
+            continue
+        targets.setdefault(base, []).append(role_name)
+        if role_name == "chat":
+            chat_base = base
+
+    try:
+        embed_base = str(core.llm.get_embedding_remote_endpoint() or "").rstrip("/")
+    except Exception:
+        embed_base = ""
+    if embed_base:
+        targets.setdefault(embed_base, []).append("embedding")
+
+    return {base: sorted(roles) for base, roles in targets.items()}, chat_base
+
+
+async def _ping_provider(client: httpx.AsyncClient, base: str) -> Tuple[bool, str]:
+    """Lightweight reachability probe: any HTTP response means the server is up."""
+    try:
+        resp = await client.get(f"{base}/models")
+        return True, f"HTTP {resp.status_code}"
+    except Exception as exc:  # connection refused / timeout / DNS → unreachable
+        return False, type(exc).__name__
+
+
+@router.get("/llm/health")
+async def provider_health() -> Dict[str, Any]:
+    """Live reachability of the configured LLM provider endpoint(s).
+
+    Pings each distinct ``api_base`` (chat/embedding/vision/auxiliary, deduped) in
+    parallel with a short timeout. Used by the frontend to drive the
+    "Provider Offline" banner. Lightweight and live, unlike ``/llm/capabilities``
+    (a stale DB read of the last capability probe).
+    """
+    try:
+        core = load_core_config()
+        targets, chat_base = _resolve_health_targets(core)
+    except Exception as exc:
+        logger.warning("Provider health: failed to resolve targets: %s", exc)
+        return {
+            "status": "offline",
+            "providers": [],
+            "error": str(exc),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    if not targets:
+        return {
+            "status": "offline",
+            "providers": [],
+            "error": "no_api_base_configured",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    bases = list(targets.keys())
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        results = await asyncio.gather(*[_ping_provider(client, base) for base in bases])
+
+    providers: List[Dict[str, Any]] = []
+    chat_reachable = True  # if chat role is unconfigured, don't fail on its account
+    any_unreachable = False
+    for base, (reachable, detail) in zip(bases, results):
+        providers.append(
+            {"roles": targets[base], "api_base": base, "reachable": reachable, "detail": detail}
+        )
+        if not reachable:
+            any_unreachable = True
+        if base == chat_base:
+            chat_reachable = reachable
+
+    if not chat_reachable:
+        status_value = "offline"
+    elif any_unreachable:
+        status_value = "degraded"
+    else:
+        status_value = "online"
+
+    return {
+        "status": status_value,
+        "providers": providers,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

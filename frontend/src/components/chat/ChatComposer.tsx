@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatModelName } from "@/components/product/modelSelection";
 import { useEdgeEffect } from "@/hooks/useEdgeEffect";
 import { useI18n } from "@/hooks/useI18n";
+import { useProviderHealth } from "@/context/ProviderHealthContext";
 import type { SystemConfig } from "@/lib/api";
 import type { ConversationAttachment, ContextBreakdown } from "@/lib/types";
 
@@ -108,6 +109,10 @@ export function ChatComposer({
   composerApiRef,
 }: ChatComposerProps) {
   const { t } = useI18n();
+  // Block sending while the chat provider is unreachable; `degraded` (chat up,
+  // a secondary endpoint down) still allows chat.
+  const { status: providerStatus } = useProviderHealth();
+  const providerOffline = providerStatus === "offline";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -209,7 +214,7 @@ export function ChatComposer({
             onKeyDown={onKeyDown}
             disabled={queueFull}
             className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0 focus-visible:ring-0"
-            placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
+            placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : providerOffline ? t("providerHealth.composerHint") : t("chat.typeYourMessage")}
             aria-label={t("chat.typeYourMessage")}
             rows={2}
           />
@@ -379,8 +384,9 @@ export function ChatComposer({
                 <Button
                   type="button"
                   onClick={onSend}
-                  disabled={!input.trim()}
-                  aria-label={t("chat.sendMessage")}
+                  disabled={!input.trim() || providerOffline}
+                  aria-label={providerOffline ? t("providerHealth.composerHint") : t("chat.sendMessage")}
+                  title={providerOffline ? t("providerHealth.composerHint") : undefined}
                   variant="primary"
                   size="sm"
                   className="h-8 w-8 rounded-lg p-0 disabled:opacity-30"

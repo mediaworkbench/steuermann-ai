@@ -12,6 +12,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
 import { ChatSessionProvider } from "@/context/ChatSessionContext";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
+import { ProviderHealthProvider } from "@/context/ProviderHealthContext";
+import { ProviderOfflineBanner } from "@/components/product/ProviderOfflineBanner";
 import type { Conversation } from "@/lib/types";
 
 const WORKSPACE_OPEN_KEY = "workspace.panelOpen";
@@ -101,7 +103,7 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
   }, [workspaceSidebarOpen]);
 
   return (
-    <>
+    <ProviderHealthProvider>
     <SidebarProvider>
     <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen }}>
       <AppSidebar />
@@ -111,6 +113,9 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
           sidebar/workspace and overflowing the page horizontally. */}
       <SidebarInset className="min-w-0">
         <AppShell>
+          {/* Global provider-offline strip — shrink-0 so it stacks above the Header
+              without eating the content area's height. */}
+          <ProviderOfflineBanner />
           <Header
             chatTitle={chatTitle}
             activeConversation={convState.activeConversation}
@@ -129,6 +134,6 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
         closeButton
         toastOptions={{ duration: 6000 }}
       />
-    </>
+    </ProviderHealthProvider>
   );
 }

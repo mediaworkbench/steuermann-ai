@@ -143,6 +143,22 @@ export interface LLMCapabilitiesResponse {
   items: LLMCapabilityItem[];
 }
 
+export type ProviderHealthStatus = "online" | "degraded" | "offline";
+
+export interface ProviderHealthEndpoint {
+  roles: string[];
+  api_base: string;
+  reachable: boolean;
+  detail: string;
+}
+
+export interface ProviderHealth {
+  status: ProviderHealthStatus;
+  providers: ProviderHealthEndpoint[];
+  checked_at?: string;
+  error?: string;
+}
+
 export async function fetchSystemConfig(): Promise<SystemConfig | null> {
   try {
     const response = await fetch(`${API_BASE}/api/system-config`);
@@ -278,6 +294,30 @@ export async function fetchLLMCapabilities(): Promise<LLMCapabilitiesResponse | 
   } catch (error) {
     console.error("Error fetching LLM capabilities:", error);
     return null;
+  }
+}
+
+export async function fetchProviderHealth(): Promise<ProviderHealth | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/llm/health`, { cache: "no-store" });
+    if (!response.ok) {
+      console.error(`Failed to fetch provider health: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as ProviderHealth;
+  } catch (error) {
+    console.error("Error fetching provider health:", error);
+    return null;
+  }
+}
+
+// Force a full LLM capability reprobe (refreshes tool-calling mode + model metadata).
+// Best-effort: callers should not block on the result.
+export async function triggerLLMReprobe(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/llm/reprobe`, { method: "POST" });
+  } catch (error) {
+    console.error("Error triggering LLM reprobe:", error);
   }
 }
 

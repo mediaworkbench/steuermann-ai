@@ -100,6 +100,11 @@ services:
     volumes:
       - ${WORKSPACES_PATH:-./data/workspaces}:/tmp/steuermann-ai/chat-workspaces
       - ${RAG_DATA_PATH:-./data/rag-data}:/data/rag-data:ro
+    # Reach a host-based LLM provider (LM Studio/Ollama on host.docker.internal) for
+    # model discovery, workspace-intent classification, and GET /api/llm/health.
+    # Required on Linux (auto on Docker Desktop); mirrors langgraph + ingestion.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   nextjs:
