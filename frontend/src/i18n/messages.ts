@@ -303,6 +303,8 @@ export type Messages = {
     attachmentRemoved: string;
     knowledgeBaseOn: string;
     knowledgeBaseOff: string;
+    memoryOn: string;
+    memoryOff: string;
     templates: {
       explainConcept: string;
       helpCode: string;
@@ -947,6 +949,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentRemoved: "Attachment removed",
       knowledgeBaseOn: "Knowledge Base: On",
       knowledgeBaseOff: "Knowledge Base: Off",
+      memoryOn: "Memory: On",
+      memoryOff: "Memory: Off",
       templates: {
         explainConcept: "Explain a concept",
         helpCode: "Help me code",
@@ -1589,6 +1593,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentRemoved: "Anhang entfernt",
       knowledgeBaseOn: "Wissensdatenbank: An",
       knowledgeBaseOff: "Wissensdatenbank: Aus",
+      memoryOn: "Gedächtnis: An",
+      memoryOff: "Gedächtnis: Aus",
       templates: {
         explainConcept: "Konzept erklären",
         helpCode: "Beim Coden helfen",

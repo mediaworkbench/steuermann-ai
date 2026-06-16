@@ -165,6 +165,7 @@ class ChatRequest(BaseModel):
     document_ids: List[str] = Field(default_factory=list, max_length=20)
     preferred_model: Optional[str] = Field(default=None, max_length=256)
     rag_enabled: Optional[bool] = None  # Per-message override; None = use stored user setting
+    memory_enabled: Optional[bool] = None  # Per-session override; None = enabled (default)
     # Tools the user quick-disabled for *this* chat in the composer. Applied to this
     # inference only (never persisted to the user's saved settings).
     disabled_tools: List[str] = Field(default_factory=list, max_length=100)
@@ -1467,6 +1468,7 @@ async def chat(
             if workspace_writeback_eligible
             else None
         ),
+        "memory_enabled": request_body.memory_enabled if request_body.memory_enabled is not None else True,
     }
 
     logger.info(f"Routing chat request to {LANGGRAPH_URL}/invoke", extra={
@@ -1847,6 +1849,7 @@ async def chat_stream(
             if workspace_writeback_eligible
             else None
         ),
+        "memory_enabled": request_body.memory_enabled if request_body.memory_enabled is not None else True,
     }
 
     logger.info(

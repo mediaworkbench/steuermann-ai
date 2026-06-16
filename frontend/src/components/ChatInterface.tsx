@@ -17,7 +17,7 @@ import { useConversationAttachments } from "@/hooks/useConversationAttachments";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { useI18n } from "@/hooks/useI18n";
 import { useProviderHealth } from "@/context/ProviderHealthContext";
-import { setMessageFeedback } from "@/lib/api";
+import { setMessageFeedback, rateMemory } from "@/lib/api";
 import { splitWritebackStream, looksLikeWriteback } from "@/lib/writeback";
 
 export function ChatInterface() {
@@ -214,6 +214,10 @@ export function ChatInterface() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
+  // Per-session memory toggle (transient, in-memory): defaults to enabled, resets on page load.
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const handleMemoryToggle = useCallback(() => setMemoryEnabled((v) => !v), []);
+
   // Per-chat quick-disabled tools (transient, in-memory): which of the user's
   // enabled tools are turned off for the current conversation. Kept per conversation
   // and applied to that chat's inferences only — it never touches saved Settings.
@@ -239,9 +243,10 @@ export function ChatInterface() {
       attachmentIds: attachments.map((a) => a.id),
       documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
       ragEnabled,
+      memoryEnabled,
       disabledTools: disabledToolsByConv[convKey] ?? [],
     }),
-    [attachments, activeWorkspaceDocId, ragEnabled, disabledToolsByConv, convKey],
+    [attachments, activeWorkspaceDocId, ragEnabled, memoryEnabled, disabledToolsByConv, convKey],
   );
 
   const flushActiveDocBeforeSend = useCallback(async (): Promise<boolean> => {
@@ -296,6 +301,12 @@ export function ChatInterface() {
       if (msg.persistedId) {
         await setMessageFeedback(activeId, msg.persistedId, newFeedback ?? null);
         toast.success(newFeedback ? t("chat.feedbackSaved") : t("chat.feedbackRemoved"));
+      }
+      if (newFeedback && msg.metrics?.memories_used?.length) {
+        const memRating = newFeedback === "up" ? 5 : 1;
+        void Promise.all(
+          msg.metrics.memories_used.map(({ memory_id }) => rateMemory(memory_id, memRating))
+        );
       }
     },
     [messages, setMessages, activeId, t],
@@ -454,6 +465,8 @@ export function ChatInterface() {
             onAttachmentPillClick={handleAttachmentPillClick}
             ragEnabled={ragEnabled}
             onRagToggle={handleRagToggle}
+            memoryEnabled={memoryEnabled}
+            onMemoryToggle={handleMemoryToggle}
             workspaceSidebarOpen={workspaceSidebarOpen}
             onWorkspaceSidebarToggle={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
             toolToggles={toolToggles}

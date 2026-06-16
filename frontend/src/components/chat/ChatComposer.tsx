@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useCallback, useLayoutEffect } from "react";
-import { ArrowUp, Database, FileText, Mic, PanelRightClose, PanelRightOpen, StopCircle, X } from "lucide-react";
+import { ArrowUp, Brain, Database, FileText, Mic, PanelRightClose, PanelRightOpen, StopCircle, X } from "lucide-react";
 import { AttachMenu } from "./AttachMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContextWindowMenu } from "./ContextWindowMenu";
@@ -38,6 +38,8 @@ interface ChatComposerProps {
   onAttachmentPillClick: (attachment: ConversationAttachment) => void;
   ragEnabled: boolean;
   onRagToggle: () => void;
+  memoryEnabled: boolean;
+  onMemoryToggle: () => void;
   workspaceSidebarOpen: boolean;
   onWorkspaceSidebarToggle: () => void;
   toolToggles: Record<string, boolean>;
@@ -82,6 +84,8 @@ export function ChatComposer({
   onAttachmentPillClick,
   ragEnabled,
   onRagToggle,
+  memoryEnabled,
+  onMemoryToggle,
   workspaceSidebarOpen,
   onWorkspaceSidebarToggle,
   toolToggles,
@@ -266,6 +270,31 @@ export function ChatComposer({
                 />
                 <TooltipContent>
                   {ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Memory toggle */}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onMemoryToggle}
+                      disabled={isStreaming}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                        memoryEnabled
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Brain size={20} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {memoryEnabled ? t("chat.memoryOn") : t("chat.memoryOff")}
                 </TooltipContent>
               </Tooltip>
 

@@ -11,6 +11,7 @@ export interface StreamingChatParams {
   attachmentIds: string[];
   documentIds: string[];
   ragEnabled: boolean;
+  memoryEnabled?: boolean;
   disabledTools: string[]; // tools quick-disabled for this chat (this inference only)
 }
 
@@ -142,6 +143,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
             attachment_ids: params.attachmentIds,
             document_ids: params.documentIds,
             rag_enabled: params.ragEnabled,
+            memory_enabled: params.memoryEnabled ?? true,
             disabled_tools: params.disabledTools,
           }),
           signal: controller.signal,
