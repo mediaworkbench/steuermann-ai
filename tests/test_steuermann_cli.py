@@ -1020,3 +1020,455 @@ def test_profile_bundle_import_fails_when_required_profile_keys_missing(
         ]
     )
     assert code == 1
+
+
+# ---------------------------------------------------------------------------
+# setup init (first-time setup wizard)
+# ---------------------------------------------------------------------------
+
+import getpass  # noqa: E402
+import os  # noqa: E402
+import platform  # noqa: E402
+
+import universal_agentic_framework.cli.setup_init as setup_init  # noqa: E402
+
+
+_ENV_EXAMPLE = """\
+# Steuermann env template
+PROFILE_ID=starter
+APP_UID=1000
+APP_GID=1000
+CHECKPOINTER_POSTGRES_DSN=postgresql://framework:framework@postgres:5432/framework
+LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
+LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
+LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1
+OPENAI_API_KEY=lm-studio
+LLM_PROVIDERS_OPENROUTER_API_KEY=
+EMBEDDING_SERVER=http://host.docker.internal:1234/v1
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=framework
+POSTGRES_PASSWORD=
+POSTGRES_DB=framework
+AUTH_ENABLED=false
+AUTH_USERNAME=admin
+AUTH_ADMIN_EMAIL=admin@example.com
+AUTH_PASSWORD_HASH=
+AUTH_SESSION_SECRET=
+CHAT_ACCESS_TOKEN=
+"""
+
+_STARTER_CORE = """\
+llm:
+  roles:
+    chat:
+      provider_id: lmstudio
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: openai/google/gemma-4-e4b
+    vision:
+      provider_id: lmstudio
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: openai/google/gemma-4-e4b
+    auxiliary:
+      provider_id: lmstudio
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: openai/google/gemma-4-e2b
+    embedding:
+      provider_id: lmstudio
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: openai/text-embedding-granite-embedding-278m-multilingual
+memory:
+  embeddings:
+    dimension: 768
+    remote_endpoint: $EMBEDDING_SERVER
+  mem0:
+    llm_provider: lmstudio
+"""
+
+
+def _write_env_example(tmp_path: Path) -> Path:
+    path = tmp_path / ".env.example"
+    path.write_text(_ENV_EXAMPLE, encoding="utf-8")
+    return path
+
+
+def _write_starter_core(profile_dir: Path) -> None:
+    (profile_dir / "core.yaml").write_text(_STARTER_CORE, encoding="utf-8")
+
+
+def _parse_env(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        out[key.strip()] = value.strip()
+    return out
+
+
+def _stub_wizard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid real config loading + argon2 so the wizard tests stay light."""
+    monkeypatch.setattr(
+        steuermann, "_setup_check_payload", lambda env: {"status": "ok", "sections": []}
+    )
+    monkeypatch.setattr(setup_init, "generate_password_hash", lambda pw: "FAKEHASH")
+
+
+def _set_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+
+def _queue_inputs(monkeypatch: pytest.MonkeyPatch, answers: list[str]) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    it = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(it, ""))
+    monkeypatch.setattr(getpass, "getpass", lambda *a, **k: "interactive-admin-pw")
+
+
+# 1. Non-TTY run writes a valid .env (starter, strong POSTGRES_PASSWORD).
+# 2. Generated session secret + access token are 64-char hex.
+# 9. CHECKPOINTER_POSTGRES_DSN password matches the generated POSTGRES_PASSWORD.
+def test_setup_init_non_tty_writes_valid_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["profile"] == "starter"
+    assert payload["scaffolded_from"] is None
+
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["PROFILE_ID"] == "starter"
+    assert env["POSTGRES_PASSWORD"] and env["POSTGRES_PASSWORD"] != "framework"
+
+    # 2: hex tokens
+    for key in ("AUTH_SESSION_SECRET", "CHAT_ACCESS_TOKEN"):
+        assert len(env[key]) == 64
+        assert all(c in "0123456789abcdef" for c in env[key])
+
+    # 9: DSN password matches
+    assert f"framework:{env['POSTGRES_PASSWORD']}@" in env["CHECKPOINTER_POSTGRES_DSN"]
+
+
+# 3. detect_platform() — arm64 + Pi5 flag; Windows (no os.getuid) → uid None.
+def test_detect_platform_arm_and_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    plat = setup_init.detect_platform()
+    assert plat["is_arm"] is True
+    assert plat["pi5_qdrant_warning"] is True
+
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    monkeypatch.setattr(platform, "machine", lambda: "AMD64")
+    monkeypatch.delattr(os, "getuid", raising=False)
+    monkeypatch.delattr(os, "getgid", raising=False)
+    plat2 = setup_init.detect_platform()
+    assert plat2["uid"] is None
+    assert plat2["gid"] is None
+    assert plat2["is_arm"] is False
+
+
+# 4. Existing .env backed up with --force; non-force non-TTY aborts untouched.
+def test_setup_init_existing_env_backed_up_with_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    (tmp_path / ".env").write_text("POSTGRES_PASSWORD=orig\nPROFILE_ID=starter\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    assert (tmp_path / ".env.bak").exists()
+    assert "POSTGRES_PASSWORD=orig" in (tmp_path / ".env.bak").read_text(encoding="utf-8")
+
+
+def test_setup_init_non_tty_without_force_aborts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _create_profile_dir(tmp_path)
+    _write_env_example(tmp_path)
+    original = "POSTGRES_PASSWORD=orig\nPROFILE_ID=starter\n"
+    (tmp_path / ".env").write_text(original, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--format", "json"])
+    assert code == 2
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == original
+    assert not (tmp_path / ".env.bak").exists()
+
+
+# 5. --provider ollama writes the ollama endpoint var.
+def test_setup_init_provider_ollama(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--provider", "ollama", "--format", "json"])
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["LLM_PROVIDERS_OLLAMA_API_BASE"] == "http://host.docker.internal:11434/v1"
+
+
+# 5 (cont). --provider openrouter --openrouter-api-key writes the key.
+def test_setup_init_provider_openrouter_writes_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(
+        [
+            "setup", "init", "--force",
+            "--provider", "openrouter", "--openrouter-api-key", "sk-x",
+            "--format", "json",
+        ]
+    )
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["LLM_PROVIDERS_OPENROUTER_API_KEY"] == "sk-x"
+
+
+# 6. Auth line is exactly AUTH_PASSWORD_HASH='<hash>' and AUTH_ENABLED=true.
+def test_setup_init_auth_line_is_single_quoted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["AUTH_PASSWORD_HASH"] == "'FAKEHASH'"
+    assert env["AUTH_ENABLED"] == "true"
+
+
+# 7. Invalid --profile base aborts (exit 2) before any .env is written.
+def test_setup_init_invalid_profile_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _create_profile_dir(tmp_path)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--profile", "base", "--format", "json"])
+    assert code == 2
+    assert not (tmp_path / ".env").exists()
+
+
+# 8. render_env_from_example preserves comments, changes only the value, appends extras.
+def test_render_env_from_example_preserves_comments() -> None:
+    example = "# a comment\nPROFILE_ID=starter\nFOO=bar\n"
+    out, extras = setup_init.render_env_from_example(example, {"PROFILE_ID": "local"})
+    assert "# a comment" in out
+    assert "PROFILE_ID=local" in out
+    assert "FOO=bar" in out
+    assert extras == []
+
+    out2, extras2 = setup_init.render_env_from_example("FOO=bar\n", {"NEW_KEY": "x"})
+    assert "# Added by steuermann setup init" in out2
+    assert "NEW_KEY=x" in out2
+    assert extras2 == ["NEW_KEY"]
+
+
+# 10. Simulated Linux: APP_UID/APP_GID equal the detected uid/gid.
+def test_setup_init_linux_sets_app_uid_gid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(os, "getuid", lambda: 4321, raising=False)
+    monkeypatch.setattr(os, "getgid", lambda: 5678, raising=False)
+    monkeypatch.setattr(os, "chown", lambda *a, **k: None, raising=False)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["APP_UID"] == "4321"
+    assert env["APP_GID"] == "5678"
+
+
+# 11. Re-run preserves an existing non-empty POSTGRES_PASSWORD.
+def test_setup_init_preserves_existing_postgres_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    _write_env_example(tmp_path)
+    (tmp_path / ".env").write_text(
+        "POSTGRES_PASSWORD=preserved_secret_123\nPROFILE_ID=starter\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["POSTGRES_PASSWORD"] == "preserved_secret_123"
+    assert "preserved_secret_123" in env["CHECKPOINTER_POSTGRES_DSN"]
+
+
+# 12. write_profile_llm_config: openrouter fields + Mem0 provider; lmstudio keeps its branch.
+def test_write_profile_llm_config_openrouter_and_lmstudio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path, "local")
+    _write_starter_core(profile_dir)
+    monkeypatch.chdir(tmp_path)
+
+    def _role_cfg(provider: str, api_base: str, api_key: str, chat_model: str) -> dict:
+        role = {"provider_id": provider, "api_base": api_base, "api_key": api_key}
+        return {
+            "chat": {**role, "model": chat_model},
+            "vision": {**role, "model": chat_model},
+            "auxiliary": {**role, "model": chat_model},
+            "embedding": {"endpoint": "http://emb", "model": "openai/my-embed", "dimension": 1024},
+        }
+
+    written = setup_init.write_profile_llm_config(
+        "local",
+        _role_cfg(
+            "openrouter",
+            "$LLM_PROVIDERS_OPENROUTER_API_BASE",
+            "$LLM_PROVIDERS_OPENROUTER_API_KEY",
+            "openai/anthropic/claude-3.5-sonnet",
+        ),
+    )
+    assert written is not None
+    data = yaml.safe_load((profile_dir / "core.yaml").read_text(encoding="utf-8"))
+    chat = data["llm"]["roles"]["chat"]
+    assert chat["provider_id"] == "openrouter"
+    assert chat["api_base"] == "$LLM_PROVIDERS_OPENROUTER_API_BASE"
+    assert chat["api_key"] == "$LLM_PROVIDERS_OPENROUTER_API_KEY"
+    assert chat["model"] == "openai/anthropic/claude-3.5-sonnet"
+    assert data["memory"]["mem0"]["llm_provider"] == "openrouter"
+    assert data["llm"]["roles"]["embedding"]["api_base"] == "$EMBEDDING_SERVER"
+    assert data["llm"]["roles"]["embedding"]["model"] == "openai/my-embed"
+    assert data["memory"]["embeddings"]["dimension"] == 1024
+    assert not (profile_dir / "core.yaml.bak").exists()
+
+    # lmstudio keeps mem0.llm_provider == lmstudio (the LM-Studio response-format branch).
+    setup_init.write_profile_llm_config(
+        "local",
+        _role_cfg(
+            "lmstudio", "$LLM_PROVIDERS_LMSTUDIO_API_BASE", "$OPENAI_API_KEY", "openai/google/gemma-4-e4b"
+        ),
+    )
+    data2 = yaml.safe_load((profile_dir / "core.yaml").read_text(encoding="utf-8"))
+    assert data2["memory"]["mem0"]["llm_provider"] == "lmstudio"
+
+
+# 13. All-defaults run on starter leaves core.yaml untouched (no write).
+def test_setup_init_all_defaults_leaves_core_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(profile_dir)
+    before = (profile_dir / "core.yaml").read_bytes()
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _set_non_tty(monkeypatch)
+    _stub_wizard(monkeypatch)
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["profile"] == "starter"
+    assert payload["profile_config_path"] is None
+    assert (profile_dir / "core.yaml").read_bytes() == before
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["PROFILE_ID"] == "starter"
+
+
+# 14. Scaffold-on-customize: change chat model → scaffold local, starter unchanged.
+def test_setup_init_scaffold_on_customize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    starter_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(starter_dir)
+    starter_before = (starter_dir / "core.yaml").read_bytes()
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _stub_wizard(monkeypatch)
+    # provider, endpoint, key, chat(change), vision, aux, emb endpoint, emb model, emb dim, scaffold id
+    _queue_inputs(
+        monkeypatch,
+        ["", "", "", "openai/acme/custom-chat", "", "", "", "", "", "local"],
+    )
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["profile"] == "local"
+    assert payload["scaffolded_from"] == "starter"
+
+    local_core = yaml.safe_load(
+        (tmp_path / "config" / "profiles" / "local" / "core.yaml").read_text(encoding="utf-8")
+    )
+    assert local_core["llm"]["roles"]["chat"]["model"] == "openai/acme/custom-chat"
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["PROFILE_ID"] == "local"
+    # starter stays byte-for-byte pristine
+    assert (starter_dir / "core.yaml").read_bytes() == starter_before
+
+
+# 15. Custom embedding endpoint → .env EMBEDDING_SERVER set, profile references $EMBEDDING_SERVER.
+def test_setup_init_embedding_endpoint_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    starter_dir = _create_profile_dir(tmp_path)
+    _write_starter_core(starter_dir)
+    _write_env_example(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _stub_wizard(monkeypatch)
+    # change only the embedding endpoint (triggers a profile rewrite via scaffold)
+    _queue_inputs(
+        monkeypatch,
+        ["", "", "", "", "", "", "http://my-embed:9999/v1", "", "", "local"],
+    )
+
+    code = steuermann.main(["setup", "init", "--force", "--format", "json"])
+    assert code == 0
+    env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
+    assert env["EMBEDDING_SERVER"] == "http://my-embed:9999/v1"
+
+    local_core = yaml.safe_load(
+        (tmp_path / "config" / "profiles" / "local" / "core.yaml").read_text(encoding="utf-8")
+    )
+    assert local_core["llm"]["roles"]["embedding"]["api_base"] == "$EMBEDDING_SERVER"
+    assert local_core["memory"]["embeddings"]["remote_endpoint"] == "$EMBEDDING_SERVER"

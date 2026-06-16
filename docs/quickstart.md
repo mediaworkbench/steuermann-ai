@@ -31,6 +31,26 @@ poetry install
 
 ## 2. Configure Environment Variables
 
+### Fastest path: `setup init`
+
+One interactive command does the whole step — it writes a valid `.env`, generates strong
+secrets (`POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET`, `CHAT_ACCESS_TOKEN`) and an argon2id admin
+password hash, constructs `CHECKPOINTER_POSTGRES_DSN`, creates (and on Linux chowns) the data
+directories, and runs the pre-flight checks:
+
+```bash
+poetry run steuermann setup init
+```
+
+It walks you through provider/profile choice (LM Studio / Ollama / OpenRouter — endpoint, API key,
+per-role models, and the embedding endpoint/model/dimension). If you customize the reference
+`starter` profile it scaffolds a fresh profile copy and points `PROFILE_ID` at it (steps 3 and the
+`AUTH_ENABLED=true` part of authentication are handled for you). The generated credentials are
+printed once at the end — save them. See [cli.md](cli.md#steuermann-setup-init) for flags and
+behavior. With the wizard you can skip to **step 4 (Start the Stack)**.
+
+### Manual setup (fallback)
+
 Copy the example file and fill in the required values:
 
 ```bash

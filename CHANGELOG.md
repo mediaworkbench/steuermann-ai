@@ -1,5 +1,23 @@
 # Changelog
 
+### [0.4.6] — One-command first-time setup
+
+#### Feature
+
+* **`steuermann setup init` — a guided first-time setup wizard.** A single interactive command
+  replaces the manual onboarding sequence (hand-editing `.env`, generating an argon2 password hash
+  + session secret + access token, setting `APP_UID`/`APP_GID` and chowning `./data/*`, running
+  the pre-flight checks). It detects the platform (UID/GID, ARM/Pi5 Qdrant note); lets you
+  **fully configure any of the three LLM providers** (LM Studio / Ollama / OpenRouter) — endpoint,
+  API key, per-role model identifiers, and the embedding endpoint/model/dimension — and makes that
+  provider active. When you customize the reference `starter` profile it **scaffolds a fresh profile
+  copy** (keeping starter pristine) and points `PROFILE_ID` at it. It generates strong secrets
+  (`POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET`, `CHAT_ACCESS_TOKEN`) and an argon2id admin password
+  hash with `AUTH_ENABLED=true`; writes a valid `.env` (preserving the `.env.example` comments and
+  backing up any existing `.env`); creates the data directories; runs the existing `setup check`
+  validation; and prints a one-time summary with the generated credentials and next steps. The
+  manual path remains fully documented.
+
 ### [0.4.5] — Multi-user accounts & role-based access
 
 #### Feature

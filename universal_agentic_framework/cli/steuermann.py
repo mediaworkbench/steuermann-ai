@@ -17,6 +17,7 @@ from typing import Any, Iterable
 import yaml
 
 from universal_agentic_framework.cli.ingest import add_ingest_subcommands
+from universal_agentic_framework.cli.setup_init import add_setup_init_subcommand
 from universal_agentic_framework.config.loader import (
     ENV_PLACEHOLDER_RE,
     _DISALLOWED_PROFILE_FEATURE_FLAGS,
@@ -1087,14 +1088,17 @@ def cmd_setup_doctor(args: argparse.Namespace) -> int:
     return 1 if has_blocking_fail else 0
 
 
-def cmd_setup_check(args: argparse.Namespace) -> int:
-    """Consolidated pre-flight check: doctor + config validate + contract-check."""
-    env = _load_env_file()
+def _setup_check_payload(env: dict[str, str]) -> dict[str, Any]:
+    """Build the consolidated pre-flight payload (doctor + config validate + contract-check).
+
+    Returns ``{"status", "sections"}`` without printing so callers (e.g. the setup
+    wizard) can embed the validation result in a larger summary.
+    """
     all_sections: list[dict[str, Any]] = []
     has_error = False
 
     # 1. Doctor checks
-    doctor_ns = argparse.Namespace(format=args.format, probe_endpoints=False)
+    doctor_ns = argparse.Namespace(probe_endpoints=False)
     doctor_payload = _run_doctor_payload(doctor_ns, env)
     all_sections.append({"section": "setup_doctor", **doctor_payload})
     if doctor_payload["status"] == "error":
@@ -1117,9 +1121,14 @@ def cmd_setup_check(args: argparse.Namespace) -> int:
     if contract_payload["status"] == "error":
         has_error = True
 
-    payload = {"status": "error" if has_error else "ok", "sections": all_sections}
+    return {"status": "error" if has_error else "ok", "sections": all_sections}
+
+
+def cmd_setup_check(args: argparse.Namespace) -> int:
+    """Consolidated pre-flight check: doctor + config validate + contract-check."""
+    payload = _setup_check_payload(_load_env_file())
     _print_payload(payload, args.format)
-    return 1 if has_error else 0
+    return 1 if payload["status"] == "error" else 0
 
 
 def _run_doctor_payload(args: argparse.Namespace, env: dict[str, str]) -> dict[str, Any]:
@@ -1550,6 +1559,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_common_format_arg(check_setup_parser)
     check_setup_parser.set_defaults(func=cmd_setup_check)
+
+    add_setup_init_subcommand(setup_subparsers)
 
     docs_parser = subparsers.add_parser("docs", help="Docs conformance checks")
     docs_subparsers = docs_parser.add_subparsers(dest="docs_command")

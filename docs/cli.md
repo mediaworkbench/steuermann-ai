@@ -258,6 +258,62 @@ poetry run steuermann config contract-check --format json
 
 ## `setup` — Setup Diagnostics
 
+### `steuermann setup init`
+
+Interactive first-time setup wizard. A single command replaces the manual onboarding sequence: it
+detects the platform (UID/GID, ARM/Pi5 Qdrant note), lets you **fully configure one LLM provider**
+(endpoint, API key, per-role models, and the embedding endpoint/model/dimension), generates strong
+secrets, writes a valid `.env` (preserving the `.env.example` comments), creates and — on Linux —
+chowns the data directories, runs the existing `setup check` validation, and prints a one-time
+summary with the generated credentials and next steps.
+
+```bash
+steuermann setup init [--profile <id>] [--provider {lmstudio,ollama,openrouter}] \
+                      [--openrouter-api-key <key>] [--auth-username <name>] \
+                      [--auth-email <email>] [--force] [--format json]
+```
+
+- `--profile` — target profile id (default `starter`). A valid new name is scaffolded from starter.
+- `--provider` — LLM provider to configure (default `lmstudio`).
+- `--openrouter-api-key` — pre-fill the OpenRouter API key (provider `openrouter`).
+- `--auth-username` / `--auth-email` — bootstrap admin identity (defaults `admin` / `admin@example.com`).
+- `--force` — overwrite an existing `.env` without the interactive confirmation (a timestamped backup is always kept).
+
+**Behavior:**
+
+- **Provider = made active.** The chosen provider's endpoint + key are written to `.env`, and the
+  target profile's `core.yaml` `llm.roles.*` (`provider_id`, `api_base`, `api_key`, `model`) plus
+  `memory.mem0.llm_provider` are set so the provider is used consistently (including Mem0's
+  extraction LLM). Model ids are written verbatim — use LiteLLM's `openai/<id>` form (e.g.
+  OpenRouter → `openai/anthropic/claude-3.5-sonnet`).
+- **Embedding configured explicitly.** Always prompts for the embedding endpoint, model, and
+  dimension (defaults pre-filled). Writes `.env` `EMBEDDING_SERVER` plus the profile's
+  `llm.roles.embedding` and `memory.embeddings`.
+- **Customizing scaffolds a fresh profile.** If you change any provider/model/embedding value while
+  targeting the tracked `starter` profile, the wizard copies `starter` into a new profile id
+  (prompted, default `local`) and edits that — `starter` stays pristine. An existing non-starter
+  profile is edited in place; a new name is scaffolded from starter; no changes leaves starter as-is.
+  Rewriting `core.yaml` uses PyYAML (comments are dropped — content lives in
+  [configuration.md](configuration.md)); no `core.yaml` backup is taken.
+- **Auth on by default.** Sets `AUTH_ENABLED=true`, prompts for the admin password, and stores its
+  argon2id hash (single-quoted). Always generates `POSTGRES_PASSWORD` (preserved on re-run if already
+  set), `AUTH_SESSION_SECRET`, and `CHAT_ACCESS_TOKEN`. If `argon2-cffi` is unavailable it downgrades
+  to `AUTH_ENABLED=false` with a warning instead of failing.
+- **TTY-safe.** When stdin is not a TTY (pipes/CI) every prompt uses its default and the admin
+  password is auto-generated and surfaced in the summary — it never hangs. An existing `.env` then
+  requires `--force` (otherwise it aborts with exit `2`).
+
+Exit codes: `0` when `.env` is written and validation passes; `1` if validation fails; `2` for
+pre-write aborts (existing `.env` without `--force` in non-TTY, invalid profile id, scaffold-id
+collision).
+
+**Example:**
+```bash
+poetry run steuermann setup init --provider openrouter --openrouter-api-key sk-...
+```
+
+---
+
 ### `steuermann setup doctor`
 
 Run host preflight checks: required environment variables, compose/profile alignment, profile metadata consistency, model id format validation, and collection alignment. Returns actionable remediation hints for every failed check.
