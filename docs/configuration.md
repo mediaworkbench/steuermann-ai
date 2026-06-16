@@ -603,6 +603,10 @@ ingestion:
 
 **Collection naming:** The RAG collection is configured separately via `rag.collection_name` in the profile overlay (see RAG Retrieval Configuration above). Use the same value when running `steuermann ingest`.
 
+**Idempotency:** Ingestion is safe to re-run. Chunk IDs are deterministic (UUID5 keyed on the source-relative file path + chunk index), so re-running `ingest` or restarting the watcher upserts over existing points instead of appending duplicates. `reindex` clears the collection first and is always safe. The embedding provider must be reachable for any ingestion to proceed.
+
+**Mount path:** All services (`ingestion`, `fastapi`, `langgraph`) mount the corpus at `/data/rag-data`. Never use a different container path for the ingestion service, as this would break the source-relative dedup key.
+
 **Running ingestion:**
 
 ```bash

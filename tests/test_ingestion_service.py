@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import tempfile
 import shutil
+import uuid
 import numpy as np
 
 from universal_agentic_framework.ingestion import IngestionService, IngestionConfig
@@ -441,14 +442,202 @@ class TestIngestionService:
         (temp_dir / "file1.txt").write_text("content")
         (temp_dir / "file2.md").write_text("content")
         (temp_dir / "ignored.pdf").write_text("content")
-        
+
         service = IngestionService(sample_config)
         files = service._find_files()
-        
+
         # Should find .txt and .md files (not .pdf)
         # Pattern matching may not be recursive depending on glob behavior
         assert len(files) >= 2
         assert all(f.suffix in [".txt", ".md"] for f in files)
+
+    # --- Fix B idempotency / determinism tests ---
+
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.parse")
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.get_metadata")
+    @patch("universal_agentic_framework.ingestion.validator.detect_langs")
+    def test_deterministic_ids_on_reingest(
+        self,
+        mock_detect_langs,
+        mock_get_metadata,
+        mock_parse,
+        sample_config,
+        mock_qdrant,
+        mock_embedder,
+        temp_dir,
+    ):
+        """Same file ingested twice with incremental off produces identical point IDs."""
+        sample_config.enable_incremental = False
+
+        test_file = temp_dir / "test.md"
+        test_file.write_text("# Test\n\nContent for chunking")
+
+        mock_parse.return_value = "Content for chunking"
+        mock_get_metadata.return_value = {"title": "Test"}
+        mock_lang = Mock()
+        mock_lang.lang = "en"
+        mock_lang.prob = 0.95
+        mock_detect_langs.return_value = [mock_lang]
+
+        service = IngestionService(sample_config)
+
+        service.ingest_file(test_file)
+        first_ids = {
+            p.id
+            for call in mock_qdrant.upsert.call_args_list
+            for p in call.kwargs["points"]
+        }
+        mock_qdrant.upsert.reset_mock()
+
+        service.ingest_file(test_file)
+        second_ids = {
+            p.id
+            for call in mock_qdrant.upsert.call_args_list
+            for p in call.kwargs["points"]
+        }
+
+        assert len(first_ids) > 0
+        assert first_ids == second_ids
+
+    def test_source_key_mount_independent(self, sample_config, mock_qdrant, mock_embedder, temp_dir):
+        """Same relative file path under two different source roots produces the same source_key."""
+        root_a = temp_dir / "data_ingest"
+        root_b = temp_dir / "data_rag_data"
+        for root in (root_a, root_b):
+            root.mkdir()
+            (root / "docs").mkdir()
+            (root / "docs" / "guide.md").write_text("content")
+
+        config_a = IngestionConfig(
+            source_path=root_a,
+            file_patterns=["*.md"],
+            collection_name="test-collection",
+            collection_description="Test",
+            embedding_model=sample_config.embedding_model,
+            embedding_dimension=sample_config.embedding_dimension,
+        )
+        config_b = IngestionConfig(
+            source_path=root_b,
+            file_patterns=["*.md"],
+            collection_name="test-collection",
+            collection_description="Test",
+            embedding_model=sample_config.embedding_model,
+            embedding_dimension=sample_config.embedding_dimension,
+        )
+
+        svc_a = IngestionService(config_a)
+        svc_b = IngestionService(config_b)
+
+        key_a = svc_a._source_key(root_a / "docs" / "guide.md")
+        key_b = svc_b._source_key(root_b / "docs" / "guide.md")
+
+        assert key_a == key_b == "docs/guide.md"
+
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.parse")
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.get_metadata")
+    @patch("universal_agentic_framework.ingestion.validator.detect_langs")
+    def test_delete_called_before_upsert_for_new_file(
+        self,
+        mock_detect_langs,
+        mock_get_metadata,
+        mock_parse,
+        sample_config,
+        mock_qdrant,
+        mock_embedder,
+        temp_dir,
+    ):
+        """delete is called unconditionally before upsert, even for new files (B4 orphan guard)."""
+        test_file = temp_dir / "new.md"
+        test_file.write_text("# New\n\nContent")
+
+        mock_parse.return_value = "Content"
+        mock_get_metadata.return_value = {"title": "New"}
+        mock_lang = Mock()
+        mock_lang.lang = "en"
+        mock_lang.prob = 0.95
+        mock_detect_langs.return_value = [mock_lang]
+
+        # Both count calls return 0 → state = "new"
+        mock_qdrant.count.side_effect = [Mock(count=0), Mock(count=0)]
+
+        service = IngestionService(sample_config)
+        result = service.ingest_file(test_file)
+
+        assert result["status"] == "success"
+        mock_qdrant.delete.assert_called_once()
+        mock_qdrant.upsert.assert_called_once()
+
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.parse")
+    @patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.get_metadata")
+    @patch("universal_agentic_framework.ingestion.validator.detect_langs")
+    def test_incremental_off_delete_called_and_ids_stable(
+        self,
+        mock_detect_langs,
+        mock_get_metadata,
+        mock_parse,
+        sample_config,
+        mock_qdrant,
+        mock_embedder,
+        temp_dir,
+    ):
+        """With enable_incremental=False, delete is still called and IDs remain stable across runs."""
+        sample_config.enable_incremental = False
+
+        test_file = temp_dir / "repeat.md"
+        test_file.write_text("# Repeat\n\nContent")
+
+        mock_parse.return_value = "Content"
+        mock_get_metadata.return_value = {"title": "Repeat"}
+        mock_lang = Mock()
+        mock_lang.lang = "en"
+        mock_lang.prob = 0.95
+        mock_detect_langs.return_value = [mock_lang]
+
+        service = IngestionService(sample_config)
+
+        service.ingest_file(test_file)
+        assert mock_qdrant.delete.call_count == 1
+        first_ids = {
+            p.id
+            for call in mock_qdrant.upsert.call_args_list
+            for p in call.kwargs["points"]
+        }
+        mock_qdrant.upsert.reset_mock()
+        mock_qdrant.delete.reset_mock()
+
+        service.ingest_file(test_file)
+        assert mock_qdrant.delete.call_count == 1
+        second_ids = {
+            p.id
+            for call in mock_qdrant.upsert.call_args_list
+            for p in call.kwargs["points"]
+        }
+
+        assert first_ids == second_ids
+
+    def test_distinct_source_keys_for_same_basename(
+        self, sample_config, mock_qdrant, mock_embedder, temp_dir
+    ):
+        """Files with the same basename in different subdirs get distinct source_keys and point IDs."""
+        (temp_dir / "a").mkdir()
+        (temp_dir / "b").mkdir()
+        file_a = temp_dir / "a" / "foo.md"
+        file_b = temp_dir / "b" / "foo.md"
+        file_a.write_text("content a")
+        file_b.write_text("content b")
+
+        service = IngestionService(sample_config)
+
+        key_a = service._source_key(file_a)
+        key_b = service._source_key(file_b)
+
+        assert key_a != key_b
+        assert key_a == "a/foo.md"
+        assert key_b == "b/foo.md"
+
+        # Verify point IDs are also distinct across subdirectory variants
+        ns = uuid.UUID("8f3b1c2a-4d5e-4f60-9a7b-2c1d0e5f6a7b")
+        assert str(uuid.uuid5(ns, f"{key_a}#0")) != str(uuid.uuid5(ns, f"{key_b}#0"))
 
 
 class TestIngestionConfig:

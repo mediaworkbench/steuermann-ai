@@ -579,6 +579,7 @@ If prior memory conflicts with current-turn tool outputs, tool outputs take prec
 
 - **Memory collection:** `{collection_prefix}_memory`, where `collection_prefix` defaults to `$PROFILE_ID` (`config/core.yaml` → `memory.vector_store.collection_prefix`). For profile `starter` this is `starter_memory` (built in `memory/mem0_backend.py`).
 - **RAG collection:** named explicitly via `rag.collection_name` in the profile overlay (starter uses `framework`); it must match the collection used during ingestion.
+- **Ingestion idempotency:** chunk IDs are deterministic UUID5s keyed on `source_key + "#" + chunk_index`, where `source_key` is the file path relative to `IngestionConfig.source_path`. All containers mount the corpus at `/data/rag-data`, making `file_path` payloads identical whether the chunk was written by the watcher or by `reingest-all`. Re-running ingest upserts over existing point IDs (no duplicates); deleted or shrunk files are fully cleaned up by an unconditional delete issued before each file's upsert batch.
 
 Advanced memory behavior is integrated into this architecture: semantic similarity retrieval, recency-aware ranking, frequency-aware prioritization, and cross-session linking through metadata and retrieval patterns.
 

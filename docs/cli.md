@@ -388,7 +388,7 @@ poetry run steuermann docs check --strict  # fail on drift
 
 ### `steuermann ingest ingest`
 
-Index documents from a directory into a Qdrant collection. Skips unchanged files via content hashing.
+Index documents from a directory into a Qdrant collection. Skips unchanged files via content hashing (incremental mode). Safe to re-run — chunk IDs are deterministic so re-ingesting the same file upserts over existing points; it never creates duplicates.
 
 ```bash
 steuermann ingest ingest --source <dir> --collection <name> [--language <lang>]
@@ -396,7 +396,7 @@ steuermann ingest ingest --source <dir> --collection <name> [--language <lang>]
 
 ### `steuermann ingest watch`
 
-Start watch mode: initial sweep + watchdog filesystem monitoring + 30-second periodic fallback sweep. Automatically re-indexes changed files and purges deleted ones.
+Start watch mode: initial sweep + watchdog filesystem monitoring + 30-second periodic fallback sweep. Automatically re-indexes changed files and purges deleted ones. Requires the embedding provider to be reachable; the watcher retries on startup until it becomes available.
 
 ```bash
 steuermann ingest watch --source <dir> --collection <name> [--language <lang>]
@@ -412,7 +412,7 @@ steuermann ingest validate --source <dir>
 
 ### `steuermann ingest reindex`
 
-Clear an existing collection and perform a full re-index from scratch.
+Clear an existing collection and perform a full re-index from scratch. Safe to re-run multiple times; the collection is wiped first, then rebuilt with deterministic IDs.
 
 ```bash
 steuermann ingest reindex --source <dir> --collection <name> [--language <lang>]

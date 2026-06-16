@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.4.6] — one-command first-time setup
+## [0.4.6] — one-command first-time setup + idempotent RAG ingestion
+
+- fix: RAG ingestion now uses deterministic, source-relative chunk IDs so re-running ingest or restarting the watcher never produces duplicate vectors; watcher and reindex share the same `/data/rag-data` mount path.
+- feature: `steuermann setup init` — interactive wizard that writes `.env`, generates secrets (postgres password, session secret, access token, argon2id admin hash), configures an LLM provider, scaffolds a profile copy if needed, and runs pre-flight validation.
+- fix: `.env` value parser now correctly handles double-quoted values with inline comments and single-quoted values containing `$` signs.
 
 - feature: `steuermann setup init` — interactive wizard that writes `.env`, generates secrets (postgres password, session secret, access token, argon2id admin hash), configures an LLM provider, scaffolds a profile copy if needed, and runs pre-flight validation.
 - fix: `.env` value parser now correctly handles double-quoted values with inline comments and single-quoted values containing `$` signs.
