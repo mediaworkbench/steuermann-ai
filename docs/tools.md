@@ -46,6 +46,7 @@ These tools are always available regardless of the active LLM model and require 
 Evaluates arithmetic and mathematical expressions.
 
 **Capabilities:**
+
 - Basic arithmetic, exponentiation, and parenthesized expressions
 - Percentage calculations (`15% of 200`)
 - Trigonometric functions (`sin`, `cos`, `tan`, `atan2`)
@@ -67,6 +68,7 @@ Evaluates arithmetic and mathematical expressions.
 Returns the current date and time, optionally in a specified timezone.
 
 **Capabilities:**
+
 - Current date and time in any IANA timezone (e.g. `Europe/Berlin`, `America/New_York`)
 - Formatted output adapting to the user's language
 - Date arithmetic (days until an event, days since a date)
@@ -107,6 +109,7 @@ Geocodes locations and measures straight-line distances using [Nominatim](https:
 Reads and writes files within a sandboxed workspace directory.
 
 **Capabilities:**
+
 - Read file contents by filename or relative path
 - Write or overwrite a file
 - List files in the workspace
@@ -166,6 +169,7 @@ These tools communicate with external services over the Docker network.
 Searches the web via DuckDuckGo and optionally fetches page content. Runs as a Model Context Protocol (MCP) server inside the Docker stack (`duckduckgo-mcp:8000`).
 
 **Capabilities:**
+
 - Keyword and natural-language web search via DuckDuckGo
 - Fetches and extracts text content from a URL
 - Region-configurable results (default: `de-de`)
@@ -193,6 +197,7 @@ Searches the web via DuckDuckGo and optionally fetches page content. Runs as a M
 These four tools send images to the vision-capable LLM role. They all require `llm.roles.vision` to be configured in the active profile overlay. If `vision` is not present, the runtime falls back to the `chat` role — which may not support image input.
 
 All vision tools share:
+
 - Maximum image size: **10 MB**
 - Attachment resolution: images referenced by path are loaded from `attachments_base_dir` (configurable per profile)
 - Shared helpers in `universal_agentic_framework/tools/vision_utils.py` (base64 encoding, MIME detection, size validation)
@@ -202,6 +207,7 @@ All vision tools share:
 General-purpose image understanding and description.
 
 **Capabilities:**
+
 - Describe image contents in natural language
 - Answer specific questions about what is shown in an image
 - Identify objects, scenes, text visible in the image, and layout
@@ -219,6 +225,7 @@ General-purpose image understanding and description.
 Extracts text from images using the vision LLM.
 
 **Capabilities:**
+
 - Reads printed and handwritten text from photos, screenshots, and scans
 - Preserves layout and line structure where possible
 - Multilingual — recognizes any language visible in the image
@@ -234,6 +241,7 @@ Extracts text from images using the vision LLM.
 Analyzes scanned documents, invoices, forms, and structured paperwork.
 
 **Capabilities:**
+
 - Extracts structured fields from invoices, receipts, and forms (vendor, date, line items, totals)
 - Summarizes document content
 - Identifies document type and key data points
@@ -249,6 +257,7 @@ Analyzes scanned documents, invoices, forms, and structured paperwork.
 Interprets charts, graphs, and data visualizations.
 
 **Capabilities:**
+
 - Identifies chart type (bar, line, pie, scatter, etc.)
 - Extracts data trends, peaks, and anomalies described in the chart
 - Reads axis labels, legend entries, and titles
@@ -268,6 +277,7 @@ These tools process images using local libraries (Pillow, pyzbar) and do **not**
 Extracts EXIF metadata and technical properties from image files using Pillow.
 
 **Capabilities:**
+
 - Image format, dimensions (width × height), color mode, and DPI
 - Camera make and model (from EXIF if present)
 - Capture date and time
@@ -285,6 +295,7 @@ Extracts EXIF metadata and technical properties from image files using Pillow.
 Decodes barcodes and QR codes from images using pyzbar.
 
 **Capabilities:**
+
 - QR codes, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E, Data Matrix, and other formats supported by pyzbar
 - Returns decoded data, barcode type, and bounding-box position
 - Multiple barcodes in a single image are all decoded

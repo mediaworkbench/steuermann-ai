@@ -11,11 +11,13 @@ Complete guide to ingesting domain knowledge into Steuermann.
 The ingestion pipeline processes domain-specific documents into vector embeddings stored in Qdrant for retrieval-augmented generation (RAG). It supports multiple document formats, language validation, and automatic embedding generation.
 
 **Pipeline Flow:**
-```
+
+```text
 Documents → Parser → Chunker → Validator → Embedder → Qdrant
 ```
 
 **Key Features:**
+
 - Multi-format support (PDF, DOCX, Markdown (.md, .markdown), Text (.txt))
 - Recursive subdirectory discovery
 - Language detection with metadata tagging (all languages accepted)
@@ -131,17 +133,20 @@ The framework includes a containerized ingestion service that watches a host fol
 ### Setup
 
 1. **Create host folder for RAG documents:**
+
 ```bash
 # Default path used by this project
 sudo mkdir -p /data/rag-data
 ```
 
 On macOS with Docker Desktop:
+
 - Go to **Settings → Resources → File Sharing**
 - Add `/data`
 - Apply and restart Docker
 
 2. **Start ingestion container:**
+
 ```bash
 # Copy .env.example to .env and adjust if needed
 cp .env.example .env
@@ -154,6 +159,7 @@ docker compose logs -f ingestion
 ```
 
 3. **Add documents:**
+
 ```bash
 # Copy documents to /data/rag-data (any supported format)
 cp /path/to/my-docs/*.pdf /data/rag-data/
@@ -166,12 +172,14 @@ cp /path/to/my-notes/*.txt /data/rag-data/
 ### Configuration
 
 Environment variables (in `.env`):
+
 - `RAG_DATA_PATH`: Host path to mount (default: `/data/rag-data`)
 - `WORKSPACES_PATH`: Host path for workspace documents (default: `/data/workspaces`)
 - `QDRANT_HOST`: Qdrant host (default: `qdrant`)
 - `QDRANT_PORT`: Qdrant port (default: `6333`)
 
 Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
+
 - `rag.collection_name`: Canonical Qdrant collection used by both ingestion and retrieval
 - `ingestion.language`: Target language code for corpus metadata (default: `de`)
 - `ingestion.language_threshold`: Language confidence threshold (default: `0.8`, range: `0.0-1.0`)
@@ -182,14 +190,17 @@ Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
 - `ingestion.phase_timing`: Include phase timing metrics in ingestion results (`true`/`false`, default: `true`)
 
 **RAG retrieval alignment:**
+
 - `rag.collection_name` is the single collection identifier. Keep ingestion and retrieval pointed at that same profile-owned value.
 
 **Embedding provider alignment:**
+
 - Ingestion and runtime retrieval should use the same embedding model family and dimensions.
 - Set `EMBEDDING_SERVER` and ensure it is reachable from containers (embedding mode is remote-only).
 - If embedding dimensions change, recreate the affected Qdrant collections before re-ingesting.
 
 **Language Handling:**
+
 - All languages are accepted regardless of detection result
 - Each chunk is tagged with:
   - `detected_language`: Actual detected language (e.g., "en", "de", "unknown")
@@ -198,6 +209,7 @@ Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
 - Lower `core.ingestion.language_threshold` for mixed-language or technical documents
 
 **Watch Mode Features:**
+
 - Initial sweep ingests all existing files on startup
 - Watchdog monitors for new/deleted files in real-time
 - Periodic fallback check (every 30 seconds) catches missed files
@@ -205,6 +217,7 @@ Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
 - Recursive subdirectory support - files in any nested folder are discovered
 
 **Performance and Incremental Features:**
+
 - Per-file phase timing metrics are captured (`parse`, `chunk`, `embed`, `upsert`, `hash`, `lookup`, `total`)
 - Directory-level timing summary aggregates phase timings across files
 - Incremental hashing stores `file_hash` in payload and skips unchanged documents
@@ -212,6 +225,7 @@ Profile-owned ingestion settings (in `config/profiles/<profile_id>/core.yaml`):
 - Embedding and upsert operations run in configurable batches to improve throughput and reduce peak memory
 
 Startup behavior (containerized watch mode):
+
 - On launch, the ingestion service performs an initial scan of the mounted source path and ingests any existing documents before starting the watchdog.
 - After the initial sweep, new files dropped into the source path are ingested automatically.
 
@@ -226,6 +240,7 @@ To change collection or language defaults, edit the active profile's `rag` / `in
 **Extensions:** `.pdf`
 
 **Metadata extracted:**
+
 - Title
 - Author
 - Subject
@@ -235,6 +250,7 @@ To change collection or language defaults, edit the active profile's `rag` / `in
 - Page count
 
 **Example:**
+
 ```bash
 poetry run steuermann ingest ingest \
   --source /docs/manuals.pdf \
@@ -246,6 +262,7 @@ poetry run steuermann ingest ingest \
 **Extensions:** `.docx`
 
 **Metadata extracted:**
+
 - Title
 - Author
 - Subject
@@ -255,6 +272,7 @@ poetry run steuermann ingest ingest \
 - Last modified by
 
 **Example:**
+
 ```bash
 poetry run steuermann ingest ingest \
   --source /docs/reports \
@@ -266,12 +284,14 @@ poetry run steuermann ingest ingest \
 **Extensions:** `.md`, `.markdown`
 
 **Metadata extracted:**
+
 - Title (from first heading)
 - File name
 - Creation date
 - Modified date
 
 **Example:**
+
 ```bash
 poetry run steuermann ingest ingest \
   --source /docs/wiki/*.md \
@@ -285,12 +305,14 @@ poetry run steuermann ingest ingest \
 **Extensions:** `.txt`
 
 **Metadata extracted:**
+
 - Title (first non-empty line)
 - File name
 - Creation date
 - Modified date
 
 **Example:**
+
 ```bash
 poetry run steuermann ingest ingest \
   --source /docs/notes/*.txt \
@@ -306,11 +328,13 @@ poetry run steuermann ingest ingest \
 Ingest documents from a directory or file.
 
 **Syntax:**
+
 ```bash
 poetry run steuermann ingest ingest [OPTIONS]
 ```
 
 **Options:**
+
 - `--source PATH` - Source directory or file (required)
 - `--config PATH` - Configuration YAML file
 - `--collection NAME` - Collection name
@@ -344,11 +368,13 @@ poetry run steuermann ingest ingest \
 Watch a directory for new files and automatically ingest them.
 
 **Syntax:**
+
 ```bash
 poetry run steuermann ingest watch [OPTIONS]
 ```
 
 **Options:**
+
 - `--source PATH` - Source directory to watch (required)
 - `--config PATH` - Configuration YAML file
 - `--collection NAME` - Collection name
@@ -367,6 +393,7 @@ poetry run steuermann ingest watch \
 ```
 
 **Use cases:**
+
 - Development: Auto-ingest as you add documents
 - Production: Monitor shared folder for new content
 - Testing: Quickly iterate on document sets
@@ -376,11 +403,13 @@ poetry run steuermann ingest watch \
 Validate documents without ingesting (language check, parsing test).
 
 **Syntax:**
+
 ```bash
 poetry run steuermann ingest validate [OPTIONS]
 ```
 
 **Options:**
+
 - `--source PATH` - Source directory or file (required)
 - `--config PATH` - Configuration YAML file
 - `--language CODE` - Target language
@@ -397,7 +426,8 @@ poetry run steuermann ingest validate \
 ```
 
 **Output:**
-```
+
+```text
 ✓ document1.pdf - Accepted (de, confidence: 0.95)
 ✓ document2.pdf - Accepted (en, confidence: 0.87)
 ✗ document3.pdf - Error (Parsing failed: Corrupted file)
@@ -408,11 +438,13 @@ poetry run steuermann ingest validate \
 Clear and rebuild a collection from source.
 
 **Syntax:**
+
 ```bash
 poetry run steuermann ingest reindex [OPTIONS]
 ```
 
 **Options:**
+
 - `--source PATH` - Source directory (required)
 - `--config PATH` - Configuration YAML file
 - `--collection NAME` - Collection name
@@ -496,17 +528,20 @@ ingestion:
 ### Chunking Configuration
 
 **chunk_size:**
+
 - Default: 512
 - Recommended: 256-1024
 - Smaller chunks: More precise retrieval, higher storage
 - Larger chunks: More context, less precise
 
 **chunk_overlap:**
+
 - Default: 50
 - Recommended: 10-20% of chunk_size
 - Prevents splitting sentences/paragraphs
 
 **Example:**
+
 ```yaml
 processing:
   chunk_size: 768        # Larger chunks for technical docs
@@ -531,6 +566,7 @@ Any OpenAI-compatible embedding model served by LM Studio, Ollama, or another en
 pick one and keep ingestion and retrieval pointed at the same model and dimension.
 
 **Changing models:**
+
 ```yaml
 embedding:
   model: "<your-embedding-model>"
@@ -546,13 +582,16 @@ embedding:
 **Note:** Language validation has been changed to **accept all languages** and tag chunks with detected language metadata.
 
 **reject_threshold / core.ingestion.language_threshold:**
+
 - Default: 0.8
 - Range: 0.0-1.0
 - **Not used for rejection** - only for logging/metadata purposes
 - Documents are accepted regardless of detected language
 
 **Chunk Metadata:**
+
 Each ingested chunk includes language metadata:
+
 ```json
 {
   "text": "chunk content...",
@@ -566,12 +605,14 @@ Each ingested chunk includes language metadata:
 ```
 
 **Use cases:**
+
 - Filter by `detected_language` at query time if needed
 - Monitor language distribution in your corpus
 - Accept mixed-language or technical documents without rejection
 - Track confidence for quality metrics
 
 **Example configuration:**
+
 ```yaml
 processing:
   language: "de"  # Target language (for reference only)
@@ -582,6 +623,7 @@ validation:
 ```
 
 **Profile setting:**
+
 ```yaml
 ingestion:
   language_threshold: 0.8  # Can be set but doesn't affect acceptance
@@ -742,6 +784,7 @@ Ingestion uses structured logging (JSON format):
 ```
 
 **Log levels:**
+
 - `INFO`: Normal operations
 - `WARNING`: Skipped files, validation failures
 - `ERROR`: Parsing errors, Qdrant issues
@@ -778,12 +821,14 @@ stats = service.ingest_directory()
 Ingestion operations are tracked via Prometheus (if monitoring enabled):
 
 **Metrics:**
+
 - `ingestion_files_total{status="success|skipped|error"}`
 - `ingestion_chunks_total`
 - `ingestion_duration_seconds`
 - `embedding_batch_duration_seconds`
 
 **Query example:**
+
 ```promql
 # Files ingested per hour
 rate(ingestion_files_total{status="success"}[1h]) * 3600
@@ -796,7 +841,8 @@ rate(ingestion_files_total{status="success"}[1h]) * 3600
 ### Issue: Documents not being ingested
 
 **Symptom:**
-```
+
+```text
 File not found or ingestion skipped
 ```
 
@@ -808,11 +854,12 @@ File not found or ingestion skipped
    - Supported: .pdf, .docx, .md, .markdown, .txt
    - Verify file extension matches
 
-2. **Use periodic check:**
+1. **Use periodic check:**
    - Ingestion service runs 30-second fallback scan
    - Wait up to 30 seconds after file creation
 
-3. **Manual ingestion:**
+1. **Manual ingestion:**
+
 ```bash
 docker compose restart ingestion
 ```
@@ -820,7 +867,8 @@ docker compose restart ingestion
 ### Issue: Chunks missing expected language
 
 **Symptom:**
-```
+
+```text
 Chunks have detected_language != target_language
 ```
 
@@ -829,6 +877,7 @@ Chunks have detected_language != target_language
 **Solutions:**
 
 1. **Check metadata:**
+
 ```python
 from universal_agentic_framework.ingestion import LanguageValidator
 
@@ -837,7 +886,8 @@ is_valid, detected, confidence = validator.validate(text)
 print(f"Detected: {detected}, Confidence: {confidence}")
 ```
 
-3. **Disable validation:**
+1. **Disable validation:**
+
 ```yaml
 validation:
   language_detection: false
@@ -846,7 +896,8 @@ validation:
 ### Issue: Parsing failed for PDF
 
 **Symptom:**
-```
+
+```text
 Error: Parsing failed: EOF marker not found
 ```
 
@@ -855,16 +906,18 @@ Error: Parsing failed: EOF marker not found
 **Solutions:**
 
 1. **Verify PDF:**
+
 ```bash
 pdfinfo document.pdf
 # or
 pdftk document.pdf dump_data
 ```
 
-2. **Re-save PDF:**
+1. **Re-save PDF:**
 Open in PDF viewer and "Save As" to rebuild structure.
 
-3. **Check encryption:**
+1. **Check encryption:**
+
 ```python
 from pypdf import PdfReader
 
@@ -876,7 +929,8 @@ if reader.is_encrypted:
 ### Issue: Out of memory during embedding
 
 **Symptom:**
-```
+
+```text
 MemoryError: Unable to allocate array
 ```
 
@@ -885,30 +939,35 @@ MemoryError: Unable to allocate array
 **Solutions:**
 
 1. **Reduce batch size:**
+
 ```yaml
 embedding:
   batch_size: 16  # Reduce from 32
 ```
 
-2. **Process in smaller batches:**
+1. **Process in smaller batches:**
+
 ```bash
 # Split directory and ingest separately
 poetry run steuermann ingest ingest --source /data/docs/batch1
 poetry run steuermann ingest ingest --source /data/docs/batch2
 ```
 
-3. **Lower the embedding batch size:**
+1. **Lower the embedding batch size:**
+
 ```yaml
 embedding:
   batch_size: 16   # smaller payloads to the remote embedding server
 ```
+
 Embeddings are computed on the remote endpoint, so memory pressure during embedding is on
 that server — reduce `batch_size` or scale the embedding service.
 
 ### Issue: Qdrant connection refused
 
 **Symptom:**
-```
+
+```text
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
@@ -917,18 +976,21 @@ ConnectionRefusedError: [Errno 111] Connection refused
 **Solutions:**
 
 1. **Check Qdrant is running:**
+
 ```bash
 docker ps | grep qdrant
 # or
 curl http://localhost:6333/collections
 ```
 
-2. **Start Qdrant:**
+1. **Start Qdrant:**
+
 ```bash
 docker compose up -d qdrant
 ```
 
-3. **Check configuration:**
+1. **Check configuration:**
+
 ```yaml
 source:
   qdrant_host: "localhost"  # or "qdrant" in Docker
@@ -945,18 +1007,20 @@ Files added to directory but not auto-ingested.
 **Solutions:**
 
 1. **Check file permissions:**
+
 ```bash
 ls -la /data/incoming/
 # Files should be readable
 ```
 
-2. **Test manually:**
+1. **Test manually:**
+
 ```bash
 # Stop watch mode, try manual ingest
 poetry run steuermann ingest ingest --source /data/incoming/new_file.pdf
 ```
 
-3. **Use polling (slower but more compatible):**
+1. **Use polling (slower but more compatible):**
 Edit watch implementation to use polling instead of OS events.
 
 ---
@@ -965,7 +1029,7 @@ Edit watch implementation to use polling instead of OS events.
 
 ### 1. Organize Source Documents
 
-```
+```text
 /data/knowledge-sources/
 ├── procedures/
 │   ├── sop_001.pdf
@@ -981,11 +1045,13 @@ Edit watch implementation to use polling instead of OS events.
 ### 2. Use Descriptive Collection Names
 
 **Good:**
+
 - `medical-ai-de-procedures`
 - `financial-ai-en-regulations`
 - `legal-ai-de-contracts`
 
 **Bad:**
+
 - `collection1`
 - `docs`
 - `data`
@@ -1072,6 +1138,7 @@ curl -X PUT 'http://localhost:6333/collections/my-knowledge/snapshots/upload' \
 ### Chunking Strategy
 
 **For technical documentation:**
+
 ```yaml
 processing:
   chunk_size: 768      # Larger for context
@@ -1079,6 +1146,7 @@ processing:
 ```
 
 **For conversational content:**
+
 ```yaml
 processing:
   chunk_size: 384      # Smaller for precision
@@ -1092,12 +1160,14 @@ embedding **server**, not this pipeline. The lever here is batch size, traded of
 remote server's capacity:
 
 **Conservative (small/slow endpoint):**
+
 ```yaml
 embedding:
   batch_size: 16
 ```
 
 **Aggressive (well-provisioned endpoint):**
+
 ```yaml
 embedding:
   batch_size: 64

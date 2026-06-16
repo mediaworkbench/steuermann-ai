@@ -469,11 +469,11 @@ Runtime helper paths for performance/cache and crew result caching execute async
 ### **4.7 Authentication & Authorization**
 
 Authentication is DB-backed and multi-user with three fixed roles — **user**, **researcher** (user
-+ RAG explorer), **administrator** (full access + user management).
+\+ RAG explorer), **administrator** (full access + user management).
 
 **Trust model.** The FastAPI backend is internal-only and guarded by a shared `CHAT_ACCESS_TOKEN`
 (`require_api_access`). The only legitimate caller is the Next.js proxy, which authenticates the
-session JWT and forwards a *trusted* identity to the backend via `x-authenticated-user-id` /
+session JWT and forwards a _trusted_ identity to the backend via `x-authenticated-user-id` /
 `x-authenticated-username` / `x-authenticated-role` headers. The proxy strips any client-supplied
 copies of those headers (and `x-chat-token`) so they cannot be spoofed. The backend resolves the
 current user from these headers (`resolve_current_user` in `backend/auth.py`) and **independently
@@ -915,7 +915,7 @@ This architecture covers:
 | Plugin | Tool or MCP server registered with the framework |
 | Ingestion | Process of loading documents into vector store |
 
-*This document is complemented by:*
+_This document is complemented by:_
 
 - **[README.md](../README.md)** (current runtime snapshot and recent changes)
 - **[Configuration Reference](configuration.md)** (full schema documentation)

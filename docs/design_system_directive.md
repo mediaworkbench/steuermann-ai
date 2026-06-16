@@ -88,6 +88,7 @@ Every new or changed interactive element must support:
 - predictable escape and dismiss behavior for overlays
 
 **Automated gates (must pass):**
+
 - Static analysis: `eslint-plugin-jsx-a11y` rules in `eslint.config.mjs`
 - Runtime assertions: `jest-axe` (`toHaveNoViolations`) in component tests covering all interactive `ui/` primitives and existing feature components. Run `npm test` to verify.
 

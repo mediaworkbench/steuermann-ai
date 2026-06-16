@@ -9,6 +9,7 @@ The `steuermann` CLI is the operational companion for setup validation, configur
 Every command accepts `--format {yaml,json}` (default: `yaml`). Use `--format json` for stable machine-readable output in CI pipelines.
 
 Exit codes follow a strict contract:
+
 - `0` — success (or drift detected without `--strict`)
 - `1` — blocking error or validation failure
 - Non-zero for all unexpected errors
@@ -18,7 +19,7 @@ Exit codes follow a strict contract:
 ## Command Groups
 
 | Group | Purpose |
-|---|---|
+| --- | --- | --- |
 | `profile` | Inspect, scaffold, and bundle profiles |
 | `config` | Show, explain, validate, and mutate configuration |
 | `setup` | Run host preflight and environment checks |
@@ -40,6 +41,7 @@ steuermann profile active [--profile <id>] [--format json]
 - `--profile` — override `PROFILE_ID` for this invocation only
 
 **Example:**
+
 ```bash
 poetry run steuermann profile active --format json
 ```
@@ -58,6 +60,7 @@ steuermann profile scaffold --from <source_profile_id> --profile <target_profile
 - `--profile` — target profile id (directory under `config/profiles/`)
 
 **Example:**
+
 ```bash
 poetry run steuermann profile scaffold \
   --from starter \
@@ -78,6 +81,7 @@ steuermann profile bundle export --profile <id> --out <path.tar.gz>
 - `--out` — output bundle path (must end in `.tar.gz`)
 
 **Example:**
+
 ```bash
 poetry run steuermann profile bundle export \
   --profile starter \
@@ -98,6 +102,7 @@ steuermann profile bundle import --bundle <path.tar.gz> --profile <target_profil
 - `--profile` — target profile id (directory under `config/profiles/`, must not already exist)
 
 **Example:**
+
 ```bash
 poetry run steuermann profile bundle import \
   --bundle /tmp/starter-bundle.tar.gz \
@@ -120,6 +125,7 @@ steuermann config show [--profile <id>] [--section <section>] [--format json]
 - `--section` — filter output to a single section: `core`, `features`, `tools`, `agents`, `ui`, `profile_metadata`
 
 **Example:**
+
 ```bash
 poetry run steuermann config show --profile starter --section core --format json
 ```
@@ -137,6 +143,7 @@ steuermann config explain --key <dot.path> [--profile <id>] [--format json]
 - `--key` — dot-path to the key (e.g. `core.llm.roles.chat.temperature` or `core.rag.collection_name`)
 
 **Example:**
+
 ```bash
 poetry run steuermann config explain --key core.rag.collection_name --profile starter
 ```
@@ -155,6 +162,7 @@ steuermann config validate [--profile <id>] [--strict] [--format json]
 - `--strict` — treat warnings as failures (non-zero exit)
 
 **Example:**
+
 ```bash
 poetry run steuermann config validate --profile medical-ai-de --strict --format json
 ```
@@ -170,7 +178,7 @@ On failure after writing, the original file is automatically restored from backu
 **Profile-safe key prefixes** (the only keys `config set` and `config unset` will accept):
 
 | Prefix | Description |
-|---|---|
+| --- | --- | --- |
 | `profile.language` | Profile language code |
 | `profile.locale` | Locale string |
 | `profile.timezone` | Timezone |
@@ -201,6 +209,7 @@ steuermann config set \
 - `--confirm APPLY` — explicit confirmation token required for apply mode
 
 **Example (dry-run):**
+
 ```bash
 poetry run steuermann config set \
   --profile starter \
@@ -209,6 +218,7 @@ poetry run steuermann config set \
 ```
 
 **Example (apply):**
+
 ```bash
 poetry run steuermann config set \
   --profile starter \
@@ -232,6 +242,7 @@ steuermann config unset \
 ```
 
 **Example:**
+
 ```bash
 poetry run steuermann config unset \
   --profile starter \
@@ -250,6 +261,7 @@ steuermann config contract-check [--format json]
 ```
 
 **Example:**
+
 ```bash
 poetry run steuermann config contract-check --format json
 ```
@@ -308,6 +320,7 @@ pre-write aborts (existing `.env` without `--force` in non-TTY, invalid profile 
 collision).
 
 **Example:**
+
 ```bash
 poetry run steuermann setup init --provider openrouter --openrouter-api-key sk-...
 ```
@@ -327,6 +340,7 @@ steuermann setup doctor [--probe-endpoints] [--format json]
 - `--probe-endpoints` — attempt live HTTP probes to configured LLM and embedding endpoints
 
 **Example:**
+
 ```bash
 poetry run steuermann setup doctor --probe-endpoints --format json
 ```
@@ -342,6 +356,7 @@ steuermann setup check [--format json]
 ```
 
 **Example:**
+
 ```bash
 poetry run steuermann setup check --format json
 ```
@@ -361,6 +376,7 @@ steuermann docs check [--strict] [--format json]
 - `--strict` — return non-zero exit if any drift is detected (suitable for CI)
 
 **Example:**
+
 ```bash
 poetry run steuermann docs check --format json
 poetry run steuermann docs check --strict  # fail on drift

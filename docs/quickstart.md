@@ -82,6 +82,7 @@ REDIS_URL=redis://redis:6379/0  # Already set in .env.example
 ### Provider-specific endpoint setup
 
 **LM Studio** (recommended for local):
+
 ```bash
 LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
 EMBEDDING_SERVER=http://host.docker.internal:1234/v1
@@ -89,6 +90,7 @@ OPENAI_API_KEY=lm-studio
 ```
 
 **Ollama**:
+
 ```bash
 LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
 EMBEDDING_SERVER=http://host.docker.internal:11434/v1
@@ -96,6 +98,7 @@ OPENAI_API_KEY=lm-studio
 ```
 
 **OpenRouter** (cloud):
+
 ```bash
 LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1
 LLM_PROVIDERS_OPENROUTER_API_KEY=<your-openrouter-api-key>
@@ -130,7 +133,7 @@ docker compose up -d
 
 Services start in dependency order. The full health-check chain:
 
-```
+```text
 postgres → qdrant → redis → duckduckgo-mcp → langgraph → fastapi → nextjs
 ```
 
@@ -172,7 +175,7 @@ docker compose logs redis
 
 Open the chat UI:
 
-```
+```text
 http://localhost:3000
 ```
 
