@@ -17,7 +17,7 @@ import { useConversationAttachments } from "@/hooks/useConversationAttachments";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { useI18n } from "@/hooks/useI18n";
 import { useProviderHealth } from "@/context/ProviderHealthContext";
-import { setMessageFeedback, rateMemory } from "@/lib/api";
+import { setMessageFeedback } from "@/lib/api";
 import { splitWritebackStream, looksLikeWriteback } from "@/lib/writeback";
 
 export function ChatInterface() {
@@ -302,12 +302,6 @@ export function ChatInterface() {
       if (msg.persistedId) {
         await setMessageFeedback(activeId, msg.persistedId, newFeedback ?? null);
         toast.success(newFeedback ? t("chat.feedbackSaved") : t("chat.feedbackRemoved"));
-      }
-      if (newFeedback && msg.metrics?.memories_used?.length) {
-        const memRating = newFeedback === "up" ? 5 : 1;
-        void Promise.all(
-          msg.metrics.memories_used.map(({ memory_id }) => rateMemory(memory_id, memRating))
-        );
       }
     },
     [messages, setMessages, activeId, t],
