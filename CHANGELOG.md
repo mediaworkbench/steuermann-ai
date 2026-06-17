@@ -3,6 +3,7 @@
 ## [0.4.7] — composer UX polish and retrieval feedback loop fix
 
 - feature: per-session memory toggle (Brain icon) in chat composer toolbar — disables both `load_memory` and `update_memory` nodes for the session; resets to ON on page reload; does not affect system-level `long_term_memory` feature flag.
+- fix: the LangGraph edge rebuilt graph state from a fixed key allowlist that had drifted, silently dropping `allowed_tools`, `memory_enabled`, and `workspace_writeback_document` from every request — role tool gating failed open, the new memory toggle was ignored, and AI writeback never injected its prompt. All three are now forwarded.
 - fix: chat thumbs up/down now also rate the memories retrieved for that response (5 stars for up, 1 for down), making the Retrieval Feedback Loop counter on `/metrics` increment from chat interactions.
 - fix: tools icon in composer turns blue when one or more tools are active, matching the RAG toggle visual pattern.
 - fix: toast notifications now appear at bottom-right.

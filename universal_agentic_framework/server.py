@@ -293,6 +293,15 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "attachments": request.get("attachments", []),
             "workspace_documents": request.get("workspace_documents", []),
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+            # The graph reconstructs state from this explicit allowlist (NOT a passthrough
+            # of the request body), so any state key a graph node reads must be forwarded
+            # here or it silently defaults. These three are consumed downstream:
+            #   workspace_writeback_document → respond node's writeback prompt injection
+            #   allowed_tools                → node_load_tools role gate (None = unrestricted)
+            #   memory_enabled               → node_load_memory / node_update_memory toggle
+            "workspace_writeback_document": request.get("workspace_writeback_document"),
+            "allowed_tools": request.get("allowed_tools"),
+            "memory_enabled": request.get("memory_enabled", True),
         }
         
         logger.debug("Graph state prepared", session_id=session_id, profile_name=profile_name)
@@ -547,6 +556,12 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "attachments": request.get("attachments", []),
         "workspace_documents": request.get("workspace_documents", []),
         "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+        # See the /invoke handler: graph-consumed keys must be forwarded explicitly here.
+        # workspace_writeback_document → writeback prompt injection; allowed_tools → role
+        # gate (None = unrestricted); memory_enabled → per-session memory toggle.
+        "workspace_writeback_document": request.get("workspace_writeback_document"),
+        "allowed_tools": request.get("allowed_tools"),
+        "memory_enabled": request.get("memory_enabled", True),
     }
     invoke_config = {"configurable": {"thread_id": thread_id}}
 
