@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
+  ArrowRight,
   BarChart3,
   Brain,
   Compass,
@@ -197,7 +198,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <SidebarMenuButton
                       size="sm"
                       onClick={() => router.push("/chats")}
+                      className="justify-start text-sidebar-ring"
                     >
+                      <ArrowRight />
                       {t("sidebar.seeAll")}
                     </SidebarMenuButton>
                   </SidebarMenuItem>

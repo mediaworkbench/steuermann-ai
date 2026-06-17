@@ -80,6 +80,8 @@ export function ChatInterface() {
   const {
     ragEnabled,
     handleRagToggle,
+    memoryEnabled,
+    handleMemoryToggle,
     toolToggles,
     allowedTools,
     selectedChatModel,
@@ -214,9 +216,8 @@ export function ChatInterface() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
-  // Per-session memory toggle (transient, in-memory): defaults to enabled, resets on page load.
-  const [memoryEnabled, setMemoryEnabled] = useState(true);
-  const handleMemoryToggle = useCallback(() => setMemoryEnabled((v) => !v), []);
+  // Memory toggle (memoryEnabled / handleMemoryToggle) is persisted to user
+  // settings via useComposerSettings, mirroring the RAG toggle — it survives reload.
 
   // Per-chat quick-disabled tools (transient, in-memory): which of the user's
   // enabled tools are turned off for the current conversation. Kept per conversation

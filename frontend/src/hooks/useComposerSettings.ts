@@ -8,6 +8,8 @@ interface UseComposerSettingsResult {
   ragEnabled: boolean;
   ragConfig: Record<string, unknown>;
   handleRagToggle: () => Promise<void>;
+  memoryEnabled: boolean;
+  handleMemoryToggle: () => Promise<void>;
   toolToggles: Record<string, boolean>; // saved Settings preference (gates composer-menu membership)
   allowedTools: string[] | null; // role-allowed tool ids (null = not yet loaded / no restriction)
   selectedChatModel: string;
@@ -22,6 +24,10 @@ interface UseComposerSettingsResult {
 export function useComposerSettings(): UseComposerSettingsResult {
   const [ragEnabled, setRagEnabled] = useState<boolean>(true);
   const [ragConfig, setRagConfig] = useState<Record<string, unknown>>({ collection: "", top_k: 5, enabled: true });
+  const [memoryEnabled, setMemoryEnabled] = useState<boolean>(true);
+  // Full analytics_preferences blob — memory_enabled lives here alongside
+  // sound_enabled / show_metrics_panel; kept so the toggle write doesn't wipe siblings.
+  const analyticsPreferencesRef = useRef<Record<string, unknown>>({});
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
   const [allowedTools, setAllowedTools] = useState<string[] | null>(null);
   const [chatModel, setChatModel] = useState<string | null>(null);
@@ -54,8 +60,10 @@ export function useComposerSettings(): UseComposerSettingsResult {
       setChatModel(model);
       preferredModelsRef.current = s.preferred_models ?? {};
       const prefs = s.analytics_preferences as Record<string, unknown> | undefined;
+      analyticsPreferencesRef.current = prefs ?? {};
       setSoundEnabled((prefs?.sound_enabled as boolean) ?? true);
       setShowMetrics((prefs?.show_metrics_panel as boolean) ?? true);
+      setMemoryEnabled((prefs?.memory_enabled as boolean) !== false);
     }).catch(() => {});
   }, []);
 
@@ -86,6 +94,19 @@ export function useComposerSettings(): UseComposerSettingsResult {
     });
   }, [ragEnabled, ragConfig]);
 
+  const handleMemoryToggle = useCallback(async () => {
+    const next = !memoryEnabled;
+    setMemoryEnabled(next);
+    const updated = { ...analyticsPreferencesRef.current, memory_enabled: next };
+    analyticsPreferencesRef.current = updated;
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api/proxy";
+    await fetch(`${apiBase}/api/settings/me`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analytics_preferences: updated }),
+    });
+  }, [memoryEnabled]);
+
   const handleModelChange = useCallback(async (model: string) => {
     setChatModel(model);
     const merged = { ...preferredModelsRef.current, chat: model };
@@ -97,6 +118,8 @@ export function useComposerSettings(): UseComposerSettingsResult {
     ragEnabled,
     ragConfig,
     handleRagToggle,
+    memoryEnabled,
+    handleMemoryToggle,
     toolToggles,
     allowedTools,
     selectedChatModel,
