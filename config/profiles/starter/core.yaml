@@ -116,3 +116,15 @@ tool_routing:
   max_retries: 2
   min_top_score: 0.7
   min_spread: 0.10
+
+# Heartbeat: a virtual cron that wakes on a schedule and runs each task's tick
+# (observe → reason → act). Phases are no-op scaffolding for now. The beat rate
+# is admin-configurable at runtime (/admin); default_rate_minutes is the
+# fallback when no admin override is set.
+heartbeat:
+  enabled: true
+  default_rate_minutes: 5
+  tasks:
+    - name: health
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      cooldown_seconds: 0

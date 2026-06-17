@@ -215,6 +215,55 @@ export async function updateRoleTools(
   }
 }
 
+export interface HeartbeatRateConfig {
+  heartbeat_rate_minutes: number;
+  default_rate_minutes: number;
+  enabled: boolean;
+  source: "override" | "default";
+  last_run: {
+    task_name: string;
+    status: string;
+    duration_ms: number;
+    fired_at: string;
+  } | null;
+}
+
+// Admin-only: read the effective heartbeat beat rate (minutes) and its source.
+export async function fetchHeartbeatRate(): Promise<HeartbeatRateConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/settings/heartbeat-rate`);
+    if (!response.ok) {
+      console.error(`Failed to fetch heartbeat rate: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as HeartbeatRateConfig;
+  } catch (error) {
+    console.error("Error fetching heartbeat rate:", error);
+    return null;
+  }
+}
+
+// Admin-only: set the global heartbeat beat rate (minutes).
+export async function updateHeartbeatRate(
+  minutes: number
+): Promise<HeartbeatRateConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/settings/heartbeat-rate`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ heartbeat_rate_minutes: minutes }),
+    });
+    if (!response.ok) {
+      console.error(`Failed to update heartbeat rate: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as HeartbeatRateConfig;
+  } catch (error) {
+    console.error("Error updating heartbeat rate:", error);
+    return null;
+  }
+}
+
 export async function triggerReingestAllDocuments(): Promise<ReingestAllResult> {
   const response = await fetch(`${API_BASE}/api/ingestion/reingest-all`, {
     method: "POST",

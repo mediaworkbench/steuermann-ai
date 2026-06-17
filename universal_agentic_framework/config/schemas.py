@@ -385,6 +385,28 @@ class PromptsSettings(BaseModel):
         return None
 
 
+class HeartbeatTaskSettings(BaseModel):
+    """A single task run on every heartbeat beat."""
+
+    name: str = Field(..., min_length=1)
+    type: str = Field(..., min_length=1)  # "module.path:ClassName" entry point
+    cooldown_seconds: int = Field(default=0, ge=0)
+    enabled: bool = True
+
+
+class HeartbeatSettings(BaseModel):
+    """Virtual-cron heartbeat: one global beat firing every N minutes.
+
+    The rate is admin-configurable at runtime (``global_settings`` key
+    ``heartbeat_rate_minutes``); ``default_rate_minutes`` is the fallback used
+    when no admin override is set. Disabled by default so profiles opt in.
+    """
+
+    enabled: bool = False
+    default_rate_minutes: PositiveInt = 5
+    tasks: List[HeartbeatTaskSettings] = Field(default_factory=list)
+
+
 class CoreConfig(BaseModel):
     profile: ProfileSettings
     llm: LLMSettings
@@ -396,6 +418,7 @@ class CoreConfig(BaseModel):
     prompts: Optional[PromptsSettings] = None
     tool_routing: Optional[ToolRoutingSettings] = None
     rag: Optional[RagSettings] = None
+    heartbeat: Optional[HeartbeatSettings] = None
 
 
 class ProfileMetadata(BaseModel):

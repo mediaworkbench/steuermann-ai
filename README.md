@@ -108,6 +108,10 @@ Multi-layer Redis caching covers LLM responses, memory queries, and crew results
 
 See [docs/performance_optimization.md](docs/performance_optimization.md) for tuning guidance.
 
+### Heartbeat (proactive scheduling)
+
+A virtual cron embedded in the orchestration service wakes the agent on a fixed schedule and runs background tasks through an observe → reason → act tick. It is the foundation for proactive behavior; today it ships as scaffolding (no external actions), with every beat recorded for observability. The beat rate is admin-configurable at runtime and enabled per profile.
+
 ### Monitoring & Observability
 
 Prometheus metrics cover every layer of the stack — graph execution, token usage, cache hit rates, memory operations. The frontend metrics dashboard queries Prometheus through FastAPI; no direct Prometheus access needed. All logs are structured JSON with per-request contextual fields.

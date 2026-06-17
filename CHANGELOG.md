@@ -2,6 +2,8 @@
 
 ## [0.4.7] — composer UX polish
 
+- feature: heartbeat — a virtual cron embedded in the orchestration service that wakes on a schedule and runs background tasks through an observe→reason→act tick (no-op scaffolding for now); every beat is recorded for observability.
+- feature: admins can set the heartbeat beat rate (minutes) on the admin page; the scheduler applies the change within ~30 seconds.
 - feature: memory toggle (Brain icon) in chat composer toolbar — disables both `load_memory` and `update_memory` nodes; persisted to user settings so it survives reload, mirroring the RAG toggle; does not affect the system-level `long_term_memory` feature flag.
 - fix: the LangGraph edge rebuilt graph state from a fixed key allowlist that had drifted, silently dropping `allowed_tools`, `memory_enabled`, and `workspace_writeback_document` from every request — role tool gating failed open, the new memory toggle was ignored, and AI writeback never injected its prompt. All three are now forwarded.
 - fix: tools icon in composer turns blue when one or more tools are active, matching the RAG toggle visual pattern.

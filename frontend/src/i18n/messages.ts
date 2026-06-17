@@ -149,6 +149,18 @@ export type Messages = {
     resetNoneSelected: string;
     resetConfirmMessage: string;
     accessDenied: string;
+    heartbeatSection: string;
+    heartbeatDescription: string;
+    heartbeatRateLabel: string;
+    heartbeatRateHelp: string;
+    heartbeatDisabledNote: string;
+    heartbeatDefaultNote: string;
+    heartbeatLastRunLabel: string;
+    heartbeatNever: string;
+    heartbeatSave: string;
+    heartbeatSaved: string;
+    heartbeatSaveFailed: string;
+    heartbeatLoadFailed: string;
   };
   settingsPage: {
     title: string;
@@ -795,6 +807,18 @@ export const messages: Record<Locale, Messages> = {
       resetNoneSelected: "Select at least one category to reset.",
       resetConfirmMessage: "Permanently deletes the selected data categories for all users. The schema is preserved. This cannot be undone.",
       accessDenied: "You do not have permission to view this page.",
+      heartbeatSection: "Heartbeat",
+      heartbeatDescription: "A virtual cron: the agent wakes on this schedule and runs its background tasks. Changes apply within ~30 seconds.",
+      heartbeatRateLabel: "Beat rate (minutes)",
+      heartbeatRateHelp: "How often the heartbeat wakes (1–1440 minutes).",
+      heartbeatDisabledNote: "The heartbeat is disabled for the active profile.",
+      heartbeatDefaultNote: "Using the profile default ({minutes} min).",
+      heartbeatLastRunLabel: "Last beat",
+      heartbeatNever: "No beats recorded yet",
+      heartbeatSave: "Save",
+      heartbeatSaved: "Heartbeat rate updated",
+      heartbeatSaveFailed: "Failed to update heartbeat rate",
+      heartbeatLoadFailed: "Failed to load heartbeat settings",
     },
     settingsPage: {
       title: "Settings",
@@ -1439,6 +1463,18 @@ export const messages: Record<Locale, Messages> = {
       resetNoneSelected: "Bitte mindestens eine Kategorie auswählen.",
       resetConfirmMessage: "Löscht dauerhaft die ausgewählten Datenkategorien aller Benutzer. Das Schema bleibt erhalten. Diese Aktion kann nicht rückgängig gemacht werden.",
       accessDenied: "Sie haben keine Berechtigung, diese Seite anzuzeigen.",
+      heartbeatSection: "Heartbeat",
+      heartbeatDescription: "Ein virtueller Cron: Der Agent wacht in diesem Takt auf und führt seine Hintergrundaufgaben aus. Änderungen werden innerhalb von ca. 30 Sekunden übernommen.",
+      heartbeatRateLabel: "Taktrate (Minuten)",
+      heartbeatRateHelp: "Wie oft der Heartbeat aufwacht (1–1440 Minuten).",
+      heartbeatDisabledNote: "Der Heartbeat ist für das aktive Profil deaktiviert.",
+      heartbeatDefaultNote: "Profilstandard wird verwendet ({minutes} Min.).",
+      heartbeatLastRunLabel: "Letzter Takt",
+      heartbeatNever: "Noch keine Takte aufgezeichnet",
+      heartbeatSave: "Speichern",
+      heartbeatSaved: "Heartbeat-Takt aktualisiert",
+      heartbeatSaveFailed: "Heartbeat-Takt konnte nicht aktualisiert werden",
+      heartbeatLoadFailed: "Heartbeat-Einstellungen konnten nicht geladen werden",
     },
     settingsPage: {
       title: "Einstellungen",

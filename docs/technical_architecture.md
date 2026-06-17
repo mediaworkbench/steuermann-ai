@@ -823,6 +823,25 @@ Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, pe
 
 ---
 
+## **9.5 Heartbeat (Proactive Scheduling)**
+
+The heartbeat is a *virtual cron* — the foundation for proactive agent behavior. A single global "beat" fires every *N* minutes; each beat runs every registered task through a four-phase tick: **observe → reason → act → log**. Today the phases are no-op hooks (no external API calls or agent invocation); the scheduling, persistence, and observability scaffolding is in place so future work plugs into the phases directly.
+
+**Placement.** The scheduler (`universal_agentic_framework/heartbeat/scheduler.py`, `HeartbeatScheduler`) is embedded in the LangGraph service and started in `server.py`'s lifespan when the active profile sets `heartbeat.enabled`. It uses an in-memory `AsyncIOScheduler` (same pattern as `CacheScheduler`); the schedule is rebuilt deterministically from config + the admin rate on every startup, so no durable jobstore is needed (a heartbeat must not "catch up" missed beats).
+
+**Two jobs.**
+
+- `heartbeat_beat` — `IntervalTrigger(minutes=rate)`, `max_instances=1` (a slow tick never overlaps the next beat). Runs each task's `tick()`.
+- `heartbeat_control` — a fixed 30s poll that reads the admin-set rate from Postgres (written by FastAPI, a separate process) and reschedules the beat **only when the rate actually changed**. Rescheduling resets `next_run_time`, so an unconditional reschedule would prevent the beat from ever firing.
+
+**Task lifecycle** (`HeartbeatTask.tick`, `heartbeat/task.py`): a `cooldown_seconds` idempotency check (skips when the last `ok` run is within the window); `observe()` wrapped in an `AsyncCircuitBreaker` so repeated failures don't drive bad actions; `reason()`/`act()` skipped on observe failure. Every outcome (`ok` / `skipped` / `error`) is recorded to the `heartbeat_runs` table and emitted as a structured `heartbeat_tick` log. `tick()` never raises. The example `HealthHeartbeatTask` records an `"alive"` beat with no external calls.
+
+**Admin rate.** A deployment-wide `global_settings` row (`heartbeat_rate_minutes`) overrides the profile's `heartbeat.default_rate_minutes`. Admins set it on `/admin` via `GET`/`PUT /api/admin/settings/heartbeat-rate` (range 1–1440 minutes). The LangGraph scheduler reads it through `GlobalSettingsStore` (via `backend.db.init_db_pool()`); changes apply within ~30s.
+
+**Constraint.** The scheduler assumes a single LangGraph process (the default deployment). Multiple workers/replicas would double-fire beats; a single-instance guard (e.g. a Postgres advisory lock) would be required before scaling.
+
+---
+
 > For deployment, operations, ingestion, frontend, monitoring, Docker topology, security, and upgrade paths, see [Deployment Guide](deployment_guide.md).
 
 ---

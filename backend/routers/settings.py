@@ -15,7 +15,14 @@ import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.db import SettingsStore, LLMCapabilityProbeStore, RoleToolPermissionStore
+from backend.db import (
+    SettingsStore,
+    LLMCapabilityProbeStore,
+    RoleToolPermissionStore,
+    GlobalSettingsStore,
+    HeartbeatRunStore,
+    HEARTBEAT_RATE_SETTING_KEY,
+)
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.auth import (
     ADMIN_ROLE,
@@ -515,6 +522,110 @@ def update_role_tools(
     store = _get_role_tool_store(request)
     store.set_allowed_tools(role_name, cleaned)
     return _role_tools_snapshot(store)
+
+
+# --- Heartbeat rate (admin) --------------------------------------------------
+
+MIN_HEARTBEAT_RATE_MINUTES = 1
+MAX_HEARTBEAT_RATE_MINUTES = 1440  # 24h
+
+
+class HeartbeatRateResponse(BaseModel):
+    heartbeat_rate_minutes: int
+    default_rate_minutes: int
+    enabled: bool
+    source: str  # "override" (admin-set) | "default" (from profile core.yaml)
+    last_run: Optional[Dict[str, Any]] = None
+
+
+class HeartbeatRateUpdate(BaseModel):
+    heartbeat_rate_minutes: int = Field(
+        ..., ge=MIN_HEARTBEAT_RATE_MINUTES, le=MAX_HEARTBEAT_RATE_MINUTES
+    )
+
+
+def _get_global_settings_store(request: Request) -> GlobalSettingsStore:
+    store = getattr(request.app.state, "global_settings_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Global settings store unavailable")
+    return store
+
+
+def _heartbeat_config() -> Tuple[int, bool, Optional[str]]:
+    """Return (default_rate_minutes, enabled, first_task_name) from the profile."""
+    hb = getattr(load_core_config(), "heartbeat", None)
+    if hb is None:
+        return 5, False, None
+    first_task = hb.tasks[0].name if hb.tasks else None
+    return int(hb.default_rate_minutes), bool(hb.enabled), first_task
+
+
+def _heartbeat_last_run(request: Request, task_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not task_name:
+        return None
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None:
+        return None
+    try:
+        rows = HeartbeatRunStore(db_pool).recent_runs(task_name, 1)
+    except Exception:  # pragma: no cover - best-effort observability
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    fired_at = row.get("fired_at")
+    return {
+        "task_name": row.get("task_name"),
+        "status": row.get("status"),
+        "duration_ms": row.get("duration_ms"),
+        "fired_at": fired_at.isoformat() if hasattr(fired_at, "isoformat") else fired_at,
+    }
+
+
+def _heartbeat_rate_snapshot(request: Request) -> Dict[str, Any]:
+    default_rate, enabled, first_task = _heartbeat_config()
+    store = _get_global_settings_store(request)
+    override = store.get_setting(HEARTBEAT_RATE_SETTING_KEY)
+    if override is None:
+        rate, source = default_rate, "default"
+    else:
+        try:
+            rate = int(override)
+        except (TypeError, ValueError):
+            rate = default_rate
+        rate = max(MIN_HEARTBEAT_RATE_MINUTES, min(MAX_HEARTBEAT_RATE_MINUTES, rate))
+        source = "override"
+    return {
+        "heartbeat_rate_minutes": rate,
+        "default_rate_minutes": default_rate,
+        "enabled": enabled,
+        "source": source,
+        "last_run": _heartbeat_last_run(request, first_task),
+    }
+
+
+@router.get("/admin/settings/heartbeat-rate", response_model=HeartbeatRateResponse)
+def get_heartbeat_rate(
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin view: the effective heartbeat beat rate (minutes) and its source."""
+    return _heartbeat_rate_snapshot(request)
+
+
+@router.put("/admin/settings/heartbeat-rate", response_model=HeartbeatRateResponse)
+def update_heartbeat_rate(
+    payload: HeartbeatRateUpdate,
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: set the global heartbeat beat rate (minutes).
+
+    The LangGraph-embedded scheduler picks up the change within ~30s (control poll).
+    """
+    store = _get_global_settings_store(request)
+    store.set_setting(HEARTBEAT_RATE_SETTING_KEY, int(payload.heartbeat_rate_minutes))
+    return _heartbeat_rate_snapshot(request)
 
 
 @router.get("/models")

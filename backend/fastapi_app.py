@@ -33,6 +33,7 @@ from backend.db import (
     ConversationWorkspaceStore,
     WorkspaceDocumentStore,
     UserStore,
+    GlobalSettingsStore,
     init_db_pool,
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
@@ -253,6 +254,7 @@ async def lifespan(app: FastAPI):
     app.state.workspace_document_store = WorkspaceDocumentStore(db_pool)
     app.state.user_store = UserStore(db_pool)
     app.state.role_tool_store = RoleToolPermissionStore(db_pool)
+    app.state.global_settings_store = GlobalSettingsStore(db_pool)
 
     # Seed default role→tool permissions so a fresh deployment grants 'user' and
     # 'researcher' the full tool catalog (admins narrow from there). Only seeds when

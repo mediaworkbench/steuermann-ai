@@ -424,6 +424,30 @@ Tool selection uses a three-tier architecture:
 - Routing works with any LLM family — semantic scoring is model-agnostic.
 - If `embedding_model` is not set, routing reuses `memory.embeddings.model`.
 
+### Heartbeat Configuration
+
+The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and runs each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
+
+```yaml
+heartbeat:
+  enabled: true              # start the scheduler in the LangGraph service
+  default_rate_minutes: 5    # beat interval; overridden by the admin setting at runtime
+  tasks:
+    - name: health           # unique task id (also used for run-history + cooldown)
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      cooldown_seconds: 0     # skip a beat if the last ok run is within this window
+      enabled: true           # omit/false to skip loading this task
+```
+
+| Key | Meaning |
+| --- | --- |
+| `enabled` | Whether the scheduler runs for this profile (the only enable switch — the rate alone is admin-configurable). |
+| `default_rate_minutes` | Beat interval used when no admin override is set. |
+| `tasks[].type` | `module.path:ClassName` entry point of a `HeartbeatTask` subclass. |
+| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran successfully more recently than this. |
+
+**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every beat is recorded in the `heartbeat_runs` table for observability. See [Technical Architecture §9.5](technical_architecture.md).
+
 ---
 
 ## Agents Configuration (`agents.yaml`)

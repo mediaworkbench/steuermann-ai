@@ -45,13 +45,35 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     (which calls asyncio.get_running_loop() in langgraph-checkpoint-postgres 3.x)
     executes inside the running uvicorn event loop rather than at import time.
     """
-    global GRAPH, _GRAPH_NODE_NAMES
+    global GRAPH, _GRAPH_NODE_NAMES, HEARTBEAT
     GRAPH = build_graph()
     _GRAPH_NODE_NAMES = _discover_graph_node_names()
     await setup_checkpointer(GRAPH.checkpointer)
     await prune_checkpoints(GRAPH.checkpointer)
+    HEARTBEAT = _start_heartbeat()
     yield
-    # No shutdown work required — the connection pool is closed by the process exit.
+    if HEARTBEAT is not None:
+        HEARTBEAT.stop()
+    # The connection pool is closed by the process exit.
+
+
+def _start_heartbeat():
+    """Start the heartbeat scheduler if the active profile enables it.
+
+    Best-effort: a heartbeat failure must never block the graph serving path.
+    """
+    try:
+        heartbeat_cfg = getattr(load_core_config(), "heartbeat", None)
+        if heartbeat_cfg is None or not heartbeat_cfg.enabled:
+            return None
+        from universal_agentic_framework.heartbeat import HeartbeatScheduler
+
+        scheduler = HeartbeatScheduler(heartbeat_cfg)
+        scheduler.start()
+        return scheduler
+    except Exception:  # noqa: BLE001 — serving must boot even if heartbeat can't
+        logger.warning("heartbeat_start_failed", exc_info=True)
+        return None
 
 
 # Initialize FastAPI app
@@ -76,6 +98,7 @@ app.add_middleware(
 CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
 GRAPH: Any = None  # populated in _lifespan before first request is served
+HEARTBEAT: Any = None  # HeartbeatScheduler, started in _lifespan when enabled
 ACTIVE_SESSIONS: set[str] = set()
 _invocation_count: int = 0
 
