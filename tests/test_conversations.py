@@ -502,6 +502,29 @@ class TestUpdateConversation:
         resp = client.patch("/api/conversations/nope", json={"title": "X"})
         assert resp.status_code == 404
 
+    def test_manual_rename_locks_title(self, client, fake_store):
+        """A genuine user rename marks the title as user-owned (locks auto-titling)."""
+        fake_store.create_conversation("c1", "u1", "Old")
+        resp = client.patch(
+            "/api/conversations/c1", json={"title": "My name", "title_manual": True}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "My name"
+        assert fake_store._conversations["c1"]["metadata"].get("title_source") == "user"
+
+    def test_auto_placeholder_rename_does_not_lock(self, client, fake_store):
+        """The auto-placeholder rename (no flag) leaves the title upgradeable."""
+        fake_store.create_conversation("c1", "u1", "Old")
+        resp = client.patch("/api/conversations/c1", json={"title": "Placeholder"})
+        assert resp.status_code == 200
+        assert "title_source" not in fake_store._conversations["c1"]["metadata"]
+
+    def test_manual_flag_not_persisted_as_field(self, client, fake_store):
+        """title_manual is request-only and never stored on the conversation."""
+        fake_store.create_conversation("c1", "u1", "Old")
+        client.patch("/api/conversations/c1", json={"title": "X", "title_manual": True})
+        assert "title_manual" not in fake_store._conversations["c1"]
+
 
 class TestDeleteConversation:
     def test_delete_existing(self, client, fake_store):

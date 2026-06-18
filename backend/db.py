@@ -1575,6 +1575,37 @@ class ConversationStore:
             conn.commit()
         return _normalize_conversation_row(row) if row else None
 
+    def set_auto_title(
+        self, conversation_id: str, user_id: str, title: str, *, stage: int
+    ) -> Optional[Dict[str, Any]]:
+        """Persist an auto-generated title with provenance, atomically guarded.
+
+        Records ``title_source="auto"`` and ``title_stage=stage`` in ``metadata``
+        (JSONB-merged, so other keys survive). The write is a no-op (returns
+        ``None``) when the title has been locked by a manual rename
+        (``title_source == "user"``) or when ``stage`` would not advance the
+        current ``title_stage`` — the latter serializes concurrent turns so a
+        late Stage-1 write can never overwrite a Stage-2 title.
+        """
+        provenance = json.dumps({"title_source": "auto", "title_stage": stage})
+        statement = """
+            UPDATE conversations
+            SET title = %s,
+                metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb,
+                updated_at = NOW()
+            WHERE id = %s AND user_id = %s
+              AND COALESCE(metadata->>'title_source', 'auto') <> 'user'
+              AND COALESCE((metadata->>'title_stage')::int, 0) < %s
+            RETURNING id, user_id, title, language, profile_name,
+                      pinned, metadata, created_at, updated_at;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (title, provenance, conversation_id, user_id, stage))
+                row = cur.fetchone()
+            conn.commit()
+        return _normalize_conversation_row(row) if row else None
+
     def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
         """Hard-delete a conversation and its messages (CASCADE), scoped to its owner."""
         statement = "DELETE FROM conversations WHERE id = %s AND user_id = %s;"

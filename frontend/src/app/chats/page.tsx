@@ -101,7 +101,8 @@ export default function ChatsPage() {
 
   const handleRename = useCallback(async (id: string, title: string) => {
     browser.patchItem(id, { title });
-    return rename(id, title);
+    // Genuine user rename → lock the title against auto-generation.
+    return rename(id, title, true);
   }, [browser, rename]);
 
   const handlePin = useCallback((id: string, pinned: boolean) => {

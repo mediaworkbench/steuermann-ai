@@ -110,7 +110,7 @@ export function useConversations() {
   const update = useCallback(
     async (
       id: string,
-      updates: { title?: string; pinned?: boolean; language?: string },
+      updates: { title?: string; pinned?: boolean; language?: string; title_manual?: boolean },
     ) => {
       const conv = await updateConversation(id, updates);
       if (conv) {
@@ -147,9 +147,11 @@ export function useConversations() {
 
   // ── Rename (convenience wrapper) ──────────────────────────────────
 
+  // `manual` distinguishes a genuine user rename (locks the title against
+  // auto-generation) from the auto-placeholder rename on first message.
   const rename = useCallback(
-    async (id: string, title: string) => {
-      return update(id, { title });
+    async (id: string, title: string, manual = false) => {
+      return update(id, { title, title_manual: manual });
     },
     [update],
   );

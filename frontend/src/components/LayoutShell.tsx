@@ -25,9 +25,9 @@ interface ConversationContextValue {
   revision: number;
   setActiveId: (id: string | null, conv?: Conversation | null) => void;
   create: (title?: string, language?: string) => Promise<Conversation | null>;
-  update: (id: string, updates: { title?: string; pinned?: boolean; language?: string }) => Promise<Conversation | null>;
+  update: (id: string, updates: { title?: string; pinned?: boolean; language?: string; title_manual?: boolean }) => Promise<Conversation | null>;
   remove: (id: string) => Promise<boolean>;
-  rename: (id: string, title: string) => Promise<Conversation | null>;
+  rename: (id: string, title: string, manual?: boolean) => Promise<Conversation | null>;
   bulkDelete: (ids: string[]) => Promise<void>;
   bulkPin: (ids: string[], pinned: boolean) => Promise<void>;
   refresh: () => Promise<void>;

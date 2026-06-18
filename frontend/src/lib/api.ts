@@ -668,7 +668,7 @@ export async function fetchConversation(
 
 export async function updateConversation(
   conversationId: string,
-  updates: { title?: string; pinned?: boolean; language?: string },
+  updates: { title?: string; pinned?: boolean; language?: string; title_manual?: boolean },
 ): Promise<Conversation | null> {
   try {
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {

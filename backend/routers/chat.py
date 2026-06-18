@@ -589,15 +589,96 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
     }
 
 
-async def _generate_conversation_title(
+# Turn count at which the auto-generated title is upgraded once using the fuller
+# conversation context (a turn = one user message).
+TITLE_UPGRADE_TURNS = 3
+
+
+def _sanitize_title(raw: str) -> str:
+    """Clean an LLM-produced title: drop wrapper quotes/markdown/labels, clamp length."""
+    if not raw:
+        return ""
+    # Drop a reasoning block some models inline into the content (<think>…</think>);
+    # an unterminated/truncated <think> means we only got reasoning, so it collapses
+    # to empty and no title is written.
+    cleaned = re.sub(r"(?is)<think>.*?</think>", "", raw)
+    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
+    # First line only — models sometimes append an explanation on later lines.
+    lines = cleaned.strip().splitlines()
+    title = lines[0].strip() if lines else ""
+    # Drop a leading "Title:" / "Title -" label.
+    title = re.sub(r"^\s*title\s*[:\-]\s*", "", title, flags=re.IGNORECASE)
+    # Remove markdown emphasis / code markers anywhere (never valid in a title),
+    # so wrappers like *a* b collapse cleanly rather than leaving a stray marker.
+    title = title.replace("*", "").replace("`", "")
+    # Strip surrounding quotes / leftover markers / whitespace.
+    title = title.strip(" \t\"'_#")
+    # Collapse internal whitespace.
+    title = re.sub(r"\s+", " ", title).strip()
+    # Clamp to a sane length (≤8 words, ≤60 chars).
+    words = title.split(" ")
+    if len(words) > 8:
+        title = " ".join(words[:8])
+    if len(title) > 60:
+        title = title[:60].rstrip()
+    # Drop trailing punctuation.
+    return title.rstrip(" .,;:!?-–—").strip()
+
+
+async def maybe_generate_conversation_title(
     conversation_id: str,
     user_id: str,
-    user_message: str,
-    assistant_message: str,
     conv_store,
 ) -> None:
-    """Generate a ≤6-word title after the first exchange and persist it. Fails silently."""
+    """Generate or upgrade a conversation title via the auxiliary model. Fails silently.
+
+    Two self-gating stages keyed on ``metadata.title_stage`` so the title stays stable:
+      • Stage 1 — after the first exchange, a concise topic title.
+      • Stage 2 — once at ``TITLE_UPGRADE_TURNS`` turns, re-summarized from the fuller
+        context.
+    Never overwrites a manually-renamed title (``title_source == "user"``); the
+    ``set_auto_title`` write enforces both that lock and stage monotonicity, so this
+    function is safe to schedule on every turn (after a title is final it does a single
+    cheap read and returns). Pre-provenance (legacy) conversations already past the
+    upgrade window are also left untouched.
+    """
     try:
+        # Store calls are blocking psycopg; offload so the title task (run via
+        # asyncio.create_task on the streaming path) never stalls the event loop.
+        conv = await asyncio.to_thread(conv_store.get_conversation, conversation_id, user_id)
+        if not conv:
+            return
+        metadata = conv.get("metadata") or {}
+        if metadata.get("title_source") == "user":
+            return
+        try:
+            current_stage = int(metadata.get("title_stage") or 0)
+        except (TypeError, ValueError):
+            current_stage = 0
+        if current_stage >= 2:
+            return
+
+        msgs = await asyncio.to_thread(
+            conv_store.get_messages, conversation_id, limit=TITLE_UPGRADE_TURNS * 2 + 2
+        )
+        convo = [m for m in msgs if m.get("role") in ("user", "assistant")]
+        turns = sum(1 for m in convo if m.get("role") == "user")
+
+        # Safety net for pre-provenance (legacy) conversations: no recorded stage
+        # yet already past the upgrade window means the existing title predates this
+        # feature (possibly a manual rename made before provenance tracking) — leave
+        # it untouched. New conversations always have a stage by this point because
+        # the task runs every turn, so this only ever guards legacy data (no migration).
+        if current_stage == 0 and turns > TITLE_UPGRADE_TURNS:
+            return
+
+        if current_stage < 1 and turns >= 1:
+            target_stage = 1
+        elif current_stage < 2 and turns >= TITLE_UPGRADE_TURNS:
+            target_stage = 2
+        else:
+            return
+
         config = load_core_config()
         provider = config.llm.get_role_provider("auxiliary")
         api_base = str(provider.api_base or "").rstrip("/")
@@ -605,28 +686,56 @@ async def _generate_conversation_title(
             return
         model_name = config.llm.get_role_model_name("auxiliary", "en")
         bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
-        prompt = (
-            "Generate a short title (maximum 6 words, no punctuation) that captures "
-            "the topic of this conversation. Output ONLY the title.\n\n"
-            f"User: {user_message[:300]}\n"
-            f"Assistant: {assistant_message[:200]}"
-        )
+
+        if target_stage == 1:
+            first_user = next((str(m.get("content", "")) for m in convo if m.get("role") == "user"), "")
+            first_assistant = next(
+                (str(m.get("content", "")) for m in convo if m.get("role") == "assistant"), ""
+            )
+            prompt = (
+                "Generate a short title (maximum 6 words, no punctuation) that captures "
+                "the topic of this conversation. Output ONLY the title.\n\n"
+                f"User: {first_user[:300]}\n"
+                f"Assistant: {first_assistant[:200]}"
+            )
+        else:
+            transcript = "\n".join(
+                f"{'User' if m.get('role') == 'user' else 'Assistant'}: {str(m.get('content', ''))[:200]}"
+                for m in convo[: TITLE_UPGRADE_TURNS * 2]
+            )
+            prompt = (
+                "Summarize what this conversation is about as a short title "
+                "(max 6 words, no punctuation, no quotes). Output ONLY the title.\n\n"
+                f"{transcript}"
+            )
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
                     "model": bare_model,
+                    # Generous cap: a reasoning auxiliary model spends most of its
+                    # budget "thinking" and only then emits the title in `content`
+                    # — a tight cap leaves `content` empty. Non-reasoning models
+                    # stop at the short title well before this.
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.0,
-                    "max_tokens": 20,
+                    "max_tokens": 512,
                 },
                 headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
             )
             resp.raise_for_status()
-            title = resp.json()["choices"][0]["message"]["content"].strip()
+            title = _sanitize_title(resp.json()["choices"][0]["message"]["content"])
             if title:
-                conv_store.update_conversation(conversation_id, user_id, title=title)
-                logger.debug("Auto-title generated for conversation %s: %s", conversation_id, title)
+                await asyncio.to_thread(
+                    conv_store.set_auto_title, conversation_id, user_id, title, stage=target_stage
+                )
+                logger.debug(
+                    "Auto-title (stage %s) for conversation %s: %s",
+                    target_stage,
+                    conversation_id,
+                    title,
+                )
     except Exception as exc:
         logger.debug("Auto-title generation failed (non-critical): %s", exc)
 
@@ -1651,17 +1760,14 @@ async def chat(
                     **({"map_data": result.get("map_data")} if result.get("map_data") else {}),
                 },
             )
-            # Auto-title on first exchange (2 messages = 1 user + 1 assistant)
-            msgs = conv_store.get_messages(conversation_id, limit=3)
-            if len(msgs) == 2:
-                background_tasks.add_task(
-                    _generate_conversation_title,
-                    conversation_id=conversation_id,
-                    user_id=effective_user_id,
-                    user_message=request_body.message,
-                    assistant_message=assistant_msg,
-                    conv_store=conv_store,
-                )
+            # Auto-title: generate after the first exchange, upgrade once at
+            # TITLE_UPGRADE_TURNS turns. The task self-gates on conversation metadata.
+            background_tasks.add_task(
+                maybe_generate_conversation_title,
+                conversation_id=conversation_id,
+                user_id=effective_user_id,
+                conv_store=conv_store,
+            )
         except Exception as exc:
             # Don't fail the chat request if persistence fails
             logger.warning(f"Failed to persist messages to conversation {conversation_id}: {exc}")
@@ -2069,21 +2175,17 @@ async def chat_stream(
                                     writeback=_writeback_result,
                                     persisted_content=_persisted_content,
                                 )
-                                # Auto-title on first exchange
+                                # Auto-title: generate after the first exchange, upgrade
+                                # once at TITLE_UPGRADE_TURNS turns (the task self-gates).
                                 if conversation_id:
                                     try:
-                                        _conv_store = request.app.state.conversation_store
-                                        _msgs = _conv_store.get_messages(conversation_id, limit=3)
-                                        if len(_msgs) == 2:
-                                            asyncio.create_task(
-                                                _generate_conversation_title(
-                                                    conversation_id=conversation_id,
-                                                    user_id=effective_user_id,
-                                                    user_message=request_body.message,
-                                                    assistant_message="".join(_accumulated_tokens),
-                                                    conv_store=_conv_store,
-                                                )
+                                        asyncio.create_task(
+                                            maybe_generate_conversation_title(
+                                                conversation_id=conversation_id,
+                                                user_id=effective_user_id,
+                                                conv_store=request.app.state.conversation_store,
                                             )
+                                        )
                                     except Exception:
                                         pass
                                 if _writeback_result and _writeback_result.get("status") == "saved":
