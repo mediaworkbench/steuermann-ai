@@ -18,7 +18,7 @@ export function MetricsSeriesOptions({ options }: MetricsSeriesOptionsProps) {
   return (
     <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
       {options.map((option) => (
-        <label key={option.key} htmlFor={`${idPrefix}-${option.key}`} className="inline-flex items-center gap-1.5">
+        <label key={option.key} htmlFor={`${idPrefix}-${option.key}`} className="inline-flex items-center gap-2">
           <Checkbox
             id={`${idPrefix}-${option.key}`}
             checked={option.checked}

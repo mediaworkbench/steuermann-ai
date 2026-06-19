@@ -5,6 +5,7 @@ import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { MessageMetrics, NodeTraceEntry } from "@/lib/types";
 import { KnowledgeTab } from "./KnowledgeTab";
 import { MemoryTab } from "./MemoryTab";
@@ -64,29 +65,32 @@ export function WorkspaceEvidenceTabs({
           const count = tabCounts[tab.id];
           const TabIcon = iconMap[tab.icon];
           return (
-            <Button
-              type="button"
-              key={tab.id}
-              role="tab"
-              aria-selected={active}
-              aria-label={label}
-              title={label}
-              onClick={() => setActiveTab(tab.id)}
-              variant="ghost"
-              size="sm"
-              className={`group flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors
-                ${active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-muted"}`}
-            >
-              <TabIcon size={16} />
-              <span className="whitespace-nowrap">{label}</span>
-              {count > 0 && (
-                <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">
-                  {count}
-                </span>
-              )}
-            </Button>
+            <Tooltip key={tab.id}>
+              <TooltipTrigger render={
+                <Button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={label}
+                  onClick={() => setActiveTab(tab.id)}
+                  variant="ghost"
+                  size="sm"
+                  className={`group flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors
+                    ${active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-surface-muted"}`}
+                >
+                  <TabIcon size={16} />
+                  <span className="whitespace-nowrap">{label}</span>
+                  {count > 0 && (
+                    <span className="rounded-full px-1.5 text-[10px] leading-4 bg-primary/15">
+                      {count}
+                    </span>
+                  )}
+                </Button>
+              } />
+              <TooltipContent>{label}</TooltipContent>
+            </Tooltip>
           );
         })}
       </div>

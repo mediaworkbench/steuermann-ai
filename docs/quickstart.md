@@ -31,6 +31,26 @@ poetry install
 
 ## 2. Configure Environment Variables
 
+### Fastest path: `setup init`
+
+One interactive command does the whole step — it writes a valid `.env`, generates strong
+secrets (`POSTGRES_PASSWORD`, `AUTH_SESSION_SECRET`, `CHAT_ACCESS_TOKEN`) and an argon2id admin
+password hash, constructs `CHECKPOINTER_POSTGRES_DSN`, creates (and on Linux chowns) the data
+directories, and runs the pre-flight checks:
+
+```bash
+poetry run steuermann setup init
+```
+
+It walks you through provider/profile choice (LM Studio / Ollama / OpenRouter — endpoint, API key,
+per-role models, and the embedding endpoint/model/dimension). If you customize the reference
+`starter` profile it scaffolds a fresh profile copy and points `PROFILE_ID` at it (steps 3 and the
+`AUTH_ENABLED=true` part of authentication are handled for you). The generated credentials are
+printed once at the end — save them. See [cli.md](cli.md#steuermann-setup-init) for flags and
+behavior. With the wizard you can skip to **step 4 (Start the Stack)**.
+
+### Manual setup (fallback)
+
 Copy the example file and fill in the required values:
 
 ```bash
@@ -62,6 +82,7 @@ REDIS_URL=redis://redis:6379/0  # Already set in .env.example
 ### Provider-specific endpoint setup
 
 **LM Studio** (recommended for local):
+
 ```bash
 LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1
 EMBEDDING_SERVER=http://host.docker.internal:1234/v1
@@ -69,6 +90,7 @@ OPENAI_API_KEY=lm-studio
 ```
 
 **Ollama**:
+
 ```bash
 LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1
 EMBEDDING_SERVER=http://host.docker.internal:11434/v1
@@ -76,6 +98,7 @@ OPENAI_API_KEY=lm-studio
 ```
 
 **OpenRouter** (cloud):
+
 ```bash
 LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1
 LLM_PROVIDERS_OPENROUTER_API_KEY=<your-openrouter-api-key>
@@ -110,7 +133,7 @@ docker compose up -d
 
 Services start in dependency order. The full health-check chain:
 
-```
+```text
 postgres → qdrant → redis → duckduckgo-mcp → langgraph → fastapi → nextjs
 ```
 
@@ -152,7 +175,7 @@ docker compose logs redis
 
 Open the chat UI:
 
-```
+```text
 http://localhost:3000
 ```
 

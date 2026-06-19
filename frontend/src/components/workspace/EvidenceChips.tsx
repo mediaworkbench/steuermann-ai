@@ -4,6 +4,7 @@ import { iconMap } from "@/lib/iconMap";
 import { useI18n } from "@/hooks/useI18n";
 import { useAnswerEvidence } from "@/hooks/useAnswerEvidence";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { MessageMetrics } from "@/lib/types";
 import type { WorkspaceTabId } from "./types";
 
@@ -55,21 +56,25 @@ export function EvidenceChips({ metrics, onSelect }: EvidenceChipsProps) {
           </>
         );
         return onSelect ? (
-          <Button
-            key={c.key}
-            type="button"
-            title={c.label}
-            onClick={() => onSelect(c.tab)}
-            variant="ghost"
-            size="sm"
-            className={`${baseClass} h-auto rounded-full px-2 py-0.5 text-[11px] hover:bg-primary/10 hover:text-primary hover:border-primary/20`}
-          >
-            {body}
-          </Button>
+          <Tooltip key={c.key}>
+            <TooltipTrigger render={
+              <Button
+                type="button"
+                onClick={() => onSelect(c.tab)}
+                variant="ghost"
+                size="sm"
+                className={`${baseClass} h-auto rounded-full px-2 py-0.5 text-[11px] hover:bg-primary/10 hover:text-primary hover:border-primary/20`}
+              >
+                {body}
+              </Button>
+            } />
+            <TooltipContent>{c.label}</TooltipContent>
+          </Tooltip>
         ) : (
-          <span key={c.key} title={c.label} className={baseClass}>
-            {body}
-          </span>
+          <Tooltip key={c.key}>
+            <TooltipTrigger render={<span className={baseClass}>{body}</span>} />
+            <TooltipContent>{c.label}</TooltipContent>
+          </Tooltip>
         );
       })}
     </div>

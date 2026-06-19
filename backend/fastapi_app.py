@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -32,6 +33,7 @@ from backend.db import (
     ConversationWorkspaceStore,
     WorkspaceDocumentStore,
     UserStore,
+    GlobalSettingsStore,
     init_db_pool,
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
@@ -252,6 +254,7 @@ async def lifespan(app: FastAPI):
     app.state.workspace_document_store = WorkspaceDocumentStore(db_pool)
     app.state.user_store = UserStore(db_pool)
     app.state.role_tool_store = RoleToolPermissionStore(db_pool)
+    app.state.global_settings_store = GlobalSettingsStore(db_pool)
 
     # Seed default role→tool permissions so a fresh deployment grants 'user' and
     # 'researcher' the full tool catalog (admins narrow from there). Only seeds when
@@ -283,7 +286,12 @@ async def lifespan(app: FastAPI):
     app.state.user_workspace_file_manager = UserWorkspaceFileManager(attachment_manager=attachment_manager)
 
     _run_workspace_startup_cleanup(app)
-    _run_llm_capability_startup_probe(app)
+    # Run the capability probe off the event loop so a slow/offline provider can never
+    # delay readiness (and therefore Next.js, which gates on FastAPI being healthy).
+    # It is sync and already non-fatal; keep a reference so the task isn't GC'd.
+    app.state._cap_probe_task = asyncio.create_task(
+        asyncio.to_thread(_run_llm_capability_startup_probe, app)
+    )
 
     try:
         yield

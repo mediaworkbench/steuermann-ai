@@ -233,6 +233,23 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         ])
     )
 
+    # Weather / forecast: user wants current weather, a temperature comparison, or a forecast.
+    # Includes comparatives ("how much warmer is A than B") so the compare prompt routes and is
+    # not mistaken for a calculator query. Substring checks mirror mentions_map (EN + DE).
+    mentions_weather = bool(
+        re.search(r"\b(weather|wetter|temperature|temperatur|forecast|vorhersage)\b", user_msg_lower)
+        or any(k in user_msg_lower for k in [
+            # English
+            "weather in", "weather for", "weather like", "how warm", "how cold", "how hot",
+            "warmer", "colder", "hotter", "how much warmer", "how much colder",
+            "current temperature", "will it rain", "going to rain", "rain this week",
+            # German
+            "wetter in", "wetter für", "wie ist das wetter", "wie warm", "wie kalt",
+            "wärmer", "kälter", "heißer", "wie viel wärmer", "wie viel kälter",
+            "aktuelle temperatur", "regnet es", "wird es regnen",
+        ])
+    )
+
     # Meta-question detection: skip tool execution for questions about available tools
     asks_about_tools = any(
         keyword in user_msg_lower
@@ -297,6 +314,7 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_image_metadata": mentions_image_metadata,
         "mentions_barcode": mentions_barcode,
         "mentions_map": mentions_map,
+        "mentions_weather": mentions_weather,
         "mentions_csv_analysis": mentions_csv_analysis,
         "asks_about_tools": asks_about_tools,
         "wants_save_to_rag": wants_save_to_rag,

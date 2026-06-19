@@ -69,6 +69,7 @@ The commands below are for host-side development and test execution. They are no
 
 ```bash
 poetry install
+poetry run steuermann setup init           # guided first-time setup (.env, secrets, profile config)
 poetry run pytest
 poetry run steuermann --help
 poetry run steuermann docs check --format json

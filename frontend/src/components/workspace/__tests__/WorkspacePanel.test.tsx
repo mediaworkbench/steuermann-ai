@@ -377,14 +377,16 @@ describe("EvidenceChips", () => {
         }}
       />,
     );
-    expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
-    expect(screen.getByTitle("workspace.evidenceTools")).toBeInTheDocument();
+    const summary = screen.getByLabelText("workspace.evidenceSummary");
+    expect(summary).toBeInTheDocument();
+    const chips = summary.querySelectorAll('[data-slot="tooltip-trigger"]');
+    expect(chips).toHaveLength(2);
   });
 
   test("chips invoke onSelect with the mapped workspace tab", () => {
     const onSelect = jest.fn();
     render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} onSelect={onSelect} />);
-    fireEvent.click(screen.getByTitle("workspace.evidenceMemory"));
+    fireEvent.click(screen.getAllByRole("button")[0]);
     expect(onSelect).toHaveBeenCalledWith("memory");
   });
 
@@ -399,20 +401,21 @@ describe("EvidenceChips", () => {
         onSelect={onSelect}
       />,
     );
-    fireEvent.click(screen.getByTitle("workspace.evidenceAttachments"));
+    const chips = screen.getAllByRole("button");
+    fireEvent.click(chips[0]);
     expect(onSelect).toHaveBeenCalledWith("knowledge");
-    fireEvent.click(screen.getByTitle("workspace.evidenceDocs"));
+    fireEvent.click(chips[1]);
     expect(onSelect).toHaveBeenCalledWith("documents");
   });
 
   test("renders attachment-only answers (added to hasEvidence)", () => {
     render(<EvidenceChips metrics={{ attachments_used: [{ id: "a1", original_name: "x.csv" }] }} />);
-    expect(screen.getByTitle("workspace.evidenceAttachments")).toBeInTheDocument();
+    expect(screen.getByLabelText("workspace.evidenceSummary")).toBeInTheDocument();
   });
 
   test("renders static (non-interactive) chips when onSelect is omitted", () => {
     render(<EvidenceChips metrics={{ memories_used: [{ memory_id: "m1" }] }} />);
-    expect(screen.getByTitle("workspace.evidenceMemory")).toBeInTheDocument();
+    expect(screen.getByLabelText("workspace.evidenceSummary")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -423,7 +426,7 @@ describe("EvidenceChips", () => {
         onSelect={jest.fn()}
       />,
     );
-    expect(screen.queryByTitle("workspace.mapGenerated")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("workspace.evidenceSummary")).not.toBeInTheDocument();
   });
 });
 

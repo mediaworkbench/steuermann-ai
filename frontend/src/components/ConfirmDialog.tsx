@@ -127,7 +127,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         )}
 
         {checkboxed && (
-          <label className="flex items-center gap-3 px-2 cursor-pointer select-none group">
+          <label className="flex items-center gap-2 px-2 cursor-pointer select-none group">
             <Checkbox
               checked={checked}
               onChange={(e) => setChecked(e.target.checked)}

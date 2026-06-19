@@ -1,0 +1,25 @@
+name: "weather_tool"
+version: "1.0.0"
+category: "auxiliary"
+description: "Current weather, temperature comparison, and multi-day forecast via Open-Meteo"
+
+descriptions:
+  en: "Get the current weather for a place, compare the weather/temperature of two places, or get a multi-day forecast. Use when the user asks: how is the weather in [city], what's the weather in [place], current temperature in [city], how warm/cold is it in [place], how much warmer/colder is [A] than [B], compare the weather in [A] and [B], weather forecast for [city], will it rain in [place] this week. Geocodes cities/regions using Open-Meteo and returns temperature, conditions, humidity, wind, and an interactive weather widget. Always use this tool when the user asks about weather, temperature, or a forecast for a location."
+  de: "Aktuelles Wetter für einen Ort abrufen, das Wetter/die Temperatur zweier Orte vergleichen oder eine Mehrtagesvorhersage erstellen. Verwenden wenn der Nutzer fragt: wie ist das Wetter in [Stadt], wie ist das Wetter in [Ort], aktuelle Temperatur in [Stadt], wie warm/kalt ist es in [Ort], wie viel wärmer/kälter ist [A] als [B], vergleiche das Wetter in [A] und [B], Wettervorhersage für [Stadt], regnet es diese Woche in [Ort]. Geokodiert Städte/Regionen über Open-Meteo und liefert Temperatur, Bedingungen, Luftfeuchtigkeit, Wind und ein interaktives Wetter-Widget."
+
+type: "langchain_tool"
+entry_point: "universal_agentic_framework.tools.weather.tool:WeatherTool"
+
+dependencies: []
+
+# Output units. Overridable per-profile via the tools.yaml entry's `config:` block.
+# These map 1:1 to Open-Meteo query params; conversion happens server-side.
+config:
+  temperature_unit: "celsius"     # celsius | fahrenheit
+  wind_speed_unit: "kmh"          # kmh | mph | ms | kn
+  precipitation_unit: "mm"        # mm | inch
+
+permissions:
+  - "network:outbound"
+
+cost_per_call: 0.0

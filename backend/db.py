@@ -84,6 +84,8 @@ def _ensure_core_tables(db_pool: DatabasePool) -> None:
     _ensure_analytics_tables(db_pool)
     _ensure_conversation_tables(db_pool)
     _ensure_co_occurrence_tables(db_pool)
+    _ensure_global_settings_table(db_pool)
+    _ensure_heartbeat_tables(db_pool)
 
 
 def _ensure_settings_table(db_pool: DatabasePool) -> None:
@@ -1281,6 +1283,140 @@ class CoOccurrenceEdgeStore:
         return int(pruned)
 
 
+def _ensure_global_settings_table(db_pool: DatabasePool) -> None:
+    """Deployment-wide key/value settings (admin-controlled, not per-user)."""
+    statement = """
+        CREATE TABLE IF NOT EXISTS global_settings (
+            key        TEXT PRIMARY KEY,
+            value      JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+        conn.commit()
+
+
+# global_settings key for the admin-controlled heartbeat beat rate (minutes).
+# Single source of truth shared by the FastAPI admin endpoint (writer) and the
+# LangGraph-embedded HeartbeatScheduler (reader).
+HEARTBEAT_RATE_SETTING_KEY = "heartbeat_rate_minutes"
+
+
+class GlobalSettingsStore:
+    """Read/write access for deployment-wide settings.
+
+    Values are stored as JSON so a single table can hold heterogeneous settings.
+    ``get_setting`` returns ``None`` when no row exists; callers fall back to the
+    config default in that case.
+    """
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_global_settings_table(self._db_pool)
+
+    def get_setting(self, key: str) -> Optional[Any]:
+        """Return the stored JSON value for ``key``, or ``None`` if unset."""
+        statement = "SELECT value FROM global_settings WHERE key = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (key,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        value = row.get("value")
+        if isinstance(value, str):
+            value = json.loads(value)
+        return value
+
+    def set_setting(self, key: str, value: Any) -> Any:
+        """Upsert the JSON value for ``key`` and return what was stored."""
+        statement = """
+            INSERT INTO global_settings (key, value, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = NOW()
+            RETURNING value;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (key, extras.Json(value)))
+                row = cur.fetchone()
+            conn.commit()
+        stored = row.get("value") if row else value
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        return stored
+
+
+def _ensure_heartbeat_tables(db_pool: DatabasePool) -> None:
+    """Run-history for the heartbeat scheduler (observability + idempotency)."""
+    statement = """
+        CREATE TABLE IF NOT EXISTS heartbeat_runs (
+            id          BIGSERIAL PRIMARY KEY,
+            task_name   TEXT NOT NULL,
+            fired_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            status      TEXT NOT NULL,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            detail      JSONB NOT NULL DEFAULT '{}'::jsonb
+        );
+    """
+    index_statement = """
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_task_fired
+            ON heartbeat_runs(task_name, fired_at DESC);
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            cur.execute(index_statement)
+        conn.commit()
+
+
+class HeartbeatRunStore:
+    """Durable record of each heartbeat tick (status/duration/detail)."""
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_heartbeat_tables(self._db_pool)
+
+    def record_run(
+        self,
+        *,
+        task_name: str,
+        status: str,
+        duration_ms: int = 0,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        statement = """
+            INSERT INTO heartbeat_runs (task_name, status, duration_ms, detail)
+            VALUES (%s, %s, %s, %s);
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    statement,
+                    (task_name, status, int(duration_ms), extras.Json(detail or {})),
+                )
+            conn.commit()
+
+    def recent_runs(self, task_name: str, limit: int = 5) -> list[Dict[str, Any]]:
+        """Return the most recent runs for a task, newest first."""
+        statement = """
+            SELECT task_name, fired_at, status, duration_ms, detail
+            FROM heartbeat_runs
+            WHERE task_name = %s
+            ORDER BY fired_at DESC
+            LIMIT %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (task_name, int(limit)))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
 def _escape_like(value: str) -> str:
     """Escape LIKE/ILIKE metacharacters so a search term is matched literally.
 
@@ -1435,6 +1571,37 @@ class ConversationStore:
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, tuple(params))
+                row = cur.fetchone()
+            conn.commit()
+        return _normalize_conversation_row(row) if row else None
+
+    def set_auto_title(
+        self, conversation_id: str, user_id: str, title: str, *, stage: int
+    ) -> Optional[Dict[str, Any]]:
+        """Persist an auto-generated title with provenance, atomically guarded.
+
+        Records ``title_source="auto"`` and ``title_stage=stage`` in ``metadata``
+        (JSONB-merged, so other keys survive). The write is a no-op (returns
+        ``None``) when the title has been locked by a manual rename
+        (``title_source == "user"``) or when ``stage`` would not advance the
+        current ``title_stage`` — the latter serializes concurrent turns so a
+        late Stage-1 write can never overwrite a Stage-2 title.
+        """
+        provenance = json.dumps({"title_source": "auto", "title_stage": stage})
+        statement = """
+            UPDATE conversations
+            SET title = %s,
+                metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb,
+                updated_at = NOW()
+            WHERE id = %s AND user_id = %s
+              AND COALESCE(metadata->>'title_source', 'auto') <> 'user'
+              AND COALESCE((metadata->>'title_stage')::int, 0) < %s
+            RETURNING id, user_id, title, language, profile_name,
+                      pinned, metadata, created_at, updated_at;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (title, provenance, conversation_id, user_id, stage))
                 row = cur.fetchone()
             conn.commit()
         return _normalize_conversation_row(row) if row else None

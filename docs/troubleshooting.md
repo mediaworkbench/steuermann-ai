@@ -9,6 +9,7 @@ Common failure modes, their symptoms, and how to fix them. For a full diagnostic
 **Symptom:** `docker compose up -d` exits early or services stay in "starting" / "unhealthy" state.
 
 **Diagnosis:**
+
 ```bash
 docker compose ps            # which services are unhealthy?
 docker compose logs postgres  # check the first failure in the dependency chain
@@ -35,6 +36,7 @@ docker compose logs redis
 **Symptom:** LangGraph starts but chat returns errors like `ConnectionError`, `timeout`, or `model not found`.
 
 **Diagnosis:**
+
 ```bash
 poetry run steuermann setup doctor --probe-endpoints
 docker compose logs langgraph | grep -i "error\|exception\|connection"
@@ -59,6 +61,7 @@ docker compose logs langgraph | grep -i "error\|exception\|connection"
 **Symptom:** The model answers without using a tool that should have been selected (e.g. ignores a URL, doesn't call `calculator_tool` for a math question).
 
 **Diagnosis:** Check the LangGraph logs for the `prefilter_tools` node output:
+
 ```bash
 docker compose logs langgraph | grep -i "prefilter\|similarity\|intent\|tool_selection"
 ```
@@ -82,6 +85,7 @@ docker compose logs langgraph | grep -i "prefilter\|similarity\|intent\|tool_sel
 **Symptom:** Image is in the message or attachment but `analyze_image_tool`, `ocr_tool`, `analyze_document_tool`, or `analyze_chart_tool` is not called, or the tool is called but returns an error.
 
 **Diagnosis:**
+
 ```bash
 docker compose logs langgraph | grep -i "vision\|analyze_image\|ocr"
 ```
@@ -103,6 +107,7 @@ docker compose logs langgraph | grep -i "vision\|analyze_image\|ocr"
 **Symptom:** Memories are not saved between sessions, or `GET /api/memories` returns empty results after a conversation.
 
 **Diagnosis:**
+
 ```bash
 docker compose logs langgraph | grep -i "memory\|mem0\|update_memory"
 docker compose logs qdrant
@@ -125,6 +130,7 @@ docker compose logs qdrant
 **Symptom:** Responses don't reflect document content that was ingested, or ingestion reports success but retrieval returns nothing.
 
 **Diagnosis:**
+
 ```bash
 docker compose logs langgraph | grep -i "retrieve_knowledge\|rag\|qdrant\|score_threshold"
 docker compose logs qdrant
@@ -154,6 +160,7 @@ too high (or a since-changed embedding model).
 **Symptom:** Repeated identical queries are not faster; logs show cache misses every time or Redis connection errors.
 
 **Diagnosis:**
+
 ```bash
 docker compose logs langgraph | grep -i "redis\|cache\|connection"
 docker compose logs redis
@@ -177,6 +184,7 @@ docker compose logs redis
 **Symptom:** `steuermann config validate` fails, or the LangGraph service refuses to start with a config error.
 
 **Diagnosis:**
+
 ```bash
 poetry run steuermann config validate --profile <profile_id> --format json
 poetry run steuermann config contract-check --format json

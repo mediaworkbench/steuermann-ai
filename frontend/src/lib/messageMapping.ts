@@ -1,4 +1,4 @@
-import type { MapData, Message, PersistedMessage, Source, ToolResultDetail } from "./types";
+import type { MapData, Message, PersistedMessage, Source, ToolResultDetail, WeatherData } from "./types";
 
 /**
  * Convert a persisted (DB) message into the local UI `Message` shape.
@@ -60,6 +60,7 @@ export function toUiMessage(
           }>
         | undefined,
       map_data: pm.metadata?.map_data as MapData | undefined,
+      weather_data: pm.metadata?.weather_data as WeatherData | undefined,
     },
   };
 }

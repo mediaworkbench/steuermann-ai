@@ -17,6 +17,7 @@ const FALLBACK_TOOLS = [
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
   { id: "map_tool", label: "Map" },
+  { id: "weather_tool", label: "Weather" },
   { id: "csv_analyze_tool", label: "CSV Analyze" },
   { id: "file_ops_tool", label: "File Ops" },
 ] as const;
@@ -49,6 +50,7 @@ export function ToolsMenu({
   const visibleTools = (systemConfig?.available_tools ?? FALLBACK_TOOLS).filter(
     (tool) => (!allowedTools || allowedTools.includes(tool.id)) && toolToggles[tool.id] !== false
   );
+  const hasActiveTools = visibleTools.some((tool) => !disabledTools.includes(tool.id));
   return (
     <div className="relative">
       <Button
@@ -56,7 +58,11 @@ export function ToolsMenu({
         onClick={onToggle}
         variant="ghost"
         size="sm"
-        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+        className={`rounded-lg p-1.5 transition-colors ${
+          hasActiveTools
+            ? "text-primary hover:bg-primary/10"
+            : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        }`}
         aria-label="Tools"
       >
         <Wrench size={20} />

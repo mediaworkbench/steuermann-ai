@@ -130,6 +130,8 @@ llm:
 
 **Required roles:** `chat` and `embedding` must be present in every profile overlay. `vision` and `auxiliary` are optional — omitting them is valid.
 
+**Provider downtime does not block startup.** The external provider is a soft dependency: if it is unreachable when the stack starts, the services still boot (the LangGraph startup embedding probe is best-effort and never fails the container; the FastAPI capability probe runs in the background). The frontend shows a "Provider Offline" banner with a Retry button and disables chat send until the provider answers `GET /api/llm/health`; chat resumes automatically once it returns.
+
 **Role purposes:**
 
 - `chat` — primary conversational LLM *(required)*
@@ -422,6 +424,30 @@ Tool selection uses a three-tier architecture:
 - Routing works with any LLM family — semantic scoring is model-agnostic.
 - If `embedding_model` is not set, routing reuses `memory.embeddings.model`.
 
+### Heartbeat Configuration
+
+The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and runs each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
+
+```yaml
+heartbeat:
+  enabled: true              # start the scheduler in the LangGraph service
+  default_rate_minutes: 5    # beat interval; overridden by the admin setting at runtime
+  tasks:
+    - name: health           # unique task id (also used for run-history + cooldown)
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      cooldown_seconds: 0     # skip a beat if the last ok run is within this window
+      enabled: true           # omit/false to skip loading this task
+```
+
+| Key | Meaning |
+| --- | --- |
+| `enabled` | Whether the scheduler runs for this profile (the only enable switch — the rate alone is admin-configurable). |
+| `default_rate_minutes` | Beat interval used when no admin override is set. |
+| `tasks[].type` | `module.path:ClassName` entry point of a `HeartbeatTask` subclass. |
+| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran successfully more recently than this. |
+
+**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every beat is recorded in the `heartbeat_runs` table for observability. See [Technical Architecture §9.5](technical_architecture.md).
+
 ---
 
 ## Agents Configuration (`agents.yaml`)
@@ -600,6 +626,10 @@ ingestion:
 - Text (`.txt`)
 
 **Collection naming:** The RAG collection is configured separately via `rag.collection_name` in the profile overlay (see RAG Retrieval Configuration above). Use the same value when running `steuermann ingest`.
+
+**Idempotency:** Ingestion is safe to re-run. Chunk IDs are deterministic (UUID5 keyed on the source-relative file path + chunk index), so re-running `ingest` or restarting the watcher upserts over existing points instead of appending duplicates. `reindex` clears the collection first and is always safe. The embedding provider must be reachable for any ingestion to proceed.
+
+**Mount path:** All services (`ingestion`, `fastapi`, `langgraph`) mount the corpus at `/data/rag-data`. Never use a different container path for the ingestion service, as this would break the source-relative dedup key.
 
 **Running ingestion:**
 

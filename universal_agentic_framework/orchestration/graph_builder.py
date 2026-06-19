@@ -288,6 +288,7 @@ class GraphState(TypedDict, total=False):
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
     rag_attempted: bool  # True if Qdrant was queried this turn (False on all skip paths)
     rag_doc_count: int   # Number of docs above pill_score_threshold (injected into prompt + shown as pills)
+    memory_enabled: bool  # Per-session toggle; False = skip load_memory and update_memory this turn
     loaded_tools: Annotated[List[Any], UntrackedValue(list)]  # BaseTool instances — not checkpointed (not serializable)
     candidate_tools: Annotated[List[Dict[str, Any]], UntrackedValue(list)]  # Layer 1 pre-filter output — not checkpointed
     tool_calling_mode: str  # "native" | "structured" | "react" — from provider config
@@ -1300,7 +1301,12 @@ def node_load_memory(state: GraphState) -> GraphState:
         logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
         state["loaded_memory"] = []
         return state
-    
+
+    if not state.get("memory_enabled", True):
+        logger.info("Memory disabled by per-session toggle", user_id=state.get("user_id"))
+        state["loaded_memory"] = []
+        return state
+
     # Get memory feature flags
     include_related = getattr(features_config, "memory_include_related", False)
     top_k = getattr(features_config, "memory_top_k", 5)
@@ -2011,6 +2017,10 @@ def node_update_memory(state: GraphState) -> GraphState:
     
     user_id = state.get("user_id")
     logger.info("Updating memory", user_id=user_id, profile_name=profile_name)
+
+    if not state.get("memory_enabled", True):
+        logger.info("Memory disabled by per-session toggle, skipping update", user_id=user_id)
+        return state
 
     # Skip writes for disabled memory or trivial exchanges (shared gate with node_summarize,
     # which already skipped producing a summary for the same turns).

@@ -45,13 +45,35 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     (which calls asyncio.get_running_loop() in langgraph-checkpoint-postgres 3.x)
     executes inside the running uvicorn event loop rather than at import time.
     """
-    global GRAPH, _GRAPH_NODE_NAMES
+    global GRAPH, _GRAPH_NODE_NAMES, HEARTBEAT
     GRAPH = build_graph()
     _GRAPH_NODE_NAMES = _discover_graph_node_names()
     await setup_checkpointer(GRAPH.checkpointer)
     await prune_checkpoints(GRAPH.checkpointer)
+    HEARTBEAT = _start_heartbeat()
     yield
-    # No shutdown work required — the connection pool is closed by the process exit.
+    if HEARTBEAT is not None:
+        HEARTBEAT.stop()
+    # The connection pool is closed by the process exit.
+
+
+def _start_heartbeat():
+    """Start the heartbeat scheduler if the active profile enables it.
+
+    Best-effort: a heartbeat failure must never block the graph serving path.
+    """
+    try:
+        heartbeat_cfg = getattr(load_core_config(), "heartbeat", None)
+        if heartbeat_cfg is None or not heartbeat_cfg.enabled:
+            return None
+        from universal_agentic_framework.heartbeat import HeartbeatScheduler
+
+        scheduler = HeartbeatScheduler(heartbeat_cfg)
+        scheduler.start()
+        return scheduler
+    except Exception:  # noqa: BLE001 — serving must boot even if heartbeat can't
+        logger.warning("heartbeat_start_failed", exc_info=True)
+        return None
 
 
 # Initialize FastAPI app
@@ -76,6 +98,7 @@ app.add_middleware(
 CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
 GRAPH: Any = None  # populated in _lifespan before first request is served
+HEARTBEAT: Any = None  # HeartbeatScheduler, started in _lifespan when enabled
 ACTIVE_SESSIONS: set[str] = set()
 _invocation_count: int = 0
 
@@ -145,40 +168,39 @@ async def _cleanup_ephemeral_thread(thread_id: str) -> None:
 initialize_system_info(version="1.0.0", environment="production")
 logger.info("LangGraph server initialized", profile=CONFIG.profile.name)
 
-# Pre-load and probe embedding provider — server must not start with a broken stack.
-# Retries with exponential backoff (capped at 16 s per attempt) for ~2 min total.
-# If the provider is still unreachable after all retries, startup fails and the
-# container restarts (Docker restart policy handles recovery).
-logger.info("Probing embedding provider at startup...")
-_MAX_STARTUP_RETRIES = 15
-for _attempt in range(_MAX_STARTUP_RETRIES):
+def probe_embedding_provider_nonfatal(config: Any) -> bool:
+    """Best-effort startup probe of the embedding provider.
+
+    The external LLM/embedding provider is a *soft dependency*: the server must
+    start and stay healthy even when it is unreachable, so that the rest of the
+    stack (FastAPI, Next.js) comes up and the UI can surface a "provider offline"
+    state. We attempt a single warm-up here — which also primes the cached
+    provider in ``get_routing_embedding_provider`` (the constructor does not
+    connect, so caching while offline is safe) — and **never raise**. Runtime
+    nodes connect lazily with their own retries once the provider returns.
+
+    Returns ``True`` if the provider answered the probe, ``False`` otherwise.
+    """
     try:
-        import time as _time
         from universal_agentic_framework.orchestration.helpers.embedding_provider import (
             get_routing_embedding_provider as _get_embed_provider,
         )
-        _embedder, _embedding_model_name = _get_embed_provider(CONFIG)
-        _embedder.encode("startup probe")
-        logger.info("Embedding provider ready", model=_embedding_model_name, attempt=_attempt + 1)
-        break
-    except Exception as _e:
-        _delay = min(2.0 ** _attempt, 16.0)
-        if _attempt < _MAX_STARTUP_RETRIES - 1:
-            logger.error(
-                "Embedding provider not ready at startup — retrying",
-                attempt=_attempt + 1,
-                max=_MAX_STARTUP_RETRIES,
-                retry_in=_delay,
-                error=str(_e),
-            )
-            _time.sleep(_delay)
-        else:
-            logger.critical(
-                "Embedding provider unreachable — aborting startup",
-                error=str(_e),
-                exc_info=True,
-            )
-            raise RuntimeError("Embedding provider unreachable at startup") from _e
+
+        embedder, embedding_model_name = _get_embed_provider(config)
+        embedder.encode("startup probe")
+        logger.info("Embedding provider ready", model=embedding_model_name)
+        return True
+    except Exception as exc:  # noqa: BLE001 - provider downtime must never block startup
+        logger.warning(
+            "Embedding provider not reachable at startup — continuing; "
+            "will retry lazily per request",
+            error=str(exc),
+        )
+        return False
+
+
+logger.info("Probing embedding provider at startup (best-effort)...")
+probe_embedding_provider_nonfatal(CONFIG)
 
 logger.info("LangGraph server ready to accept requests")
 
@@ -294,6 +316,15 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "attachments": request.get("attachments", []),
             "workspace_documents": request.get("workspace_documents", []),
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+            # The graph reconstructs state from this explicit allowlist (NOT a passthrough
+            # of the request body), so any state key a graph node reads must be forwarded
+            # here or it silently defaults. These three are consumed downstream:
+            #   workspace_writeback_document → respond node's writeback prompt injection
+            #   allowed_tools                → node_load_tools role gate (None = unrestricted)
+            #   memory_enabled               → node_load_memory / node_update_memory toggle
+            "workspace_writeback_document": request.get("workspace_writeback_document"),
+            "allowed_tools": request.get("allowed_tools"),
+            "memory_enabled": request.get("memory_enabled", True),
         }
         
         logger.debug("Graph state prepared", session_id=session_id, profile_name=profile_name)
@@ -412,6 +443,7 @@ _TOOL_LABELS: dict[str, str] = {
     "image_metadata_tool": "Reading image metadata...",
     "read_barcodes_tool": "Reading barcodes...",
     "map_tool": "Looking up map data...",
+    "weather_tool": "Checking the weather...",
 }
 
 
@@ -548,6 +580,12 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "attachments": request.get("attachments", []),
         "workspace_documents": request.get("workspace_documents", []),
         "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
+        # See the /invoke handler: graph-consumed keys must be forwarded explicitly here.
+        # workspace_writeback_document → writeback prompt injection; allowed_tools → role
+        # gate (None = unrestricted); memory_enabled → per-session memory toggle.
+        "workspace_writeback_document": request.get("workspace_writeback_document"),
+        "allowed_tools": request.get("allowed_tools"),
+        "memory_enabled": request.get("memory_enabled", True),
     }
     invoke_config = {"configurable": {"thread_id": thread_id}}
 
@@ -569,6 +607,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
         _captured_map_data = None  # populated from tool-call node output, not respond node
+        _captured_weather_data = None  # weather_tool artifact, same capture path as map_data
         _captured_tool_exec: dict = {}  # full tool envelope (args+results); respond node drops it
         _in_thinking = False   # currently inside a <think> block
         _close_tag = ""        # matching close tag for the current block
@@ -785,6 +824,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
                                         "map_data": _map_data,
+                                        "weather_data": _captured_weather_data,
                                         "node_trace": _node_trace_list,
                                         "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                                         "context_breakdown": _final_output.get("context_breakdown", {}),
@@ -847,6 +887,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     _captured_tool_exec = _tool_exec
                                 if "map_tool" in _tool_exec:
                                     _captured_map_data = _tool_exec["map_tool"].get("data")
+                                if "weather_tool" in _tool_exec:
+                                    _captured_weather_data = _tool_exec["weather_tool"].get("data")
 
                     elif kind == "on_chain_error":
                         # Best-effort per-node error status for the Inspector. A
@@ -894,6 +936,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
                     "map_data": _map_data,
+                    "weather_data": _captured_weather_data,
                     "node_trace": _node_trace_list,
                     "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                     "context_breakdown": _final_output.get("context_breakdown", {}),

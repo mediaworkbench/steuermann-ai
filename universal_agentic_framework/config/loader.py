@@ -37,6 +37,7 @@ _PROFILE_CORE_ALLOWED_PREFIXES = {
     "tool_routing",
     "rag",
     "tokens",
+    "heartbeat",
     "memory.embeddings",
     "memory.mem0",
     "memory.retention",

@@ -1,40 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { fetchMemories, fetchMemoryStats, deleteMemory, resetMyData } from "@/lib/api";
-import { MemoryRating } from "@/components/MemoryRating";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardHeader, CardDescription, CardContent } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
+import { createColumns } from "./columns";
 import { useI18n } from "@/hooks/useI18n";
 import { toast } from "sonner";
 import type { MemoryItem, MemoryStats } from "@/lib/types";
 import { Brain, Trash2, RefreshCw } from "lucide-react";
 
 const PAGE_SIZE = 50;
-
-function ImportanceBar({ score }: { score: number | null }) {
-  if (score === null) return <span className="text-xs text-muted-foreground">—</span>;
-  const pct = Math.round(score * 100);
-  const color =
-    pct >= 80 ? "bg-success" : pct >= 50 ? "bg-warning" : "bg-destructive";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-16 h-1.5 rounded-full bg-surface-muted overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-muted-foreground">{pct}%</span>
-    </div>
-  );
-}
 
 function StatCard({
   label,
@@ -46,26 +24,15 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-surface border border-border rounded-lg shadow-sm p-6">
-      <p className="text-sm font-medium text-muted-foreground mb-4">
-        {label}
-      </p>
-      <p className="text-3xl font-bold text-foreground">{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-2">{sub}</p>}
-    </div>
-  );
-}
-
-function RatingHelpPopover({ label }: { label: string }) {
-  return (
-    <span className="group relative cursor-default" aria-label={label}>
-      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-border text-[9px] leading-none text-muted-foreground select-none">
-        i
-      </span>
-      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-surface px-3 py-2 text-[11px] text-foreground leading-snug shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10 normal-case tracking-normal font-normal border border-border">
-        {label}
-      </span>
-    </span>
+    <Card size="sm">
+      <CardHeader>
+        <CardDescription>{label}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        <p className="text-3xl font-bold text-foreground">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -74,25 +41,22 @@ export default function MemoriesPage() {
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
 
   const load = useCallback(
-    async (off: number) => {
+    async () => {
       setLoading(true);
       const [list, st] = await Promise.all([
-        fetchMemories(PAGE_SIZE, off),
+        fetchMemories(PAGE_SIZE, 0),
         stats === null ? fetchMemoryStats() : Promise.resolve(stats),
       ]);
       if (list) {
         setItems(list.items);
         setTotal(list.count);
-        setOffset(off);
       }
       if (st && stats === null) setStats(st);
       setLoading(false);
@@ -107,11 +71,11 @@ export default function MemoriesPage() {
   }, []);
 
   useEffect(() => {
-    load(0);
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id);
     const ok = await deleteMemory(id);
     if (ok) {
@@ -121,7 +85,7 @@ export default function MemoriesPage() {
     }
     setDeletingId(null);
     setConfirmDelete(null);
-  };
+  }, [refreshStats]);
 
   const handleRateChange = useCallback((id: string, rating: number) => {
     setItems((prev) =>
@@ -139,8 +103,7 @@ export default function MemoriesPage() {
         setItems([]);
         setTotal(0);
         setStats(null);
-        setSearch("");
-        await Promise.all([load(0), refreshStats()]);
+        await Promise.all([load(), refreshStats()]);
       } else {
         toast.warning(t("memories.clearAllFailed"), { description: result.errors.join(", ") });
       }
@@ -152,12 +115,19 @@ export default function MemoriesPage() {
     }
   }, [t, load, refreshStats]);
 
-  const filtered = search.trim()
-    ? items.filter((m) => m.text.toLowerCase().includes(search.toLowerCase()))
-    : items;
-
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+  const columns = useMemo(
+    () => createColumns({
+      deletingId,
+      confirmDelete,
+      onDelete: handleDelete,
+      onCancel: () => setConfirmDelete(null),
+      onStartDelete: (id) => setConfirmDelete(id),
+      onRateChange: handleRateChange,
+      t,
+      formatDate,
+    }),
+    [deletingId, confirmDelete, handleDelete, handleRateChange, t, formatDate],
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
@@ -183,7 +153,7 @@ export default function MemoriesPage() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => load(offset)}
+              onClick={() => load()}
               disabled={clearing}
               className="gap-1.5"
             >
@@ -211,132 +181,25 @@ export default function MemoriesPage() {
           </div>
         )}
 
-        {/* Search */}
-        <div>
-          <Input
-            type="search"
-            placeholder={t("memories.filterPlaceholder")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-md"
-          />
-        </div>
-
         {/* Table */}
-        {loading && (
-          <div className="text-center py-10 text-muted-foreground">
-            {t("memories.loading")}
-          </div>
-        )}
-
-        {!loading && filtered.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-14 text-muted-foreground text-center">
-            <Brain size={28} className="opacity-30" />
-            <span className="text-sm">
-              {search ? t("memories.noMemoriesMatchFilter") : t("memories.noMemoriesYet")}
-            </span>
-            {!search && (
+        <DataTable
+          columns={columns}
+          data={items}
+          searchColumn="text"
+          searchPlaceholder={t("memories.filterPlaceholder")}
+          loading={loading}
+          loadingText={t("memories.loading")}
+          emptyText={t("memories.noMemoriesYet")}
+          emptyNode={
+            <div className="flex flex-col items-center gap-2 py-14 text-muted-foreground text-center">
+              <Brain size={28} className="opacity-30" />
+              <span className="text-sm">{t("memories.noMemoriesYet")}</span>
               <span className="text-xs max-w-xs leading-relaxed">
                 {t("memories.emptyHint")}
               </span>
-            )}
-          </div>
-        )}
-
-        {!loading && filtered.length > 0 && (
-          <div className="rounded-xl border border-border bg-surface shadow-sm overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-surface-muted text-xs uppercase tracking-wider">
-                  <TableHead className="font-semibold">{t("memories.memory")}</TableHead>
-                  <TableHead className="font-semibold hidden md:table-cell w-36">{t("memories.importance")}</TableHead>
-                  <TableHead className="font-semibold hidden sm:table-cell w-36">
-                    <span className="flex items-center gap-1">
-                      {t("memories.rating")}
-                      <RatingHelpPopover label={t("memories.ratingHelp")} />
-                    </span>
-                  </TableHead>
-                  <TableHead className="font-semibold hidden lg:table-cell w-40">{t("memories.saved")}</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((mem) => (
-                  <TableRow key={mem.memory_id}>
-                    <TableCell className="max-w-xs lg:max-w-lg">
-                      <span className="line-clamp-3 text-foreground">{mem.text}</span>
-                      {mem.is_related && (
-                        <span className="ml-2 text-xs text-foreground bg-surface-muted px-1.5 py-0.5 rounded font-medium border border-border">
-                          {t("memories.related")}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <ImportanceBar score={mem.importance_score} />
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <MemoryRating
-                        memoryId={mem.memory_id}
-                        initialRating={typeof mem.user_rating === "number" ? mem.user_rating : 0}
-                        onRatingChange={(rating) => handleRateChange(mem.memory_id, rating)}
-                        compact
-                        showStatus
-                        ariaLabel={t("memories.ratingAriaLabel")}
-                        getRateLabel={(count) => t("memories.rateStars", { count })}
-                        statusLabels={{
-                          saving: t("memories.ratingStatusSaving"),
-                          saved: t("memories.ratingStatusSaved"),
-                          retry: t("memories.ratingStatusRetry"),
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                      {mem.created_at ? formatDate(mem.created_at) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DeleteCell
-                        memoryId={mem.memory_id}
-                        deletingId={deletingId}
-                        confirmDelete={confirmDelete}
-                        onDelete={handleDelete}
-                        onCancel={() => setConfirmDelete(null)}
-                        onStartDelete={() => setConfirmDelete(mem.memory_id)}
-                        t={t}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {t("memories.pageOfTotal", { page: currentPage, pages: totalPages, total })}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => load(offset - PAGE_SIZE)}
-                disabled={offset === 0 || loading}
-              >
-                {t("memories.previous")}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => load(offset + PAGE_SIZE)}
-                disabled={offset + PAGE_SIZE >= total || loading}
-              >
-                {t("memories.next")}
-              </Button>
             </div>
-          </div>
-        )}
+          }
+        />
 
         <ConfirmDialog
           isOpen={clearConfirmOpen}
@@ -351,57 +214,5 @@ export default function MemoriesPage() {
         />
       </div>
     </div>
-  );
-}
-
-function DeleteCell({
-  memoryId,
-  deletingId,
-  confirmDelete,
-  onDelete,
-  onCancel,
-  onStartDelete,
-  t,
-}: {
-  memoryId: string;
-  deletingId: string | null;
-  confirmDelete: string | null;
-  onDelete: (id: string) => void;
-  onCancel: () => void;
-  onStartDelete: () => void;
-  t: (key: string, vars?: Record<string, string | number>) => string;
-}) {
-  if (confirmDelete === memoryId) {
-    return (
-      <div className="flex items-center gap-1 justify-end">
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => onDelete(memoryId)}
-          disabled={deletingId === memoryId}
-        >
-          {deletingId === memoryId ? "…" : t("memories.confirmYes")}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onCancel}
-        >
-          {t("memories.confirmNo")}
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      onClick={onStartDelete}
-      aria-label={t("memories.deleteMemory")}
-      className="text-muted-foreground hover:text-destructive"
-    >
-      <Trash2 size={14} />
-    </Button>
   );
 }

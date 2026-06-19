@@ -75,6 +75,7 @@ const defaultParams = {
   attachmentIds: [],
   documentIds: [],
   ragEnabled: true,
+  disabledTools: [],
 };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -182,6 +183,20 @@ describe("useStreamingChat", () => {
       user: 30,
       attachments: 0,
     });
+  });
+
+  it("maps weather_data from the metadata event", async () => {
+    const weather = { type: "current", summary: "warm", reading: { label: "Barcelona, Spain" } };
+    mockFetch([sseToken("Hi"), sseMetadata({ weather_data: weather }), sseDone()]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.finalMetadata?.weather_data?.type).toBe("current");
+    expect(result.current.finalMetadata?.weather_data?.summary).toBe("warm");
   });
 
   it("sets streamError on error event", async () => {

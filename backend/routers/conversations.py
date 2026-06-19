@@ -45,6 +45,9 @@ class UpdateConversationRequest(BaseModel):
     pinned: Optional[bool] = None
     language: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    # Set by genuine user renames (not the auto-placeholder rename) to lock the
+    # title against further auto-generation. Request-only; never persisted as-is.
+    title_manual: Optional[bool] = None
 
 
 class AddMessageRequest(BaseModel):
@@ -264,6 +267,16 @@ async def update_conversation(
     """Update conversation fields (title, pinned, language, metadata)."""
     store = _get_store(request)
     updates = body.model_dump(exclude_unset=True)
+    manual = updates.pop("title_manual", None)
+    # A genuine user rename locks the title against auto-(re)generation by marking
+    # its provenance as "user" in metadata (merged so other keys survive).
+    if manual and "title" in updates:
+        existing = store.get_conversation(conversation_id, current_user.user_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        merged = {**(existing.get("metadata") or {}), **(updates.get("metadata") or {})}
+        merged["title_source"] = "user"
+        updates["metadata"] = merged
     if not updates:
         conv = store.get_conversation(conversation_id, current_user.user_id)
         if not conv:

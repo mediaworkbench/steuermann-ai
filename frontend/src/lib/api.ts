@@ -143,6 +143,22 @@ export interface LLMCapabilitiesResponse {
   items: LLMCapabilityItem[];
 }
 
+export type ProviderHealthStatus = "online" | "degraded" | "offline";
+
+export interface ProviderHealthEndpoint {
+  roles: string[];
+  api_base: string;
+  reachable: boolean;
+  detail: string;
+}
+
+export interface ProviderHealth {
+  status: ProviderHealthStatus;
+  providers: ProviderHealthEndpoint[];
+  checked_at?: string;
+  error?: string;
+}
+
 export async function fetchSystemConfig(): Promise<SystemConfig | null> {
   try {
     const response = await fetch(`${API_BASE}/api/system-config`);
@@ -195,6 +211,55 @@ export async function updateRoleTools(
     return (await response.json()) as RoleToolsConfig;
   } catch (error) {
     console.error("Error updating role tools:", error);
+    return null;
+  }
+}
+
+export interface HeartbeatRateConfig {
+  heartbeat_rate_minutes: number;
+  default_rate_minutes: number;
+  enabled: boolean;
+  source: "override" | "default";
+  last_run: {
+    task_name: string;
+    status: string;
+    duration_ms: number;
+    fired_at: string;
+  } | null;
+}
+
+// Admin-only: read the effective heartbeat beat rate (minutes) and its source.
+export async function fetchHeartbeatRate(): Promise<HeartbeatRateConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/settings/heartbeat-rate`);
+    if (!response.ok) {
+      console.error(`Failed to fetch heartbeat rate: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as HeartbeatRateConfig;
+  } catch (error) {
+    console.error("Error fetching heartbeat rate:", error);
+    return null;
+  }
+}
+
+// Admin-only: set the global heartbeat beat rate (minutes).
+export async function updateHeartbeatRate(
+  minutes: number
+): Promise<HeartbeatRateConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/settings/heartbeat-rate`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ heartbeat_rate_minutes: minutes }),
+    });
+    if (!response.ok) {
+      console.error(`Failed to update heartbeat rate: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as HeartbeatRateConfig;
+  } catch (error) {
+    console.error("Error updating heartbeat rate:", error);
     return null;
   }
 }
@@ -278,6 +343,30 @@ export async function fetchLLMCapabilities(): Promise<LLMCapabilitiesResponse | 
   } catch (error) {
     console.error("Error fetching LLM capabilities:", error);
     return null;
+  }
+}
+
+export async function fetchProviderHealth(): Promise<ProviderHealth | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/llm/health`, { cache: "no-store" });
+    if (!response.ok) {
+      console.error(`Failed to fetch provider health: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as ProviderHealth;
+  } catch (error) {
+    console.error("Error fetching provider health:", error);
+    return null;
+  }
+}
+
+// Force a full LLM capability reprobe (refreshes tool-calling mode + model metadata).
+// Best-effort: callers should not block on the result.
+export async function triggerLLMReprobe(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/llm/reprobe`, { method: "POST" });
+  } catch (error) {
+    console.error("Error triggering LLM reprobe:", error);
   }
 }
 
@@ -579,7 +668,7 @@ export async function fetchConversation(
 
 export async function updateConversation(
   conversationId: string,
-  updates: { title?: string; pinned?: boolean; language?: string },
+  updates: { title?: string; pinned?: boolean; language?: string; title_manual?: boolean },
 ): Promise<Conversation | null> {
   try {
     const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {

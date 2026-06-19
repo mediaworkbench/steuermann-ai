@@ -100,6 +100,11 @@ services:
     volumes:
       - ${WORKSPACES_PATH:-./data/workspaces}:/tmp/steuermann-ai/chat-workspaces
       - ${RAG_DATA_PATH:-./data/rag-data}:/data/rag-data:ro
+    # Reach a host-based LLM provider (LM Studio/Ollama on host.docker.internal) for
+    # model discovery, workspace-intent classification, and GET /api/llm/health.
+    # Required on Linux (auto on Docker Desktop); mirrors langgraph + ingestion.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   nextjs:
@@ -148,12 +153,12 @@ services:
       - LLM_PROVIDERS_OPENROUTER_API_KEY=${LLM_PROVIDERS_OPENROUTER_API_KEY:-}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
-      - RAG_DATA_PATH=/data/ingest
+      - RAG_DATA_PATH=/data/rag-data
       - EMBEDDING_SERVER=${EMBEDDING_SERVER:-http://host.docker.internal:8000/v1}
     command: ["watch"]
     volumes:
       - ./config:/app/config:ro
-      - ${RAG_DATA_PATH:-./data/rag-data}:/data/ingest:ro
+      - ${RAG_DATA_PATH:-./data/rag-data}:/data/rag-data:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

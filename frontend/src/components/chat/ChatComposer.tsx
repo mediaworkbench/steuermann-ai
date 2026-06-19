@@ -1,16 +1,18 @@
 "use client";
 
 import { useRef, useCallback, useLayoutEffect } from "react";
-import { ArrowUp, Database, FileText, Mic, PanelRightClose, PanelRightOpen, StopCircle, X } from "lucide-react";
+import { ArrowUp, Brain, Database, FileText, Mic, PanelRightClose, PanelRightOpen, StopCircle, X } from "lucide-react";
 import { AttachMenu } from "./AttachMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContextWindowMenu } from "./ContextWindowMenu";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatModelName } from "@/components/product/modelSelection";
 import { useEdgeEffect } from "@/hooks/useEdgeEffect";
 import { useI18n } from "@/hooks/useI18n";
+import { useProviderHealth } from "@/context/ProviderHealthContext";
 import type { SystemConfig } from "@/lib/api";
 import type { ConversationAttachment, ContextBreakdown } from "@/lib/types";
 
@@ -36,6 +38,8 @@ interface ChatComposerProps {
   onAttachmentPillClick: (attachment: ConversationAttachment) => void;
   ragEnabled: boolean;
   onRagToggle: () => void;
+  memoryEnabled: boolean;
+  onMemoryToggle: () => void;
   workspaceSidebarOpen: boolean;
   onWorkspaceSidebarToggle: () => void;
   toolToggles: Record<string, boolean>;
@@ -80,6 +84,8 @@ export function ChatComposer({
   onAttachmentPillClick,
   ragEnabled,
   onRagToggle,
+  memoryEnabled,
+  onMemoryToggle,
   workspaceSidebarOpen,
   onWorkspaceSidebarToggle,
   toolToggles,
@@ -107,6 +113,10 @@ export function ChatComposer({
   composerApiRef,
 }: ChatComposerProps) {
   const { t } = useI18n();
+  // Block sending while the chat provider is unreachable; `degraded` (chat up,
+  // a secondary endpoint down) still allows chat.
+  const { status: providerStatus } = useProviderHealth();
+  const providerOffline = providerStatus === "offline";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -146,28 +156,44 @@ export function ChatComposer({
                 key={attachment.id}
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-muted px-3 py-1.5 text-xs text-foreground transition-colors"
               >
-                <Button
-                  type="button"
-                  onClick={() => onAttachmentPillClick(attachment)}
-                  variant="ghost"
-                  size="sm"
-                  className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
-                  title={t("chat.insertReference")}
-                >
-                  <FileText size={14} className="text-primary" />
-                  <span className="font-medium">{attachment.original_name}</span>
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => onAttachmentDelete(attachment.id)}
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
-                  aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
-                  title={t("chat.deleteAttachment")}
-                >
-                  <X size={14} className="text-muted-foreground" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        onClick={() => onAttachmentPillClick(attachment)}
+                        variant="ghost"
+                        size="sm"
+                        className="inline-flex h-auto items-center gap-1 cursor-pointer rounded-full px-0 py-0 text-inherit hover:bg-transparent"
+                      >
+                        <FileText size={14} className="text-primary" />
+                        <span className="font-medium">{attachment.original_name}</span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>
+                    {t("chat.insertReference")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        onClick={() => onAttachmentDelete(attachment.id)}
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
+                        aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
+                      >
+                        <X size={14} className="text-muted-foreground" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>
+                    {t("chat.deleteAttachment")}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             ))}
             {uploadingAttachment && (
@@ -192,7 +218,7 @@ export function ChatComposer({
             onKeyDown={onKeyDown}
             disabled={queueFull}
             className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0 focus-visible:ring-0"
-            placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : t("chat.typeYourMessage")}
+            placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : providerOffline ? t("providerHealth.composerHint") : t("chat.typeYourMessage")}
             aria-label={t("chat.typeYourMessage")}
             rows={2}
           />
@@ -223,39 +249,80 @@ export function ChatComposer({
               />
 
               {/* RAG toggle */}
-              <Button
-                type="button"
-                onClick={onRagToggle}
-                disabled={isStreaming}
-                title={ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
-                variant="ghost"
-                size="sm"
-                className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
-                  ragEnabled
-                    ? "text-primary hover:bg-primary/10"
-                    : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                }`}
-              >
-                <Database size={20} />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onRagToggle}
+                      disabled={isStreaming}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                        ragEnabled
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Database size={20} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {ragEnabled ? t("chat.knowledgeBaseOn") : t("chat.knowledgeBaseOff")}
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Memory toggle */}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onMemoryToggle}
+                      disabled={isStreaming}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                        memoryEnabled
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Brain size={20} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {memoryEnabled ? t("chat.memoryOn") : t("chat.memoryOff")}
+                </TooltipContent>
+              </Tooltip>
 
               {/* Workspace panel toggle */}
-              <Button
-                type="button"
-                onClick={onWorkspaceSidebarToggle}
-                title={t("chat.toggleWorkspaceSidebar")}
-                aria-label={t("chat.toggleWorkspaceSidebar")}
-                aria-pressed={workspaceSidebarOpen}
-                variant="ghost"
-                size="sm"
-                className={`p-1.5 rounded-lg transition-colors ${
-                  workspaceSidebarOpen
-                    ? "text-primary hover:bg-primary/10"
-                    : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                }`}
-              >
-                {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      onClick={onWorkspaceSidebarToggle}
+                      aria-label={t("chat.toggleWorkspaceSidebar")}
+                      aria-pressed={workspaceSidebarOpen}
+                      variant="ghost"
+                      size="sm"
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        workspaceSidebarOpen
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                      }`}
+                    >
+                      {workspaceSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {t("chat.toggleWorkspaceSidebar")}
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Spacer */}
@@ -321,25 +388,34 @@ export function ChatComposer({
                     <StopCircle size={20} />
                   </Button>
                   {input.trim() && (
-                    <Button
-                      type="button"
-                      onClick={onSend}
-                      aria-label={t("chat.queueMessage")}
-                      title={t("chat.queueMessage")}
-                      variant="primary"
-                      size="sm"
-                      className="h-8 w-8 rounded-lg p-0"
-                    >
-                      <ArrowUp size={20} />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            onClick={onSend}
+                            aria-label={t("chat.queueMessage")}
+                            variant="primary"
+                            size="sm"
+                            className="h-8 w-8 rounded-lg p-0"
+                          >
+                            <ArrowUp size={20} />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>
+                        {t("chat.queueMessage")}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </>
               ) : (
                 <Button
                   type="button"
                   onClick={onSend}
-                  disabled={!input.trim()}
-                  aria-label={t("chat.sendMessage")}
+                  disabled={!input.trim() || providerOffline}
+                  aria-label={providerOffline ? t("providerHealth.composerHint") : t("chat.sendMessage")}
+                  title={providerOffline ? t("providerHealth.composerHint") : undefined}
                   variant="primary"
                   size="sm"
                   className="h-8 w-8 rounded-lg p-0 disabled:opacity-30"

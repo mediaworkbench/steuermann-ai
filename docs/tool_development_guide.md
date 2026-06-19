@@ -399,7 +399,7 @@ SEARXNG_ENDPOINT=http://searxng:8080  # If self-hosted
 All vision tools share helpers from `universal_agentic_framework/tools/vision_utils.py`:
 
 | Helper | Signature | Purpose |
-|--------|-----------|---------|
+| ------ | --------- | ------- |
 | `_resolve_local_image` | `(image_source, base_dir) -> (bytes, mime_type)` | Validates path is inside `base_dir`, reads file bytes, prevents traversal |
 | `_build_data_url` | `(image_bytes, mime_type) -> str` | Base64-encodes image bytes to a `data:` URL |
 | `_load_vision_api_config` | `() -> (api_base, bare_model, temperature, api_key)` | Reads `llm.roles.vision` from the active profile; raises `ValueError` if unconfigured |

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -14,7 +15,14 @@ import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.db import SettingsStore, LLMCapabilityProbeStore, RoleToolPermissionStore
+from backend.db import (
+    SettingsStore,
+    LLMCapabilityProbeStore,
+    RoleToolPermissionStore,
+    GlobalSettingsStore,
+    HeartbeatRunStore,
+    HEARTBEAT_RATE_SETTING_KEY,
+)
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.auth import (
     ADMIN_ROLE,
@@ -516,6 +524,110 @@ def update_role_tools(
     return _role_tools_snapshot(store)
 
 
+# --- Heartbeat rate (admin) --------------------------------------------------
+
+MIN_HEARTBEAT_RATE_MINUTES = 1
+MAX_HEARTBEAT_RATE_MINUTES = 1440  # 24h
+
+
+class HeartbeatRateResponse(BaseModel):
+    heartbeat_rate_minutes: int
+    default_rate_minutes: int
+    enabled: bool
+    source: str  # "override" (admin-set) | "default" (from profile core.yaml)
+    last_run: Optional[Dict[str, Any]] = None
+
+
+class HeartbeatRateUpdate(BaseModel):
+    heartbeat_rate_minutes: int = Field(
+        ..., ge=MIN_HEARTBEAT_RATE_MINUTES, le=MAX_HEARTBEAT_RATE_MINUTES
+    )
+
+
+def _get_global_settings_store(request: Request) -> GlobalSettingsStore:
+    store = getattr(request.app.state, "global_settings_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Global settings store unavailable")
+    return store
+
+
+def _heartbeat_config() -> Tuple[int, bool, Optional[str]]:
+    """Return (default_rate_minutes, enabled, first_task_name) from the profile."""
+    hb = getattr(load_core_config(), "heartbeat", None)
+    if hb is None:
+        return 5, False, None
+    first_task = hb.tasks[0].name if hb.tasks else None
+    return int(hb.default_rate_minutes), bool(hb.enabled), first_task
+
+
+def _heartbeat_last_run(request: Request, task_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not task_name:
+        return None
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None:
+        return None
+    try:
+        rows = HeartbeatRunStore(db_pool).recent_runs(task_name, 1)
+    except Exception:  # pragma: no cover - best-effort observability
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    fired_at = row.get("fired_at")
+    return {
+        "task_name": row.get("task_name"),
+        "status": row.get("status"),
+        "duration_ms": row.get("duration_ms"),
+        "fired_at": fired_at.isoformat() if hasattr(fired_at, "isoformat") else fired_at,
+    }
+
+
+def _heartbeat_rate_snapshot(request: Request) -> Dict[str, Any]:
+    default_rate, enabled, first_task = _heartbeat_config()
+    store = _get_global_settings_store(request)
+    override = store.get_setting(HEARTBEAT_RATE_SETTING_KEY)
+    if override is None:
+        rate, source = default_rate, "default"
+    else:
+        try:
+            rate = int(override)
+        except (TypeError, ValueError):
+            rate = default_rate
+        rate = max(MIN_HEARTBEAT_RATE_MINUTES, min(MAX_HEARTBEAT_RATE_MINUTES, rate))
+        source = "override"
+    return {
+        "heartbeat_rate_minutes": rate,
+        "default_rate_minutes": default_rate,
+        "enabled": enabled,
+        "source": source,
+        "last_run": _heartbeat_last_run(request, first_task),
+    }
+
+
+@router.get("/admin/settings/heartbeat-rate", response_model=HeartbeatRateResponse)
+def get_heartbeat_rate(
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin view: the effective heartbeat beat rate (minutes) and its source."""
+    return _heartbeat_rate_snapshot(request)
+
+
+@router.put("/admin/settings/heartbeat-rate", response_model=HeartbeatRateResponse)
+def update_heartbeat_rate(
+    payload: HeartbeatRateUpdate,
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: set the global heartbeat beat rate (minutes).
+
+    The LangGraph-embedded scheduler picks up the change within ~30s (control poll).
+    """
+    store = _get_global_settings_store(request)
+    store.set_setting(HEARTBEAT_RATE_SETTING_KEY, int(payload.heartbeat_rate_minutes))
+    return _heartbeat_rate_snapshot(request)
+
+
 @router.get("/models")
 async def list_available_models() -> Dict[str, Any]:
     """Fetch available LLM models and return canonical provider-prefixed IDs."""
@@ -685,6 +797,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                 {"id": "datetime_tool", "label": "Datetime"},
                 {"id": "calculator_tool", "label": "Calculator"},
                 {"id": "map_tool", "label": "Map"},
+                {"id": "weather_tool", "label": "Weather"},
                 {"id": "file_ops_tool", "label": "File Operations"},
             ],
             "rag_defaults": {"collection_name": "framework", "top_k": 5},
@@ -817,6 +930,106 @@ def list_llm_capabilities(request: Request) -> Dict[str, Any]:
         "profile_id": profile_id,
         "probe_ttl_seconds": int(os.getenv("LLM_CAPABILITY_PROBE_TTL_SECONDS", "3600")),
         "items": items,
+    }
+
+
+def _resolve_health_targets(core: Any) -> Tuple[Dict[str, List[str]], Optional[str]]:
+    """Return (api_base -> sorted roles, chat_api_base).
+
+    Collects the distinct provider endpoints across all configured roles so the
+    health check pings each URL only once. Unconfigured optional roles
+    (vision/auxiliary) raise and are skipped; the embedding endpoint is resolved
+    via its dedicated helper.
+    """
+    targets: Dict[str, List[str]] = {}
+    chat_base: Optional[str] = None
+
+    for role_name in ("chat", "vision", "auxiliary"):
+        try:
+            base = str(getattr(core.llm.get_role_provider(role_name), "api_base", "") or "").rstrip("/")
+        except Exception:
+            continue  # role not configured
+        if not base:
+            continue
+        targets.setdefault(base, []).append(role_name)
+        if role_name == "chat":
+            chat_base = base
+
+    try:
+        embed_base = str(core.llm.get_embedding_remote_endpoint() or "").rstrip("/")
+    except Exception:
+        embed_base = ""
+    if embed_base:
+        targets.setdefault(embed_base, []).append("embedding")
+
+    return {base: sorted(roles) for base, roles in targets.items()}, chat_base
+
+
+async def _ping_provider(client: httpx.AsyncClient, base: str) -> Tuple[bool, str]:
+    """Lightweight reachability probe: any HTTP response means the server is up."""
+    try:
+        resp = await client.get(f"{base}/models")
+        return True, f"HTTP {resp.status_code}"
+    except Exception as exc:  # connection refused / timeout / DNS → unreachable
+        return False, type(exc).__name__
+
+
+@router.get("/llm/health")
+async def provider_health() -> Dict[str, Any]:
+    """Live reachability of the configured LLM provider endpoint(s).
+
+    Pings each distinct ``api_base`` (chat/embedding/vision/auxiliary, deduped) in
+    parallel with a short timeout. Used by the frontend to drive the
+    "Provider Offline" banner. Lightweight and live, unlike ``/llm/capabilities``
+    (a stale DB read of the last capability probe).
+    """
+    try:
+        core = load_core_config()
+        targets, chat_base = _resolve_health_targets(core)
+    except Exception as exc:
+        logger.warning("Provider health: failed to resolve targets: %s", exc)
+        return {
+            "status": "offline",
+            "providers": [],
+            "error": str(exc),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    if not targets:
+        return {
+            "status": "offline",
+            "providers": [],
+            "error": "no_api_base_configured",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    bases = list(targets.keys())
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        results = await asyncio.gather(*[_ping_provider(client, base) for base in bases])
+
+    providers: List[Dict[str, Any]] = []
+    chat_reachable = True  # if chat role is unconfigured, don't fail on its account
+    any_unreachable = False
+    for base, (reachable, detail) in zip(bases, results):
+        providers.append(
+            {"roles": targets[base], "api_base": base, "reachable": reachable, "detail": detail}
+        )
+        if not reachable:
+            any_unreachable = True
+        if base == chat_base:
+            chat_reachable = reachable
+
+    if not chat_reachable:
+        status_value = "offline"
+    elif any_unreachable:
+        status_value = "degraded"
+    else:
+        status_value = "online"
+
+    return {
+        "status": status_value,
+        "providers": providers,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

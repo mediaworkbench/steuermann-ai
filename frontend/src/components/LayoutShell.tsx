@@ -12,9 +12,9 @@ import { useI18n } from "@/hooks/useI18n";
 import { useConversations } from "@/hooks/useConversations";
 import { ChatSessionProvider } from "@/context/ChatSessionContext";
 import { WorkspacePanelProvider } from "@/context/WorkspacePanelContext";
+import { ProviderHealthProvider } from "@/context/ProviderHealthContext";
+import { ProviderOfflineBanner } from "@/components/product/ProviderOfflineBanner";
 import type { Conversation } from "@/lib/types";
-
-const WORKSPACE_OPEN_KEY = "workspace.panelOpen";
 
 // ── Context so any child can access conversation state ───────────────
 
@@ -25,9 +25,9 @@ interface ConversationContextValue {
   revision: number;
   setActiveId: (id: string | null, conv?: Conversation | null) => void;
   create: (title?: string, language?: string) => Promise<Conversation | null>;
-  update: (id: string, updates: { title?: string; pinned?: boolean; language?: string }) => Promise<Conversation | null>;
+  update: (id: string, updates: { title?: string; pinned?: boolean; language?: string; title_manual?: boolean }) => Promise<Conversation | null>;
   remove: (id: string) => Promise<boolean>;
-  rename: (id: string, title: string) => Promise<Conversation | null>;
+  rename: (id: string, title: string, manual?: boolean) => Promise<Conversation | null>;
   bulkDelete: (ids: string[]) => Promise<void>;
   bulkPin: (ids: string[], pinned: boolean) => Promise<void>;
   refresh: () => Promise<void>;
@@ -54,7 +54,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
       <>
         {children}
         <Toaster
-          position="top-right"
+          position="bottom-right"
           closeButton
           toastOptions={{ duration: 6000 }}
         />
@@ -81,27 +81,8 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     }
   }, [profile.loading, profile.appName]);
 
-  // Restore + persist the workspace panel open state (a non-risky UI pref).
-  // Hydrate in an effect so the first client render still matches SSR. The
-  // restore effect runs before the persist effect, so the stored value is read
-  // before it can be overwritten.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(WORKSPACE_OPEN_KEY) === "true") setWorkspaceSidebarOpen(true);
-    } catch {
-      /* localStorage unavailable */
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKSPACE_OPEN_KEY, String(workspaceSidebarOpen));
-    } catch {
-      /* ignore persistence failures */
-    }
-  }, [workspaceSidebarOpen]);
-
   return (
-    <>
+    <ProviderHealthProvider>
     <SidebarProvider>
     <ConversationContext.Provider value={{ ...convState, workspaceSidebarOpen, setWorkspaceSidebarOpen }}>
       <AppSidebar />
@@ -111,6 +92,9 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
           sidebar/workspace and overflowing the page horizontally. */}
       <SidebarInset className="min-w-0">
         <AppShell>
+          {/* Global provider-offline strip — shrink-0 so it stacks above the Header
+              without eating the content area's height. */}
+          <ProviderOfflineBanner />
           <Header
             chatTitle={chatTitle}
             activeConversation={convState.activeConversation}
@@ -125,10 +109,10 @@ function AuthenticatedLayoutShell({ children }: { children: React.ReactNode }) {
     </ConversationContext.Provider>
     </SidebarProvider>
       <Toaster
-        position="top-right"
+        position="bottom-right"
         closeButton
         toastOptions={{ duration: 6000 }}
       />
-    </>
+    </ProviderHealthProvider>
   );
 }

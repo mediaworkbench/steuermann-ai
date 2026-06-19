@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Copy, KeyRound, Loader2, Trash2, UserPlus } from "lucide-react";
+import { Copy, KeyRound, Loader2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -15,14 +14,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -33,7 +24,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataTable } from "@/components/ui/data-table";
 import { useCurrentUser } from "@/context/SessionContext";
+import { createColumns } from "@/app/admin/users/columns";
 import {
   type AdminRole,
   type AdminUser,
@@ -144,6 +137,18 @@ export function AdminUsersPanel() {
     }
   }, [deleteTarget, load]);
 
+  const columns = useMemo(
+    () => createColumns({
+      selfId: selfId ?? "",
+      roles,
+      statuses: STATUSES,
+      busyId,
+      onUpdate: runUpdate,
+      onDelete: setDeleteTarget,
+    }),
+    [selfId, roles, busyId, runUpdate],
+  );
+
   return (
     <div className="space-y-8">
       {/* Create user */}
@@ -206,90 +211,13 @@ export function AdminUsersPanel() {
           {loading && <p className="text-sm text-muted-foreground">Loading users…</p>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {!loading && !error && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Flags</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((u) => {
-                  const isSelf = u.user_id === selfId;
-                  const rowBusy = busyId === u.user_id;
-                  return (
-                    <TableRow key={u.user_id}>
-                      <TableCell className="font-medium">
-                        {u.username}
-                        {isSelf && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                      <TableCell>
-                        <Select
-                          value={u.role_name ?? "user"}
-                          disabled={rowBusy || isSelf}
-                          onValueChange={(v) => runUpdate(u, { role: v }, "Role updated.")}
-                        >
-                          <SelectTrigger aria-label={`Role for ${u.username}`} className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roles.map((r) => (
-                              <SelectItem key={r} value={r}>{r}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={u.status}
-                          disabled={rowBusy || isSelf}
-                          onValueChange={(v) => runUpdate(u, { status: v }, "Status updated.")}
-                        >
-                          <SelectTrigger aria-label={`Status for ${u.username}`} className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUSES.map((s) => (
-                              <SelectItem key={s} value={s}>{s}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        {u.must_change_password && <Badge variant="outline">must change pw</Badge>}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={rowBusy}
-                            onClick={() => runUpdate(u, { reset_password: true }, "Password reset.")}
-                          >
-                            <KeyRound className="size-4" />
-                            <span>Reset password</span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Delete ${u.username}`}
-                            disabled={rowBusy || isSelf}
-                            onClick={() => setDeleteTarget(u)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <DataTable
+              columns={columns}
+              data={users}
+              loading={false}
+              emptyText="No users found."
+              disablePagination
+            />
           )}
         </CardContent>
       </Card>

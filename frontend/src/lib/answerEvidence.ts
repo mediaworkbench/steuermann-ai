@@ -1,4 +1,4 @@
-import type { MessageMetrics, ToolExecution, ToolResultDetail, MemoryReference, Source, MapData } from "./types";
+import type { MessageMetrics, ToolExecution, ToolResultDetail, MemoryReference, Source, MapData, WeatherData } from "./types";
 
 /**
  * Normalized, render-ready evidence for a single assistant answer. Derived once
@@ -29,6 +29,7 @@ export interface AnswerEvidence {
   documentCount: number;
   attachments: Array<{ id: string; original_name: string }>;
   mapData?: MapData;
+  weatherData?: WeatherData;
   hasEvidence: boolean;
 }
 
@@ -49,6 +50,7 @@ export const EMPTY_ANSWER_EVIDENCE: AnswerEvidence = {
   documentCount: 0,
   attachments: [],
   mapData: undefined,
+  weatherData: undefined,
   hasEvidence: false,
 };
 
@@ -75,6 +77,7 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
   const documents = metrics.documents_used ?? [];
   const attachments = metrics.attachments_used ?? [];
   const mapData = metrics.map_data;
+  const weatherData = metrics.weather_data;
 
   const hasEvidence =
     tools.length > 0 ||
@@ -83,7 +86,8 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
     documents.length > 0 ||
     attachments.length > 0 ||
     knowledgeBaseUsed ||
-    Boolean(mapData);
+    Boolean(mapData) ||
+    Boolean(weatherData);
 
   return {
     tools,
@@ -102,6 +106,7 @@ export function deriveAnswerEvidence(metrics: MessageMetrics | null | undefined)
     documentCount: documents.length,
     attachments,
     mapData,
+    weatherData,
     hasEvidence,
   };
 }

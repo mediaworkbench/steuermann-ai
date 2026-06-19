@@ -56,6 +56,53 @@ export interface MapData {
   midpoint?: { lat: number; lon: number };
 }
 
+/** One place's current conditions — the shared block for `current` and `compare`. */
+export interface WeatherReading {
+  label: string;
+  lat: number;
+  lon: number;
+  country: string;
+  timezone: string;
+  temperature: number;
+  apparent_temperature: number;
+  weather_code: number;
+  condition: string;
+  humidity_pct: number;
+  wind_speed: number;
+  precipitation: number;
+  temperature_unit: string;
+  wind_speed_unit: string;
+  precipitation_unit: string;
+  observed_at: string;
+}
+
+export interface WeatherForecastDay {
+  date: string;
+  weather_code: number;
+  condition: string;
+  temp_max: number;
+  temp_min: number;
+  precipitation: number;
+  temperature_unit: string;
+  precipitation_unit: string;
+}
+
+/** Weather tool artifact (parallel to MapData); one of three shapes keyed by `type`. */
+export interface WeatherData {
+  type: "current" | "compare" | "forecast";
+  summary: string;
+  /** current */
+  reading?: WeatherReading;
+  /** compare */
+  readings?: WeatherReading[];
+  delta?: number;
+  delta_unit?: string;
+  warmer?: string;
+  /** forecast */
+  location?: { label: string; lat: number; lon: number; country: string; timezone: string };
+  days?: WeatherForecastDay[];
+}
+
 export interface MessageMetrics {
   response_time_ms?: number;
   input_tokens?: number;
@@ -72,6 +119,7 @@ export interface MessageMetrics {
   rag_attempted?: boolean;
   rag_doc_count?: number;
   map_data?: MapData;
+  weather_data?: WeatherData;
 }
 
 /** One node execution captured from the streaming `node_state` events (Inspector). */
@@ -156,6 +204,7 @@ export interface ChatResponse {
     rag_attempted?: boolean;
     rag_doc_count?: number;
     map_data?: MapData;
+    weather_data?: WeatherData;
     /** Approximate per-section prompt token estimates for the context-window menu (live-only, not persisted). */
     context_breakdown?: ContextBreakdown;
   };

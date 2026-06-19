@@ -11,6 +11,7 @@ export interface StreamingChatParams {
   attachmentIds: string[];
   documentIds: string[];
   ragEnabled: boolean;
+  memoryEnabled?: boolean;
   disabledTools: string[]; // tools quick-disabled for this chat (this inference only)
 }
 
@@ -62,6 +63,7 @@ function buildMetadataFromSSE(parsed: Record<string, unknown>): ChatResponse["me
     memories_used: parsed.loaded_memory as ChatResponse["metadata"]["memories_used"],
     workspace_document_writeback: null,
     map_data: parsed.map_data as ChatResponse["metadata"]["map_data"],
+    weather_data: parsed.weather_data as ChatResponse["metadata"]["weather_data"],
     context_breakdown: parsed.context_breakdown as ChatResponse["metadata"]["context_breakdown"],
   };
 }
@@ -142,6 +144,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
             attachment_ids: params.attachmentIds,
             document_ids: params.documentIds,
             rag_enabled: params.ragEnabled,
+            memory_enabled: params.memoryEnabled ?? true,
             disabled_tools: params.disabledTools,
           }),
           signal: controller.signal,

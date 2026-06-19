@@ -108,6 +108,10 @@ Multi-layer Redis caching covers LLM responses, memory queries, and crew results
 
 See [docs/performance_optimization.md](docs/performance_optimization.md) for tuning guidance.
 
+### Heartbeat (proactive scheduling)
+
+A virtual cron embedded in the orchestration service wakes the agent on a fixed schedule and runs background tasks through an observe → reason → act tick. It is the foundation for proactive behavior; today it ships as scaffolding (no external actions), with every beat recorded for observability. The beat rate is admin-configurable at runtime and enabled per profile.
+
 ### Monitoring & Observability
 
 Prometheus metrics cover every layer of the stack — graph execution, token usage, cache hit rates, memory operations. The frontend metrics dashboard queries Prometheus through FastAPI; no direct Prometheus access needed. All logs are structured JSON with per-request contextual fields.
@@ -124,7 +128,7 @@ Steuermann is designed for **internal, trusted deployments** behind your network
 
 Authentication is session-based (httpOnly JWT cookie) and DB-backed: credentials are verified on the FastAPI backend with argon2id. The backend is reachable only through the Next.js proxy, which authenticates the session and forwards a trusted identity + role to the backend (guarded by a shared `CHAT_ACCESS_TOKEN`); the backend independently enforces role checks and per-user data ownership as defense in depth. Authentication can be disabled for local development, in which case the app runs as a single bootstrap-admin user.
 
-> Public-facing, multi-tenant, and zero-trust deployments are out of scope for this release, but will be a future feature.
+> Public-facing, ~~multi-tenant~~, and zero-trust deployments are out of scope for this release, but will be a future feature.
 
 ---
 
@@ -137,6 +141,7 @@ Steuermann ships a curated set of tools that route automatically — no explicit
 | `calculator_tool` | Evaluates math expressions, unit conversions, statistics | "What is sqrt(144) / 3?" |
 | `datetime_tool` | Current date/time, timezone conversion | "What time is it in Tokyo?" |
 | `map_tool` | Geocode cities/regions/continents, measure distances, interactive map widget | "Where is Kyoto?", "How far is London from Madrid?" |
+| `weather_tool` | Current conditions, compare two places, multi-day forecast (Open-Meteo) — inline weather widget | "How's the weather in Barcelona?", "How much warmer is Barcelona than Berlin?" |
 | `file_ops_tool` | Read and write files in a sandboxed workspace | "Save this summary to notes.md" |
 | `web_search_mcp` | DuckDuckGo web search + webpage content extraction (MCP server) | "Search for the latest LangGraph release" |
 | `analyze_image_tool` | Describe and analyze images via a vision LLM | "What's in this photo?" |
@@ -161,9 +166,26 @@ See [docs/tools.md](docs/tools.md) for the full catalog with input schemas, conf
 
 ### 1. Clone and configure
 
+Fastest path — one interactive command writes a valid `.env`, generates strong secrets +
+an argon2 admin password, creates (and on Linux chowns) the data directories, and runs the
+pre-flight checks:
+
 ```bash
 git clone https://github.com/mediaworkbench/steuermann-ai.git
 cd steuermann-ai
+poetry install
+poetry run steuermann setup init
+```
+
+The wizard walks you through provider/profile choice (LM Studio / Ollama / OpenRouter — endpoint,
+API key, per-role models, and the embedding endpoint/model/dimension) and prints the generated
+credentials once at the end. Customizing the reference `starter` profile scaffolds a fresh profile
+copy and points `PROFILE_ID` at it, leaving `starter` pristine. See
+[docs/cli.md](docs/cli.md#steuermann-setup-init) for all flags and behavior.
+
+#### Manual setup (equivalent)
+
+```bash
 cp .env.example .env
 # Edit .env — at minimum set POSTGRES_PASSWORD, PROFILE_ID, and the provider endpoint vars used by that profile
 poetry install
@@ -285,7 +307,7 @@ The `steuermann` CLI ships as the single operational interface for validation, d
 poetry run steuermann --help
 ```
 
-Commands cover profile lifecycle (`profile active`, `scaffold`, `bundle`), configuration inspection and validation (`config show`, `validate`, `contract-check`), host preflight checks (`setup doctor`), and document ingestion (`ingest`). Every command supports `--format json` for CI-compatible output.
+Commands cover first-time setup (`setup init`), profile lifecycle (`profile active`, `scaffold`, `bundle`), configuration inspection and validation (`config show`, `validate`, `contract-check`), host preflight checks (`setup doctor`, `setup check`), and document ingestion (`ingest`). Every command supports `--format json` for CI-compatible output.
 
 See [docs/cli.md](docs/cli.md) for the full command reference.
 

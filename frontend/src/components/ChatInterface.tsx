@@ -16,11 +16,13 @@ import { useComposerSettings } from "@/hooks/useComposerSettings";
 import { useConversationAttachments } from "@/hooks/useConversationAttachments";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { useI18n } from "@/hooks/useI18n";
+import { useProviderHealth } from "@/context/ProviderHealthContext";
 import { setMessageFeedback } from "@/lib/api";
 import { splitWritebackStream, looksLikeWriteback } from "@/lib/writeback";
 
 export function ChatInterface() {
   const { t } = useI18n();
+  const { status: providerStatus } = useProviderHealth();
   const [input, setInput] = useState("");
   const [activeWorkspaceDocId, setActiveWorkspaceDocId] = useState<string | null>(null);
   const [writebackSavedDocId, setWritebackSavedDocId] = useState<string | null>(null);
@@ -78,6 +80,8 @@ export function ChatInterface() {
   const {
     ragEnabled,
     handleRagToggle,
+    memoryEnabled,
+    handleMemoryToggle,
     toolToggles,
     allowedTools,
     selectedChatModel,
@@ -212,6 +216,9 @@ export function ChatInterface() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
+  // Memory toggle (memoryEnabled / handleMemoryToggle) is persisted to user
+  // settings via useComposerSettings, mirroring the RAG toggle — it survives reload.
+
   // Per-chat quick-disabled tools (transient, in-memory): which of the user's
   // enabled tools are turned off for the current conversation. Kept per conversation
   // and applied to that chat's inferences only — it never touches saved Settings.
@@ -237,9 +244,10 @@ export function ChatInterface() {
       attachmentIds: attachments.map((a) => a.id),
       documentIds: activeWorkspaceDocId ? [activeWorkspaceDocId] : [],
       ragEnabled,
+      memoryEnabled,
       disabledTools: disabledToolsByConv[convKey] ?? [],
     }),
-    [attachments, activeWorkspaceDocId, ragEnabled, disabledToolsByConv, convKey],
+    [attachments, activeWorkspaceDocId, ragEnabled, memoryEnabled, disabledToolsByConv, convKey],
   );
 
   const flushActiveDocBeforeSend = useCallback(async (): Promise<boolean> => {
@@ -250,6 +258,10 @@ export function ChatInterface() {
 
   async function handleSend() {
     if (!input.trim()) return;
+    // Block new sends while the chat provider is unreachable (covers Enter-to-send;
+    // the composer's send button is already disabled). Queueing during an active
+    // stream is still allowed.
+    if (providerStatus === "offline" && !isStreaming && !loading) return;
     if (!(await flushActiveDocBeforeSend())) return;
     const userMessage = input;
     setInput("");
@@ -448,6 +460,8 @@ export function ChatInterface() {
             onAttachmentPillClick={handleAttachmentPillClick}
             ragEnabled={ragEnabled}
             onRagToggle={handleRagToggle}
+            memoryEnabled={memoryEnabled}
+            onMemoryToggle={handleMemoryToggle}
             workspaceSidebarOpen={workspaceSidebarOpen}
             onWorkspaceSidebarToggle={() => setWorkspaceSidebarOpen(!workspaceSidebarOpen)}
             toolToggles={toolToggles}

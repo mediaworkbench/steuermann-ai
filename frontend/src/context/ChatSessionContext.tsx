@@ -37,6 +37,7 @@ export interface SendMessageOptions {
   attachmentIds?: string[];
   documentIds?: string[];
   ragEnabled?: boolean;
+  memoryEnabled?: boolean;
   disabledTools?: string[]; // tools quick-disabled for this chat (this inference only)
   replaceFromIndex?: number;
 }
@@ -134,6 +135,11 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // switched conversations during the setTimeout(0) window.
   const activeIdRef = useRef<string | null>(activeId);
   activeIdRef.current = activeId;
+  // Latest active-conversation title, read inside the post-response poll (a
+  // useCallback that must not depend on activeConversation). Lets the poll detect
+  // a backend-regenerated title and reconcile the sidebar without a stale capture.
+  const activeConvTitleRef = useRef<string | undefined>(activeConversation?.title);
+  activeConvTitleRef.current = activeConversation?.title;
   // Latest isStreaming, read inside the activeId-only load effect (which must
   // not take isStreaming as a dependency).
   const isStreamingRef = useRef(false);
@@ -195,6 +201,13 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
           if (postTraceTokenRef.current !== token || activeIdRef.current !== convId) return;
           const detail = await fetchConversation(convId);
           if (postTraceTokenRef.current !== token || activeIdRef.current !== convId) return;
+          // Reconcile a backend-regenerated title (auto-title stages run in a
+          // background task after [DONE], so the immediate refresh misses them).
+          const polledTitle = detail?.conversation?.title;
+          if (polledTitle && polledTitle !== activeConvTitleRef.current) {
+            activeConvTitleRef.current = polledTitle; // avoid a duplicate refresh next tick
+            refresh();
+          }
           const lastDb = detail
             ? [...detail.messages].reverse().find((m) => m.role === "assistant")
             : undefined;
@@ -211,7 +224,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       };
       attempt(0);
     },
-    [formatTime],
+    [formatTime, refresh],
   );
 
   // ── Load messages when the active conversation changes ─────────────────
@@ -309,6 +322,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
                   rag_attempted: finalMetadata.rag_attempted,
                   rag_doc_count: finalMetadata.rag_doc_count,
                   map_data: finalMetadata.map_data,
+                  weather_data: finalMetadata.weather_data,
                 }
               : undefined,
             // Capture the live node trace before resetStream() clears it, so the
@@ -411,7 +425,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
 
   const sendMessage = useCallback(
     async (userMessage: string, opts: SendMessageOptions = {}) => {
-      const { attachmentIds = [], documentIds = [], ragEnabled = true, disabledTools = [], replaceFromIndex } = opts;
+      const { attachmentIds = [], documentIds = [], ragEnabled = true, memoryEnabled = true, disabledTools = [], replaceFromIndex } = opts;
       let convId = activeId;
       const isFirstMessage = messages.length === 0 || replaceFromIndex === 0;
       if (!convId) {
@@ -420,6 +434,20 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       }
       streamConversationRef.current = convId;
       setStreamConvId(convId);
+
+      // Seed a truncated client placeholder for an untitled conversation *before*
+      // streaming. The backend auto-title (Stage 1) is written after [DONE], so
+      // this ordering is deterministic — the LLM title always wins, no race — and
+      // the sidebar gets an instant title. A genuine user rename is never touched
+      // (this only fires while the title is still the default).
+      if (
+        isFirstMessage &&
+        (activeConversation?.title === "New conversation" ||
+          activeConversation?.title === t("chat.newConversation"))
+      ) {
+        const betterTitle = generateTitle(userMessage);
+        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
+      }
 
       const optimisticUser: Message = {
         role: "user",
@@ -458,20 +486,12 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
         attachmentIds,
         documentIds,
         ragEnabled,
+        memoryEnabled,
         disabledTools,
       });
 
       setLoading(false);
       refresh();
-      if (
-        isFirstMessage &&
-        convId &&
-        (activeConversation?.title === "New conversation" ||
-          activeConversation?.title === t("chat.newConversation"))
-      ) {
-        const betterTitle = generateTitle(userMessage);
-        if (betterTitle !== t("chat.newConversation")) rename(convId, betterTitle);
-      }
     },
     [
       activeId,

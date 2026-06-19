@@ -424,6 +424,14 @@ Reason field propagates through entire pipeline:
 - ✅ Automatic downgrade (safer than failing on unsupported models)
 - ✅ Works across all provider types (LM Studio, Ollama, OpenAI-compatible)
 
+**Provider as a soft dependency:**
+
+The external LLM provider is treated as a *soft dependency* so the stack always boots to a serving state even when the provider (e.g. LM Studio) is unreachable:
+
+- LangGraph's startup embedding probe (`probe_embedding_provider_nonfatal` in `server.py`) is best-effort and **never raises** — it logs a warning and continues, so the container becomes healthy regardless. Runtime nodes connect lazily with their own retries once the provider returns.
+- FastAPI's startup capability probe runs in a background task (`asyncio.to_thread`), so a slow/offline provider cannot delay readiness (and therefore Next.js, which gates on FastAPI being healthy).
+- `GET /api/llm/health` exposes **live** reachability: it pings each distinct configured `api_base` (chat/embedding/vision/auxiliary, deduped) in parallel with a short timeout and returns `{status: online|degraded|offline, providers[], checked_at}` (`offline` when the chat endpoint is unreachable, `degraded` when only a secondary one is). Unlike `/api/llm/capabilities` (a stale DB read of the last capability probe), this is checked on demand. The frontend polls it to drive a global "Provider Offline" banner and to gate the chat composer's send button.
+
 ### **4.5 Response Handling**
 
 **Streaming path (primary):** `POST /api/chat/stream` returns `text/event-stream`. LangGraph exposes a matching `POST /stream` endpoint using `GRAPH.astream_events(version="v2")`. SSE event types:
@@ -469,11 +477,11 @@ Runtime helper paths for performance/cache and crew result caching execute async
 ### **4.7 Authentication & Authorization**
 
 Authentication is DB-backed and multi-user with three fixed roles — **user**, **researcher** (user
-+ RAG explorer), **administrator** (full access + user management).
+\+ RAG explorer), **administrator** (full access + user management).
 
 **Trust model.** The FastAPI backend is internal-only and guarded by a shared `CHAT_ACCESS_TOKEN`
 (`require_api_access`). The only legitimate caller is the Next.js proxy, which authenticates the
-session JWT and forwards a *trusted* identity to the backend via `x-authenticated-user-id` /
+session JWT and forwards a _trusted_ identity to the backend via `x-authenticated-user-id` /
 `x-authenticated-username` / `x-authenticated-role` headers. The proxy strips any client-supplied
 copies of those headers (and `x-chat-token`) so they cannot be spoofed. The backend resolves the
 current user from these headers (`resolve_current_user` in `backend/auth.py`) and **independently
@@ -571,6 +579,7 @@ If prior memory conflicts with current-turn tool outputs, tool outputs take prec
 
 - **Memory collection:** `{collection_prefix}_memory`, where `collection_prefix` defaults to `$PROFILE_ID` (`config/core.yaml` → `memory.vector_store.collection_prefix`). For profile `starter` this is `starter_memory` (built in `memory/mem0_backend.py`).
 - **RAG collection:** named explicitly via `rag.collection_name` in the profile overlay (starter uses `framework`); it must match the collection used during ingestion.
+- **Ingestion idempotency:** chunk IDs are deterministic UUID5s keyed on `source_key + "#" + chunk_index`, where `source_key` is the file path relative to `IngestionConfig.source_path`. All containers mount the corpus at `/data/rag-data`, making `file_path` payloads identical whether the chunk was written by the watcher or by `reingest-all`. Re-running ingest upserts over existing point IDs (no duplicates); deleted or shrunk files are fully cleaned up by an unconditional delete issued before each file's upsert batch.
 
 Advanced memory behavior is integrated into this architecture: semantic similarity retrieval, recency-aware ranking, frequency-aware prioritization, and cross-session linking through metadata and retrieval patterns.
 
@@ -814,6 +823,25 @@ Each tool declares its type (`langchain_tool` or `mcp_server`), dependencies, pe
 
 ---
 
+## **9.5 Heartbeat (Proactive Scheduling)**
+
+The heartbeat is a *virtual cron* — the foundation for proactive agent behavior. A single global "beat" fires every *N* minutes; each beat runs every registered task through a four-phase tick: **observe → reason → act → log**. Today the phases are no-op hooks (no external API calls or agent invocation); the scheduling, persistence, and observability scaffolding is in place so future work plugs into the phases directly.
+
+**Placement.** The scheduler (`universal_agentic_framework/heartbeat/scheduler.py`, `HeartbeatScheduler`) is embedded in the LangGraph service and started in `server.py`'s lifespan when the active profile sets `heartbeat.enabled`. It uses an in-memory `AsyncIOScheduler` (same pattern as `CacheScheduler`); the schedule is rebuilt deterministically from config + the admin rate on every startup, so no durable jobstore is needed (a heartbeat must not "catch up" missed beats).
+
+**Two jobs.**
+
+- `heartbeat_beat` — `IntervalTrigger(minutes=rate)`, `max_instances=1` (a slow tick never overlaps the next beat). Runs each task's `tick()`.
+- `heartbeat_control` — a fixed 30s poll that reads the admin-set rate from Postgres (written by FastAPI, a separate process) and reschedules the beat **only when the rate actually changed**. Rescheduling resets `next_run_time`, so an unconditional reschedule would prevent the beat from ever firing.
+
+**Task lifecycle** (`HeartbeatTask.tick`, `heartbeat/task.py`): a `cooldown_seconds` idempotency check (skips when the last `ok` run is within the window); `observe()` wrapped in an `AsyncCircuitBreaker` so repeated failures don't drive bad actions; `reason()`/`act()` skipped on observe failure. Every outcome (`ok` / `skipped` / `error`) is recorded to the `heartbeat_runs` table and emitted as a structured `heartbeat_tick` log. `tick()` never raises. The example `HealthHeartbeatTask` records an `"alive"` beat with no external calls.
+
+**Admin rate.** A deployment-wide `global_settings` row (`heartbeat_rate_minutes`) overrides the profile's `heartbeat.default_rate_minutes`. Admins set it on `/admin` via `GET`/`PUT /api/admin/settings/heartbeat-rate` (range 1–1440 minutes). The LangGraph scheduler reads it through `GlobalSettingsStore` (via `backend.db.init_db_pool()`); changes apply within ~30s.
+
+**Constraint.** The scheduler assumes a single LangGraph process (the default deployment). Multiple workers/replicas would double-fire beats; a single-instance guard (e.g. a Postgres advisory lock) would be required before scaling.
+
+---
+
 > For deployment, operations, ingestion, frontend, monitoring, Docker topology, security, and upgrade paths, see [Deployment Guide](deployment_guide.md).
 
 ---
@@ -915,7 +943,7 @@ This architecture covers:
 | Plugin | Tool or MCP server registered with the framework |
 | Ingestion | Process of loading documents into vector store |
 
-*This document is complemented by:*
+_This document is complemented by:_
 
 - **[README.md](../README.md)** (current runtime snapshot and recent changes)
 - **[Configuration Reference](configuration.md)** (full schema documentation)

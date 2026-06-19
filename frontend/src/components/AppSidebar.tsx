@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
+  ArrowRight,
   BarChart3,
   Brain,
   Compass,
@@ -44,7 +45,6 @@ import {
   Avatar,
   AvatarFallback,
 } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog } from "./ExportDialog";
@@ -140,17 +140,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupContent>
-              <div className="px-2 pt-1 pb-2">
-                <Button
-                  size="lg"
-                  variant="default"
-                  onClick={handleNewChat}
-                  className="w-full justify-center gap-2"
-                >
-                  <Plus size={18} />
-                  <span>{t("sidebar.newChat")}</span>
-                </Button>
-              </div>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    size="lg"
+                    onClick={handleNewChat}
+                    className="justify-center bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground active:bg-sidebar-primary/90 active:text-sidebar-primary-foreground"
+                  >
+                    <Plus />
+                    <span>{t("sidebar.newChat")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -194,12 +195,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </SidebarMenu>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <button
+                    <SidebarMenuButton
+                      size="sm"
                       onClick={() => router.push("/chats")}
-                      className="inline-flex items-center w-full rounded-md py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
+                      className="justify-start text-sidebar-ring"
                     >
+                      <ArrowRight />
                       {t("sidebar.seeAll")}
-                    </button>
+                    </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -293,9 +296,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   }
                 />
                 <DropdownMenuContent
-                  side="right"
+                  side="top"
                   align="end"
-                  sideOffset={8}
+                  sideOffset={4}
                   className="w-48"
                 >
                   <DropdownMenuItem onClick={memoryLink}>

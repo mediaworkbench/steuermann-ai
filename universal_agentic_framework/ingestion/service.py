@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import List, Dict, Any, Optional, cast
 from dataclasses import dataclass, field
+import os
 import uuid
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,6 +19,10 @@ from universal_agentic_framework.embeddings import build_embedding_provider, Emb
 from universal_agentic_framework.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Fixed namespace for deterministic chunk IDs — never change this value, as
+# changing it would re-randomise all existing point IDs and break idempotency.
+_INGEST_NAMESPACE = uuid.UUID("8f3b1c2a-4d5e-4f60-9a7b-2c1d0e5f6a7b")
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".pdf", ".docx", ".md", ".markdown", ".txt"
@@ -160,6 +165,30 @@ class IngestionService:
                 hasher.update(chunk)
         return hasher.hexdigest()
 
+    def _source_key(self, file_path: Path) -> str:
+        """Return a stable, mount-independent key for a file.
+
+        Uses the path relative to config.source_path so the same file ingested
+        from two differently-mounted containers (e.g. /data/ingest vs
+        /data/rag-data) always produces the same key and therefore the same
+        deterministic point ID.
+        """
+        try:
+            rel = os.path.relpath(file_path, self.config.source_path)
+        except ValueError:
+            # Windows: relpath raises when paths are on different drives.
+            rel = ".."
+        if rel.startswith(".."):
+            # File is outside source_path — fall back to a hash of the absolute
+            # path rather than a bare basename, which could collide.
+            logger.warning(
+                "File is outside source_path; using absolute-path hash as source key",
+                file=str(file_path),
+                source_path=str(self.config.source_path),
+            )
+            return hashlib.sha256(str(file_path).encode()).hexdigest()
+        return rel.replace(os.sep, "/")
+
     def _safe_count(self, ingestion_filter: models.Filter) -> int:
         """Count matching points while tolerating client/API variations."""
         try:
@@ -179,16 +208,18 @@ class IngestionService:
             return 0
         return int(count_value)
 
-    def _get_file_ingestion_state(self, file_path: Path, file_hash: str) -> str:
-        """Return one of: new, changed, unchanged."""
-        file_path_str = str(file_path)
+    def _get_file_ingestion_state(self, source_key: str, file_hash: str) -> str:
+        """Return one of: new, changed, unchanged.
 
+        Filters on the source_key stored in the payload's file_path field so the
+        check is mount-independent.
+        """
         same_hash_count = self._safe_count(
             models.Filter(
                 must=[
                     models.FieldCondition(
                         key="file_path",
-                        match=models.MatchValue(value=file_path_str),
+                        match=models.MatchValue(value=source_key),
                     ),
                     models.FieldCondition(
                         key="file_hash",
@@ -205,7 +236,7 @@ class IngestionService:
                 must=[
                     models.FieldCondition(
                         key="file_path",
-                        match=models.MatchValue(value=file_path_str),
+                        match=models.MatchValue(value=source_key),
                     )
                 ]
             )
@@ -460,6 +491,7 @@ class IngestionService:
                 "timings_ms": timings_ms,
             }
 
+        source_key = self._source_key(file_path)
         file_hash = ""
         if not validate_only and self.config.enable_incremental:
             hash_start = self._now()
@@ -469,7 +501,7 @@ class IngestionService:
                 timings_ms["hash"] = self._elapsed_ms(hash_start)
 
             lookup_start = self._now()
-            file_state = self._get_file_ingestion_state(file_path, file_hash)
+            file_state = self._get_file_ingestion_state(source_key, file_hash)
             timings_ms["lookup"] = self._elapsed_ms(lookup_start)
 
             if file_state == "unchanged":
@@ -485,8 +517,15 @@ class IngestionService:
 
             if file_state == "changed":
                 logger.info("File changed; replacing existing chunks", file=str(file_path))
-                self.delete_file_from_collection(file_path)
-        
+
+        # Delete any existing chunks before ingesting (runs for new, changed,
+        # and incremental-off paths). This is a no-op for new files and
+        # guarantees no orphan points remain when a file shrinks in chunk count.
+        # Placed before parse/embed so the wait=True delete always lands before
+        # the upsert that follows.
+        if not validate_only:
+            self.delete_file_from_collection(file_path)
+
         # Parse document
         parse_start = self._now()
         try:
@@ -541,16 +580,21 @@ class IngestionService:
         # Prepare points for Qdrant
         points = []
         for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            point_id = str(uuid.uuid4())
-            
-            # Combine file metadata with config metadata, add detected language
+            # Deterministic ID: same source_key + chunk index always maps to the
+            # same UUID5, so re-ingestion upserts over existing points instead
+            # of appending new ones.
+            point_id = str(uuid.uuid5(_INGEST_NAMESPACE, f"{source_key}#{idx}"))
+
+            # Combine file metadata with config metadata, add detected language.
+            # file_path stores the source-relative key (not the absolute mount
+            # path) so watcher and reindex share the same dedup namespace.
             full_metadata = {
                 **self.config.metadata,
                 **metadata,
                 "chunk_index": idx,
                 "chunk_count": len(chunks),
                 "text": chunk,
-                "file_path": str(file_path),
+                "file_path": source_key,
                 "file_hash": file_hash,
                 "target_language": self.config.target_language,
                 "detected_language": detected_language,
@@ -628,19 +672,22 @@ class IngestionService:
         return files
     
     def delete_file_from_collection(self, file_path: Path) -> Dict[str, Any]:
-        """Delete all chunks from a file from the collection.
-        
+        """Delete all chunks for a file from the collection.
+
+        Accepts an absolute Path (consistent with all call sites) and resolves
+        the source-relative key internally so deletions match the payload
+        field_path stored during ingestion.
+
         Args:
-            file_path: Path to the file whose chunks should be deleted
-            
+            file_path: Absolute path to the file whose chunks should be deleted.
+
         Returns:
-            Dictionary with deletion result
+            Dictionary with deletion result.
         """
-        file_path_str = str(file_path)
-        logger.info("Deleting file chunks from collection", file=file_path_str)
-        
+        source_key = self._source_key(file_path)
+        logger.info("Deleting file chunks from collection", file=source_key)
+
         try:
-            # Delete all points with this file_path in payload
             self.qdrant.delete(
                 collection_name=self.config.collection_name,
                 points_selector=models.FilterSelector(
@@ -648,23 +695,24 @@ class IngestionService:
                         must=[
                             models.FieldCondition(
                                 key="file_path",
-                                match=models.MatchValue(value=file_path_str)
+                                match=models.MatchValue(value=source_key)
                             )
                         ]
                     )
-                )
+                ),
+                wait=True,
             )
-            
-            logger.info("File chunks deleted successfully", file=file_path_str)
+
+            logger.info("File chunks deleted successfully", file=source_key)
             return {
-                "file": file_path_str,
+                "file": source_key,
                 "status": "success",
                 "action": "deleted"
             }
         except Exception as e:
-            logger.error("Failed to delete file chunks", file=file_path_str, error=str(e))
+            logger.error("Failed to delete file chunks", file=source_key, error=str(e))
             return {
-                "file": file_path_str,
+                "file": source_key,
                 "status": "error",
                 "error": str(e)
             }

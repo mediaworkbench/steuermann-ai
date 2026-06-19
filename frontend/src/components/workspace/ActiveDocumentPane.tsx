@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useActiveDocument } from "@/context/ActiveDocumentContext";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { DocumentEditorView } from "./DocumentEditorView";
 
 interface ActiveDocumentPaneProps {
@@ -67,7 +68,6 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
       <div
         aria-hidden="true"
         onMouseDown={onResizeStart}
-        title={t("workspace.resizeSplitView")}
         className="absolute left-0 top-0 bottom-0 z-10 hidden w-1.5 -translate-x-1/2 cursor-col-resize md:block"
       >
         <div className="mx-auto h-full w-0.5 bg-border hover:bg-border-strong" />
@@ -84,29 +84,32 @@ export function ActiveDocumentPane({ isLoading = false }: ActiveDocumentPaneProp
                 : t("workspace.splitViewTitle")}
           </span>
           {isDirty && (
-            <span
-              className="shrink-0 text-warning"
-              title={t("workspace.unsavedChanges")}
-              aria-label={t("workspace.unsavedChanges")}
-            >
-              ●
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={
+                <span className="shrink-0 text-warning" aria-label={t("workspace.unsavedChanges")}>●</span>
+              } />
+              <TooltipContent>{t("workspace.unsavedChanges")}</TooltipContent>
+            </Tooltip>
           )}
         </p>
-        <Button
-          type="button"
-          onClick={() => {
-            closeEditor();
-            closeHistory();
-          }}
-          variant="ghost"
-          size="sm"
-          className="p-0 text-muted-foreground hover:text-foreground"
-          aria-label={t("workspace.closeSplitView")}
-          title={t("workspace.closeSplitView")}
-        >
-          <X size={16} />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger render={
+            <Button
+              type="button"
+              onClick={() => {
+                closeEditor();
+                closeHistory();
+              }}
+              variant="ghost"
+              size="sm"
+              className="p-0 text-muted-foreground hover:text-foreground"
+              aria-label={t("workspace.closeSplitView")}
+            >
+              <X size={16} />
+            </Button>
+          } />
+          <TooltipContent>{t("workspace.closeSplitView")}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Body — guard against the brief null window during close batching */}

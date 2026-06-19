@@ -149,6 +149,18 @@ export type Messages = {
     resetNoneSelected: string;
     resetConfirmMessage: string;
     accessDenied: string;
+    heartbeatSection: string;
+    heartbeatDescription: string;
+    heartbeatRateLabel: string;
+    heartbeatRateHelp: string;
+    heartbeatDisabledNote: string;
+    heartbeatDefaultNote: string;
+    heartbeatLastRunLabel: string;
+    heartbeatNever: string;
+    heartbeatSave: string;
+    heartbeatSaved: string;
+    heartbeatSaveFailed: string;
+    heartbeatLoadFailed: string;
   };
   settingsPage: {
     title: string;
@@ -303,6 +315,8 @@ export type Messages = {
     attachmentRemoved: string;
     knowledgeBaseOn: string;
     knowledgeBaseOff: string;
+    memoryOn: string;
+    memoryOff: string;
     templates: {
       explainConcept: string;
       helpCode: string;
@@ -317,6 +331,13 @@ export type Messages = {
       brainstormPrompt: string;
       debugPrompt: string;
     };
+  };
+  providerHealth: {
+    offlineTitle: string;
+    degradedTitle: string;
+    retry: string;
+    checking: string;
+    composerHint: string;
   };
   workspace: {
     loadFailed: string;
@@ -407,6 +428,22 @@ export type Messages = {
     mapGenerated: string;
     openFullMap: string;
     mapDistanceBadge: string;
+    weatherFeelsLike: string;
+    weatherHumidity: string;
+    weatherWind: string;
+    weatherForecastTitle: string;
+    weatherWarmerBy: string;
+    weatherSameTemp: string;
+    weatherClear: string;
+    weatherPartlyCloudy: string;
+    weatherOvercast: string;
+    weatherFog: string;
+    weatherDrizzle: string;
+    weatherRain: string;
+    weatherSnow: string;
+    weatherShowers: string;
+    weatherThunderstorm: string;
+    weatherUnknownCondition: string;
     metaScore: string;
     metaRated: string;
     tabInspector: string;
@@ -786,6 +823,18 @@ export const messages: Record<Locale, Messages> = {
       resetNoneSelected: "Select at least one category to reset.",
       resetConfirmMessage: "Permanently deletes the selected data categories for all users. The schema is preserved. This cannot be undone.",
       accessDenied: "You do not have permission to view this page.",
+      heartbeatSection: "Heartbeat",
+      heartbeatDescription: "A virtual cron: the agent wakes on this schedule and runs its background tasks. Changes apply within ~30 seconds.",
+      heartbeatRateLabel: "Beat rate (minutes)",
+      heartbeatRateHelp: "How often the heartbeat wakes (1–1440 minutes).",
+      heartbeatDisabledNote: "The heartbeat is disabled for the active profile.",
+      heartbeatDefaultNote: "Using the profile default ({minutes} min).",
+      heartbeatLastRunLabel: "Last beat",
+      heartbeatNever: "No beats recorded yet",
+      heartbeatSave: "Save",
+      heartbeatSaved: "Heartbeat rate updated",
+      heartbeatSaveFailed: "Failed to update heartbeat rate",
+      heartbeatLoadFailed: "Failed to load heartbeat settings",
     },
     settingsPage: {
       title: "Settings",
@@ -940,6 +989,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentRemoved: "Attachment removed",
       knowledgeBaseOn: "Knowledge Base: On",
       knowledgeBaseOff: "Knowledge Base: Off",
+      memoryOn: "Memory: On",
+      memoryOff: "Memory: Off",
       templates: {
         explainConcept: "Explain a concept",
         helpCode: "Help me code",
@@ -954,6 +1005,13 @@ export const messages: Record<Locale, Messages> = {
         brainstormPrompt: "Give me creative ideas for ",
         debugPrompt: "Help me debug this issue:\n\n",
       },
+    },
+    providerHealth: {
+      offlineTitle: "LLM provider offline — chat is unavailable",
+      degradedTitle: "Some LLM services are unavailable — responses may be degraded",
+      retry: "Retry",
+      checking: "Checking…",
+      composerHint: "Chat is unavailable while the provider is offline",
     },
     workspace: {
       loadFailed: "Load failed",
@@ -1044,6 +1102,22 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Map output",
       openFullMap: "Open full map",
       mapDistanceBadge: "{km} km · {miles} mi",
+      weatherFeelsLike: "Feels like {temp}",
+      weatherHumidity: "Humidity",
+      weatherWind: "Wind",
+      weatherForecastTitle: "{days}-day forecast",
+      weatherWarmerBy: "{place} is {delta} warmer",
+      weatherSameTemp: "Same temperature in both places",
+      weatherClear: "Clear sky",
+      weatherPartlyCloudy: "Partly cloudy",
+      weatherOvercast: "Overcast",
+      weatherFog: "Fog",
+      weatherDrizzle: "Drizzle",
+      weatherRain: "Rain",
+      weatherSnow: "Snow",
+      weatherShowers: "Showers",
+      weatherThunderstorm: "Thunderstorm",
+      weatherUnknownCondition: "Unknown",
       metaScore: "score {score}",
       metaRated: "rated {rating}/5",
       tabInspector: "Inspector",
@@ -1421,6 +1495,18 @@ export const messages: Record<Locale, Messages> = {
       resetNoneSelected: "Bitte mindestens eine Kategorie auswählen.",
       resetConfirmMessage: "Löscht dauerhaft die ausgewählten Datenkategorien aller Benutzer. Das Schema bleibt erhalten. Diese Aktion kann nicht rückgängig gemacht werden.",
       accessDenied: "Sie haben keine Berechtigung, diese Seite anzuzeigen.",
+      heartbeatSection: "Heartbeat",
+      heartbeatDescription: "Ein virtueller Cron: Der Agent wacht in diesem Takt auf und führt seine Hintergrundaufgaben aus. Änderungen werden innerhalb von ca. 30 Sekunden übernommen.",
+      heartbeatRateLabel: "Taktrate (Minuten)",
+      heartbeatRateHelp: "Wie oft der Heartbeat aufwacht (1–1440 Minuten).",
+      heartbeatDisabledNote: "Der Heartbeat ist für das aktive Profil deaktiviert.",
+      heartbeatDefaultNote: "Profilstandard wird verwendet ({minutes} Min.).",
+      heartbeatLastRunLabel: "Letzter Takt",
+      heartbeatNever: "Noch keine Takte aufgezeichnet",
+      heartbeatSave: "Speichern",
+      heartbeatSaved: "Heartbeat-Takt aktualisiert",
+      heartbeatSaveFailed: "Heartbeat-Takt konnte nicht aktualisiert werden",
+      heartbeatLoadFailed: "Heartbeat-Einstellungen konnten nicht geladen werden",
     },
     settingsPage: {
       title: "Einstellungen",
@@ -1575,6 +1661,8 @@ export const messages: Record<Locale, Messages> = {
       attachmentRemoved: "Anhang entfernt",
       knowledgeBaseOn: "Wissensdatenbank: An",
       knowledgeBaseOff: "Wissensdatenbank: Aus",
+      memoryOn: "Gedächtnis: An",
+      memoryOff: "Gedächtnis: Aus",
       templates: {
         explainConcept: "Konzept erklären",
         helpCode: "Beim Coden helfen",
@@ -1589,6 +1677,13 @@ export const messages: Record<Locale, Messages> = {
         brainstormPrompt: "Gib mir kreative Ideen für ",
         debugPrompt: "Hilf mir beim Debuggen dieses Problems:\n\n",
       },
+    },
+    providerHealth: {
+      offlineTitle: "LLM-Anbieter offline — Chat nicht verfügbar",
+      degradedTitle: "Einige LLM-Dienste sind nicht verfügbar — Antworten könnten eingeschränkt sein",
+      retry: "Erneut versuchen",
+      checking: "Wird geprüft…",
+      composerHint: "Chat ist nicht verfügbar, solange der Anbieter offline ist",
     },
     workspace: {
       loadFailed: "Laden fehlgeschlagen",
@@ -1679,6 +1774,22 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Kartenausgabe",
       openFullMap: "Karte vollständig öffnen",
       mapDistanceBadge: "{km} km · {miles} mi",
+      weatherFeelsLike: "Gefühlt {temp}",
+      weatherHumidity: "Luftfeuchtigkeit",
+      weatherWind: "Wind",
+      weatherForecastTitle: "{days}-Tage-Vorhersage",
+      weatherWarmerBy: "{place} ist {delta} wärmer",
+      weatherSameTemp: "Gleiche Temperatur an beiden Orten",
+      weatherClear: "Klarer Himmel",
+      weatherPartlyCloudy: "Teilweise bewölkt",
+      weatherOvercast: "Bedeckt",
+      weatherFog: "Nebel",
+      weatherDrizzle: "Nieselregen",
+      weatherRain: "Regen",
+      weatherSnow: "Schnee",
+      weatherShowers: "Schauer",
+      weatherThunderstorm: "Gewitter",
+      weatherUnknownCondition: "Unbekannt",
       metaScore: "Score {score}",
       metaRated: "Bewertung {rating}/5",
       tabInspector: "Inspektor",
