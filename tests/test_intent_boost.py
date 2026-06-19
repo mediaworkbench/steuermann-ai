@@ -13,7 +13,7 @@ def _intents(**overrides):
         "mentions_web_search": False, "image_url_in_query": False, "image_in_query": False,
         "mentions_ocr": False, "mentions_document": False, "mentions_chart": False,
         "mentions_image_metadata": False, "mentions_barcode": False, "mentions_map": False,
-        "mentions_csv_analysis": False,
+        "mentions_weather": False, "mentions_csv_analysis": False,
     }
     base.update(overrides)
     return base
@@ -51,6 +51,11 @@ def test_csv_requires_intent_and_doc_present():
     assert not _applies("csv_analyze_tool", _intents(mentions_csv_analysis=True))  # no doc
     assert not _applies("csv_analyze_tool", _intents(), csv=True)  # no intent
     assert _applies("csv_analyze_tool", _intents(mentions_csv_analysis=True), csv=True)
+
+
+def test_weather_intent_match():
+    assert _applies("weather_tool", _intents(mentions_weather=True))
+    assert not _applies("weather_tool", _intents(mentions_weather=False))
 
 
 def test_unknown_tool_never_boosts():
@@ -100,3 +105,10 @@ def test_override_floor_only_for_eligible_tools():
     )
     assert applied_map is True
     assert sim_map == 0.71
+
+    sim_w, applied_w = apply_intent_override_floor(
+        "weather_tool", 0.10, _intents(mentions_weather=True),
+        similarity_threshold=0.55, min_top_score=0.7,
+    )
+    assert applied_w is True
+    assert sim_w == 0.71

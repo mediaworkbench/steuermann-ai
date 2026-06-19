@@ -2068,6 +2068,9 @@ async def chat_stream(
                             "map_data": _metadata["map_data"]
                         } if _metadata.get("map_data") else {}),
                         **({
+                            "weather_data": _metadata["weather_data"]
+                        } if _metadata.get("weather_data") else {}),
+                        **({
                             "node_trace": _metadata["node_trace"]
                         } if _metadata.get("node_trace") else {}),
                         **({

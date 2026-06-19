@@ -50,6 +50,7 @@ _INTENT_BOOST_RULES: Dict[str, _IntentPredicate] = {
     "image_metadata_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_image_metadata"),
     "read_barcodes_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_barcode"),
     "map_tool": lambda i, img, csv: i.get("mentions_map"),
+    "weather_tool": lambda i, img, csv: i.get("mentions_weather"),
     "csv_analyze_tool": lambda i, img, csv: i.get("mentions_csv_analysis") and csv,
 }
 
@@ -58,6 +59,7 @@ _INTENT_BOOST_RULES: Dict[str, _IntentPredicate] = {
 _INTENT_OVERRIDE_FLOOR: Dict[str, str] = {
     "web_search_mcp": "mentions_web_search",
     "map_tool": "mentions_map",
+    "weather_tool": "mentions_weather",
 }
 
 

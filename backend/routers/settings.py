@@ -797,6 +797,7 @@ async def get_system_config(request: Request) -> Dict[str, Any]:
                 {"id": "datetime_tool", "label": "Datetime"},
                 {"id": "calculator_tool", "label": "Calculator"},
                 {"id": "map_tool", "label": "Map"},
+                {"id": "weather_tool", "label": "Weather"},
                 {"id": "file_ops_tool", "label": "File Operations"},
             ],
             "rag_defaults": {"collection_name": "framework", "top_k": 5},

@@ -17,6 +17,7 @@ const FALLBACK_TOOLS = [
   { id: "datetime_tool", label: "Datetime" },
   { id: "calculator_tool", label: "Calculator" },
   { id: "map_tool", label: "Map" },
+  { id: "weather_tool", label: "Weather" },
   { id: "csv_analyze_tool", label: "CSV Analyze" },
   { id: "file_ops_tool", label: "File Ops" },
 ] as const;

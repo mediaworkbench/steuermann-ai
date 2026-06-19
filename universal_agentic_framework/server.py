@@ -443,6 +443,7 @@ _TOOL_LABELS: dict[str, str] = {
     "image_metadata_tool": "Reading image metadata...",
     "read_barcodes_tool": "Reading barcodes...",
     "map_tool": "Looking up map data...",
+    "weather_tool": "Checking the weather...",
 }
 
 
@@ -606,6 +607,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         _captured_input_tokens: int = 0
         _captured_output_tokens: int = 0
         _captured_map_data = None  # populated from tool-call node output, not respond node
+        _captured_weather_data = None  # weather_tool artifact, same capture path as map_data
         _captured_tool_exec: dict = {}  # full tool envelope (args+results); respond node drops it
         _in_thinking = False   # currently inside a <think> block
         _close_tag = ""        # matching close tag for the current block
@@ -822,6 +824,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "memory_analytics": _final_output.get("memory_analytics", {}),
                                         "thinking_content": _full_thinking if _full_thinking else None,
                                         "map_data": _map_data,
+                                        "weather_data": _captured_weather_data,
                                         "node_trace": _node_trace_list,
                                         "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                                         "context_breakdown": _final_output.get("context_breakdown", {}),
@@ -884,6 +887,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     _captured_tool_exec = _tool_exec
                                 if "map_tool" in _tool_exec:
                                     _captured_map_data = _tool_exec["map_tool"].get("data")
+                                if "weather_tool" in _tool_exec:
+                                    _captured_weather_data = _tool_exec["weather_tool"].get("data")
 
                     elif kind == "on_chain_error":
                         # Best-effort per-node error status for the Inspector. A
@@ -931,6 +936,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "memory_analytics": _final_output.get("memory_analytics", {}),
                     "thinking_content": _full_thinking if _full_thinking else None,
                     "map_data": _map_data,
+                    "weather_data": _captured_weather_data,
                     "node_trace": _node_trace_list,
                     "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                     "context_breakdown": _final_output.get("context_breakdown", {}),

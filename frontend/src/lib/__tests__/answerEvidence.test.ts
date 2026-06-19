@@ -64,4 +64,13 @@ describe("deriveAnswerEvidence", () => {
     expect(e.hasEvidence).toBe(true);
     expect(e.mapData).toBeDefined();
   });
+
+  test("surfaces weather_data and flags hasEvidence", () => {
+    const metrics: MessageMetrics = {
+      weather_data: { type: "current", summary: "warm" },
+    };
+    const e = deriveAnswerEvidence(metrics);
+    expect(e.weatherData).toBeDefined();
+    expect(e.hasEvidence).toBe(true);
+  });
 });

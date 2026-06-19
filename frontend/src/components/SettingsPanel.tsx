@@ -53,6 +53,7 @@ const FALLBACK_TOOLS: ToolCatalogItem[] = [
   { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
   { id: "calculator_tool", label: "Calculator", group: "auxiliary" },
   { id: "map_tool", label: "Map", group: "auxiliary" },
+  { id: "weather_tool", label: "Weather", group: "auxiliary" },
 ];
 
 const USER_MODEL_ROLES = ["chat"];

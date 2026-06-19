@@ -428,6 +428,22 @@ export type Messages = {
     mapGenerated: string;
     openFullMap: string;
     mapDistanceBadge: string;
+    weatherFeelsLike: string;
+    weatherHumidity: string;
+    weatherWind: string;
+    weatherForecastTitle: string;
+    weatherWarmerBy: string;
+    weatherSameTemp: string;
+    weatherClear: string;
+    weatherPartlyCloudy: string;
+    weatherOvercast: string;
+    weatherFog: string;
+    weatherDrizzle: string;
+    weatherRain: string;
+    weatherSnow: string;
+    weatherShowers: string;
+    weatherThunderstorm: string;
+    weatherUnknownCondition: string;
     metaScore: string;
     metaRated: string;
     tabInspector: string;
@@ -1086,6 +1102,22 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Map output",
       openFullMap: "Open full map",
       mapDistanceBadge: "{km} km · {miles} mi",
+      weatherFeelsLike: "Feels like {temp}",
+      weatherHumidity: "Humidity",
+      weatherWind: "Wind",
+      weatherForecastTitle: "{days}-day forecast",
+      weatherWarmerBy: "{place} is {delta} warmer",
+      weatherSameTemp: "Same temperature in both places",
+      weatherClear: "Clear sky",
+      weatherPartlyCloudy: "Partly cloudy",
+      weatherOvercast: "Overcast",
+      weatherFog: "Fog",
+      weatherDrizzle: "Drizzle",
+      weatherRain: "Rain",
+      weatherSnow: "Snow",
+      weatherShowers: "Showers",
+      weatherThunderstorm: "Thunderstorm",
+      weatherUnknownCondition: "Unknown",
       metaScore: "score {score}",
       metaRated: "rated {rating}/5",
       tabInspector: "Inspector",
@@ -1742,6 +1774,22 @@ export const messages: Record<Locale, Messages> = {
       mapGenerated: "Kartenausgabe",
       openFullMap: "Karte vollständig öffnen",
       mapDistanceBadge: "{km} km · {miles} mi",
+      weatherFeelsLike: "Gefühlt {temp}",
+      weatherHumidity: "Luftfeuchtigkeit",
+      weatherWind: "Wind",
+      weatherForecastTitle: "{days}-Tage-Vorhersage",
+      weatherWarmerBy: "{place} ist {delta} wärmer",
+      weatherSameTemp: "Gleiche Temperatur an beiden Orten",
+      weatherClear: "Klarer Himmel",
+      weatherPartlyCloudy: "Teilweise bewölkt",
+      weatherOvercast: "Bedeckt",
+      weatherFog: "Nebel",
+      weatherDrizzle: "Nieselregen",
+      weatherRain: "Regen",
+      weatherSnow: "Schnee",
+      weatherShowers: "Schauer",
+      weatherThunderstorm: "Gewitter",
+      weatherUnknownCondition: "Unbekannt",
       metaScore: "Score {score}",
       metaRated: "Bewertung {rating}/5",
       tabInspector: "Inspektor",

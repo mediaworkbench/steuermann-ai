@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 const MapWidget = dynamic(() => import("@/components/MapWidget").then((m) => m.MapWidget), { ssr: false });
+import { WeatherWidget } from "@/components/WeatherWidget";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { MarkdownMessage } from "@/components/MarkdownMessage";
 import { MetricsPanel } from "@/components/MetricsPanel";
@@ -66,6 +67,13 @@ export function AssistantMessage({
         {message.metrics?.map_data && (
           <div className="mt-2 px-1 w-full">
             <MapWidget data={message.metrics.map_data} />
+          </div>
+        )}
+
+        {/* Weather widget — rendered when weather_tool was used */}
+        {message.metrics?.weather_data && (
+          <div className="mt-2 px-1 w-full">
+            <WeatherWidget data={message.metrics.weather_data} />
           </div>
         )}
 

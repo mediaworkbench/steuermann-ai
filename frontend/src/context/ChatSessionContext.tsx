@@ -322,6 +322,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
                   rag_attempted: finalMetadata.rag_attempted,
                   rag_doc_count: finalMetadata.rag_doc_count,
                   map_data: finalMetadata.map_data,
+                  weather_data: finalMetadata.weather_data,
                 }
               : undefined,
             // Capture the live node trace before resetStream() clears it, so the

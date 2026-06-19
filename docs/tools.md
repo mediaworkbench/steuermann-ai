@@ -25,6 +25,7 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `calculator_tool` | Utility | No | Yes — math expressions, `berechne`, `calculate`, `sqrt(...)` |
 | `datetime_tool` | Utility | No | Yes — date/time patterns, `heute`, `time`, `date` |
 | `map_tool` | Utility | No | Yes — "where is", "map of", "how far", "distance between", "locate" |
+| `weather_tool` | Utility | No | Yes — "weather", "wetter", "temperature", "forecast", "how warm", "warmer than" |
 | `file_ops_tool` | Utility | No | No |
 | `web_search_mcp` | Network (MCP) | No | No direct boost — URL detection boosts content extraction routing |
 | `analyze_image_tool` | Vision | **Yes** | Yes — image URL (`.jpg/.png/.gif/.webp`) in message or image attachment in state |
@@ -101,6 +102,32 @@ Geocodes locations and measures straight-line distances using [Nominatim](https:
 **Intent boost triggers:** "where is", "where are", "map of", "show me the map", "how far", "distance from", "distance between", "locate", "wo ist", "wo liegt", "karte von", "wie weit", "entfernung".
 
 **No configuration required** — Nominatim is a public endpoint (rate-limit: 1 req/s; acceptable for AI chat). No API keys, no Docker service.
+
+---
+
+### `weather_tool`
+
+Fetches weather from [Open-Meteo](https://open-meteo.com/) — free, no API key required. It geocodes the place name with Open-Meteo's own geocoding endpoint (so "Barcelona, Spain" / "Barcelona (Spain)" resolves to the right city), then queries the forecast API. Results are displayed as an interactive weather widget in the chat (`WeatherWidget`).
+
+**Operations:**
+
+| Operation | Description | Example trigger |
+| --- | --- | --- |
+| `current` | Current conditions for one place (temperature, feels-like, condition, humidity, wind) | "How is the weather in Barcelona, Spain?" |
+| `compare` | Current temperature of two places plus the delta and which is warmer | "How much warmer is Barcelona than Schwerin?" |
+| `forecast` | Multi-day daily forecast (min/max + condition), 1–7 days | "Weather forecast for Berlin this week" |
+
+**Returns:** A JSON string with structured fields (`type`, `summary`, and per-operation `reading`/`readings`/`days`). The `summary` field is a human-readable sentence the answering model narrates; the structured data feeds the `WeatherWidget`. Weather conditions use WMO weather codes mapped to a localized condition + icon in the widget.
+
+**Intent boost triggers:** "weather", "wetter", "temperature", "temperatur", "forecast", "vorhersage", "how warm/cold", "wie warm/kalt", "warmer/colder", "wärmer/kälter", "how much warmer".
+
+**Configuration keys** in `config/profiles/<profile_id>/tools.yaml` (the tool entry's `config:` block) — these map 1:1 to Open-Meteo query params and conversion happens server-side:
+
+| Key | Default | Allowed values |
+| --- | --- | --- |
+| `temperature_unit` | `celsius` | `celsius`, `fahrenheit` |
+| `wind_speed_unit` | `kmh` | `kmh`, `mph`, `ms`, `kn` |
+| `precipitation_unit` | `mm` | `mm`, `inch` |
 
 ---
 
