@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.8] — intent-detection fixes & tool-routing polish
+
+- fix: a greeting-prefixed substantive question (e.g. "Hi, what's our refund policy?") no longer skips knowledge retrieval; the greeting RAG short-circuit now only fires for messages that are essentially just a greeting.
+- fix: a missing webpage URL is now backfilled from the user's message in all three tool-calling modes (native, structured, react), not only native — webpage extraction is consistent regardless of the model's calling style.
+- improvement: the score-spread routing gate now compares the top tool to the runner-up instead of the average, so a single clearly-best tool is no longer discarded when the other candidates are bunched together.
+- improvement: the structured-mode score at which a tool call is forced is now configurable per profile (`tool_routing.force_tool_use_score`, default 0.75).
+- chore: removed dead code in the intent layer (an unused calculator-expression helper, a redundant image-flag alias, and a vestigial tool `enabled` flag).
+
 ## [0.4.7] — composer UX polish, heartbeat, smarter conversation titles & weather tool
 
 - feature: weather tool — current conditions, two-place temperature comparison, and multi-day forecast via Open-Meteo, shown as an inline weather widget; units (°C/°F) configurable per profile; available to all roles and admin-gateable like other tools.

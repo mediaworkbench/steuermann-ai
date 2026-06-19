@@ -10,7 +10,7 @@ def _intents(**overrides):
     """A zeroed intents dict with only the given keys turned on."""
     base = {
         "mentions_datetime": False, "mentions_calculation": False, "url_in_query": None,
-        "mentions_web_search": False, "image_url_in_query": False, "image_in_query": False,
+        "mentions_web_search": False, "image_in_query": False,
         "mentions_ocr": False, "mentions_document": False, "mentions_chart": False,
         "mentions_image_metadata": False, "mentions_barcode": False, "mentions_map": False,
         "mentions_weather": False, "mentions_csv_analysis": False,
@@ -43,7 +43,7 @@ def test_vision_tool_requires_image_and_keyword():
 
 def test_analyze_image_matches_on_attachment_alone():
     assert _applies("analyze_image_tool", _intents(), img=True)
-    assert _applies("analyze_image_tool", _intents(image_url_in_query=True))
+    assert _applies("analyze_image_tool", _intents(image_in_query=True))
     assert not _applies("analyze_image_tool", _intents())
 
 

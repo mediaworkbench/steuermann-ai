@@ -29,8 +29,6 @@ tool_descriptions:
     de: "Inhalte von einer spezifischen URL/Webseite extrahieren und lesen. Verwenden wenn der Nutzer eine URL bereitstellt und wissen möchte was auf dieser Seite ist."
     fr: "Extraire et lire le contenu d'une URL/page web spécifique. À utiliser quand l'utilisateur fournit une URL et veut savoir ce qui est sur cette page."
 
-enabled: true
-
 # Server configuration (DuckDuckGo MCP community image)
 server:
   host: "0.0.0.0"

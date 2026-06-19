@@ -135,13 +135,12 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
     if url_in_query and not url_in_query.startswith(("http://", "https://")):
         url_in_query = f"https://{url_in_query}"
 
-    # Image URL: http(s) URL ending with an image file extension
-    image_url_in_query = bool(
+    # Image URL: http(s) URL ending with an image file extension. Consumed by the
+    # vision-tool boost rules (image URL or attachment); attachment presence is
+    # checked separately in the caller.
+    image_in_query = bool(
         re.search(r"https?://\S+\.(?:jpg|jpeg|png|gif|webp)\b", user_msg, re.IGNORECASE)
     )
-
-    # Convenience flag used by vision-tool compound boosts (image URL or attachment)
-    image_in_query = image_url_in_query
 
     # OCR: user wants text extracted from an image
     mentions_ocr = bool(
@@ -287,8 +286,13 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         r"^(hello|hi|hey|hallo|guten\s*tag|guten\s*morgen|bonjour|salut|ciao|yo)\b",
         user_msg_lower.strip(),
     ))
+    # Greeting skip is gated on `_short`: the graph-level early-exit
+    # (node_prefilter_tools) is full-message anchored, but `_is_greeting` is only
+    # start-anchored, so a greeting-prefixed substantive query ("Hi, what's our
+    # refund policy?") would otherwise skip RAG. Requiring `_short` confines the
+    # skip to messages that are essentially just a greeting.
     skip_rag = bool(
-        _is_greeting
+        (_is_greeting and _short)
         or (_short and mentions_calculation and not mentions_web_search)
         or (_short and mentions_datetime and not mentions_web_search)
         or asks_about_tools
@@ -306,7 +310,6 @@ def detect_tool_routing_intents(user_msg: str, language: str) -> Dict[str, Any]:
         "mentions_calculation": mentions_calculation,
         "mentions_web_search": mentions_web_search,
         "url_in_query": url_in_query,
-        "image_url_in_query": image_url_in_query,
         "image_in_query": image_in_query,
         "mentions_ocr": mentions_ocr,
         "mentions_document": mentions_document,

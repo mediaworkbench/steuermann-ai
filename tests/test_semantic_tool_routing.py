@@ -10,6 +10,7 @@ from universal_agentic_framework.orchestration.graph_builder import (
     node_prefilter_tools,
     node_call_tools_native,
     node_call_tools_structured,
+    node_call_tools_react,
     node_generate_response,
 )
 from universal_agentic_framework.orchestration.helpers.embedding_provider import (
@@ -481,6 +482,83 @@ def test_native_extract_injects_request_url_when_missing(mock_config, mock_model
     assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
 
 
+class _CaptureExtractTool:
+    """Records the kwargs the extract tool is run with."""
+
+    name = "extract_webpage_mcp"
+    description = "Extract webpage content"
+    args_schema = None
+
+    def __init__(self):
+        self.captured = {}
+
+    def _run(self, **kwargs):
+        self.captured.update(kwargs)
+        return "extracted content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_structured_extract_injects_request_url_when_missing(mock_config, mock_model_factory):
+    """Structured mode should backfill request_url from the message, like native mode."""
+    set_mock_config(mock_config)
+    fake_tool = _CaptureExtractTool()
+
+    class StructuredNoUrlModel:
+        def invoke(self, messages):
+            return SimpleNamespace(
+                content='{"tool": "extract_webpage_mcp", "args": {"selector": "#teaser"}}'
+            )
+
+    mock_model_factory.return_value = StructuredNoUrlModel()
+
+    state = {
+        "messages": [{"role": "user", "content": "extract from https://www.tagesschau.de/ the headline"}],
+        "candidate_tools": [{"tool": fake_tool, "name": "extract_webpage_mcp", "score": 0.8}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "language": "en",
+        "prefilter_intents": {"url_in_query": "https://www.tagesschau.de/"},
+    }
+
+    result = node_call_tools_structured(state)
+
+    assert fake_tool.captured.get("request_url") == "https://www.tagesschau.de/"
+    assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_react_extract_injects_request_url_when_missing(mock_config, mock_model_factory):
+    """ReAct mode should backfill request_url from the message, like native mode."""
+    set_mock_config(mock_config)
+    fake_tool = _CaptureExtractTool()
+
+    # First invoke issues the Action without a URL; the second ends the loop.
+    mock_model_factory.return_value = SequencedDummyModel(
+        outputs=[
+            'Thought: I should read the page.\nAction: {"tool": "extract_webpage_mcp", "args": {"selector": "#teaser"}}',
+            "Final Answer: done.",
+        ]
+    )
+
+    state = {
+        "messages": [{"role": "user", "content": "extract from https://www.tagesschau.de/ the headline"}],
+        "candidate_tools": [{"tool": fake_tool, "name": "extract_webpage_mcp", "score": 0.8}],
+        "tool_results": {},
+        "tool_execution_results": {},
+        "routing_metadata": {},
+        "language": "en",
+        "prefilter_intents": {"url_in_query": "https://www.tagesschau.de/"},
+    }
+
+    result = node_call_tools_react(state)
+
+    assert fake_tool.captured.get("request_url") == "https://www.tagesschau.de/"
+    assert result["tool_results"]["extract_webpage_mcp"] == "extracted content"
+
+
 @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
 @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
 def test_native_retry_does_not_reexecute_successful_tool(mock_config, mock_model_factory):
@@ -563,6 +641,42 @@ def test_prefilter_keeps_web_search_candidate_for_explicit_web_intent(
     result = node_prefilter_tools(state)
     candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
     assert "web_search_mcp" in candidate_names
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_spread_gate_keeps_clear_winner_over_bunched_runners_up(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    """A standout top tool must survive the spread gate even when the runners-up are bunched.
+
+    Scores [0.92, 0.8, 0.8, 0.8]: max-minus-mean = 0.09 (< 0.10, the old gate would clear all),
+    but max-minus-second-highest = 0.12 (>= 0.10), so the winner is correctly kept.
+    """
+    set_mock_config(mock_config, similarity_threshold=0.55, top_k=5)
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.1, 0.2, 0.3])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+
+    # Neutral tool names so no intent boost or override floor interferes.
+    scores = {"alpha_tool": 0.92, "beta_tool": 0.8, "gamma_tool": 0.8, "delta_tool": 0.8}
+    mock_score_similarity.side_effect = lambda **kw: scores[kw["tool_name"]]
+
+    loaded_tools = [FakeTool(name, f"description for {name}") for name in scores]
+
+    state = {
+        "messages": [{"role": "user", "content": "tell me something interesting about this"}],
+        "loaded_tools": loaded_tools,
+        "language": "en",
+    }
+
+    result = node_prefilter_tools(state)
+    candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
+    assert "alpha_tool" in candidate_names, "clear winner should survive the spread gate"
 
 
 @patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")

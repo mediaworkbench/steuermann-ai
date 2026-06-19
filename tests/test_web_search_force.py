@@ -220,6 +220,33 @@ class TestMandatoryPromptContent:
         system_msg = next((m for m in captured_messages if hasattr(m, "content") and "MUST" in m.content), None)
         assert system_msg is not None, "Expected mandatory prompt for high-score candidate"
 
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    def test_custom_force_tool_use_score_is_honored(self, mock_config, mock_model):
+        """A configured force_tool_use_score below the 0.75 default lowers the obligation bar."""
+        config = _set_mock_config(mock_config)
+        config.tool_routing.force_tool_use_score = 0.6
+
+        captured_messages = []
+
+        class CapturingModel:
+            def invoke(self, messages):
+                captured_messages.extend(messages)
+                return SimpleNamespace(content='{"tool": "web_search_mcp", "args": {"query": "x"}}')
+
+        mock_model.return_value = CapturingModel()
+        # Score 0.65: below the 0.75 default (would not force) but at/above the custom 0.6.
+        state, _ = _structured_state(
+            "Tell me about metformin",
+            score=0.65,
+            intents={"force_tool_use": False},
+        )
+
+        node_call_tools_structured(state)
+
+        system_msg = next((m for m in captured_messages if hasattr(m, "content") and "MUST" in m.content), None)
+        assert system_msg is not None, "Expected mandatory prompt when score >= custom force_tool_use_score"
+
 
 # ---------------------------------------------------------------------------
 # Part E2 — retry on silent declination

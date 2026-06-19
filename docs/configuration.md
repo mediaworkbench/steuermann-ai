@@ -393,7 +393,8 @@ tool_routing:
   intent_boost: 0.2 # Score boost for intent-matched tools (0.0-0.5)
   max_retries: 2 # Layer 3 retry count on parse failure
   min_top_score: 0.7 # Skip Layer 2 if no tool scores above this
-  min_spread: 0.10 # Clear candidates if score spread < this (flat distribution)
+  min_spread: 0.10 # Clear candidates unless the top tool leads the runner-up by at least this
+  force_tool_use_score: 0.75 # Structured mode: force a tool call when the top candidate scores at/above this
 ```
 
 **Architecture:**
@@ -407,14 +408,15 @@ Tool selection uses a three-tier architecture:
 **Filtering gates (Layer 1):**
 
 - `min_top_score` gate: If no tool scores above this value, skip Layer 2 entirely (the query is conversational, not tool-worthy). Prevents unnecessary LLM tool-calling calls.
-- `min_spread` gate: If all tool scores are within `min_spread` of each other (flat distribution), clear all candidates. Prevents noise when no tool is clearly relevant.
+- `min_spread` gate: If the top tool does not lead the second-highest-scoring tool by at least `min_spread`, clear all candidates. Comparing against the runner-up (rather than the mean) keeps a single clear winner while still suppressing flat distributions where no tool stands out.
 - `similarity_threshold`: After gates pass, only tools scoring above this are forwarded as candidates.
 
 **Tuning guidelines:**
 
 - `similarity_threshold: 0.55` — Filters the noise floor (unrelated tools typically score 0.42-0.57 with multilingual embeddings).
 - `min_top_score: 0.7` — Requires at least one confident match. With `intent_boost: 0.2`, target tools typically score 0.84-1.0.
-- `min_spread: 0.10` — Catches flat distributions where no tool stands out.
+- `min_spread: 0.10` — Requires the top tool to lead the runner-up by this margin; catches flat distributions where no tool stands out.
+- `force_tool_use_score: 0.75` — In structured mode, a top candidate scoring at/above this forces a tool call (the model may not silently opt out). Lower it if a profile's scores skew low; raise it to make forcing stricter.
 - Lower `similarity_threshold` for more candidates (recall↑); raise for fewer (precision↑).
 - `intent_boost` adds score to tools matching detected intents (datetime, calculation, file ops, URL extraction).
 - `top_k` limits candidates sent to the model — fewer = better accuracy, less token cost.

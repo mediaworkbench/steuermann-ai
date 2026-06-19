@@ -515,15 +515,14 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
             state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
-            # Default aligned with docs/CLAUDE.md (0.55); profiles set this explicitly,
-            # so the fallback only applies to a profile that omits tool_routing entirely.
-            similarity_threshold = getattr(
-                getattr(config, "tool_routing", None), "similarity_threshold", 0.55
-            )
-            top_k = getattr(getattr(config, "tool_routing", None), "top_k", 5)
-            intent_boost = getattr(
-                getattr(config, "tool_routing", None), "intent_boost", 0.2
-            )
+            # Resolve all tool_routing knobs once. Defaults align with docs/CLAUDE.md
+            # and only apply to a profile that omits tool_routing entirely.
+            tool_routing = getattr(config, "tool_routing", None)
+            similarity_threshold = getattr(tool_routing, "similarity_threshold", 0.55)
+            top_k = getattr(tool_routing, "top_k", 5)
+            intent_boost = getattr(tool_routing, "intent_boost", 0.2)
+            min_top_score = getattr(tool_routing, "min_top_score", 0.7)
+            min_spread = getattr(tool_routing, "min_spread", 0.10)
             routing_language = state.get("language") or getattr(
                 config.profile, "language", "en"
             )
@@ -576,15 +575,12 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
                 # Hard intent override: web_search_mcp / map_tool get a forced floor above both
                 # threshold gates when their intent is explicitly signalled, so Layer 2 decides.
-                _min_top_score_cfg = getattr(
-                    getattr(config, "tool_routing", None), "min_top_score", 0.7
-                )
                 similarity, _override_applied = apply_intent_override_floor(
                     tool_name,
                     similarity,
                     intents,
                     similarity_threshold=similarity_threshold,
-                    min_top_score=_min_top_score_cfg,
+                    min_top_score=min_top_score,
                 )
                 if _override_applied:
                     logger.info(
@@ -604,13 +600,6 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Apply top-K
             scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
 
-            min_top_score = getattr(
-                getattr(config, "tool_routing", None), "min_top_score", 0.7
-            )
-            min_spread = getattr(
-                getattr(config, "tool_routing", None), "min_spread", 0.10
-            )
-
             # Min-top-score gate: if no tool scores confidently, skip Layer 2
             if scored_tools:
                 top_score = max(s for _, s in scored_tools)
@@ -622,17 +611,19 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                     )
                     scored_tools = []
 
-            # Score-spread gate: if remaining tools all scored similarly, clear
+            # Score-spread gate: clear candidates unless the top tool stands out from the
+            # runner-up by at least min_spread. Comparing to the second-highest (not the mean)
+            # keeps a single clear winner alive when the remaining tools are bunched together.
             if len(scored_tools) >= 3:
-                scores = [s for _, s in scored_tools]
-                max_score = max(scores)
-                mean_score = sum(scores) / len(scores)
-                spread = max_score - mean_score
+                scores = sorted((s for _, s in scored_tools), reverse=True)
+                max_score = scores[0]
+                second_score = scores[1]
+                spread = max_score - second_score
                 if spread < min_spread:
                     logger.info(
-                        "Score-spread gate: all tools scored similarly, clearing candidates",
+                        "Score-spread gate: top tool not clearly ahead of runner-up, clearing candidates",
                         max_score=round(max_score, 4),
-                        mean_score=round(mean_score, 4),
+                        second_score=round(second_score, 4),
                         spread=round(spread, 4),
                         min_spread=min_spread,
                     )
@@ -920,10 +911,15 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     # Determine whether this turn requires the model to call a tool.
     # High-confidence web search intents (explicit "search the web" phrasing) and
-    # any candidate scoring ≥ 0.75 both count as obligation signals.
+    # any candidate scoring at/above the configured floor both count as obligation signals.
     intents = state.get("prefilter_intents") or {}
-    top_score = candidates[0].get("score", 0.0) if candidates else 0.0
-    force_tool_use = bool(intents.get("force_tool_use") or top_score >= 0.75)
+    # Use max() rather than candidates[0]: candidates are only score-sorted when top_k is set
+    # (apply_top_k_scored_tools), so with top_k unset they arrive in load order.
+    top_score = max((c.get("score", 0.0) for c in candidates), default=0.0)
+    force_tool_use_score = getattr(
+        getattr(config, "tool_routing", None), "force_tool_use_score", 0.75
+    )
+    force_tool_use = bool(intents.get("force_tool_use") or top_score >= force_tool_use_score)
 
     logger.info(
         "Layer 2 structured tool calling",
@@ -1065,8 +1061,10 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
 
-                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                _prefilter = state.get("prefilter_intents") or {}
+                _requested_results = _prefilter.get("requested_web_results")
                 tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                tool_args = infer_extract_webpage_url(tool_name, tool_args, _prefilter.get("url_in_query"))
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1237,8 +1235,10 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
 
-                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                _prefilter = state.get("prefilter_intents") or {}
+                _requested_results = _prefilter.get("requested_web_results")
                 tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                tool_args = infer_extract_webpage_url(tool_name, tool_args, _prefilter.get("url_in_query"))
 
                 tool_obj = tool_lookup.get(tool_name)
 

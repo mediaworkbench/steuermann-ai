@@ -305,6 +305,8 @@ class ToolRoutingSettings(BaseModel):
     max_retries: PositiveInt = 2
     min_top_score: confloat(ge=0.0, le=1.0) = 0.7
     min_spread: confloat(ge=0.0, le=1.0) = 0.10
+    # Structured mode: force a tool call when the top candidate scores at/above this.
+    force_tool_use_score: confloat(ge=0.0, le=1.0) = 0.75
 
 
 class QueryRewritingConfig(BaseModel):

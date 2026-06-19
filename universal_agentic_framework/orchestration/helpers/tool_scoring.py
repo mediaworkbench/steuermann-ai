@@ -43,7 +43,7 @@ _INTENT_BOOST_RULES: Dict[str, _IntentPredicate] = {
     "calculator_tool": lambda i, img, csv: i.get("mentions_calculation"),
     "extract_webpage_mcp": lambda i, img, csv: i.get("url_in_query"),
     "web_search_mcp": lambda i, img, csv: i.get("mentions_web_search"),
-    "analyze_image_tool": lambda i, img, csv: i.get("image_url_in_query") or img,
+    "analyze_image_tool": lambda i, img, csv: i.get("image_in_query") or img,
     "ocr_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_ocr"),
     "analyze_document_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_document"),
     "analyze_chart_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_chart"),
