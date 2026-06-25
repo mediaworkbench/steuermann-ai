@@ -17,6 +17,8 @@ export interface SessionUser {
   email: string;
   role: UserRole;
   mustChangePassword: boolean;
+  /** Per-user revocation counter; the JWT is rejected once the DB value moves past it. */
+  tokenVersion: number;
 }
 
 const SESSION_COOKIE_NAME = "uaf_session";
@@ -68,12 +70,15 @@ export function getSessionCookieOptions(maxAge: number = SESSION_MAX_AGE_SECONDS
 }
 
 export async function createSessionToken(user: SessionUser): Promise<string> {
+  const epoch = (process.env.SESSION_EPOCH || "").trim();
   return new SignJWT({
     username: user.username,
     displayName: user.displayName,
     email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    tv: user.tokenVersion,
+    ...(epoch ? { se: epoch } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.userId)
@@ -95,12 +100,21 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
       audience: SESSION_AUDIENCE,
     });
 
+    // Deployment-scoped logout lever: when SESSION_EPOCH is set, a token minted under a
+    // different (or no) epoch is rejected so a redeploy can force re-login. Unset → no-op.
+    const epoch = (process.env.SESSION_EPOCH || "").trim();
+    if (epoch && payload.se !== epoch) {
+      return null;
+    }
+
     const userId = typeof payload.sub === "string" ? payload.sub : "";
     const username = typeof payload.username === "string" ? payload.username : "";
     const displayName = typeof payload.displayName === "string" ? payload.displayName : username;
     const email = typeof payload.email === "string" ? payload.email : "";
     const role = normalizeRole(payload.role);
     const mustChangePassword = payload.mustChangePassword === true;
+    // Default 0 so legacy cookies minted before this claim existed stay valid.
+    const tokenVersion = typeof payload.tv === "number" ? payload.tv : 0;
 
     if (!userId || !username) {
       return null;
@@ -113,6 +127,7 @@ export async function getSessionFromCookieValue(token?: string): Promise<Session
       email,
       role,
       mustChangePassword,
+      tokenVersion,
     };
   } catch {
     return null;

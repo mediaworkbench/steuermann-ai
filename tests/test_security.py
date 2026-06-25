@@ -98,6 +98,15 @@ class TestApiAccessGuard:
             from backend.single_user import require_api_access
             require_api_access(x_chat_token=None, authorization=None)
 
+    def test_access_fails_closed_when_auth_enabled_but_token_missing(self):
+        from fastapi import HTTPException
+
+        with patch.dict(os.environ, {"AUTH_ENABLED": "true", "CHAT_ACCESS_TOKEN": ""}, clear=True):
+            from backend.single_user import require_api_access
+            with pytest.raises(HTTPException) as exc_info:
+                require_api_access(x_chat_token=None, authorization=None)
+        assert exc_info.value.status_code == 503
+
     def test_access_passes_with_matching_header_token(self):
         with patch.dict(os.environ, {"CHAT_ACCESS_TOKEN": "secret-token"}, clear=True):
             from backend.single_user import require_api_access

@@ -1,7 +1,12 @@
 # Changelog
 
-## [0.4.8] — intent-detection fixes & tool-routing polish
+## [0.4.8] — intent-detection fixes, tool-routing polish & auth hardening
 
+- security: `POST /api/admin/reset-all-databases` now requires an administrator — it previously inherited only the shared-secret guard, so any authenticated user could wipe every user's data through the proxy.
+- security: login and change-password are now rate-limited (5/min and 10/min, IP-keyed for unauthenticated callers) to blunt password brute-forcing.
+- security: the API perimeter now fails closed — with authentication enabled but `CHAT_ACCESS_TOKEN` unset, requests are rejected (503) and a startup CRITICAL is logged, instead of leaving identity headers spoofable.
+- feature: real logout and session revocation via a per-user token version — logging out, changing a password, or an admin changing a user's role/status/password immediately invalidates that user's existing sessions (no waiting for the 7-day token to expire).
+- feature: optional `SESSION_EPOCH` — when set, a redeploy that changes it forces all sessions to re-login (an opt-in lever for "rebuild logs everyone out"; secret rotation remains the no-config alternative).
 - fix: a greeting-prefixed substantive question (e.g. "Hi, what's our refund policy?") no longer skips knowledge retrieval; the greeting RAG short-circuit now only fires for messages that are essentially just a greeting.
 - fix: a missing webpage URL is now backfilled from the user's message in all three tool-calling modes (native, structured, react), not only native — webpage extraction is consistent regardless of the model's calling style.
 - improvement: the score-spread routing gate now compares the top tool to the runner-up instead of the average, so a single clearly-best tool is no longer discarded when the other candidates are bunched together.

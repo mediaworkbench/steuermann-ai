@@ -14,6 +14,7 @@ jest.mock("@/lib/auth/session", () => ({
     email: "",
     role: "user",
     mustChangePassword: false,
+    tokenVersion: 7,
   })),
 }));
 
@@ -52,6 +53,7 @@ test("strips spoofed x-authenticated-* and sets identity from the session", asyn
       "x-authenticated-role": "administrator", // spoof attempt
       "x-authenticated-user-id": "attacker", // spoof attempt
       "x-authenticated-username": "attacker",
+      "x-authenticated-token-version": "999", // spoof attempt
     },
   });
 
@@ -61,6 +63,8 @@ test("strips spoofed x-authenticated-* and sets identity from the session", asyn
   expect(headers.get("x-authenticated-role")).toBe("user");
   expect(headers.get("x-authenticated-user-id")).toBe("real-user");
   expect(headers.get("x-authenticated-username")).toBe("real");
+  // The spoofed version is dropped; the proxy sets it from the trusted session instead.
+  expect(headers.get("x-authenticated-token-version")).toBe("7");
 });
 
 test("ignores a client-supplied x-chat-token, using the env value", async () => {

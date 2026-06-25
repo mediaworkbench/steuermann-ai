@@ -231,6 +231,11 @@ def _role_client(monkeypatch):
     monkeypatch.setattr(rag_module, "search_qdrant", _recording_search(_HITS))
     app = FastAPI()
     app.include_router(rag_module.router)
+    # Perimeter (CHAT_ACCESS_TOKEN) is covered in test_security; this fixture only checks
+    # role enforcement, so neutralize the now-fail-closed shared-secret guard.
+    from backend.single_user import require_api_access
+
+    app.dependency_overrides[require_api_access] = lambda: None
     return TestClient(app, raise_server_exceptions=False)
 
 

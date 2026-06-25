@@ -1164,6 +1164,7 @@ _LLM_PROBE_TABLES = [
 def reset_all_databases(
     request: Request,
     options: Optional[ResetOptions] = Body(default=None),
+    _admin: CurrentUser = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Purge selected data categories across all users.
 

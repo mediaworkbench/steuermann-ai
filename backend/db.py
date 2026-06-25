@@ -189,6 +189,7 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
             password_hash TEXT,
             must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+            token_version INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -226,6 +227,10 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             cur.execute(
                 "ALTER TABLE IF EXISTS users "
                 "ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;"
+            )
+            cur.execute(
+                "ALTER TABLE IF EXISTS users "
+                "ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;"
             )
         conn.commit()
 
@@ -638,7 +643,7 @@ class UserStore:
         """Get a specific user by ID."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status,
-                   u.must_change_password, u.created_at, u.updated_at
+                   u.must_change_password, u.token_version, u.created_at, u.updated_at
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.user_id = %s;
@@ -735,7 +740,7 @@ class UserStore:
         """Return user record including password_hash for login validation."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.password_hash,
-                   u.role_id, r.role_name, u.status, u.must_change_password
+                   u.role_id, r.role_name, u.status, u.must_change_password, u.token_version
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.username = %s;
@@ -750,7 +755,7 @@ class UserStore:
         """Return user record including password_hash, keyed by the trusted user id."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.password_hash,
-                   u.role_id, r.role_name, u.status, u.must_change_password
+                   u.role_id, r.role_name, u.status, u.must_change_password, u.token_version
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.user_id = %s;
@@ -830,6 +835,24 @@ class UserStore:
                 changed = cur.rowcount > 0
             conn.commit()
         return changed
+
+    def bump_token_version(self, user_id: str) -> Optional[int]:
+        """Invalidate every existing session for a user by incrementing token_version.
+
+        Any JWT minted before the bump carries a stale ``tv`` claim and is rejected by
+        ``resolve_current_user``. Returns the new version, or ``None`` if no user matched.
+        """
+        statement = """
+            UPDATE users SET token_version = token_version + 1, updated_at = NOW()
+            WHERE user_id = %s
+            RETURNING token_version;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (user_id,))
+                row = cur.fetchone()
+            conn.commit()
+        return int(row[0]) if row else None
 
     def update_user_role(self, user_id: str, role_name: str) -> Dict[str, Any]:
         """Assign an existing fixed role to a user. Unknown roles raise ValueError."""
@@ -921,6 +944,7 @@ def _normalize_user_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "role_name": row.get("role_name"),
         "status": row.get("status"),
         "must_change_password": bool(row.get("must_change_password", False)),
+        "token_version": int(row.get("token_version") or 0),
         "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at) if created_at else None,
         "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else str(updated_at) if updated_at else None,
     }

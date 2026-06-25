@@ -99,6 +99,26 @@ def _clear_config_cache_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _disable_rate_limit_for_tests():
+    """Disable the shared slowapi limiter during unit tests.
+
+    Endpoints like /api/auth/login carry per-IP limits; the module-level limiter
+    accumulates counts across tests (all sharing the TestClient IP), which would
+    otherwise trip spurious 429s. No test asserts real rate-limiting — test_rate_limit
+    only exercises the key function — so toggling the limiter off here is safe.
+    """
+    try:
+        from backend.rate_limit import limiter
+    except (ImportError, ModuleNotFoundError):
+        yield
+        return
+    previous = limiter.enabled
+    limiter.enabled = False
+    yield
+    limiter.enabled = previous
+
+
+@pytest.fixture(autouse=True)
 def _disable_redis_for_tests(monkeypatch):
     """Remove REDIS_URL so performance_nodes uses MemoryCacheBackend silently.
 

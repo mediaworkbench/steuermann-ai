@@ -490,14 +490,26 @@ defense in depth, not relying on the UI. When `AUTH_ENABLED=false`, the backend 
 single env user with the administrator role (local dev bypass).
 
 **Login.** `POST /api/auth/login` verifies username + password against the `users` table with
-argon2id and returns `{user_id, username, email, role, must_change_password}`; the Next.js login
-route mints the session JWT cookie. The bootstrap administrator is seeded from env
-(`AUTH_USERNAME` / `AUTH_PASSWORD_HASH` / `AUTH_ADMIN_EMAIL`) on startup.
+argon2id and returns `{user_id, username, email, role, must_change_password, token_version}`; the
+Next.js login route mints the session JWT cookie (embedding `token_version` as the `tv` claim). The
+bootstrap administrator is seeded from env (`AUTH_USERNAME` / `AUTH_PASSWORD_HASH` /
+`AUTH_ADMIN_EMAIL`) on startup. Login and change-password are rate-limited (IP-keyed for the
+unauthenticated login).
+
+**Session revocation.** Each user row has a `token_version`; `resolve_current_user` rejects (401) a
+request whose `tv` claim is behind the DB value. `POST /api/auth/logout` bumps it (so the cleared
+cookie can't be replayed), as do change-password and admin role/status/password changes — all
+existing sessions for that user are invalidated immediately. The optional `SESSION_EPOCH` (`se`
+claim, validated in the frontend) forces a global re-login on redeploy.
+
+**Perimeter.** The proxy↔backend shared secret (`CHAT_ACCESS_TOKEN`) is required when
+`AUTH_ENABLED=true`; the backend fails closed (503) without it, since FastAPI's port is
+host-published and it otherwise trusts the proxy's `x-authenticated-*` identity headers.
 
 **Endpoints.**
 
-- `POST /api/auth/login`, `POST /api/auth/change-password` (forced first-login change clears
-  `must_change_password`).
+- `POST /api/auth/login`, `POST /api/auth/logout` (bumps `token_version`),
+  `POST /api/auth/change-password` (forced first-login change clears `must_change_password`).
 - `GET /api/admin/roles`, `GET/POST /api/admin/users`, `PATCH/DELETE /api/admin/users/{id}`
   (administrator-only; auto-generated temporary passwords; last-admin and self-action guardrails).
 - `GET/POST /api/settings/me` (the authenticated user's settings; replaces the old

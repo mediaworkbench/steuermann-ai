@@ -63,11 +63,20 @@ def _is_auth_path(request: Optional[Request]) -> bool:
         return False
 
 
+def _coerce_token_version(value: Optional[str]) -> int:
+    """Parse the token-version header to an int, defaulting to 0 on missing/garbage input."""
+    try:
+        return int((value or "").strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def resolve_current_user(
     request: Request = None,
     x_authenticated_user_id: Optional[str] = Header(default=None),
     x_authenticated_username: Optional[str] = Header(default=None),
     x_authenticated_role: Optional[str] = Header(default=None),
+    x_authenticated_token_version: Optional[str] = Header(default=None),
 ) -> CurrentUser:
     """Resolve the authenticated user for the current request.
 
@@ -103,6 +112,13 @@ def resolve_current_user(
         if (record.get("status") or "active") != "active":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Account is not active"
+            )
+        # Session revocation: a stale token_version (logout / password change / admin action
+        # bumped the DB value) means this token has been invalidated. Default-0 on both sides
+        # keeps legacy tokens and the no-store-wired path working until the first bump.
+        if _coerce_token_version(x_authenticated_token_version) != int(record.get("token_version") or 0):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked"
             )
         db_role = record.get("role_name")
         if db_role in VALID_ROLES:

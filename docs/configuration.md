@@ -759,20 +759,33 @@ AUTH_ADMIN_EMAIL=admin@example.com
 AUTH_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'
 
 # JWT signing secret for the session cookie. Generate: python -c "import secrets; print(secrets.token_hex(32))"
+# Rotating this value invalidates every existing session (a no-config way to force re-login).
 AUTH_SESSION_SECRET=change-me
 
-# Shared proxy↔backend secret. The backend is internal-only and trusts identity/role headers
-# only from the proxy, which authenticates this token. Generate as above.
+# Shared proxy↔backend secret. The backend is host-published and trusts identity/role headers
+# only from the proxy, which authenticates this token. REQUIRED when AUTH_ENABLED=true — the
+# backend now fails closed (503 + startup CRITICAL) if it is unset. Generate as above.
 CHAT_ACCESS_TOKEN=change-me
 
 # Role assumed by the AUTH_ENABLED=false dev bypass. Values: user | researcher | administrator
 NEXT_PUBLIC_AUTH_USER_ROLE=administrator
+
+# Optional deployment epoch. When set, sessions minted under a different value are rejected, so
+# changing it on a redeploy forces everyone to log in again. Blank = keep sessions across rebuilds.
+SESSION_EPOCH=
 ```
 
 Roles are fixed: **user**, **researcher** (user + RAG explorer), **administrator** (full access +
 user management). Additional accounts are created in-app at `/admin/users` (administrator only) —
 each receives a one-time temporary password and must change it on first login. Passwords are
 hashed/verified with argon2id on the backend.
+
+**Session revocation.** Each user row carries a `token_version`; the session JWT embeds it as a
+`tv` claim, re-checked on every request. Logging out, changing a password, or an admin changing a
+user's role/status/password bumps the version, immediately invalidating that user's existing
+sessions rather than waiting for the 7-day token to expire. `SESSION_EPOCH` (the `se` claim) is the
+deployment-scoped equivalent for forcing a global re-login on redeploy; rotating `AUTH_SESSION_SECRET`
+achieves the same with no config.
 
 LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=false` to disable probing globally, or `LLM_CAPABILITY_PROBE_ON_STARTUP=false` to keep probing enabled but skip the automatic startup probe.
 

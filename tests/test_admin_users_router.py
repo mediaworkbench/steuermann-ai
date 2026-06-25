@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.routers.admin_users import router as admin_users_router
+from backend.single_user import require_api_access
 
 
 def _public(u: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -71,6 +72,13 @@ class FakeUserStore:
         self.users[user_id]["must_change_password"] = must_change_password
         return True
 
+    def bump_token_version(self, user_id):
+        rec = self.users.get(user_id)
+        if rec is None:
+            return None
+        rec["token_version"] = int(rec.get("token_version") or 0) + 1
+        return rec["token_version"]
+
     def delete_user(self, user_id):
         return self.users.pop(user_id, None) is not None
 
@@ -91,6 +99,9 @@ def _client(monkeypatch, store, *, auth_enabled=False, admin_user_id="boss"):
     app = FastAPI()
     app.state.user_store = store
     app.include_router(admin_users_router)
+    # Perimeter is covered in test_security; neutralize it here (it now fails closed
+    # without a CHAT_ACCESS_TOKEN, which these auth-enabled fixtures intentionally omit).
+    app.dependency_overrides[require_api_access] = lambda: None
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -232,6 +243,23 @@ class TestUpdateUser:
         assert resp.status_code == 200
         assert len(resp.json()["temporary_password"]) >= 8
         assert store.users["a"]["must_change_password"] is True
+
+    def test_role_change_bumps_target_token_version(self, monkeypatch):
+        # Demoting/promoting a user must invalidate their existing sessions immediately.
+        store = FakeUserStore()
+        store.add("a", "alice", role_name="user")
+        store.add("boss", "boss", role_name="administrator")
+        client = _client(monkeypatch, store)
+        client.patch("/api/admin/users/a", json={"role": "researcher"})
+        assert store.users["a"]["token_version"] == 1
+
+    def test_password_reset_bumps_target_token_version(self, monkeypatch):
+        store = FakeUserStore()
+        store.add("a", "alice")
+        store.add("boss", "boss", role_name="administrator")
+        client = _client(monkeypatch, store)
+        client.patch("/api/admin/users/a", json={"reset_password": True})
+        assert store.users["a"]["token_version"] == 1
 
     def test_unknown_user_404(self, monkeypatch):
         store = FakeUserStore()
