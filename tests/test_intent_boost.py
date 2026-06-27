@@ -3,6 +3,7 @@
 from universal_agentic_framework.orchestration.helpers.tool_scoring import (
     intent_boost_applies,
     apply_intent_override_floor,
+    intent_override_signalled,
 )
 
 
@@ -112,3 +113,20 @@ def test_override_floor_only_for_eligible_tools():
     )
     assert applied_w is True
     assert sim_w == 0.71
+
+
+# ── intent_override_signalled ─────────────────────────────────────────
+
+def test_override_signalled_true_when_intent_set_regardless_of_score():
+    # Unlike the floor, this fires for an already-high score (the gate-protection case).
+    assert intent_override_signalled("weather_tool", _intents(mentions_weather=True)) is True
+    assert intent_override_signalled("map_tool", _intents(mentions_map=True)) is True
+    assert intent_override_signalled("web_search_mcp", _intents(mentions_web_search=True)) is True
+
+
+def test_override_signalled_false_without_intent():
+    assert intent_override_signalled("weather_tool", _intents(mentions_weather=False)) is False
+
+
+def test_override_signalled_false_for_non_eligible_tool():
+    assert intent_override_signalled("datetime_tool", _intents(mentions_datetime=True)) is False

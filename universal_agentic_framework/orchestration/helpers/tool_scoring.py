@@ -77,6 +77,18 @@ def intent_boost_applies(
     return bool(rule(intents, image_attachment_present, csv_workspace_doc_present))
 
 
+def intent_override_signalled(tool_name: str, intents: Dict[str, Any]) -> bool:
+    """Return True if ``tool_name`` is floor-eligible and its override intent is set.
+
+    Unlike :func:`apply_intent_override_floor` (which reports whether the floor actually
+    *lifted* a low score), this reports only that the explicit intent fired — so the caller
+    can protect an already-high-scoring tool from the threshold/spread gates and let Layer 2
+    make the final call.
+    """
+    intent_key = _INTENT_OVERRIDE_FLOOR.get(tool_name)
+    return bool(intent_key and intents.get(intent_key))
+
+
 def apply_intent_override_floor(
     tool_name: str,
     similarity: float,

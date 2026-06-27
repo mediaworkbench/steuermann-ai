@@ -126,6 +126,7 @@ from universal_agentic_framework.orchestration.helpers import (
     score_tool_similarity,
     intent_boost_applies,
     apply_intent_override_floor,
+    intent_override_signalled,
     apply_top_k_scored_tools,
     apply_web_search_max_results,
     infer_extract_webpage_url,
@@ -225,6 +226,45 @@ def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
         if isinstance(msg, dict) and msg.get("role") == "user":
             return msg.get("content", "") or ""
     return ""
+
+
+# Recent-turn window passed to the tool-calling nodes so they can resolve referential
+# arguments. Tool-calling otherwise sees only the latest user message, so a tool whose
+# argument was named an earlier turn (e.g. the city for weather_tool: "what's the weather
+# there?" after "Schwerin") gets called with that argument missing → tool error → the
+# respond node fabricates placeholders. Six messages (~3 exchanges) covers the reference
+# without flooding a small model with full history; each is capped to keep the prompt lean.
+_TOOL_HISTORY_MAX_MESSAGES = 6
+_TOOL_HISTORY_MAX_CHARS_PER_MSG = 1500
+
+
+def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any]:
+    """Recent prior user/assistant turns as LangChain messages for tool-arg resolution.
+
+    Excludes the latest message (the current turn — the caller appends it separately),
+    compression summaries, and crew-result assistant turns (already folded into the system
+    prompt by the respond node). Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    history = messages or []
+    prior = history[:-1]  # drop the current user turn (added by the caller)
+    out: List[Any] = []
+    for msg in prior:
+        if not isinstance(msg, dict) or msg.get("type") == "summary":
+            continue
+        role = msg.get("role", "user")
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "assistant" and any(content.startswith(p) for p in _CREW_RESULT_PREFIXES):
+            continue
+        content = content[:_TOOL_HISTORY_MAX_CHARS_PER_MSG]
+        if role == "user":
+            out.append(HumanMessage(content=content))
+        elif role == "assistant":
+            out.append(AIMessage(content=content))
+    return out[-_TOOL_HISTORY_MAX_MESSAGES:]
 
 
 def _should_write_memory(state: GraphState, features_config: Any) -> bool:
@@ -600,6 +640,20 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Apply top-K
             scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
 
+            # Override-protected tools: those whose explicit intent fired (weather/map/web).
+            # The intent-override floor only lifts *low* scores; it does not stop a
+            # high-scoring tool from being swept away when another boosted tool (e.g.
+            # datetime on "how warm is it *today*") lands in a near-tie. Protecting them
+            # here realizes the documented contract — survive both gates so Layer 2 decides.
+            protected_names = {
+                getattr(tool, "name", "unknown")
+                for tool, _ in scored_tools
+                if intent_override_signalled(getattr(tool, "name", "unknown"), intents)
+            }
+
+            def _keep_protected(tools: List[Tuple[Any, float]]) -> List[Tuple[Any, float]]:
+                return [t for t in tools if getattr(t[0], "name", "unknown") in protected_names]
+
             # Min-top-score gate: if no tool scores confidently, skip Layer 2
             if scored_tools:
                 top_score = max(s for _, s in scored_tools)
@@ -608,8 +662,9 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                         "Min-top-score gate: no tool scored confidently, clearing candidates",
                         top_score=round(top_score, 4),
                         min_top_score=min_top_score,
+                        protected=sorted(protected_names),
                     )
-                    scored_tools = []
+                    scored_tools = _keep_protected(scored_tools)
 
             # Score-spread gate: clear candidates unless the top tool stands out from the
             # runner-up by at least min_spread. Comparing to the second-highest (not the mean)
@@ -626,8 +681,9 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                         second_score=round(second_score, 4),
                         spread=round(spread, 4),
                         min_spread=min_spread,
+                        protected=sorted(protected_names),
                     )
-                    scored_tools = []
+                    scored_tools = _keep_protected(scored_tools)
 
             # Filter by threshold and build candidate list
             candidates = [
@@ -720,9 +776,11 @@ def node_call_tools_native(state: GraphState) -> GraphState:
             tools = [c["tool"] for c in candidates]
             model_with_tools = model.bind_tools(tools)
 
-            # Build minimal messages for the tool-calling invocation
+            # Build messages for the tool-calling invocation. Recent history is included so
+            # referential args (e.g. a city named a turn earlier) can be resolved.
             messages = [
                 SystemMessage(content="You are a helpful assistant. Use the provided tools when they help answer the user's question."),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 
@@ -993,8 +1051,11 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 f"{csv_paths_section}"
             )
 
+            # Recent history lets the model resolve referential args (e.g. a city named a
+            # turn earlier) instead of calling the tool with that argument missing.
             messages = [
                 SystemMessage(content=system_content),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 
@@ -1201,8 +1262,11 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 f"Available tools:\n{tool_block}"
             )
 
+            # Recent history lets the model resolve referential args (e.g. a city named a
+            # turn earlier) instead of calling the tool with that argument missing.
             messages = [
                 SystemMessage(content=react_prompt),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 

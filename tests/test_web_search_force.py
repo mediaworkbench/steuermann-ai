@@ -380,3 +380,57 @@ class TestRetryOnDeclination:
 
         assert len(model.invocations) == 1, "No retry needed when first attempt succeeds"
         assert "web_search_mcp" in result["tool_results"]
+
+
+# ---------------------------------------------------------------------------
+# Tool-arg resolution — recent conversation history reaches the tool-calling model
+# ---------------------------------------------------------------------------
+
+class TestRecentHistoryReachesToolCalling:
+    """A location named a turn earlier must reach the model so referential args resolve.
+
+    Regression for weather_tool being called with an empty `location` ("Error: No location
+    provided." → respond node fabricated "[Insert Temperature Here]") when the city was named
+    in a prior turn and the latest message only said "what's the weather there?".
+    """
+
+    @patch("universal_agentic_framework.orchestration.graph_builder.get_model")
+    @patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+    def test_prior_turn_location_is_forwarded(self, mock_config, mock_model):
+        _set_mock_config(mock_config)
+
+        captured = []
+
+        class CapturingModel:
+            def invoke(self, messages):
+                captured.extend(messages)
+                return SimpleNamespace(
+                    content='{"tool": "weather_tool", "args": {"operation": "current", "location": "Schwerin"}}'
+                )
+
+        mock_model.return_value = CapturingModel()
+
+        tool = FakeTool("weather_tool")
+        state = {
+            "messages": [
+                {"role": "user", "content": "where is Schwerin?"},
+                {"role": "assistant", "content": "Schwerin is in Mecklenburg-Vorpommern, Germany."},
+                {"role": "user", "content": "and the weather there?"},
+            ],
+            "candidate_tools": [{"tool": tool, "name": "weather_tool", "score": 0.92}],
+            "tool_results": {},
+            "tool_execution_results": {},
+            "routing_metadata": {},
+            "tool_calling_mode": "structured",
+            "tool_calling_mode_reason": "model_config_non_native_mode",
+            "language": "en",
+            "prefilter_intents": {"mentions_weather": True},
+            "user_settings": {},
+        }
+
+        node_call_tools_structured(state)
+
+        history_text = " ".join(m.content for m in captured if hasattr(m, "content"))
+        assert "Schwerin" in history_text, "Prior-turn city must be forwarded to the tool-calling model"
+        # The latest user turn is still present and last among the human turns.
+        assert "and the weather there?" in history_text

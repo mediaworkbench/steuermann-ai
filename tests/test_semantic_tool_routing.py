@@ -12,6 +12,7 @@ from universal_agentic_framework.orchestration.graph_builder import (
     node_call_tools_structured,
     node_call_tools_react,
     node_generate_response,
+    _recent_history_for_tool_calling,
 )
 from universal_agentic_framework.orchestration.helpers.embedding_provider import (
     clear_embedding_cache as _clear_embedding_cache,
@@ -677,6 +678,83 @@ def test_prefilter_spread_gate_keeps_clear_winner_over_bunched_runners_up(
     result = node_prefilter_tools(state)
     candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
     assert "alpha_tool" in candidate_names, "clear winner should survive the spread gate"
+
+
+def test_recent_history_for_tool_calling_excludes_current_turn_and_summaries():
+    """The helper returns prior user/assistant turns, dropping the latest turn and summaries."""
+    messages = [
+        {"role": "user", "content": "where is Schwerin?"},
+        {"role": "assistant", "content": "Schwerin is in Mecklenburg-Vorpommern."},
+        {"role": "system", "type": "summary", "content": "earlier digest"},
+        {"role": "user", "content": "and the weather there?"},  # current turn — must be dropped
+    ]
+    out = _recent_history_for_tool_calling(messages)
+    contents = [m.content for m in out]
+    assert contents == [
+        "where is Schwerin?",
+        "Schwerin is in Mecklenburg-Vorpommern.",
+    ]
+    # Latest turn and the summary digest are excluded.
+    assert "and the weather there?" not in contents
+    assert "earlier digest" not in contents
+
+
+def test_recent_history_for_tool_calling_is_bounded_and_truncated():
+    """The window is capped to 6 messages and each message is truncated."""
+    long = "x" * 5000
+    messages = [{"role": "user", "content": f"m{i}"} for i in range(10)]
+    messages.append({"role": "user", "content": long})
+    messages.append({"role": "user", "content": "current"})  # dropped as current turn
+    out = _recent_history_for_tool_calling(messages)
+    assert len(out) == 6
+    assert all(len(m.content) <= 1500 for m in out)
+
+
+@patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
+@patch("universal_agentic_framework.orchestration.graph_builder._get_routing_embedding_provider")
+@patch("universal_agentic_framework.orchestration.graph_builder.load_core_config")
+def test_prefilter_spread_gate_keeps_override_tool_in_near_tie(
+    mock_config,
+    mock_embedding_provider,
+    mock_score_similarity,
+):
+    """An override-protected tool (weather) must survive the spread gate in a boosted near-tie.
+
+    Regression for the broad "how warm is it today" case: both weather_tool and datetime_tool
+    fire intents and get the +0.2 boost, landing within min_spread of each other (0.882 vs
+    0.872). The spread gate would clear *all* candidates, leaving the model with no live tool,
+    so it answered "I don't have real-time weather data". weather_tool's explicit intent now
+    protects it through the gate so Layer 2 can call it.
+    """
+    set_mock_config(mock_config, similarity_threshold=0.55, top_k=5)
+
+    fake_provider = Mock()
+    fake_provider.encode.return_value = np.array([0.1, 0.2, 0.3])
+    mock_embedding_provider.return_value = (fake_provider, "fake-embedding")
+
+    # Base scores (pre-boost). weather + datetime both get +0.2 → 0.882 / 0.872 (spread 0.01).
+    scores = {
+        "weather_tool": 0.682,
+        "datetime_tool": 0.672,
+        "calculator_tool": 0.50,
+        "file_ops_tool": 0.50,
+        "map_tool": 0.50,
+    }
+    mock_score_similarity.side_effect = lambda **kw: scores[kw["tool_name"]]
+
+    loaded_tools = [FakeTool(name, f"description for {name}") for name in scores]
+
+    state = {
+        "messages": [{"role": "user", "content": "how warm is it today in germany"}],
+        "loaded_tools": loaded_tools,
+        "language": "en",
+    }
+
+    result = node_prefilter_tools(state)
+    candidate_names = [c["name"] for c in result.get("candidate_tools", [])]
+    assert "weather_tool" in candidate_names, "weather intent must survive the spread-gate near-tie"
+    # The bunched, unprotected runner-up is still correctly dropped.
+    assert "datetime_tool" not in candidate_names
 
 
 @patch("universal_agentic_framework.orchestration.graph_builder.score_tool_similarity")
