@@ -10,11 +10,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from universal_agentic_framework.heartbeat.task import HeartbeatTask
+from universal_agentic_framework.heartbeat.task import HeartbeatTask, TickContext
 
 
 class HealthHeartbeatTask(HeartbeatTask):
-    """Records an ``"alive"`` tick on every beat (no external integration)."""
+    """Records an ``"alive"`` tick on every beat (no external integration).
 
-    async def observe(self) -> Any:
-        return {"alive": True, "observed_at": datetime.now(timezone.utc).isoformat()}
+    Works as both a ``global`` liveness probe and a ``per_user`` fan-out demo —
+    the run row's ``user_id`` (not the observation) is what makes it per-user.
+    """
+
+    async def observe(self, ctx: TickContext) -> Any:
+        return {
+            "alive": True,
+            "user_id": ctx.user_id,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }

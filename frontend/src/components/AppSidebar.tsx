@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
+  Activity,
   ArrowRight,
   BarChart3,
   Brain,
@@ -253,6 +254,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       >
                         <Users />
                         <span>Users</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={t("adminPage.heartbeatSection")}
+                        onClick={() => router.push("/admin/heartbeat")}
+                        className="justify-start"
+                      >
+                        <Activity />
+                        <span>{t("adminPage.heartbeatSection")}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}

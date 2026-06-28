@@ -1,7 +1,9 @@
 # Changelog
 
-## [0.4.8] — intent-detection fixes, tool-routing polish & auth hardening
+## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
+- feature: heartbeat tasks can now run per user — a task marked `per_user` fans out once per active user each beat, drained by a bounded worker pool so a large user set never blocks the beat; global system tasks still run once. Run history is per-user and pruned on a retention window.
+- feature: admin heartbeat inspector on its own `/admin/heartbeat` page (linked from the sidebar) — see the configured tasks (scope, cooldown, last run) and the run log (last 50 beats, filterable by task, user, and status) with error detail on expand.
 - security: `POST /api/admin/reset-all-databases` now requires an administrator — it previously inherited only the shared-secret guard, so any authenticated user could wipe every user's data through the proxy.
 - security: login and change-password are now rate-limited (5/min and 10/min, IP-keyed for unauthenticated callers) to blunt password brute-forcing.
 - security: the API perimeter now fails closed — with authentication enabled but `CHAT_ACCESS_TOKEN` unset, requests are rejected (503) and a startup CRITICAL is logged, instead of leaving identity headers spoofable.

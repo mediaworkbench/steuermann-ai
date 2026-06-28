@@ -428,7 +428,7 @@ Tool selection uses a three-tier architecture:
 
 ### Heartbeat Configuration
 
-The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and runs each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
+The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and enqueues each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
 
 ```yaml
 heartbeat:
@@ -437,8 +437,13 @@ heartbeat:
   tasks:
     - name: health           # unique task id (also used for run-history + cooldown)
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: global          # "global" = once per beat; "per_user" = once per active user
       cooldown_seconds: 0     # skip a beat if the last ok run is within this window
       enabled: true           # omit/false to skip loading this task
+    - name: user_pulse        # demonstrates per-user fan-out
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: per_user
+      cooldown_seconds: 300   # set ≥ the beat interval for per-user tasks
 ```
 
 | Key | Meaning |
@@ -446,9 +451,12 @@ heartbeat:
 | `enabled` | Whether the scheduler runs for this profile (the only enable switch — the rate alone is admin-configurable). |
 | `default_rate_minutes` | Beat interval used when no admin override is set. |
 | `tasks[].type` | `module.path:ClassName` entry point of a `HeartbeatTask` subclass. |
-| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran successfully more recently than this. |
+| `tasks[].scope` | `global` (default) runs the task once per beat; `per_user` fans it out once per active user each beat, run with that user's context (the run record carries the `user_id`). |
+| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran (for that user, when `per_user`) more recently than this. Set `per_user` cooldowns ≥ the beat interval so re-enqueues during a drain don't double-run a user. |
 
-**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every beat is recorded in the `heartbeat_runs` table for observability. See [Technical Architecture §9.5](technical_architecture.md).
+**Fan-out + queue.** A beat is a non-blocking enqueuer: `global` tasks enqueue one item, `per_user` tasks one per active user. A bounded worker pool drains the in-process queue — the worker count throttles per-user work so a large user set never blocks the beat or hammers the LLM. The queue is in-process (not durable): on a restart mid-drain the next beat re-enqueues, and per-user cooldown prevents doubles.
+
+**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every tick is recorded in the `heartbeat_runs` table (per task **and** user) and pruned on a retention window; admins inspect the configured tasks and the run log (last 50 beats, filterable by task/user/status) on the dedicated `/admin/heartbeat` page (`GET /api/admin/heartbeat/tasks` and `/runs`). See [Technical Architecture §9.5](technical_architecture.md).
 
 ---
 

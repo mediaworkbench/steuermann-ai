@@ -6,7 +6,6 @@ import {
   fetchLLMCapabilities,
   fetchSystemConfig,
   fetchRoleTools,
-  fetchHeartbeatRate,
   resetAllDatabases,
 } from "@/lib/api";
 
@@ -18,6 +17,8 @@ jest.mock("@/lib/api", () => ({
   updateRoleTools: jest.fn(),
   fetchHeartbeatRate: jest.fn(),
   updateHeartbeatRate: jest.fn(),
+  fetchHeartbeatTasks: jest.fn(),
+  fetchHeartbeatRuns: jest.fn(),
   triggerReingestAllDocuments: jest.fn(),
   resetAllDatabases: jest.fn(),
 }));
@@ -26,7 +27,6 @@ const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchSystemConfig = fetchSystemConfig as jest.MockedFunction<typeof fetchSystemConfig>;
 const mockFetchLLMCapabilities = fetchLLMCapabilities as jest.MockedFunction<typeof fetchLLMCapabilities>;
 const mockFetchRoleTools = fetchRoleTools as jest.MockedFunction<typeof fetchRoleTools>;
-const mockFetchHeartbeatRate = fetchHeartbeatRate as jest.MockedFunction<typeof fetchHeartbeatRate>;
 const mockResetAllDatabases = resetAllDatabases as jest.MockedFunction<typeof resetAllDatabases>;
 
 const BASE_SETTINGS = {
@@ -88,14 +88,6 @@ describe("AdminPanel", () => {
         { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
       ],
       roles: { user: ["web_search_mcp"], researcher: [] },
-    });
-
-    mockFetchHeartbeatRate.mockResolvedValue({
-      heartbeat_rate_minutes: 5,
-      default_rate_minutes: 5,
-      enabled: true,
-      source: "default",
-      last_run: null,
     });
 
     mockFetchSystemConfig.mockResolvedValue({

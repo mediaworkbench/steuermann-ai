@@ -161,6 +161,27 @@ export type Messages = {
     heartbeatSaved: string;
     heartbeatSaveFailed: string;
     heartbeatLoadFailed: string;
+    heartbeatRateTitle: string;
+    heartbeatTasksTitle: string;
+    heartbeatTasksHelp: string;
+    heartbeatScopeGlobal: string;
+    heartbeatScopePerUser: string;
+    heartbeatTaskDisabled: string;
+    heartbeatCooldownLabel: string;
+    heartbeatNoTasks: string;
+    heartbeatLogTitle: string;
+    heartbeatLogHelp: string;
+    heartbeatColTask: string;
+    heartbeatColUser: string;
+    heartbeatColStatus: string;
+    heartbeatColDuration: string;
+    heartbeatColWhen: string;
+    heartbeatFilterAllTasks: string;
+    heartbeatFilterAllUsers: string;
+    heartbeatFilterAllStatuses: string;
+    heartbeatGlobalUser: string;
+    heartbeatNoRuns: string;
+    heartbeatRefresh: string;
   };
   settingsPage: {
     title: string;
@@ -835,6 +856,27 @@ export const messages: Record<Locale, Messages> = {
       heartbeatSaved: "Heartbeat rate updated",
       heartbeatSaveFailed: "Failed to update heartbeat rate",
       heartbeatLoadFailed: "Failed to load heartbeat settings",
+      heartbeatRateTitle: "Beat rate",
+      heartbeatTasksTitle: "Configured tasks",
+      heartbeatTasksHelp: "Tasks run on each beat. Per-user tasks fan out once per active user.",
+      heartbeatScopeGlobal: "Global",
+      heartbeatScopePerUser: "Per-user",
+      heartbeatTaskDisabled: "Disabled",
+      heartbeatCooldownLabel: "Cooldown {seconds}s",
+      heartbeatNoTasks: "No tasks configured.",
+      heartbeatLogTitle: "Run log",
+      heartbeatLogHelp: "Most recent beats, newest first. Expand an error row for details.",
+      heartbeatColTask: "Task",
+      heartbeatColUser: "User",
+      heartbeatColStatus: "Status",
+      heartbeatColDuration: "Duration",
+      heartbeatColWhen: "When",
+      heartbeatFilterAllTasks: "All tasks",
+      heartbeatFilterAllUsers: "All users",
+      heartbeatFilterAllStatuses: "All statuses",
+      heartbeatGlobalUser: "—",
+      heartbeatNoRuns: "No beats recorded yet.",
+      heartbeatRefresh: "Refresh",
     },
     settingsPage: {
       title: "Settings",
@@ -1507,6 +1549,27 @@ export const messages: Record<Locale, Messages> = {
       heartbeatSaved: "Heartbeat-Takt aktualisiert",
       heartbeatSaveFailed: "Heartbeat-Takt konnte nicht aktualisiert werden",
       heartbeatLoadFailed: "Heartbeat-Einstellungen konnten nicht geladen werden",
+      heartbeatRateTitle: "Taktrate",
+      heartbeatTasksTitle: "Konfigurierte Aufgaben",
+      heartbeatTasksHelp: "Aufgaben laufen bei jedem Takt. Pro-Benutzer-Aufgaben fächern pro aktivem Benutzer auf.",
+      heartbeatScopeGlobal: "Global",
+      heartbeatScopePerUser: "Pro Benutzer",
+      heartbeatTaskDisabled: "Deaktiviert",
+      heartbeatCooldownLabel: "Abklingzeit {seconds}s",
+      heartbeatNoTasks: "Keine Aufgaben konfiguriert.",
+      heartbeatLogTitle: "Ausführungsprotokoll",
+      heartbeatLogHelp: "Neueste Takte zuerst. Fehlerzeile zum Aufklappen der Details anklicken.",
+      heartbeatColTask: "Aufgabe",
+      heartbeatColUser: "Benutzer",
+      heartbeatColStatus: "Status",
+      heartbeatColDuration: "Dauer",
+      heartbeatColWhen: "Wann",
+      heartbeatFilterAllTasks: "Alle Aufgaben",
+      heartbeatFilterAllUsers: "Alle Benutzer",
+      heartbeatFilterAllStatuses: "Alle Status",
+      heartbeatGlobalUser: "—",
+      heartbeatNoRuns: "Noch keine Takte aufgezeichnet.",
+      heartbeatRefresh: "Aktualisieren",
     },
     settingsPage: {
       title: "Einstellungen",

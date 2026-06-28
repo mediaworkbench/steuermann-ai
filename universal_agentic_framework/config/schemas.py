@@ -388,10 +388,16 @@ class PromptsSettings(BaseModel):
 
 
 class HeartbeatTaskSettings(BaseModel):
-    """A single task run on every heartbeat beat."""
+    """A single task run on every heartbeat beat.
+
+    ``scope`` controls fan-out: ``global`` tasks run once per beat (system-wide
+    jobs); ``per_user`` tasks are enqueued once per active user each beat and run
+    with that user's context.
+    """
 
     name: str = Field(..., min_length=1)
     type: str = Field(..., min_length=1)  # "module.path:ClassName" entry point
+    scope: Literal["global", "per_user"] = "global"
     cooldown_seconds: int = Field(default=0, ge=0)
     enabled: bool = True
 

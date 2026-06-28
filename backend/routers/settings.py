@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import yaml
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.db import (
@@ -626,6 +626,109 @@ def update_heartbeat_rate(
     store = _get_global_settings_store(request)
     store.set_setting(HEARTBEAT_RATE_SETTING_KEY, int(payload.heartbeat_rate_minutes))
     return _heartbeat_rate_snapshot(request)
+
+
+# --- Heartbeat inspector (admin) ---------------------------------------------
+
+MAX_HEARTBEAT_RUNS = 200
+
+
+class HeartbeatTaskInfo(BaseModel):
+    name: str
+    type: str
+    scope: str  # "global" | "per_user"
+    cooldown_seconds: int
+    enabled: bool
+    last_run: Optional[Dict[str, Any]] = None
+
+
+class HeartbeatTasksResponse(BaseModel):
+    tasks: List[HeartbeatTaskInfo]
+
+
+class HeartbeatRun(BaseModel):
+    task_name: str
+    user_id: Optional[str] = None
+    status: str
+    duration_ms: int
+    fired_at: Optional[str] = None
+    detail: Dict[str, Any] = {}
+
+
+class HeartbeatRunsResponse(BaseModel):
+    runs: List[HeartbeatRun]
+
+
+def _get_heartbeat_run_store(request: Request) -> Optional[HeartbeatRunStore]:
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None:
+        return None
+    try:
+        return HeartbeatRunStore(db_pool)
+    except Exception:  # pragma: no cover - best-effort observability
+        return None
+
+
+def _serialize_run(row: Dict[str, Any]) -> Dict[str, Any]:
+    fired_at = row.get("fired_at")
+    return {
+        "task_name": row.get("task_name"),
+        "user_id": row.get("user_id"),
+        "status": row.get("status"),
+        "duration_ms": int(row.get("duration_ms") or 0),
+        "fired_at": fired_at.isoformat() if hasattr(fired_at, "isoformat") else fired_at,
+        "detail": row.get("detail") or {},
+    }
+
+
+@router.get("/admin/heartbeat/tasks", response_model=HeartbeatTasksResponse)
+def list_heartbeat_tasks(
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: the configured heartbeat tasks and each task's most recent run."""
+    hb = getattr(load_core_config(), "heartbeat", None)
+    configured = list(hb.tasks) if hb is not None else []
+    store = _get_heartbeat_run_store(request)
+    tasks: List[Dict[str, Any]] = []
+    for tcfg in configured:
+        last_run = None
+        if store is not None:
+            try:
+                rows = store.recent_runs_all(1, task_name=tcfg.name)
+                last_run = _serialize_run(rows[0]) if rows else None
+            except Exception:  # pragma: no cover - best-effort
+                last_run = None
+        tasks.append(
+            {
+                "name": tcfg.name,
+                "type": tcfg.type,
+                "scope": tcfg.scope,
+                "cooldown_seconds": int(tcfg.cooldown_seconds),
+                "enabled": bool(tcfg.enabled),
+                "last_run": last_run,
+            }
+        )
+    return {"tasks": tasks}
+
+
+@router.get("/admin/heartbeat/runs", response_model=HeartbeatRunsResponse)
+def list_heartbeat_runs(
+    request: Request,
+    task: Optional[str] = Query(default=None),
+    user: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=MAX_HEARTBEAT_RUNS),
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: the heartbeat run log, newest first, optionally filtered by task/user."""
+    store = _get_heartbeat_run_store(request)
+    if store is None:
+        return {"runs": []}
+    try:
+        rows = store.recent_runs_all(int(limit), task_name=task, user_id=user)
+    except Exception:  # pragma: no cover - best-effort observability
+        return {"runs": []}
+    return {"runs": [_serialize_run(row) for row in rows]}
 
 
 @router.get("/models")

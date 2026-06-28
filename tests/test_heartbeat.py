@@ -19,14 +19,18 @@ from universal_agentic_framework.config.schemas import (
     HeartbeatSettings,
     HeartbeatTaskSettings,
 )
-from universal_agentic_framework.heartbeat.task import HeartbeatTask
+from universal_agentic_framework.heartbeat.task import HeartbeatTask, TickContext
 from universal_agentic_framework.heartbeat.scheduler import (
     BEAT_JOB_ID,
     CONTROL_JOB_ID,
+    PRUNE_EVERY_CONTROL_TICKS,
+    QUEUE_HIGH_WATER,
     HeartbeatScheduler,
     _coerce_rate,
     _trigger_minutes,
 )
+
+_HEALTH = "universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask"
 
 
 # --------------------------------------------------------------------------- #
@@ -35,15 +39,34 @@ from universal_agentic_framework.heartbeat.scheduler import (
 class _FakeRunStore:
     def __init__(self, recent: Optional[List[Dict[str, Any]]] = None) -> None:
         self.records: List[Dict[str, Any]] = []
+        self.pruned_cutoffs: List[Any] = []
         self._recent = list(recent or [])
 
-    def record_run(self, *, task_name, status, duration_ms=0, detail=None):
+    def record_run(self, *, task_name, status, duration_ms=0, detail=None, user_id=None):
         self.records.append(
-            {"task_name": task_name, "status": status, "duration_ms": duration_ms, "detail": detail or {}}
+            {
+                "task_name": task_name,
+                "user_id": user_id,
+                "status": status,
+                "duration_ms": duration_ms,
+                "detail": detail or {},
+            }
         )
 
-    def recent_runs(self, task_name, limit=5):
+    def recent_runs(self, task_name, limit=5, *, user_id=None):
         return list(self._recent)[:limit]
+
+    def prune_runs(self, *, cutoff):
+        self.pruned_cutoffs.append(cutoff)
+        return 0
+
+
+class _FakeUserStore:
+    def __init__(self, user_ids: List[str]) -> None:
+        self._user_ids = list(user_ids)
+
+    def get_active_user_ids(self) -> List[str]:
+        return list(self._user_ids)
 
 
 class _FakeSettingsStore:
@@ -87,15 +110,15 @@ async def test_tick_runs_phases_in_order():
             super().__init__(**kw)
             self.calls: List[str] = []
 
-        async def observe(self):
+        async def observe(self, ctx):
             self.calls.append("observe")
             return {"x": 1}
 
-        async def reason(self, observations):
+        async def reason(self, ctx, observations):
             self.calls.append("reason")
             return observations
 
-        async def act(self, decision):
+        async def act(self, ctx, decision):
             self.calls.append("act")
 
     task = _Recording(name="t", run_store=_FakeRunStore())
@@ -110,10 +133,10 @@ async def test_observe_failure_records_error_and_skips_act():
             super().__init__(**kw)
             self.acted = False
 
-        async def observe(self):
+        async def observe(self, ctx):
             raise RuntimeError("boom")
 
-        async def act(self, decision):
+        async def act(self, ctx, decision):
             self.acted = True
 
     store = _FakeRunStore()
@@ -146,6 +169,32 @@ async def test_cooldown_elapsed_runs_again():
 async def test_tick_without_store_still_ok():
     result = await HeartbeatTask(name="t").tick()
     assert result["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_tick_records_user_id_for_per_user_run():
+    store = _FakeRunStore()
+    result = await HeartbeatTask(name="t", run_store=store).tick(TickContext(user_id="u42"))
+    assert result["status"] == "ok"
+    assert store.records[-1]["user_id"] == "u42"
+
+
+@pytest.mark.asyncio
+async def test_per_user_cooldown_isolation():
+    """A recent ok run for one user must not put a different user on cooldown."""
+
+    class _PerUserStore(_FakeRunStore):
+        def recent_runs(self, task_name, limit=5, *, user_id=None):
+            if user_id == "busy":
+                return [{"status": "ok", "fired_at": datetime.now(timezone.utc)}]
+            return []
+
+    store = _PerUserStore()
+    task = HeartbeatTask(name="t", cooldown_seconds=300, run_store=store, scope="per_user")
+    busy = await task.tick(TickContext(user_id="busy"))
+    fresh = await task.tick(TickContext(user_id="fresh"))
+    assert busy["status"] == "skipped"
+    assert fresh["status"] == "ok"
 
 
 # --------------------------------------------------------------------------- #
@@ -241,6 +290,96 @@ async def test_control_reschedules_only_on_change():
 
 
 # --------------------------------------------------------------------------- #
+# Per-user fan-out + queue
+# --------------------------------------------------------------------------- #
+def _fanout_config() -> HeartbeatSettings:
+    return _config(
+        tasks=[
+            HeartbeatTaskSettings(name="health", type=_HEALTH, scope="global"),
+            HeartbeatTaskSettings(name="pulse", type=_HEALTH, scope="per_user"),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_beat_fans_out_per_user_and_drains():
+    run_store = _FakeRunStore()
+    sched = HeartbeatScheduler(
+        _fanout_config(),
+        run_store=run_store,
+        settings_store=_FakeSettingsStore(None),
+        user_store=_FakeUserStore(["u1", "u2", "u3"]),
+        build_default_stores=False,
+    )
+    sched.start()
+    try:
+        await sched._beat()
+        await sched._queue.join()  # wait for the worker pool to drain
+    finally:
+        sched.stop()
+
+    # 1 global + 3 per-user = 4 recorded runs.
+    assert len(run_store.records) == 4
+    per_user = sorted(r["user_id"] for r in run_store.records if r["user_id"] is not None)
+    assert per_user == ["u1", "u2", "u3"]
+    globals_ = [r for r in run_store.records if r["user_id"] is None]
+    assert len(globals_) == 1 and globals_[0]["task_name"] == "health"
+
+
+@pytest.mark.asyncio
+async def test_beat_skips_when_backlogged():
+    sched = HeartbeatScheduler(
+        _fanout_config(),
+        run_store=_FakeRunStore(),
+        settings_store=_FakeSettingsStore(None),
+        user_store=_FakeUserStore(["u1"]),
+        build_default_stores=False,
+    )
+    sched._tasks = sched._build_tasks()
+    # Saturate the queue past the high-water mark (no workers running to drain it).
+    for _ in range(QUEUE_HIGH_WATER):
+        sched._queue.put_nowait((sched._tasks[0], None))
+    await sched._beat()
+    assert sched._queue.qsize() == QUEUE_HIGH_WATER  # nothing new enqueued
+
+
+@pytest.mark.asyncio
+async def test_per_user_task_without_user_store_enqueues_nothing():
+    sched = HeartbeatScheduler(
+        _config(tasks=[HeartbeatTaskSettings(name="pulse", type=_HEALTH, scope="per_user")]),
+        run_store=_FakeRunStore(),
+        settings_store=_FakeSettingsStore(None),
+        user_store=None,
+        build_default_stores=False,
+    )
+    sched._tasks = sched._build_tasks()
+    await sched._beat()
+    assert sched._queue.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_control_prunes_periodically():
+    run_store = _FakeRunStore()
+    sched = HeartbeatScheduler(
+        _config(rate=5),
+        run_store=run_store,
+        settings_store=_FakeSettingsStore(None),
+        build_default_stores=False,
+    )
+    sched.start()
+    try:
+        # Two ticks short of the cadence: first control tick doesn't prune, the
+        # next (cadence) tick prunes exactly once.
+        sched._control_ticks = PRUNE_EVERY_CONTROL_TICKS - 2
+        await sched._control()
+        assert run_store.pruned_cutoffs == []
+        await sched._control()
+        assert len(run_store.pruned_cutoffs) == 1
+    finally:
+        sched.stop()
+
+
+# --------------------------------------------------------------------------- #
 # Config parsing
 # --------------------------------------------------------------------------- #
 def test_heartbeat_settings_parse():
@@ -316,3 +455,33 @@ def test_heartbeat_rate_endpoints_require_admin(monkeypatch):
     client = _make_client(monkeypatch, role="user")
     assert client.get("/api/admin/settings/heartbeat-rate").status_code == 403
     assert client.put("/api/admin/settings/heartbeat-rate", json={"heartbeat_rate_minutes": 5}).status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# Inspector endpoints
+# --------------------------------------------------------------------------- #
+def test_list_heartbeat_tasks_returns_configured(monkeypatch):
+    body = _make_client(monkeypatch).get("/api/admin/heartbeat/tasks").json()
+    names = {t["name"]: t for t in body["tasks"]}
+    # starter profile configures a global health task + a per-user demo task.
+    assert names["health"]["scope"] == "global"
+    assert names["user_pulse"]["scope"] == "per_user"
+    assert names["health"]["last_run"] is None  # no db_pool in the test client
+
+
+def test_list_heartbeat_runs_empty_without_pool(monkeypatch):
+    resp = _make_client(monkeypatch).get("/api/admin/heartbeat/runs")
+    assert resp.status_code == 200
+    assert resp.json() == {"runs": []}
+
+
+def test_heartbeat_runs_limit_validated(monkeypatch):
+    client = _make_client(monkeypatch)
+    assert client.get("/api/admin/heartbeat/runs?limit=0").status_code == 422
+    assert client.get("/api/admin/heartbeat/runs?limit=999").status_code == 422
+
+
+def test_heartbeat_inspector_endpoints_require_admin(monkeypatch):
+    client = _make_client(monkeypatch, role="user")
+    assert client.get("/api/admin/heartbeat/tasks").status_code == 403
+    assert client.get("/api/admin/heartbeat/runs").status_code == 403
