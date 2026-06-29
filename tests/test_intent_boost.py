@@ -3,6 +3,7 @@
 from universal_agentic_framework.orchestration.helpers.tool_scoring import (
     intent_boost_applies,
     apply_intent_override_floor,
+    intent_override_signalled,
 )
 
 
@@ -10,7 +11,7 @@ def _intents(**overrides):
     """A zeroed intents dict with only the given keys turned on."""
     base = {
         "mentions_datetime": False, "mentions_calculation": False, "url_in_query": None,
-        "mentions_web_search": False, "image_url_in_query": False, "image_in_query": False,
+        "mentions_web_search": False, "image_in_query": False,
         "mentions_ocr": False, "mentions_document": False, "mentions_chart": False,
         "mentions_image_metadata": False, "mentions_barcode": False, "mentions_map": False,
         "mentions_weather": False, "mentions_csv_analysis": False,
@@ -43,7 +44,7 @@ def test_vision_tool_requires_image_and_keyword():
 
 def test_analyze_image_matches_on_attachment_alone():
     assert _applies("analyze_image_tool", _intents(), img=True)
-    assert _applies("analyze_image_tool", _intents(image_url_in_query=True))
+    assert _applies("analyze_image_tool", _intents(image_in_query=True))
     assert not _applies("analyze_image_tool", _intents())
 
 
@@ -112,3 +113,20 @@ def test_override_floor_only_for_eligible_tools():
     )
     assert applied_w is True
     assert sim_w == 0.71
+
+
+# ── intent_override_signalled ─────────────────────────────────────────
+
+def test_override_signalled_true_when_intent_set_regardless_of_score():
+    # Unlike the floor, this fires for an already-high score (the gate-protection case).
+    assert intent_override_signalled("weather_tool", _intents(mentions_weather=True)) is True
+    assert intent_override_signalled("map_tool", _intents(mentions_map=True)) is True
+    assert intent_override_signalled("web_search_mcp", _intents(mentions_web_search=True)) is True
+
+
+def test_override_signalled_false_without_intent():
+    assert intent_override_signalled("weather_tool", _intents(mentions_weather=False)) is False
+
+
+def test_override_signalled_false_for_non_eligible_tool():
+    assert intent_override_signalled("datetime_tool", _intents(mentions_datetime=True)) is False

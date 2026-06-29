@@ -116,15 +116,27 @@ tool_routing:
   max_retries: 2
   min_top_score: 0.7
   min_spread: 0.10
+  force_tool_use_score: 0.75
 
 # Heartbeat: a virtual cron that wakes on a schedule and runs each task's tick
 # (observe → reason → act). Phases are no-op scaffolding for now. The beat rate
 # is admin-configurable at runtime (/admin); default_rate_minutes is the
 # fallback when no admin override is set.
+#
+# scope: "global" runs the task once per beat (system-wide). "per_user" fans the
+# task out once per active user each beat, through a queued worker pool, running
+# with that user's context. Inspect tasks + the run log on /admin.
 heartbeat:
   enabled: true
-  default_rate_minutes: 5
+  default_rate_minutes: 30
   tasks:
     - name: health
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: global
       cooldown_seconds: 0
+    # Demonstrates per-user fan-out: one run per active user each beat. cooldown
+    # ≥ the beat interval so re-enqueues during a drain don't double-run a user.
+    - name: user_pulse
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: per_user
+      cooldown_seconds: 300

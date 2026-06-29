@@ -9,7 +9,6 @@ import { DangerSelectionActions } from "@/components/product/DangerSelectionActi
 import { DiagnosticsSectionCard } from "@/components/product/DiagnosticsSectionCard";
 import { RoleModelSelectionSection } from "@/components/product/RoleModelSelectionSection";
 import { RoleToolPermissionsSection } from "@/components/product/RoleToolPermissionsSection";
-import { HeartbeatSettingsSection } from "@/components/product/HeartbeatSettingsSection";
 import { buildCapabilitiesTableLabels } from "@/components/product/buildCapabilitiesTableLabels";
 import { updatePreferredModelSelection } from "@/components/product/modelSelection";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -344,8 +343,7 @@ export function AdminPanel({ settings, loading, onSave }: AdminPanelProps) {
       {/* Per-role tool access (self-contained: loads + saves its own state) */}
       <RoleToolPermissionsSection />
 
-      {/* Heartbeat beat rate (self-contained: loads + saves its own state) */}
-      <HeartbeatSettingsSection />
+      {/* Heartbeat moved to its own page: /admin/heartbeat */}
 
       {/* Danger Zone */}
       <Card className="md:col-span-2 !ring-destructive/30">

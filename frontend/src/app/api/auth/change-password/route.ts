@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     "x-authenticated-user-id": session.userId,
     "x-authenticated-username": session.username,
     "x-authenticated-role": session.role,
+    "x-authenticated-token-version": String(session.tokenVersion ?? 0),
   };
   if (CHAT_ACCESS_TOKEN.trim()) {
     headers["x-chat-token"] = CHAT_ACCESS_TOKEN.trim();
@@ -64,8 +65,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(detail, { status: upstream.status });
   }
 
-  // Re-mint the session cookie so the must-change flag is cleared immediately.
-  const token = await createSessionToken({ ...session, mustChangePassword: false });
+  // The backend bumped token_version (logging out other sessions); re-mint THIS cookie with
+  // the new version so the current session survives, and clear the must-change flag.
+  const result = (await upstream.json().catch(() => ({}))) as { token_version?: number };
+  const tokenVersion =
+    typeof result.token_version === "number" ? result.token_version : session.tokenVersion;
+  const token = await createSessionToken({ ...session, mustChangePassword: false, tokenVersion });
   const response = NextResponse.json({ ok: true });
   response.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
   return response;

@@ -243,6 +243,16 @@ async def lifespan(app: FastAPI):
         },
     )
 
+    # Fail-loud on the auth misconfig that would otherwise leave the host-published
+    # FastAPI port open to spoofed identity headers (require_api_access also fails closed).
+    if os.getenv("AUTH_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on") and not os.getenv(
+        "CHAT_ACCESS_TOKEN", ""
+    ).strip():
+        logger.critical(
+            "AUTH_ENABLED=true but CHAT_ACCESS_TOKEN is unset — the API perimeter is "
+            "misconfigured and all requests will be rejected (503). Set CHAT_ACCESS_TOKEN."
+        )
+
     db_pool = init_db_pool()
     app.state.db_pool = db_pool
     app.state.settings_store = SettingsStore(db_pool)

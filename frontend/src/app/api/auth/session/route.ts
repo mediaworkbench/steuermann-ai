@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       "x-authenticated-user-id": session.userId,
       "x-authenticated-username": session.username,
       "x-authenticated-role": session.role,
+      "x-authenticated-token-version": String(session.tokenVersion ?? 0),
     };
     if (CHAT_ACCESS_TOKEN.trim()) {
       headers["x-chat-token"] = CHAT_ACCESS_TOKEN.trim();

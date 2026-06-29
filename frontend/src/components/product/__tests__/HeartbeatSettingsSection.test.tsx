@@ -1,0 +1,97 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { HeartbeatSettingsSection } from "@/components/product/HeartbeatSettingsSection";
+import { useI18n } from "@/hooks/useI18n";
+import {
+  fetchHeartbeatRate,
+  fetchHeartbeatTasks,
+  fetchHeartbeatRuns,
+} from "@/lib/api";
+
+jest.mock("@/hooks/useI18n");
+jest.mock("@/lib/api", () => ({
+  fetchHeartbeatRate: jest.fn(),
+  fetchHeartbeatTasks: jest.fn(),
+  fetchHeartbeatRuns: jest.fn(),
+  updateHeartbeatRate: jest.fn(),
+}));
+
+const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
+const mockFetchRate = fetchHeartbeatRate as jest.MockedFunction<typeof fetchHeartbeatRate>;
+const mockFetchTasks = fetchHeartbeatTasks as jest.MockedFunction<typeof fetchHeartbeatTasks>;
+const mockFetchRuns = fetchHeartbeatRuns as jest.MockedFunction<typeof fetchHeartbeatRuns>;
+
+const TASKS = [
+  { name: "health", type: "pkg:Health", scope: "global" as const, cooldown_seconds: 0, enabled: true, last_run: null },
+  { name: "user_pulse", type: "pkg:Health", scope: "per_user" as const, cooldown_seconds: 300, enabled: true, last_run: null },
+];
+
+const RUNS = [
+  { task_name: "health", user_id: null, status: "ok", duration_ms: 12, fired_at: "2026-06-28T10:00:00Z", detail: {} },
+  { task_name: "user_pulse", user_id: "u1", status: "ok", duration_ms: 11, fired_at: "2026-06-28T10:00:00Z", detail: {} },
+  { task_name: "user_pulse", user_id: "u2", status: "error", duration_ms: 30, fired_at: "2026-06-28T10:00:00Z", detail: { phase: "observe" } },
+];
+
+// Body rows (excludes the header row).
+function bodyRowCount(): number {
+  const table = screen.getByRole("table");
+  return within(table).getAllByRole("row").length - 1;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUseI18n.mockReturnValue({
+    locale: "en",
+    setLocale: jest.fn(),
+    t: (key: string) => key,
+    formatDate: () => "",
+    formatTime: () => "",
+    formatDateTime: () => "",
+    formatNumber: (v: number) => String(v),
+    formatRelativeTime: () => "1m ago",
+  } as unknown as ReturnType<typeof useI18n>);
+  mockFetchRate.mockResolvedValue({
+    heartbeat_rate_minutes: 5,
+    default_rate_minutes: 5,
+    enabled: true,
+    source: "default",
+    last_run: null,
+  });
+  mockFetchTasks.mockResolvedValue(TASKS);
+  mockFetchRuns.mockResolvedValue(RUNS);
+});
+
+test("renders the configured tasks (global + per-user) and the run log", async () => {
+  render(<HeartbeatSettingsSection />);
+  // Scope badges only appear in the configured-tasks list.
+  expect(await screen.findByText("adminPage.heartbeatScopePerUser")).toBeInTheDocument();
+  expect(screen.getByText("adminPage.heartbeatScopeGlobal")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+  expect(bodyRowCount()).toBe(3);
+  // Loads the last 50 once, with no server-side filter params.
+  expect(mockFetchRuns).toHaveBeenCalledWith({ limit: 50 });
+});
+
+test("status filter narrows the log client-side without refetching", async () => {
+  render(<HeartbeatSettingsSection />);
+  await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+  expect(bodyRowCount()).toBe(3);
+
+  fireEvent.change(screen.getByLabelText("adminPage.heartbeatColStatus"), {
+    target: { value: "error" },
+  });
+
+  expect(bodyRowCount()).toBe(1);
+  // No extra fetch — filtering is purely client-side over the loaded rows.
+  expect(mockFetchRuns).toHaveBeenCalledTimes(1);
+});
+
+test("user filter narrows the log to a single user", async () => {
+  render(<HeartbeatSettingsSection />);
+  await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+  fireEvent.change(screen.getByLabelText("adminPage.heartbeatColUser"), {
+    target: { value: "u1" },
+  });
+
+  expect(bodyRowCount()).toBe(1);
+});

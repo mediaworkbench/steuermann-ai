@@ -171,6 +171,11 @@ def update_user(
             must_change_password=True,
         )
 
+    # Any of these (role/status/password) changes the target's authorization — invalidate
+    # their existing sessions so the change takes effect immediately rather than on token expiry.
+    if body.role is not None or body.status is not None or body.reset_password:
+        store.bump_token_version(user_id)
+
     updated = store.get_user_by_id(user_id)
     result: dict = {"user": updated}
     if temporary_password is not None:

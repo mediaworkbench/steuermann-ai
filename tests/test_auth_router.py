@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from backend.auth import hash_password, verify_password
 from backend.routers.auth import router as auth_router
+from backend.single_user import require_api_access
 
 
 class FakeUserStore:
@@ -24,6 +25,7 @@ class FakeUserStore:
         self.by_username = by_username or {}
         self.by_id = by_id or {}
         self.set_calls: list[tuple[str, str, bool]] = []
+        self.bump_calls: list[str] = []
 
     def get_user_by_username_with_hash(self, username: str):
         return self.by_username.get(username)
@@ -43,6 +45,14 @@ class FakeUserStore:
             rec["must_change_password"] = must_change_password
         return rec is not None
 
+    def bump_token_version(self, user_id: str):
+        self.bump_calls.append(user_id)
+        rec = self.by_id.get(user_id) or self.by_username.get(user_id)
+        if rec is None:
+            return None
+        rec["token_version"] = int(rec.get("token_version") or 0) + 1
+        return rec["token_version"]
+
 
 def _make_client(monkeypatch, store, *, auth_enabled=False, username="patrick") -> TestClient:
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
@@ -54,6 +64,9 @@ def _make_client(monkeypatch, store, *, auth_enabled=False, username="patrick") 
     app = FastAPI()
     app.state.user_store = store
     app.include_router(auth_router)
+    # The shared-secret perimeter is covered directly in test_security; these tests target
+    # the router/identity logic, so neutralize it here (it now fails closed without a token).
+    app.dependency_overrides[require_api_access] = lambda: None
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -67,6 +80,7 @@ def _user_record(**overrides) -> Dict[str, Any]:
         "role_name": "administrator",
         "status": "active",
         "must_change_password": False,
+        "token_version": 0,
     }
     rec.update(overrides)
     return rec
@@ -116,6 +130,13 @@ class TestLogin:
         resp = client.post("/api/auth/login", json={"username": "patrick", "password": "correct-horse"})
         assert resp.status_code == 403
 
+    def test_login_returns_token_version(self, monkeypatch):
+        store = FakeUserStore(by_username={"patrick": _user_record(token_version=4)})
+        client = _make_client(monkeypatch, store)
+        resp = client.post("/api/auth/login", json={"username": "patrick", "password": "correct-horse"})
+        assert resp.status_code == 200
+        assert resp.json()["token_version"] == 4
+
 
 class TestMe:
     """GET /api/auth/me returns the DB-fresh identity (re-validated, role-authoritative)."""
@@ -161,9 +182,12 @@ class TestChangePassword:
             json={"current_password": "old-password", "new_password": "brand-new-pass"},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True}
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["token_version"] == 1  # bumped to log out other sessions
         assert store.set_calls and store.set_calls[0][0] == "patrick"
         assert store.set_calls[0][2] is False  # must_change_password cleared
+        assert store.bump_calls == ["patrick"]
         assert verify_password("brand-new-pass", rec["password_hash"])
 
     def test_change_password_via_trusted_headers(self, monkeypatch):
@@ -234,3 +258,64 @@ class TestChangePassword:
             json={"current_password": "old-password", "new_password": "old-password"},
         )
         assert resp.status_code == 400
+
+
+class TestLogout:
+    def _hdr(self, uid="u-1", role="user", username="alice", tv=0):
+        return {
+            "x-authenticated-user-id": uid,
+            "x-authenticated-username": username,
+            "x-authenticated-role": role,
+            "x-authenticated-token-version": str(tv),
+        }
+
+    def test_logout_bumps_token_version(self, monkeypatch):
+        rec = _user_record(user_id="u-1", username="alice", role_name="user", token_version=2)
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        resp = client.post("/api/auth/logout", headers=self._hdr(tv=2))
+        assert resp.status_code == 200
+        assert resp.json()["token_version"] == 3
+        assert store.bump_calls == ["u-1"]
+
+
+class TestTokenVersionRevocation:
+    """resolve_current_user rejects a token whose version is behind the DB (revoked)."""
+
+    def _hdr(self, tv, uid="u-1", role="user", username="alice"):
+        return {
+            "x-authenticated-user-id": uid,
+            "x-authenticated-username": username,
+            "x-authenticated-role": role,
+            "x-authenticated-token-version": str(tv),
+        }
+
+    def test_me_rejects_stale_token_version_401(self, monkeypatch):
+        rec = _user_record(user_id="u-1", username="alice", role_name="user", token_version=5)
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        # Cookie carries version 4; the DB has moved on to 5 → revoked.
+        resp = client.get("/api/auth/me", headers=self._hdr(tv=4))
+        assert resp.status_code == 401
+
+    def test_me_accepts_current_token_version(self, monkeypatch):
+        rec = _user_record(user_id="u-1", username="alice", role_name="user", token_version=5)
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        resp = client.get("/api/auth/me", headers=self._hdr(tv=5))
+        assert resp.status_code == 200
+
+    def test_me_legacy_token_without_version_header_ok(self, monkeypatch):
+        # Pre-feature cookie: no version header → defaults to 0, DB default 0 → still valid.
+        rec = _user_record(user_id="u-1", username="alice", role_name="user")
+        store = FakeUserStore(by_id={"u-1": rec})
+        client = _make_client(monkeypatch, store, auth_enabled=True)
+        resp = client.get(
+            "/api/auth/me",
+            headers={
+                "x-authenticated-user-id": "u-1",
+                "x-authenticated-username": "alice",
+                "x-authenticated-role": "user",
+            },
+        )
+        assert resp.status_code == 200

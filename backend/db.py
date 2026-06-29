@@ -189,6 +189,7 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
             password_hash TEXT,
             must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+            token_version INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -226,6 +227,10 @@ def _ensure_admin_tables(db_pool: DatabasePool) -> None:
             cur.execute(
                 "ALTER TABLE IF EXISTS users "
                 "ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;"
+            )
+            cur.execute(
+                "ALTER TABLE IF EXISTS users "
+                "ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;"
             )
         conn.commit()
 
@@ -619,6 +624,15 @@ class UserStore:
         
         return [_normalize_user_row(row) for row in rows], total
 
+    def get_active_user_ids(self) -> list[str]:
+        """Return the user_id of every active user (for heartbeat per-user fan-out)."""
+        statement = "SELECT user_id FROM users WHERE status = 'active' ORDER BY created_at;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        return [str(row["user_id"]) for row in rows if row.get("user_id")]
+
     def count_admins(self, active_only: bool = True) -> int:
         """Count users with the administrator role (active only by default)."""
         statement = """
@@ -638,7 +652,7 @@ class UserStore:
         """Get a specific user by ID."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.role_id, r.role_name, u.status,
-                   u.must_change_password, u.created_at, u.updated_at
+                   u.must_change_password, u.token_version, u.created_at, u.updated_at
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.user_id = %s;
@@ -735,7 +749,7 @@ class UserStore:
         """Return user record including password_hash for login validation."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.password_hash,
-                   u.role_id, r.role_name, u.status, u.must_change_password
+                   u.role_id, r.role_name, u.status, u.must_change_password, u.token_version
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.username = %s;
@@ -750,7 +764,7 @@ class UserStore:
         """Return user record including password_hash, keyed by the trusted user id."""
         statement = """
             SELECT u.user_id, u.username, u.email, u.password_hash,
-                   u.role_id, r.role_name, u.status, u.must_change_password
+                   u.role_id, r.role_name, u.status, u.must_change_password, u.token_version
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.role_id
             WHERE u.user_id = %s;
@@ -830,6 +844,24 @@ class UserStore:
                 changed = cur.rowcount > 0
             conn.commit()
         return changed
+
+    def bump_token_version(self, user_id: str) -> Optional[int]:
+        """Invalidate every existing session for a user by incrementing token_version.
+
+        Any JWT minted before the bump carries a stale ``tv`` claim and is rejected by
+        ``resolve_current_user``. Returns the new version, or ``None`` if no user matched.
+        """
+        statement = """
+            UPDATE users SET token_version = token_version + 1, updated_at = NOW()
+            WHERE user_id = %s
+            RETURNING token_version;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (user_id,))
+                row = cur.fetchone()
+            conn.commit()
+        return int(row[0]) if row else None
 
     def update_user_role(self, user_id: str, role_name: str) -> Dict[str, Any]:
         """Assign an existing fixed role to a user. Unknown roles raise ValueError."""
@@ -921,6 +953,7 @@ def _normalize_user_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "role_name": row.get("role_name"),
         "status": row.get("status"),
         "must_change_password": bool(row.get("must_change_password", False)),
+        "token_version": int(row.get("token_version") or 0),
         "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at) if created_at else None,
         "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else str(updated_at) if updated_at else None,
     }
@@ -1352,25 +1385,44 @@ class GlobalSettingsStore:
 
 
 def _ensure_heartbeat_tables(db_pool: DatabasePool) -> None:
-    """Run-history for the heartbeat scheduler (observability + idempotency)."""
+    """Run-history for the heartbeat scheduler (observability + idempotency).
+
+    ``user_id`` is NULL for global-scope tasks and carries the user for per-user
+    fan-out runs, so global and per-user beats share one log.
+    """
     statement = """
         CREATE TABLE IF NOT EXISTS heartbeat_runs (
             id          BIGSERIAL PRIMARY KEY,
             task_name   TEXT NOT NULL,
+            user_id     TEXT NULL,
             fired_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             status      TEXT NOT NULL,
             duration_ms INTEGER NOT NULL DEFAULT 0,
             detail      JSONB NOT NULL DEFAULT '{}'::jsonb
         );
     """
-    index_statement = """
-        CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_task_fired
-            ON heartbeat_runs(task_name, fired_at DESC);
-    """
+    # Idempotent column add so a table created before per-user fan-out picks up
+    # user_id without a full reset (no-op on a freshly created table). Mirrors the
+    # ADD COLUMN IF NOT EXISTS pattern used elsewhere in this module.
+    alter_statement = "ALTER TABLE heartbeat_runs ADD COLUMN IF NOT EXISTS user_id TEXT NULL;"
+    # (task_name, user_id, fired_at) backs per-(task,user) cooldown + filtered
+    # reads; (fired_at) backs the cross-task inspector log query.
+    index_statements = (
+        """
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_task_user_fired
+            ON heartbeat_runs(task_name, user_id, fired_at DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_fired
+            ON heartbeat_runs(fired_at DESC);
+        """,
+    )
     with db_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(statement)
-            cur.execute(index_statement)
+            cur.execute(alter_statement)
+            for index_statement in index_statements:
+                cur.execute(index_statement)
         conn.commit()
 
 
@@ -1388,33 +1440,91 @@ class HeartbeatRunStore:
         status: str,
         duration_ms: int = 0,
         detail: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> None:
         statement = """
-            INSERT INTO heartbeat_runs (task_name, status, duration_ms, detail)
-            VALUES (%s, %s, %s, %s);
+            INSERT INTO heartbeat_runs (task_name, user_id, status, duration_ms, detail)
+            VALUES (%s, %s, %s, %s, %s);
         """
         with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     statement,
-                    (task_name, status, int(duration_ms), extras.Json(detail or {})),
+                    (task_name, user_id, status, int(duration_ms), extras.Json(detail or {})),
                 )
             conn.commit()
 
-    def recent_runs(self, task_name: str, limit: int = 5) -> list[Dict[str, Any]]:
-        """Return the most recent runs for a task, newest first."""
-        statement = """
-            SELECT task_name, fired_at, status, duration_ms, detail
+    def recent_runs(
+        self, task_name: str, limit: int = 5, *, user_id: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
+        """Return the most recent runs for a task, newest first.
+
+        ``user_id`` is keyword-only (and after ``limit``) so existing positional
+        callers — ``recent_runs(name, 1)`` — keep treating the second arg as the
+        limit. When given, results are scoped to that user (per-user cooldown).
+        """
+        clauses = ["task_name = %s"]
+        params: list[Any] = [task_name]
+        if user_id is not None:
+            clauses.append("user_id = %s")
+            params.append(user_id)
+        params.append(int(limit))
+        statement = f"""
+            SELECT task_name, user_id, fired_at, status, duration_ms, detail
             FROM heartbeat_runs
-            WHERE task_name = %s
+            WHERE {" AND ".join(clauses)}
             ORDER BY fired_at DESC
             LIMIT %s;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (task_name, int(limit)))
+                cur.execute(statement, tuple(params))
                 rows = cur.fetchall()
         return [dict(row) for row in rows]
+
+    def recent_runs_all(
+        self,
+        limit: int = 50,
+        *,
+        task_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> list[Dict[str, Any]]:
+        """Inspector log: most recent runs across all tasks/users, newest first.
+
+        Optional ``task_name`` / ``user_id`` filters narrow the view.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        if task_name is not None:
+            clauses.append("task_name = %s")
+            params.append(task_name)
+        if user_id is not None:
+            clauses.append("user_id = %s")
+            params.append(user_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(limit))
+        statement = f"""
+            SELECT task_name, user_id, fired_at, status, duration_ms, detail
+            FROM heartbeat_runs
+            {where}
+            ORDER BY fired_at DESC
+            LIMIT %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, tuple(params))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def prune_runs(self, *, cutoff: datetime) -> int:
+        """Delete run rows older than ``cutoff`` (keeps per-user volume bounded)."""
+        statement = "DELETE FROM heartbeat_runs WHERE fired_at < %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (cutoff,))
+                pruned = cur.rowcount or 0
+            conn.commit()
+        return int(pruned)
 
 
 def _escape_like(value: str) -> str:

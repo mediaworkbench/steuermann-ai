@@ -126,6 +126,7 @@ from universal_agentic_framework.orchestration.helpers import (
     score_tool_similarity,
     intent_boost_applies,
     apply_intent_override_floor,
+    intent_override_signalled,
     apply_top_k_scored_tools,
     apply_web_search_max_results,
     infer_extract_webpage_url,
@@ -225,6 +226,45 @@ def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
         if isinstance(msg, dict) and msg.get("role") == "user":
             return msg.get("content", "") or ""
     return ""
+
+
+# Recent-turn window passed to the tool-calling nodes so they can resolve referential
+# arguments. Tool-calling otherwise sees only the latest user message, so a tool whose
+# argument was named an earlier turn (e.g. the city for weather_tool: "what's the weather
+# there?" after "Schwerin") gets called with that argument missing → tool error → the
+# respond node fabricates placeholders. Six messages (~3 exchanges) covers the reference
+# without flooding a small model with full history; each is capped to keep the prompt lean.
+_TOOL_HISTORY_MAX_MESSAGES = 6
+_TOOL_HISTORY_MAX_CHARS_PER_MSG = 1500
+
+
+def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any]:
+    """Recent prior user/assistant turns as LangChain messages for tool-arg resolution.
+
+    Excludes the latest message (the current turn — the caller appends it separately),
+    compression summaries, and crew-result assistant turns (already folded into the system
+    prompt by the respond node). Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    history = messages or []
+    prior = history[:-1]  # drop the current user turn (added by the caller)
+    out: List[Any] = []
+    for msg in prior:
+        if not isinstance(msg, dict) or msg.get("type") == "summary":
+            continue
+        role = msg.get("role", "user")
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "assistant" and any(content.startswith(p) for p in _CREW_RESULT_PREFIXES):
+            continue
+        content = content[:_TOOL_HISTORY_MAX_CHARS_PER_MSG]
+        if role == "user":
+            out.append(HumanMessage(content=content))
+        elif role == "assistant":
+            out.append(AIMessage(content=content))
+    return out[-_TOOL_HISTORY_MAX_MESSAGES:]
 
 
 def _should_write_memory(state: GraphState, features_config: Any) -> bool:
@@ -515,15 +555,14 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Cache in state so downstream nodes (RAG) can reuse without re-encoding.
             state["query_embedding"] = query_embedding.tolist() if hasattr(query_embedding, "tolist") else list(query_embedding)
 
-            # Default aligned with docs/CLAUDE.md (0.55); profiles set this explicitly,
-            # so the fallback only applies to a profile that omits tool_routing entirely.
-            similarity_threshold = getattr(
-                getattr(config, "tool_routing", None), "similarity_threshold", 0.55
-            )
-            top_k = getattr(getattr(config, "tool_routing", None), "top_k", 5)
-            intent_boost = getattr(
-                getattr(config, "tool_routing", None), "intent_boost", 0.2
-            )
+            # Resolve all tool_routing knobs once. Defaults align with docs/CLAUDE.md
+            # and only apply to a profile that omits tool_routing entirely.
+            tool_routing = getattr(config, "tool_routing", None)
+            similarity_threshold = getattr(tool_routing, "similarity_threshold", 0.55)
+            top_k = getattr(tool_routing, "top_k", 5)
+            intent_boost = getattr(tool_routing, "intent_boost", 0.2)
+            min_top_score = getattr(tool_routing, "min_top_score", 0.7)
+            min_spread = getattr(tool_routing, "min_spread", 0.10)
             routing_language = state.get("language") or getattr(
                 config.profile, "language", "en"
             )
@@ -576,15 +615,12 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
 
                 # Hard intent override: web_search_mcp / map_tool get a forced floor above both
                 # threshold gates when their intent is explicitly signalled, so Layer 2 decides.
-                _min_top_score_cfg = getattr(
-                    getattr(config, "tool_routing", None), "min_top_score", 0.7
-                )
                 similarity, _override_applied = apply_intent_override_floor(
                     tool_name,
                     similarity,
                     intents,
                     similarity_threshold=similarity_threshold,
-                    min_top_score=_min_top_score_cfg,
+                    min_top_score=min_top_score,
                 )
                 if _override_applied:
                     logger.info(
@@ -604,12 +640,19 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
             # Apply top-K
             scored_tools = apply_top_k_scored_tools(scored_tools, top_k)
 
-            min_top_score = getattr(
-                getattr(config, "tool_routing", None), "min_top_score", 0.7
-            )
-            min_spread = getattr(
-                getattr(config, "tool_routing", None), "min_spread", 0.10
-            )
+            # Override-protected tools: those whose explicit intent fired (weather/map/web).
+            # The intent-override floor only lifts *low* scores; it does not stop a
+            # high-scoring tool from being swept away when another boosted tool (e.g.
+            # datetime on "how warm is it *today*") lands in a near-tie. Protecting them
+            # here realizes the documented contract — survive both gates so Layer 2 decides.
+            protected_names = {
+                getattr(tool, "name", "unknown")
+                for tool, _ in scored_tools
+                if intent_override_signalled(getattr(tool, "name", "unknown"), intents)
+            }
+
+            def _keep_protected(tools: List[Tuple[Any, float]]) -> List[Tuple[Any, float]]:
+                return [t for t in tools if getattr(t[0], "name", "unknown") in protected_names]
 
             # Min-top-score gate: if no tool scores confidently, skip Layer 2
             if scored_tools:
@@ -619,24 +662,28 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                         "Min-top-score gate: no tool scored confidently, clearing candidates",
                         top_score=round(top_score, 4),
                         min_top_score=min_top_score,
+                        protected=sorted(protected_names),
                     )
-                    scored_tools = []
+                    scored_tools = _keep_protected(scored_tools)
 
-            # Score-spread gate: if remaining tools all scored similarly, clear
+            # Score-spread gate: clear candidates unless the top tool stands out from the
+            # runner-up by at least min_spread. Comparing to the second-highest (not the mean)
+            # keeps a single clear winner alive when the remaining tools are bunched together.
             if len(scored_tools) >= 3:
-                scores = [s for _, s in scored_tools]
-                max_score = max(scores)
-                mean_score = sum(scores) / len(scores)
-                spread = max_score - mean_score
+                scores = sorted((s for _, s in scored_tools), reverse=True)
+                max_score = scores[0]
+                second_score = scores[1]
+                spread = max_score - second_score
                 if spread < min_spread:
                     logger.info(
-                        "Score-spread gate: all tools scored similarly, clearing candidates",
+                        "Score-spread gate: top tool not clearly ahead of runner-up, clearing candidates",
                         max_score=round(max_score, 4),
-                        mean_score=round(mean_score, 4),
+                        second_score=round(second_score, 4),
                         spread=round(spread, 4),
                         min_spread=min_spread,
+                        protected=sorted(protected_names),
                     )
-                    scored_tools = []
+                    scored_tools = _keep_protected(scored_tools)
 
             # Filter by threshold and build candidate list
             candidates = [
@@ -729,9 +776,11 @@ def node_call_tools_native(state: GraphState) -> GraphState:
             tools = [c["tool"] for c in candidates]
             model_with_tools = model.bind_tools(tools)
 
-            # Build minimal messages for the tool-calling invocation
+            # Build messages for the tool-calling invocation. Recent history is included so
+            # referential args (e.g. a city named a turn earlier) can be resolved.
             messages = [
                 SystemMessage(content="You are a helpful assistant. Use the provided tools when they help answer the user's question."),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 
@@ -920,10 +969,15 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
 
     # Determine whether this turn requires the model to call a tool.
     # High-confidence web search intents (explicit "search the web" phrasing) and
-    # any candidate scoring ≥ 0.75 both count as obligation signals.
+    # any candidate scoring at/above the configured floor both count as obligation signals.
     intents = state.get("prefilter_intents") or {}
-    top_score = candidates[0].get("score", 0.0) if candidates else 0.0
-    force_tool_use = bool(intents.get("force_tool_use") or top_score >= 0.75)
+    # Use max() rather than candidates[0]: candidates are only score-sorted when top_k is set
+    # (apply_top_k_scored_tools), so with top_k unset they arrive in load order.
+    top_score = max((c.get("score", 0.0) for c in candidates), default=0.0)
+    force_tool_use_score = getattr(
+        getattr(config, "tool_routing", None), "force_tool_use_score", 0.75
+    )
+    force_tool_use = bool(intents.get("force_tool_use") or top_score >= force_tool_use_score)
 
     logger.info(
         "Layer 2 structured tool calling",
@@ -997,8 +1051,11 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 f"{csv_paths_section}"
             )
 
+            # Recent history lets the model resolve referential args (e.g. a city named a
+            # turn earlier) instead of calling the tool with that argument missing.
             messages = [
                 SystemMessage(content=system_content),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 
@@ -1065,8 +1122,10 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                 tool_name = tool_call["tool"]
                 tool_args = tool_call.get("args", {})
 
-                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                _prefilter = state.get("prefilter_intents") or {}
+                _requested_results = _prefilter.get("requested_web_results")
                 tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                tool_args = infer_extract_webpage_url(tool_name, tool_args, _prefilter.get("url_in_query"))
 
                 tool_obj = tool_lookup.get(tool_name)
 
@@ -1203,8 +1262,11 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 f"Available tools:\n{tool_block}"
             )
 
+            # Recent history lets the model resolve referential args (e.g. a city named a
+            # turn earlier) instead of calling the tool with that argument missing.
             messages = [
                 SystemMessage(content=react_prompt),
+                *_recent_history_for_tool_calling(state.get("messages", [])),
                 HumanMessage(content=user_msg),
             ]
 
@@ -1237,8 +1299,10 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_name = action.get("tool", "")
                 tool_args = action.get("args", {})
 
-                _requested_results = (state.get("prefilter_intents") or {}).get("requested_web_results")
+                _prefilter = state.get("prefilter_intents") or {}
+                _requested_results = _prefilter.get("requested_web_results")
                 tool_args = apply_web_search_max_results(tool_name, tool_args, _requested_results)
+                tool_args = infer_extract_webpage_url(tool_name, tool_args, _prefilter.get("url_in_query"))
 
                 tool_obj = tool_lookup.get(tool_name)
 

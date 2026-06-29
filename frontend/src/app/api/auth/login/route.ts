@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
     email: string;
     role: string;
     must_change_password: boolean;
+    token_version?: number;
   };
 
   const token = await createSessionToken({
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
     email: data.email || "",
     role: data.role === "administrator" ? "administrator" : data.role === "researcher" ? "researcher" : "user",
     mustChangePassword: Boolean(data.must_change_password),
+    tokenVersion: typeof data.token_version === "number" ? data.token_version : 0,
   });
 
   const response = NextResponse.json({

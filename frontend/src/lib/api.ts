@@ -264,6 +264,64 @@ export async function updateHeartbeatRate(
   }
 }
 
+export interface HeartbeatRun {
+  task_name: string;
+  user_id: string | null;
+  status: string;
+  duration_ms: number;
+  fired_at: string | null;
+  detail: Record<string, unknown>;
+}
+
+export interface HeartbeatTaskInfo {
+  name: string;
+  type: string;
+  scope: "global" | "per_user";
+  cooldown_seconds: number;
+  enabled: boolean;
+  last_run: HeartbeatRun | null;
+}
+
+// Admin-only: the configured heartbeat tasks and each task's most recent run.
+export async function fetchHeartbeatTasks(): Promise<HeartbeatTaskInfo[] | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/heartbeat/tasks`);
+    if (!response.ok) {
+      console.error(`Failed to fetch heartbeat tasks: ${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as { tasks: HeartbeatTaskInfo[] };
+    return data.tasks ?? [];
+  } catch (error) {
+    console.error("Error fetching heartbeat tasks:", error);
+    return null;
+  }
+}
+
+// Admin-only: the heartbeat run log, newest first, optionally filtered.
+export async function fetchHeartbeatRuns(opts?: {
+  task?: string;
+  user?: string;
+  limit?: number;
+}): Promise<HeartbeatRun[] | null> {
+  try {
+    const params = new URLSearchParams();
+    if (opts?.task) params.set("task", opts.task);
+    if (opts?.user) params.set("user", opts.user);
+    params.set("limit", String(opts?.limit ?? 50));
+    const response = await fetch(`${API_BASE}/api/admin/heartbeat/runs?${params.toString()}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch heartbeat runs: ${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as { runs: HeartbeatRun[] };
+    return data.runs ?? [];
+  } catch (error) {
+    console.error("Error fetching heartbeat runs:", error);
+    return null;
+  }
+}
+
 export async function triggerReingestAllDocuments(): Promise<ReingestAllResult> {
   const response = await fetch(`${API_BASE}/api/ingestion/reingest-all`, {
     method: "POST",

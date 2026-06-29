@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.auth import CurrentUser, hash_password, resolve_current_user, verify_password
 from backend.db import UserStore
+from backend.rate_limit import limiter
 from backend.single_user import require_api_access
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class LoginResponse(BaseModel):
     email: str
     role: str
     must_change_password: bool
+    token_version: int = 0
 
 
 class MeResponse(BaseModel):
@@ -62,8 +64,13 @@ def _get_user_store(request: Request) -> UserStore:
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("5/minute")
 def login(body: LoginRequest, request: Request) -> LoginResponse:
-    """Verify credentials against the DB and return the resolved identity + role."""
+    """Verify credentials against the DB and return the resolved identity + role.
+
+    Rate-limited (IP-keyed for unauthenticated callers) to blunt password brute-forcing,
+    since FastAPI is reachable directly as well as through the proxy.
+    """
     store = _get_user_store(request)
     record = store.get_user_by_username_with_hash(body.username.strip())
 
@@ -94,6 +101,7 @@ def login(body: LoginRequest, request: Request) -> LoginResponse:
         email=record.get("email") or "",
         role=role,
         must_change_password=bool(record.get("must_change_password", False)),
+        token_version=int(record.get("token_version") or 0),
     )
 
 
@@ -117,6 +125,7 @@ def me(request: Request, current_user: CurrentUser = Depends(resolve_current_use
 
 
 @router.post("/change-password")
+@limiter.limit("10/minute")
 def change_password(
     body: ChangePasswordRequest,
     request: Request,
@@ -151,4 +160,21 @@ def change_password(
         password_hash=hash_password(new_password),
         must_change_password=False,
     )
-    return {"ok": True}
+    # Invalidate every other session for this user (e.g. an attacker's). The caller's own
+    # cookie is re-minted by the frontend route with this returned version, so they stay in.
+    new_version = store.bump_token_version(current_user.user_id)
+    return {"ok": True, "token_version": new_version if new_version is not None else 0}
+
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    current_user: CurrentUser = Depends(resolve_current_user),
+) -> dict:
+    """Make logout real: bump token_version so the just-cleared cookie can't be replayed.
+
+    Best-effort from the frontend, which clears the cookie regardless of this result.
+    """
+    store = _get_user_store(request)
+    new_version = store.bump_token_version(current_user.user_id)
+    return {"ok": True, "token_version": new_version if new_version is not None else 0}

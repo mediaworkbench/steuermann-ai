@@ -16,6 +16,7 @@ const SPOOFABLE_TRUST_HEADERS = new Set([
   "x-authenticated-user-id",
   "x-authenticated-username",
   "x-authenticated-role",
+  "x-authenticated-token-version",
 ]);
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -65,6 +66,7 @@ async function forward(request: NextRequest, path: string[]) {
     headers.set("x-authenticated-user-id", session.userId);
     headers.set("x-authenticated-username", session.username);
     headers.set("x-authenticated-role", session.role);
+    headers.set("x-authenticated-token-version", String(session.tokenVersion ?? 0));
   }
 
   let body: BodyInit | undefined;

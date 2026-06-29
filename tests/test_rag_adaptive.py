@@ -135,6 +135,18 @@ class TestSkipRagIntentDetection:
         intents = _detect_intents(msg, language="en")
         assert intents["skip_rag"] is False, f"Expected skip_rag=False for knowledge query: {msg!r}"
 
+    # Greeting-prefixed substantive queries must NOT skip RAG — the greeting skip is
+    # gated on the short-query flag so only essentially-greeting-only messages skip.
+    @pytest.mark.parametrize("msg", [
+        "Hi, what are the diagnostic criteria for type 2 diabetes?",
+        "Hello, can you summarize our refund policy from the handbook?",
+        "Hallo, was sagt unser Mitarbeiterhandbuch zu Überstunden?",
+    ])
+    def test_greeting_prefixed_knowledge_query_does_not_skip_rag(self, msg):
+        assert len(msg) >= _RAG_SKIP_SHORT_QUERY_CHARS, f"Test message too short: {msg!r}"
+        intents = _detect_intents(msg, language="en")
+        assert intents["skip_rag"] is False, f"Expected skip_rag=False for greeting-prefixed query: {msg!r}"
+
     def test_short_math_with_web_intent_does_not_skip_rag(self):
         """Math + explicit web search should still run RAG (web search supersedes the math skip)."""
         msg = "search the web for math"

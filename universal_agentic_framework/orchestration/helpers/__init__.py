@@ -36,6 +36,7 @@ from .tool_scoring import (
     score_tool_similarity,
     intent_boost_applies,
     apply_intent_override_floor,
+    intent_override_signalled,
 )
 
 # Tool preparation
@@ -102,6 +103,7 @@ __all__ = [
     "score_tool_similarity",
     "intent_boost_applies",
     "apply_intent_override_floor",
+    "intent_override_signalled",
     # Tool preparation
     "apply_top_k_scored_tools",
     # Layer 2 tool-call argument preparation

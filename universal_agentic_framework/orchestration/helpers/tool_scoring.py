@@ -43,7 +43,7 @@ _INTENT_BOOST_RULES: Dict[str, _IntentPredicate] = {
     "calculator_tool": lambda i, img, csv: i.get("mentions_calculation"),
     "extract_webpage_mcp": lambda i, img, csv: i.get("url_in_query"),
     "web_search_mcp": lambda i, img, csv: i.get("mentions_web_search"),
-    "analyze_image_tool": lambda i, img, csv: i.get("image_url_in_query") or img,
+    "analyze_image_tool": lambda i, img, csv: i.get("image_in_query") or img,
     "ocr_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_ocr"),
     "analyze_document_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_document"),
     "analyze_chart_tool": lambda i, img, csv: (i.get("image_in_query") or img) and i.get("mentions_chart"),
@@ -75,6 +75,18 @@ def intent_boost_applies(
     if rule is None:
         return False
     return bool(rule(intents, image_attachment_present, csv_workspace_doc_present))
+
+
+def intent_override_signalled(tool_name: str, intents: Dict[str, Any]) -> bool:
+    """Return True if ``tool_name`` is floor-eligible and its override intent is set.
+
+    Unlike :func:`apply_intent_override_floor` (which reports whether the floor actually
+    *lifted* a low score), this reports only that the explicit intent fired — so the caller
+    can protect an already-high-scoring tool from the threshold/spread gates and let Layer 2
+    make the final call.
+    """
+    intent_key = _INTENT_OVERRIDE_FLOOR.get(tool_name)
+    return bool(intent_key and intents.get(intent_key))
 
 
 def apply_intent_override_floor(

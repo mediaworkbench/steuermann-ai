@@ -305,6 +305,8 @@ class ToolRoutingSettings(BaseModel):
     max_retries: PositiveInt = 2
     min_top_score: confloat(ge=0.0, le=1.0) = 0.7
     min_spread: confloat(ge=0.0, le=1.0) = 0.10
+    # Structured mode: force a tool call when the top candidate scores at/above this.
+    force_tool_use_score: confloat(ge=0.0, le=1.0) = 0.75
 
 
 class QueryRewritingConfig(BaseModel):
@@ -386,10 +388,16 @@ class PromptsSettings(BaseModel):
 
 
 class HeartbeatTaskSettings(BaseModel):
-    """A single task run on every heartbeat beat."""
+    """A single task run on every heartbeat beat.
+
+    ``scope`` controls fan-out: ``global`` tasks run once per beat (system-wide
+    jobs); ``per_user`` tasks are enqueued once per active user each beat and run
+    with that user's context.
+    """
 
     name: str = Field(..., min_length=1)
     type: str = Field(..., min_length=1)  # "module.path:ClassName" entry point
+    scope: Literal["global", "per_user"] = "global"
     cooldown_seconds: int = Field(default=0, ge=0)
     enabled: bool = True
 
@@ -403,7 +411,7 @@ class HeartbeatSettings(BaseModel):
     """
 
     enabled: bool = False
-    default_rate_minutes: PositiveInt = 5
+    default_rate_minutes: PositiveInt = 30
     tasks: List[HeartbeatTaskSettings] = Field(default_factory=list)
 
 

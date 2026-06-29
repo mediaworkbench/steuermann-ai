@@ -393,7 +393,8 @@ tool_routing:
   intent_boost: 0.2 # Score boost for intent-matched tools (0.0-0.5)
   max_retries: 2 # Layer 3 retry count on parse failure
   min_top_score: 0.7 # Skip Layer 2 if no tool scores above this
-  min_spread: 0.10 # Clear candidates if score spread < this (flat distribution)
+  min_spread: 0.10 # Clear candidates unless the top tool leads the runner-up by at least this
+  force_tool_use_score: 0.75 # Structured mode: force a tool call when the top candidate scores at/above this
 ```
 
 **Architecture:**
@@ -407,14 +408,15 @@ Tool selection uses a three-tier architecture:
 **Filtering gates (Layer 1):**
 
 - `min_top_score` gate: If no tool scores above this value, skip Layer 2 entirely (the query is conversational, not tool-worthy). Prevents unnecessary LLM tool-calling calls.
-- `min_spread` gate: If all tool scores are within `min_spread` of each other (flat distribution), clear all candidates. Prevents noise when no tool is clearly relevant.
+- `min_spread` gate: If the top tool does not lead the second-highest-scoring tool by at least `min_spread`, clear all candidates. Comparing against the runner-up (rather than the mean) keeps a single clear winner while still suppressing flat distributions where no tool stands out.
 - `similarity_threshold`: After gates pass, only tools scoring above this are forwarded as candidates.
 
 **Tuning guidelines:**
 
 - `similarity_threshold: 0.55` — Filters the noise floor (unrelated tools typically score 0.42-0.57 with multilingual embeddings).
 - `min_top_score: 0.7` — Requires at least one confident match. With `intent_boost: 0.2`, target tools typically score 0.84-1.0.
-- `min_spread: 0.10` — Catches flat distributions where no tool stands out.
+- `min_spread: 0.10` — Requires the top tool to lead the runner-up by this margin; catches flat distributions where no tool stands out.
+- `force_tool_use_score: 0.75` — In structured mode, a top candidate scoring at/above this forces a tool call (the model may not silently opt out). Lower it if a profile's scores skew low; raise it to make forcing stricter.
 - Lower `similarity_threshold` for more candidates (recall↑); raise for fewer (precision↑).
 - `intent_boost` adds score to tools matching detected intents (datetime, calculation, file ops, URL extraction).
 - `top_k` limits candidates sent to the model — fewer = better accuracy, less token cost.
@@ -426,7 +428,7 @@ Tool selection uses a three-tier architecture:
 
 ### Heartbeat Configuration
 
-The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and runs each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
+The heartbeat is a virtual cron embedded in the orchestration service: one global beat fires every *N* minutes and enqueues each registered task through an observe → reason → act tick. The phases are no-op scaffolding for now (no external actions). Disabled by default; profiles opt in.
 
 ```yaml
 heartbeat:
@@ -435,8 +437,13 @@ heartbeat:
   tasks:
     - name: health           # unique task id (also used for run-history + cooldown)
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: global          # "global" = once per beat; "per_user" = once per active user
       cooldown_seconds: 0     # skip a beat if the last ok run is within this window
       enabled: true           # omit/false to skip loading this task
+    - name: user_pulse        # demonstrates per-user fan-out
+      type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
+      scope: per_user
+      cooldown_seconds: 300   # set ≥ the beat interval for per-user tasks
 ```
 
 | Key | Meaning |
@@ -444,9 +451,12 @@ heartbeat:
 | `enabled` | Whether the scheduler runs for this profile (the only enable switch — the rate alone is admin-configurable). |
 | `default_rate_minutes` | Beat interval used when no admin override is set. |
 | `tasks[].type` | `module.path:ClassName` entry point of a `HeartbeatTask` subclass. |
-| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran successfully more recently than this. |
+| `tasks[].scope` | `global` (default) runs the task once per beat; `per_user` fans it out once per active user each beat, run with that user's context (the run record carries the `user_id`). |
+| `tasks[].cooldown_seconds` | Idempotency window; the task records `skipped` if it ran (for that user, when `per_user`) more recently than this. Set `per_user` cooldowns ≥ the beat interval so re-enqueues during a drain don't double-run a user. |
 
-**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every beat is recorded in the `heartbeat_runs` table for observability. See [Technical Architecture §9.5](technical_architecture.md).
+**Fan-out + queue.** A beat is a non-blocking enqueuer: `global` tasks enqueue one item, `per_user` tasks one per active user. A bounded worker pool drains the in-process queue — the worker count throttles per-user work so a large user set never blocks the beat or hammers the LLM. The queue is in-process (not durable): on a restart mid-drain the next beat re-enqueues, and per-user cooldown prevents doubles.
+
+**Runtime rate (admin).** Administrators set the beat rate (minutes) on `/admin`, persisted deployment-wide in the `global_settings` table (key `heartbeat_rate_minutes`, range 1–1440). It overrides `default_rate_minutes`; the embedded scheduler applies a change within ~30 seconds. Every tick is recorded in the `heartbeat_runs` table (per task **and** user) and pruned on a retention window; admins inspect the configured tasks and the run log (last 50 beats, filterable by task/user/status) on the dedicated `/admin/heartbeat` page (`GET /api/admin/heartbeat/tasks` and `/runs`). See [Technical Architecture §9.5](technical_architecture.md).
 
 ---
 
@@ -757,20 +767,33 @@ AUTH_ADMIN_EMAIL=admin@example.com
 AUTH_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=4$...'
 
 # JWT signing secret for the session cookie. Generate: python -c "import secrets; print(secrets.token_hex(32))"
+# Rotating this value invalidates every existing session (a no-config way to force re-login).
 AUTH_SESSION_SECRET=change-me
 
-# Shared proxy↔backend secret. The backend is internal-only and trusts identity/role headers
-# only from the proxy, which authenticates this token. Generate as above.
+# Shared proxy↔backend secret. The backend is host-published and trusts identity/role headers
+# only from the proxy, which authenticates this token. REQUIRED when AUTH_ENABLED=true — the
+# backend now fails closed (503 + startup CRITICAL) if it is unset. Generate as above.
 CHAT_ACCESS_TOKEN=change-me
 
 # Role assumed by the AUTH_ENABLED=false dev bypass. Values: user | researcher | administrator
 NEXT_PUBLIC_AUTH_USER_ROLE=administrator
+
+# Optional deployment epoch. When set, sessions minted under a different value are rejected, so
+# changing it on a redeploy forces everyone to log in again. Blank = keep sessions across rebuilds.
+SESSION_EPOCH=
 ```
 
 Roles are fixed: **user**, **researcher** (user + RAG explorer), **administrator** (full access +
 user management). Additional accounts are created in-app at `/admin/users` (administrator only) —
 each receives a one-time temporary password and must change it on first login. Passwords are
 hashed/verified with argon2id on the backend.
+
+**Session revocation.** Each user row carries a `token_version`; the session JWT embeds it as a
+`tv` claim, re-checked on every request. Logging out, changing a password, or an admin changing a
+user's role/status/password bumps the version, immediately invalidating that user's existing
+sessions rather than waiting for the 7-day token to expire. `SESSION_EPOCH` (the `se` claim) is the
+deployment-scoped equivalent for forcing a global re-login on redeploy; rotating `AUTH_SESSION_SECRET`
+achieves the same with no config.
 
 LLM capability probing defaults to enabled. Use `LLM_CAPABILITY_PROBE_ENABLED=false` to disable probing globally, or `LLM_CAPABILITY_PROBE_ON_STARTUP=false` to keep probing enabled but skip the automatic startup probe.
 
