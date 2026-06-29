@@ -4,6 +4,7 @@
 
 - groundwork: cognitive-memory foundation — long-term memories now carry a tier tag (episodic/semantic), a confidence score, and a last-accessed timestamp, with legacy memories normalizing automatically; behaviour is unchanged until the new feature flags are enabled.
 - groundwork: added the per-user data stores for learned preferences, memory-conflict resolution, and a reversible audit log that back the upcoming Dreaming Engine; not yet wired into any user-facing flow.
+- groundwork: optional blended memory retrieval that surfaces consolidated "semantic" memories ahead of raw episodic ones, and records when a memory is actually used so stale ones can later be forgotten; off by default, identical to today until enabled.
 
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 

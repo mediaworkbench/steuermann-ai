@@ -323,6 +323,7 @@ class GraphState(TypedDict, total=False):
     allowed_tools: Optional[List[str]]  # Role tool allowlist (None = no restriction; [] = block all)
     llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
     loaded_memory: List[Dict[str, Any]]
+    semantic_memory: List[Dict[str, Any]]  # Semantic-tier subset of loaded_memory (cognitive blend; graph-produced)
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
@@ -1364,32 +1365,46 @@ def node_load_memory(state: GraphState) -> GraphState:
     if not getattr(features_config, "long_term_memory", False):
         logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
         state["loaded_memory"] = []
+        state["semantic_memory"] = []
         return state
 
     if not state.get("memory_enabled", True):
         logger.info("Memory disabled by per-session toggle", user_id=state.get("user_id"))
         state["loaded_memory"] = []
+        state["semantic_memory"] = []
         return state
 
     # Get memory feature flags
     include_related = getattr(features_config, "memory_include_related", False)
     top_k = getattr(features_config, "memory_top_k", 5)
-    
+
+    # Cognitive memory blend (plan-memory.md Phase 2) — flagged off by default.
+    # When on, retrieval uses load_blended (semantic prepended before episodic) and
+    # the injected memories' access_count/last_accessed are persisted back (touch).
+    cognitive_enabled = getattr(features_config, "cognitive_memory_enabled", False)
+    cognitive_cfg = getattr(config.memory, "cognitive", None)
+    semantic_top_k = getattr(cognitive_cfg, "semantic_top_k", 3) if cognitive_cfg else 3
+    episodic_top_k = getattr(cognitive_cfg, "episodic_top_k", 5) if cognitive_cfg else 5
+
     logger.info(
         "Memory features",
         include_related=include_related,
         top_k=top_k,
+        cognitive_enabled=cognitive_enabled,
         profile_name=profile_name
     )
-    
+
     with track_node_execution(profile_name, "load_memory"):
         backend = build_memory_backend(config)
         try:
             result = load_memory_node(
-                state, 
+                state,
                 backend=backend,
                 top_k=top_k,
-                include_related=include_related
+                include_related=include_related,
+                cognitive_enabled=cognitive_enabled,
+                semantic_top_k=semantic_top_k,
+                episodic_top_k=episodic_top_k,
             )
             track_memory_operation(profile_name, "load", "success")
             
