@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -86,6 +87,9 @@ def _ensure_core_tables(db_pool: DatabasePool) -> None:
     _ensure_co_occurrence_tables(db_pool)
     _ensure_global_settings_table(db_pool)
     _ensure_heartbeat_tables(db_pool)
+    _ensure_procedural_overrides_table(db_pool)
+    _ensure_memory_conflicts_table(db_pool)
+    _ensure_memory_audit_log_table(db_pool)
 
 
 def _ensure_settings_table(db_pool: DatabasePool) -> None:
@@ -1525,6 +1529,475 @@ class HeartbeatRunStore:
                 pruned = cur.rowcount or 0
             conn.commit()
         return int(pruned)
+
+
+# ---------------------------------------------------------------------------
+# Cognitive memory + Dreaming Engine contracts (plan-memory.md, Phase 1)
+#
+# Three per-user tables backing learned procedural rules, semantic-drift
+# conflicts, and an undo-able audit log. All reads filter on user_id (strict
+# multi-tenancy); aggregate_metrics() selects only COUNT/GROUP BY over non-PII
+# columns so the admin dashboard never touches user text or ids.
+# ---------------------------------------------------------------------------
+
+_PROCEDURAL_STATUSES = ("proposed", "active", "rejected", "reverted")
+
+
+def _ensure_procedural_overrides_table(db_pool: DatabasePool) -> None:
+    """Learned behavioural rules merged onto the static YAML persona (Cycle D).
+
+    Keyed ``(user_id, rule_key)``; ``tier`` 1/2/3 (format/style/locked-core);
+    ``status`` proposed→active|rejected|reverted (engine only ever writes
+    ``proposed`` — promotion to ``active`` requires explicit user approval).
+    """
+    statement = """
+        CREATE TABLE IF NOT EXISTS procedural_overrides (
+            user_id    TEXT NOT NULL,
+            rule_key   TEXT NOT NULL,
+            rule_text  TEXT NOT NULL,
+            tier       SMALLINT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'proposed',
+            confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            evidence   JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, rule_key)
+        );
+    """
+    index_statement = """
+        CREATE INDEX IF NOT EXISTS idx_procedural_overrides_user_status
+            ON procedural_overrides(user_id, status);
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            cur.execute(index_statement)
+        conn.commit()
+
+
+class ProceduralOverrideStore:
+    """Per-user learned procedural rules (proposed by the engine, approved by user)."""
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_procedural_overrides_table(self._db_pool)
+
+    def upsert_proposal(
+        self,
+        *,
+        user_id: str,
+        rule_key: str,
+        rule_text: str,
+        tier: int,
+        confidence: float = 0.0,
+        evidence: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Insert/refresh a proposed rule. On conflict the text/tier/confidence/
+        evidence are refreshed but ``status`` is left untouched — a rule the user
+        already approved or rejected is never silently flipped back to proposed
+        (status transitions go through ``set_status`` only)."""
+        statement = """
+            INSERT INTO procedural_overrides (
+                user_id, rule_key, rule_text, tier, status, confidence, evidence
+            )
+            VALUES (%s, %s, %s, %s, 'proposed', %s, %s)
+            ON CONFLICT (user_id, rule_key) DO UPDATE SET
+                rule_text  = EXCLUDED.rule_text,
+                tier       = EXCLUDED.tier,
+                confidence = EXCLUDED.confidence,
+                evidence   = EXCLUDED.evidence,
+                updated_at = NOW()
+            RETURNING *;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    statement,
+                    (
+                        user_id,
+                        rule_key,
+                        rule_text,
+                        int(tier),
+                        float(confidence),
+                        extras.Json(evidence or {}),
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return dict(row) if row else {}
+
+    def list_for_user(self, user_id: str) -> list[Dict[str, Any]]:
+        statement = """
+            SELECT * FROM procedural_overrides
+            WHERE user_id = %s
+            ORDER BY tier ASC, updated_at DESC;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id,))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def list_active(self, user_id: str) -> list[Dict[str, Any]]:
+        """Active rules only — the set merged into the prompt (Phase 5)."""
+        statement = """
+            SELECT * FROM procedural_overrides
+            WHERE user_id = %s AND status = 'active'
+            ORDER BY tier ASC, updated_at DESC;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id,))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def set_status(self, *, user_id: str, rule_key: str, status: str) -> Optional[Dict[str, Any]]:
+        """Transition a rule's status (approve/reject/revert). user_id-scoped so a
+        user can never mutate another user's rule. Returns the row or None."""
+        if status not in _PROCEDURAL_STATUSES:
+            raise ValueError(f"Invalid procedural status: {status!r}")
+        statement = """
+            UPDATE procedural_overrides
+            SET status = %s, updated_at = NOW()
+            WHERE user_id = %s AND rule_key = %s
+            RETURNING *;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (status, user_id, rule_key))
+                row = cur.fetchone()
+            conn.commit()
+        return dict(row) if row else None
+
+    def aggregate_metrics(self) -> Dict[str, Any]:
+        """Admin-safe rollup — COUNT/GROUP BY over status+tier only (no user_id,
+        no rule_text). Structurally PII-free."""
+        statement = """
+            SELECT status, tier, COUNT(*) AS n
+            FROM procedural_overrides
+            GROUP BY status, tier;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        by_status: Dict[str, int] = {}
+        by_tier: Dict[str, int] = {}
+        total = 0
+        for row in rows:
+            n = int(row["n"])
+            total += n
+            by_status[row["status"]] = by_status.get(row["status"], 0) + n
+            by_tier[str(row["tier"])] = by_tier.get(str(row["tier"]), 0) + n
+        return {
+            "total": total,
+            "by_status": by_status,
+            "by_tier": by_tier,
+            "proposed_pending": by_status.get("proposed", 0),
+        }
+
+
+def _ensure_memory_conflicts_table(db_pool: DatabasePool) -> None:
+    """Semantic-drift conflicts surfaced to the user as a templated MCQ (Cycle B).
+
+    ``UNIQUE(user_id, semantic_memory_id, episodic_memory_id)`` makes
+    ``open_conflict`` idempotent (a re-detected contradiction is a no-op, never a
+    duplicate queue entry).
+    """
+    statement = """
+        CREATE TABLE IF NOT EXISTS memory_conflicts (
+            conflict_id        TEXT PRIMARY KEY,
+            user_id            TEXT NOT NULL,
+            semantic_memory_id TEXT NOT NULL,
+            episodic_memory_id TEXT NOT NULL,
+            semantic_text      TEXT NOT NULL DEFAULT '',
+            contradiction_text TEXT NOT NULL DEFAULT '',
+            prior_confidence   DOUBLE PRECISION,
+            new_confidence     DOUBLE PRECISION,
+            choices            JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status             TEXT NOT NULL DEFAULT 'open',
+            resolution         JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (user_id, semantic_memory_id, episodic_memory_id)
+        );
+    """
+    index_statement = """
+        CREATE INDEX IF NOT EXISTS idx_memory_conflicts_user_status
+            ON memory_conflicts(user_id, status);
+    """
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            cur.execute(index_statement)
+        conn.commit()
+
+
+class MemoryConflictStore:
+    """Per-user semantic-drift conflict queue (open → resolved)."""
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_memory_conflicts_table(self._db_pool)
+
+    def open_conflict(
+        self,
+        *,
+        user_id: str,
+        semantic_memory_id: str,
+        episodic_memory_id: str,
+        semantic_text: str = "",
+        contradiction_text: str = "",
+        prior_confidence: Optional[float] = None,
+        new_confidence: Optional[float] = None,
+        choices: Optional[list[Any]] = None,
+    ) -> str:
+        """Open a conflict if one isn't already tracked for this (user, semantic,
+        episodic) triple. Idempotent: a duplicate detection is a no-op and the
+        existing ``conflict_id`` is returned."""
+        conflict_id = uuid.uuid4().hex
+        statement = """
+            INSERT INTO memory_conflicts (
+                conflict_id, user_id, semantic_memory_id, episodic_memory_id,
+                semantic_text, contradiction_text, prior_confidence, new_confidence,
+                choices, status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+            ON CONFLICT (user_id, semantic_memory_id, episodic_memory_id) DO NOTHING
+            RETURNING conflict_id;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    statement,
+                    (
+                        conflict_id,
+                        user_id,
+                        semantic_memory_id,
+                        episodic_memory_id,
+                        semantic_text,
+                        contradiction_text,
+                        prior_confidence,
+                        new_confidence,
+                        extras.Json(choices or []),
+                    ),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    # Conflict already exists — fetch its id (no duplicate created).
+                    cur.execute(
+                        """
+                        SELECT conflict_id FROM memory_conflicts
+                        WHERE user_id = %s AND semantic_memory_id = %s
+                              AND episodic_memory_id = %s;
+                        """,
+                        (user_id, semantic_memory_id, episodic_memory_id),
+                    )
+                    row = cur.fetchone()
+            conn.commit()
+        return str(row["conflict_id"]) if row else conflict_id
+
+    def list_open(self, user_id: str) -> list[Dict[str, Any]]:
+        statement = """
+            SELECT * FROM memory_conflicts
+            WHERE user_id = %s AND status = 'open'
+            ORDER BY created_at DESC;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id,))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def resolve(
+        self,
+        *,
+        conflict_id: str,
+        user_id: str,
+        resolution: Optional[Dict[str, Any]] = None,
+        status: str = "resolved",
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve a conflict (user_id-scoped so cross-user resolution is impossible)."""
+        statement = """
+            UPDATE memory_conflicts
+            SET status = %s, resolution = %s, updated_at = NOW()
+            WHERE conflict_id = %s AND user_id = %s
+            RETURNING *;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    statement,
+                    (status, extras.Json(resolution or {}), conflict_id, user_id),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return dict(row) if row else None
+
+    def aggregate_metrics(self) -> Dict[str, Any]:
+        """Admin-safe rollup — counts by status only (no text/ids)."""
+        statement = "SELECT status, COUNT(*) AS n FROM memory_conflicts GROUP BY status;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        by_status: Dict[str, int] = {}
+        total = 0
+        for row in rows:
+            n = int(row["n"])
+            total += n
+            by_status[row["status"]] = by_status.get(row["status"], 0) + n
+        return {"total": total, "by_status": by_status, "open": by_status.get("open", 0)}
+
+
+def _ensure_memory_audit_log_table(db_pool: DatabasePool) -> None:
+    """Append-only audit of every engine mutation, with a 7-day undo window.
+
+    ``before_state``/``after_state`` snapshot the record for reversal (concept §6
+    previous_state + new_state); ``reversible_until`` is set to created_at + the
+    undo window for undoable actions, NULL otherwise. Retention (prune) runs on a
+    floor wider than the undo window so the undo feed is never pruned out.
+    """
+    statement = """
+        CREATE TABLE IF NOT EXISTS memory_audit_log (
+            audit_id        TEXT PRIMARY KEY,
+            user_id         TEXT NOT NULL,
+            cycle           TEXT NOT NULL,
+            action          TEXT NOT NULL,
+            target_kind     TEXT,
+            target_id       TEXT,
+            before_state    JSONB,
+            after_state     JSONB,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            reversible_until TIMESTAMPTZ NULL
+        );
+    """
+    index_statements = (
+        """
+        CREATE INDEX IF NOT EXISTS idx_memory_audit_user_cycle_created
+            ON memory_audit_log(user_id, cycle, created_at DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_memory_audit_user_reversible
+            ON memory_audit_log(user_id, reversible_until);
+        """,
+    )
+    with db_pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+            for index_statement in index_statements:
+                cur.execute(index_statement)
+        conn.commit()
+
+
+class MemoryAuditLogStore:
+    """Per-user audit log: cycle scheduling (last_cycle_run) + 7-day undo feed."""
+
+    def __init__(self, db_pool: DatabasePool) -> None:
+        self._db_pool = db_pool
+        _ensure_memory_audit_log_table(self._db_pool)
+
+    def record(
+        self,
+        *,
+        user_id: str,
+        cycle: str,
+        action: str,
+        target_kind: Optional[str] = None,
+        target_id: Optional[str] = None,
+        before_state: Optional[Dict[str, Any]] = None,
+        after_state: Optional[Dict[str, Any]] = None,
+        reversible_until: Optional[datetime] = None,
+    ) -> str:
+        """Append an audit row. ``before_state`` must be written before any
+        destructive op (undo-safe ordering). Returns the new ``audit_id``."""
+        audit_id = uuid.uuid4().hex
+        statement = """
+            INSERT INTO memory_audit_log (
+                audit_id, user_id, cycle, action, target_kind, target_id,
+                before_state, after_state, reversible_until
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    statement,
+                    (
+                        audit_id,
+                        user_id,
+                        cycle,
+                        action,
+                        target_kind,
+                        target_id,
+                        extras.Json(before_state) if before_state is not None else None,
+                        extras.Json(after_state) if after_state is not None else None,
+                        reversible_until,
+                    ),
+                )
+            conn.commit()
+        return audit_id
+
+    def last_cycle_run(self, *, user_id: str, cycle: str) -> Optional[datetime]:
+        """Latest audit timestamp for a (user, cycle) — drives cost-tiered
+        sub-cycle scheduling (a cycle is due when now − last_cycle_run ≥ cadence)."""
+        statement = """
+            SELECT MAX(created_at) AS last_run
+            FROM memory_audit_log
+            WHERE user_id = %s AND cycle = %s;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id, cycle))
+                row = cur.fetchone()
+        return row.get("last_run") if row else None
+
+    def list_reversible(self, *, user_id: str, now: Optional[datetime] = None) -> list[Dict[str, Any]]:
+        """Rows still inside their undo window (reversible_until > now), newest first."""
+        now = now or datetime.now(timezone.utc)
+        statement = """
+            SELECT * FROM memory_audit_log
+            WHERE user_id = %s AND reversible_until IS NOT NULL AND reversible_until > %s
+            ORDER BY created_at DESC;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id, now))
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def prune(self, *, cutoff: datetime) -> int:
+        """Delete rows older than ``cutoff`` (retention floor, wider than the undo
+        window so a still-reversible row is never removed). Returns rows deleted."""
+        statement = "DELETE FROM memory_audit_log WHERE created_at < %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (cutoff,))
+                pruned = cur.rowcount or 0
+            conn.commit()
+        return int(pruned)
+
+    def aggregate_metrics(self) -> Dict[str, Any]:
+        """Admin-safe rollup — counts by cycle+action only (no user_id, no states,
+        no target_id). Feeds deletion/promotion-rate cards."""
+        statement = """
+            SELECT cycle, action, COUNT(*) AS n
+            FROM memory_audit_log
+            GROUP BY cycle, action;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement)
+                rows = cur.fetchall()
+        by_cycle: Dict[str, int] = {}
+        by_action: Dict[str, int] = {}
+        total = 0
+        for row in rows:
+            n = int(row["n"])
+            total += n
+            by_cycle[row["cycle"]] = by_cycle.get(row["cycle"], 0) + n
+            by_action[row["action"]] = by_action.get(row["action"], 0) + n
+        return {"total": total, "by_cycle": by_cycle, "by_action": by_action}
 
 
 def _escape_like(value: str) -> str:

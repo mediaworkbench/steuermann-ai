@@ -69,20 +69,35 @@ def _import_entry_point(entry_point: str):
 
 
 def _build_default_stores():
-    """Build run + settings + user stores from a single DB pool (best-effort)."""
+    """Build run + settings + user + cognitive-memory stores from one DB pool.
+
+    Best-effort: returns all-None on failure so the heartbeat never blocks boot.
+    The three cognitive stores (procedural / conflicts / audit) are the Dreaming
+    Engine's data contracts (plan-memory.md Phase 1); they ride the same pool.
+    """
     try:
         from backend.db import (
             GlobalSettingsStore,
             HeartbeatRunStore,
+            MemoryAuditLogStore,
+            MemoryConflictStore,
+            ProceduralOverrideStore,
             UserStore,
             init_db_pool,
         )
 
         pool = init_db_pool()
-        return HeartbeatRunStore(pool), GlobalSettingsStore(pool), UserStore(pool)
+        return (
+            HeartbeatRunStore(pool),
+            GlobalSettingsStore(pool),
+            UserStore(pool),
+            ProceduralOverrideStore(pool),
+            MemoryConflictStore(pool),
+            MemoryAuditLogStore(pool),
+        )
     except Exception as exc:  # noqa: BLE001 — heartbeat must not block boot
         logger.warning("heartbeat_stores_unavailable", error=str(exc))
-        return None, None, None
+        return None, None, None, None, None, None
 
 
 def _coerce_rate(value, default: int) -> int:
@@ -110,19 +125,37 @@ class HeartbeatScheduler:
         run_store: Optional[RunStore] = None,
         settings_store=None,
         user_store=None,
+        procedural_store=None,
+        conflict_store=None,
+        audit_store=None,
         build_default_stores: bool = True,
     ) -> None:
         self._config = config
         self._run_store = run_store
         self._settings_store = settings_store
         self._user_store = user_store
+        # Dreaming Engine data contracts (plan-memory.md Phase 1); consumed by the
+        # per-user DreamingEngineTask added in Phase 3.
+        self._procedural_store = procedural_store
+        self._conflict_store = conflict_store
+        self._audit_store = audit_store
         if (
             build_default_stores
             and run_store is None
             and settings_store is None
             and user_store is None
+            and procedural_store is None
+            and conflict_store is None
+            and audit_store is None
         ):
-            self._run_store, self._settings_store, self._user_store = _build_default_stores()
+            (
+                self._run_store,
+                self._settings_store,
+                self._user_store,
+                self._procedural_store,
+                self._conflict_store,
+                self._audit_store,
+            ) = _build_default_stores()
         self.scheduler = AsyncIOScheduler()
         self._tasks: List[HeartbeatTask] = []
         self._running = False
