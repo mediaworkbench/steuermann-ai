@@ -392,7 +392,7 @@ def test_heartbeat_settings_parse():
 
 def test_heartbeat_settings_defaults_disabled():
     cfg = HeartbeatSettings()
-    assert cfg.enabled is False and cfg.default_rate_minutes == 5 and cfg.tasks == []
+    assert cfg.enabled is False and cfg.default_rate_minutes == 30 and cfg.tasks == []
 
 
 # --------------------------------------------------------------------------- #
@@ -427,7 +427,7 @@ def _make_client(monkeypatch, *, role: str = "administrator", store=None) -> Tes
 
 def test_get_heartbeat_rate_defaults_to_profile(monkeypatch):
     body = _make_client(monkeypatch).get("/api/admin/settings/heartbeat-rate").json()
-    assert body["heartbeat_rate_minutes"] == 5  # starter default_rate_minutes
+    assert body["heartbeat_rate_minutes"] == 30  # starter default_rate_minutes
     assert body["source"] == "default"
     assert body["enabled"] is True
     assert body["last_run"] is None

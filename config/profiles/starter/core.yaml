@@ -128,7 +128,7 @@ tool_routing:
 # with that user's context. Inspect tasks + the run log on /admin.
 heartbeat:
   enabled: true
-  default_rate_minutes: 5
+  default_rate_minutes: 30
   tasks:
     - name: health
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask

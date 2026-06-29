@@ -411,7 +411,7 @@ class HeartbeatSettings(BaseModel):
     """
 
     enabled: bool = False
-    default_rate_minutes: PositiveInt = 5
+    default_rate_minutes: PositiveInt = 30
     tasks: List[HeartbeatTaskSettings] = Field(default_factory=list)
 
 
