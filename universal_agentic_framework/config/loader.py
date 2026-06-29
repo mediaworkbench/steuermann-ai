@@ -41,6 +41,7 @@ _PROFILE_CORE_ALLOWED_PREFIXES = {
     "memory.embeddings",
     "memory.mem0",
     "memory.retention",
+    "memory.cognitive",
 }
 
 

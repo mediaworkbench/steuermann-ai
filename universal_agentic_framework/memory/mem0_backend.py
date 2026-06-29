@@ -267,6 +267,18 @@ class Mem0MemoryBackend(MemoryBackend):
         if "access_count" not in merged:
             merged["access_count"] = 0
 
+        # Cognitive-memory contract read-defaults (concept §6). Legacy records
+        # written before tier tagging normalize to episodic / full confidence so
+        # they never crash the blended retrieval or the Dreaming Engine.
+        if "cognitive_tier" not in merged:
+            merged["cognitive_tier"] = "episodic"
+
+        if "confidence" not in merged:
+            merged["confidence"] = 1.0
+
+        if "last_accessed" not in merged:
+            merged["last_accessed"] = merged.get("created_at") or self._now_iso()
+
         return merged
 
     def _normalize_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -406,14 +418,7 @@ class Mem0MemoryBackend(MemoryBackend):
             ranked = records
 
         primary = ranked[:top_k]
-        out: List[MemoryRecord] = []
-
-        for item in primary:
-            metadata = dict(item["metadata"])
-            if self._importance_scorer:
-                metadata = self._importance_scorer.update_access_metadata(metadata)
-                metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
-            out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
+        out: List[MemoryRecord] = [self._to_memory_record(user_id, item) for item in primary]
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
             self._maybe_prune_co_occurrences()
@@ -449,6 +454,138 @@ class Mem0MemoryBackend(MemoryBackend):
 
         return out
 
+    def _to_memory_record(self, user_id: str, item: Dict[str, Any]) -> MemoryRecord:
+        """Build a contract MemoryRecord from a normalized item, applying
+        importance access-metadata + score when the scorer is enabled."""
+        metadata = dict(item["metadata"])
+        if self._importance_scorer:
+            metadata = self._importance_scorer.update_access_metadata(metadata)
+            metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
+        return MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata)
+
+    def _search_and_rank(
+        self,
+        user_id: str,
+        query: Optional[str],
+        fetch_limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Single Mem0 search (or get_all) → normalized + importance-ranked items.
+
+        Shared by ``load`` and ``load_blended`` so blended retrieval never issues
+        a second per-tier search (which would re-run the identical user_id query).
+        """
+        records: List[Dict[str, Any]] = []
+        if query:
+            response = self._search_memories(query, user_id=user_id, limit=fetch_limit)
+            records = [self._normalize_item(item) for item in self._extract_results(response)]
+            if not records:
+                logger.info(
+                    "mem0_search_no_hits_fallback_to_recent",
+                    user_id=user_id,
+                    fetch_limit=fetch_limit,
+                )
+                recent_response = self._get_all_memories(user_id=user_id, limit=fetch_limit)
+                records = [self._normalize_item(item) for item in self._extract_results(recent_response)]
+                records.sort(
+                    key=lambda item: str(item["metadata"].get("created_at") or ""),
+                    reverse=True,
+                )
+        else:
+            response = self._get_all_memories(user_id=user_id, limit=fetch_limit)
+            records = [self._normalize_item(item) for item in self._extract_results(response)]
+            records.sort(
+                key=lambda item: str(item["metadata"].get("created_at") or ""),
+                reverse=True,
+            )
+
+        if self._importance_scorer:
+            return self._importance_scorer.rank_memories(records, min_score=0.0)
+        return records
+
+    def load_blended(
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        semantic_top_k: int = 3,
+        episodic_top_k: int = 5,
+    ) -> List[MemoryRecord]:
+        """Blended semantic/episodic retrieval (concept §3, plan Phase 2).
+
+        Searches **once**, then splits the ranked results into semantic vs
+        episodic by ``cognitive_tier``. High-confidence semantic memories
+        (capped at ``semantic_top_k``) are **prepended** before episodic
+        memories (capped at ``episodic_top_k``), de-duped by ``memory_id``.
+        Does NOT call a per-tier loader twice.
+        """
+        semantic_top_k = max(0, int(semantic_top_k))
+        episodic_top_k = max(0, int(episodic_top_k))
+        fetch_limit = max((semantic_top_k + episodic_top_k) * 2, self.search_limit)
+
+        ranked = self._search_and_rank(user_id, query, fetch_limit)
+
+        semantic_items: List[Dict[str, Any]] = []
+        episodic_items: List[Dict[str, Any]] = []
+        for item in ranked:
+            tier = str(item["metadata"].get("cognitive_tier") or "episodic")
+            if tier == "semantic":
+                semantic_items.append(item)
+            else:
+                episodic_items.append(item)
+
+        selected = semantic_items[:semantic_top_k] + episodic_items[:episodic_top_k]
+
+        out: List[MemoryRecord] = []
+        seen: Set[str] = set()
+        for item in selected:
+            mem_id = item["metadata"].get("memory_id")
+            if mem_id and mem_id in seen:
+                continue
+            if mem_id:
+                seen.add(mem_id)
+            out.append(self._to_memory_record(user_id, item))
+        return out
+
+    def get_all_for_dreaming(self, user_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Return all of a user's memories (normalized) for batch cognition.
+
+        The Dreaming Engine reads Qdrant directly for raw vectors; this Mem0-path
+        helper supplies text + contract metadata (tier/confidence/access_count)
+        for the cheap cycles that don't need embeddings. Filtered by ``user_id``.
+        """
+        response = self._get_all_memories(user_id=user_id, limit=max(1, int(limit)))
+        return [self._normalize_item(item) for item in self._extract_results(response)]
+
+    def update_metadata(self, memory_id: str, patch: Dict[str, Any]) -> bool:
+        """Patch a memory's metadata WITHOUT altering its text.
+
+        ⚠ Mem0's ``update()`` wipes the memory text when ``data`` is omitted, so
+        we fetch the existing text first (mirroring ``set_memory_user_rating``)
+        and pass it back unchanged. Returns True on a persisted update, False if
+        the memory is missing/empty or the update fails.
+        """
+        fetched = self._fetch_by_id(memory_id)
+        if not fetched:
+            return False
+
+        text = fetched["text"]
+        if not text:
+            return False
+
+        merged = dict(fetched["metadata"])
+        merged.update(patch or {})
+        merged = self._merge_metadata(memory_id, merged)
+
+        try:
+            self._memory.update(memory_id=memory_id, data=text, metadata=merged)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "mem0_update_metadata_failed",
+                memory_id=memory_id,
+                error=str(exc),
+            )
+            return False
+
     def _maybe_prune_co_occurrences(self) -> None:
         if not self._co_occurrence_tracker:
             return
@@ -480,6 +617,12 @@ class Mem0MemoryBackend(MemoryBackend):
         payload.setdefault("user_id", user_id)
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
+        # Cognitive-memory contract (concept §6): every write carries the four
+        # contract fields. Respond-time writes default to the episodic tier with
+        # full confidence; the Dreaming Engine writes semantic memories explicitly.
+        payload.setdefault("cognitive_tier", "episodic")
+        payload.setdefault("confidence", 1.0)
+        payload.setdefault("last_accessed", payload["created_at"])
         if digest_chain:
             trimmed_chain = digest_chain[:5]
             payload.setdefault("digest_chain", trimmed_chain)

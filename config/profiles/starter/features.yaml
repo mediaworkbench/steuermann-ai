@@ -18,6 +18,11 @@ memory_update_enabled: true
 memory_co_occurrence_enabled: true
 memory_digest_chain_enabled: true
 
+# Cognitive memory + Dreaming Engine (plan-memory.md) — all OFF until later phases.
+cognitive_memory_enabled: false      # tiered tagging + blended semantic/episodic retrieval (Phase 2)
+dreaming_engine_enabled: false       # per-user background Dreaming heartbeat task (Phase 3+)
+procedural_overrides_enabled: false  # merge learned procedural rules onto the persona (Phase 5)
+
 # UI features
 ui_tool_visualization: true
 ui_token_counter: true

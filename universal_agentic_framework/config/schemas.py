@@ -290,11 +290,54 @@ class Mem0Settings(BaseModel):
     co_occurrence_related_top_k_per_memory: PositiveInt = 5
 
 
+class CognitiveMemorySettings(BaseModel):
+    """Tuning knobs for the 4-tier cognitive memory + Dreaming Engine.
+
+    Enablement is owned by ``FeaturesConfig`` flags (``cognitive_memory_enabled``,
+    ``dreaming_engine_enabled``, ``procedural_overrides_enabled``) — there is no
+    redundant ``enabled`` here. These are only the numeric/behavioural levers.
+    """
+
+    # Blended retrieval split (Phase 2).
+    semantic_top_k: PositiveInt = 3
+    episodic_top_k: PositiveInt = 5
+
+    # Dreaming Engine concurrency — default 1 so only one user dreams at a time
+    # (concept "one-by-one" isolation), even with multiple heartbeat workers.
+    dreaming_max_concurrency: PositiveInt = 1
+
+    # Promotion / epiphany (Cycle A).
+    promotion_interval_days: PositiveInt = 7
+    promotion_min_cluster_size: PositiveInt = 3
+    max_promotions_per_run: PositiveInt = 5
+
+    # Drift adjudication (Cycle B).
+    drift_confidence_floor: confloat(ge=0.0, le=1.0) = 0.3
+    drift_decrement: confloat(ge=0.0, le=1.0) = 0.15
+    max_drift_checks_per_user: PositiveInt = 10
+
+    # Forgetting / GC (Cycle C).
+    forget_age_days: PositiveInt = 30
+    # Future: hard-delete epiphany contributors older than this (unset = never).
+    forget_contributor_age_days: Optional[PositiveInt] = None
+
+    # Procedural learning (Cycle D) — evaluated over continuous 24h windows.
+    procedural_tier1_window_days: PositiveInt = 2
+    procedural_tier2_window_days: PositiveInt = 5
+    procedural_tier1_min_samples: PositiveInt = 3
+    procedural_tier2_min_samples: PositiveInt = 3
+
+    # Human-in-the-loop undo + audit retention.
+    undo_window_days: PositiveInt = 7
+    audit_retention_days: PositiveInt = 90
+
+
 class MemorySettings(BaseModel):
     vector_store: VectorStoreSettings
     embeddings: EmbeddingSettings
     retention: RetentionSettings
     mem0: Mem0Settings = Field(default_factory=Mem0Settings)
+    cognitive: CognitiveMemorySettings = Field(default_factory=CognitiveMemorySettings)
 
 
 class ToolRoutingSettings(BaseModel):
@@ -558,5 +601,11 @@ class FeaturesConfig(BaseModel):
     memory_update_enabled: bool = True      # Enable update_memory_node() persistence operation
     memory_co_occurrence_enabled: bool = True  # Enable co-occurrence tracking for knowledge graph
     memory_digest_chain_enabled: bool = True   # Enable digest chain propagation to memory metadata
-    
+
+    # Cognitive memory + Dreaming Engine (plan-memory.md) — single source of truth
+    # for enablement. All default OFF; each phase is independently shippable.
+    cognitive_memory_enabled: bool = False      # Tiered tagging + blended semantic/episodic retrieval
+    dreaming_engine_enabled: bool = False       # The per-user background Dreaming heartbeat task
+    procedural_overrides_enabled: bool = False  # Merge learned procedural rules onto the YAML persona
+
     model_config = ConfigDict(extra="allow")

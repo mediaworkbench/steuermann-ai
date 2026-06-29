@@ -70,6 +70,27 @@ memory:
     co_occurrence_prune_interval_seconds: 300
     co_occurrence_related_top_k_per_memory: 5
     infer_enabled: true
+  # Cognitive memory + Dreaming Engine tuning (plan-memory.md). Enablement is
+  # owned by features.yaml flags (cognitive_memory_enabled / dreaming_engine_enabled
+  # / procedural_overrides_enabled), all OFF by default — these are only the levers.
+  cognitive:
+    semantic_top_k: 3
+    episodic_top_k: 5
+    dreaming_max_concurrency: 1        # one user dreams at a time (privacy isolation)
+    promotion_interval_days: 7
+    promotion_min_cluster_size: 3
+    max_promotions_per_run: 5
+    drift_confidence_floor: 0.3
+    drift_decrement: 0.15
+    max_drift_checks_per_user: 10
+    forget_age_days: 30
+    forget_contributor_age_days: null  # future: hard-delete old epiphany contributors
+    procedural_tier1_window_days: 2
+    procedural_tier2_window_days: 5
+    procedural_tier1_min_samples: 3
+    procedural_tier2_min_samples: 3
+    undo_window_days: 7
+    audit_retention_days: 90
 
 rag:
   enabled: true

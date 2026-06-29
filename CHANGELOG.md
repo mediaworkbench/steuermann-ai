@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased] — cognitive memory architecture
+
+- groundwork: cognitive-memory foundation — long-term memories now carry a tier tag (episodic/semantic), a confidence score, and a last-accessed timestamp, with legacy memories normalizing automatically; behaviour is unchanged until the new feature flags are enabled.
+
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
 - feature: heartbeat tasks can now run per user — a task marked `per_user` fans out once per active user each beat, drained by a bounded worker pool so a large user set never blocks the beat; global system tasks still run once. Run history is per-user and pruned on a retention window.
