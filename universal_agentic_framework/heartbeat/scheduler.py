@@ -390,6 +390,7 @@ class HeartbeatScheduler:
                 run_store=self._run_store,
                 audit_store=self._audit_store,
                 conflict_store=self._conflict_store,
+                procedural_store=self._procedural_store,
             )
         except Exception as exc:  # noqa: BLE001 — backend/config failure → skip task
             logger.warning("dreaming_task_build_failed", task=tcfg.name, error=str(exc))

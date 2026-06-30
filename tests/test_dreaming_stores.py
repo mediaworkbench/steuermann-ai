@@ -257,6 +257,45 @@ def test_procedural_set_status_is_user_scoped(db_pool, user_id):
     assert store.set_status(user_id=user_id, rule_key="style.terse", status="rejected")["status"] == "rejected"
 
 
+def test_procedural_observation_matures_then_promotes(db_pool, user_id):
+    store = ProceduralOverrideStore(db_pool)
+    # First observation → observing, not surfaced and not active.
+    row = store.upsert_observation(
+        user_id=user_id, rule_key="format.bullets", rule_text="use bullets", tier=1,
+        evidence={"observation_days": ["2026-06-29"], "sample_count": 1},
+    )
+    assert row["status"] == "observing"
+    assert store.list_active(user_id) == []  # observing never reaches the prompt
+
+    # Evidence refresh keeps status observing (no premature flip).
+    store.upsert_observation(
+        user_id=user_id, rule_key="format.bullets", rule_text="use bullets", tier=1,
+        evidence={"observation_days": ["2026-06-29", "2026-06-30"], "sample_count": 2},
+    )
+    assert store.get(user_id, "format.bullets")["status"] == "observing"
+
+    # Mature → proposed (surfaced for sign-off, still not active).
+    promoted = store.promote_to_proposed(user_id=user_id, rule_key="format.bullets")
+    assert promoted["status"] == "proposed"
+    assert store.list_active(user_id) == []
+
+    # Approve → active (now loadable into the prompt).
+    store.set_status(user_id=user_id, rule_key="format.bullets", status="active")
+    active = store.list_active(user_id)
+    assert len(active) == 1 and active[0]["rule_key"] == "format.bullets"
+
+
+def test_procedural_promote_is_guarded_to_observing(db_pool, user_id):
+    store = ProceduralOverrideStore(db_pool)
+    store.upsert_observation(
+        user_id=user_id, rule_key="format.bullets", rule_text="x", tier=1, evidence={},
+    )
+    store.set_status(user_id=user_id, rule_key="format.bullets", status="rejected")
+    # A rejected rule must not be reopened by promotion.
+    assert store.promote_to_proposed(user_id=user_id, rule_key="format.bullets") is None
+    assert store.get(user_id, "format.bullets")["status"] == "rejected"
+
+
 def test_conflict_open_is_idempotent_and_resolve_is_scoped(db_pool, user_id):
     store = MemoryConflictStore(db_pool)
     cid1 = store.open_conflict(

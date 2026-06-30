@@ -75,6 +75,35 @@ class _FakeRunStore:
         return []  # never in cooldown
 
 
+class _FakeProcedural:
+    """In-memory ProceduralOverrideStore with the observing→proposed semantics."""
+
+    def __init__(self) -> None:
+        self.rows: Dict[str, Dict[str, Any]] = {}
+
+    def get(self, user_id, rule_key):
+        return self.rows.get(rule_key)
+
+    def upsert_observation(self, *, user_id, rule_key, rule_text, tier, confidence=0.0, evidence=None):
+        existing = self.rows.get(rule_key)
+        status = existing["status"] if existing else "observing"  # status untouched on conflict
+        self.rows[rule_key] = {
+            "user_id": user_id, "rule_key": rule_key, "rule_text": rule_text, "tier": tier,
+            "status": status, "confidence": confidence, "evidence": dict(evidence or {}),
+        }
+        return dict(self.rows[rule_key])
+
+    def promote_to_proposed(self, *, user_id, rule_key):
+        row = self.rows.get(rule_key)
+        if row and row["status"] == "observing":
+            row["status"] = "proposed"
+            return dict(row)
+        return None  # guarded: no-op unless currently observing
+
+    def list_active(self, user_id):
+        return [dict(r) for r in self.rows.values() if r["status"] == "active"]
+
+
 class _FakeReader:
     def __init__(self, items: Optional[List[Dict[str, Any]]] = None,
                  nearest: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -145,8 +174,8 @@ async def _never_reachable() -> bool:
 
 
 def _make_task(reader, *, audit=None, conflicts=None, run_store=None, adjudicator=None,
-               synthesizer=None, health=_always_reachable, opt_out=lambda _u: False,
-               semaphore=None, settings=None) -> DreamingEngineTask:
+               synthesizer=None, proposer=None, procedural=None, health=_always_reachable,
+               opt_out=lambda _u: False, semaphore=None, settings=None, clock=None) -> DreamingEngineTask:
     async def _default_adj(_s, _e):
         return {"contradicts": False, "tokens": 5}
 
@@ -160,11 +189,13 @@ def _make_task(reader, *, audit=None, conflicts=None, run_store=None, adjudicato
         reader=reader,
         adjudicator=adjudicator or _default_adj,
         synthesizer=synthesizer,
+        proposer=proposer,
+        procedural_store=procedural,
         health_gate=health,
         opt_out_checker=opt_out,
         settings=settings or CognitiveMemorySettings(),
         semaphore=semaphore,
-        clock=lambda: NOW,
+        clock=clock or (lambda: NOW),
     )
 
 
@@ -558,4 +589,101 @@ async def test_promotion_contributor_not_forgotten_same_tick():
 
     assert len(reader.written) == 1
     assert "e1" not in reader.deleted   # de-conflicted: promoted source not GC'd
+
+
+# --------------------------------------------------------------------------- #
+# Cycle D — Procedural learning (Phase 5)
+# --------------------------------------------------------------------------- #
+def _proc_settings(**over):
+    base = dict(procedural_tier1_window_days=2, procedural_tier1_min_samples=2,
+                procedural_tier2_window_days=3, procedural_tier2_min_samples=2)
+    base.update(over)
+    return CognitiveMemorySettings(**base)
+
+
+def _proc_reader():
+    # One recent episodic so observe() has a behavioural corpus; no semantic so drift is inert.
+    return _FakeReader(items=[_episodic("r1", age_days=0, text="please use bullet points")])
+
+
+def _proposer_for(rules):
+    async def _p(_observations):
+        return {"rules": list(rules), "tokens": 7}
+    return _p
+
+
+@pytest.mark.asyncio
+async def test_procedural_matures_to_proposed_over_two_days():
+    proc = _FakeProcedural()
+    proposer = _proposer_for([{"rule_key": "format.bullets", "rule_text": "Use bullet lists", "samples": 1}])
+    settings = _proc_settings()
+
+    # Day 1: observed once → stays observing (window not met).
+    day1 = _make_task(_proc_reader(), proposer=proposer, procedural=proc,
+                      settings=settings, clock=lambda: NOW)
+    await day1.tick(TickContext(user_id="u1"))
+    assert proc.rows["format.bullets"]["status"] == "observing"
+
+    # Day 2: second distinct day, samples now 2 ≥ min → matures to proposed.
+    day2 = _make_task(_proc_reader(), proposer=proposer, procedural=proc,
+                      settings=settings, clock=lambda: NOW + timedelta(days=1))
+    await day2.tick(TickContext(user_id="u1"))
+    assert proc.rows["format.bullets"]["status"] == "proposed"
+    assert proc.rows["format.bullets"]["evidence"]["observation_days"] == ["2026-06-29", "2026-06-30"]
+    # A proposed rule is NOT active → never reaches the prompt until approved.
+    assert proc.list_active("u1") == []
+
+
+@pytest.mark.asyncio
+async def test_procedural_tier3_is_never_written():
+    proc = _FakeProcedural()
+    audit = _FakeAudit()
+    proposer = _proposer_for([{"rule_key": "logic.always_cite", "rule_text": "Always cite sources", "samples": 5}])
+
+    task = _make_task(_proc_reader(), audit=audit, proposer=proposer, procedural=proc,
+                      settings=_proc_settings())
+    await task.tick(TickContext(user_id="u1"))
+
+    assert proc.rows == {}  # Tier-3 locked: no rule row at all
+    suggestions = [r for r in audit.records if r["action"] == "tier3_suggestion"]
+    assert len(suggestions) == 1 and suggestions[0]["target_id"] == "logic.always_cite"
+
+
+@pytest.mark.asyncio
+async def test_procedural_unknown_namespace_ignored():
+    proc = _FakeProcedural()
+    proposer = _proposer_for([{"rule_key": "random.thing", "rule_text": "x", "samples": 9}])
+    task = _make_task(_proc_reader(), proposer=proposer, procedural=proc, settings=_proc_settings())
+    await task.tick(TickContext(user_id="u1"))
+    assert proc.rows == {}  # unknown rule_key namespace → dropped
+
+
+@pytest.mark.asyncio
+async def test_procedural_offline_defers():
+    proc = _FakeProcedural()
+    run_store = _FakeRunStore()
+    proposer = _proposer_for([{"rule_key": "format.bullets", "rule_text": "Use bullets", "samples": 5}])
+    task = _make_task(_proc_reader(), run_store=run_store, proposer=proposer, procedural=proc,
+                      settings=_proc_settings(), health=_never_reachable)
+
+    res = await task.tick(TickContext(user_id="u1"))
+
+    assert res["status"] == "partial"
+    assert proc.rows == {}  # nothing written when provider is offline
+    assert "procedural" in run_store.runs[-1]["detail"]["deferred"]
+
+
+@pytest.mark.asyncio
+async def test_procedural_tier2_needs_longer_window():
+    # style.* is Tier 2 (window 3 days here); two days is not yet enough.
+    proc = _FakeProcedural()
+    proposer = _proposer_for([{"rule_key": "style.concise", "rule_text": "Be concise", "samples": 3}])
+    settings = _proc_settings()  # tier2 window = 3
+
+    for day in (0, 1):
+        task = _make_task(_proc_reader(), proposer=proposer, procedural=proc,
+                          settings=settings, clock=lambda d=day: NOW + timedelta(days=d))
+        await task.tick(TickContext(user_id="u1"))
+
+    assert proc.rows["style.concise"]["status"] == "observing"  # 2 of 3 days → not yet proposed
 

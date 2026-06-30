@@ -1563,7 +1563,9 @@ class HeartbeatRunStore:
 # columns so the admin dashboard never touches user text or ids.
 # ---------------------------------------------------------------------------
 
-_PROCEDURAL_STATUSES = ("proposed", "active", "rejected", "reverted")
+# observing = engine is still accumulating evidence (not surfaced, not in prompt);
+# proposed  = matured → surfaced to the user for sign-off; active = approved (in prompt).
+_PROCEDURAL_STATUSES = ("observing", "proposed", "active", "rejected", "reverted")
 
 
 def _ensure_procedural_overrides_table(db_pool: DatabasePool) -> None:
@@ -1648,6 +1650,77 @@ class ProceduralOverrideStore:
                 row = cur.fetchone()
             conn.commit()
         return dict(row) if row else {}
+
+    def get(self, user_id: str, rule_key: str) -> Optional[Dict[str, Any]]:
+        """Read a single rule (for the engine's evidence-merge before re-writing)."""
+        statement = "SELECT * FROM procedural_overrides WHERE user_id = %s AND rule_key = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id, rule_key))
+                row = cur.fetchone()
+        return dict(row) if row else None
+
+    def upsert_observation(
+        self,
+        *,
+        user_id: str,
+        rule_key: str,
+        rule_text: str,
+        tier: int,
+        confidence: float = 0.0,
+        evidence: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Accumulate evidence for a candidate rule (Cycle D). New rows start
+        ``observing`` (not surfaced); on conflict the text/tier/confidence/evidence
+        are refreshed but ``status`` is left untouched — a rule already proposed /
+        approved / rejected keeps its decision while its evidence stays current.
+        Maturity → ``proposed`` is a separate, guarded transition."""
+        statement = """
+            INSERT INTO procedural_overrides (
+                user_id, rule_key, rule_text, tier, status, confidence, evidence
+            )
+            VALUES (%s, %s, %s, %s, 'observing', %s, %s)
+            ON CONFLICT (user_id, rule_key) DO UPDATE SET
+                rule_text  = EXCLUDED.rule_text,
+                tier       = EXCLUDED.tier,
+                confidence = EXCLUDED.confidence,
+                evidence   = EXCLUDED.evidence,
+                updated_at = NOW()
+            RETURNING *;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    statement,
+                    (
+                        user_id,
+                        rule_key,
+                        rule_text,
+                        int(tier),
+                        float(confidence),
+                        extras.Json(evidence or {}),
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return dict(row) if row else {}
+
+    def promote_to_proposed(self, *, user_id: str, rule_key: str) -> Optional[Dict[str, Any]]:
+        """Transition a matured candidate ``observing`` → ``proposed`` (surface it
+        for sign-off). Guarded on the current status so an already-decided rule is
+        never reopened; returns the row only when the transition actually happened."""
+        statement = """
+            UPDATE procedural_overrides
+            SET status = 'proposed', updated_at = NOW()
+            WHERE user_id = %s AND rule_key = %s AND status = 'observing'
+            RETURNING *;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id, rule_key))
+                row = cur.fetchone()
+            conn.commit()
+        return dict(row) if row else None
 
     def list_for_user(self, user_id: str) -> list[Dict[str, Any]]:
         statement = """

@@ -54,6 +54,7 @@ from universal_agentic_framework.llm.budget import (
 from universal_agentic_framework.llm.factory import LLMFactory
 from universal_agentic_framework.config import get_active_profile_id, load_core_config, load_tools_config, load_features_config
 from universal_agentic_framework.memory.nodes import load_memory_node, update_memory_node
+from universal_agentic_framework.orchestration.procedural_node import node_load_procedural
 from universal_agentic_framework.memory.factory import build_memory_backend
 from universal_agentic_framework.tools import ToolRegistry
 from universal_agentic_framework.embeddings import build_embedding_provider, EmbeddingProvider
@@ -324,6 +325,8 @@ class GraphState(TypedDict, total=False):
     llm_capability_probes: List[Dict[str, Any]]  # Adapter-provided probe snapshots per provider
     loaded_memory: List[Dict[str, Any]]
     semantic_memory: List[Dict[str, Any]]  # Semantic-tier subset of loaded_memory (cognitive blend; graph-produced)
+    procedural_overrides: List[Dict[str, Any]]  # Active learned behavioural rules (graph-produced by node_load_procedural)
+    cognitive_memory_enabled: Optional[bool]  # Request-driven blend override (None = use the feature flag)
     digest_context: List[Dict[str, Any]]  # Digest subset from loaded memory retrieval
     memory_analytics: Dict[str, Any]  # Memory retrieval analytics (importance scores, related count)
     knowledge_context: List[Dict[str, Any]]  # RAG retrieved documents
@@ -1381,7 +1384,14 @@ def node_load_memory(state: GraphState) -> GraphState:
     # Cognitive memory blend (plan-memory.md Phase 2) — flagged off by default.
     # When on, retrieval uses load_blended (semantic prepended before episodic) and
     # the injected memories' access_count/last_accessed are persisted back (touch).
-    cognitive_enabled = getattr(features_config, "cognitive_memory_enabled", False)
+    # A request-driven override (state["cognitive_memory_enabled"]) wins when set
+    # (not None); otherwise the feature flag is the default.
+    _cognitive_override = state.get("cognitive_memory_enabled")
+    cognitive_enabled = (
+        bool(_cognitive_override)
+        if _cognitive_override is not None
+        else getattr(features_config, "cognitive_memory_enabled", False)
+    )
     cognitive_cfg = getattr(config.memory, "cognitive", None)
     semantic_top_k = getattr(cognitive_cfg, "semantic_top_k", 3) if cognitive_cfg else 3
     episodic_top_k = getattr(cognitive_cfg, "episodic_top_k", 5) if cognitive_cfg else 5
@@ -1458,6 +1468,19 @@ def node_generate_response(state: GraphState) -> GraphState:
         "Answer the user's question clearly and factually.\n"
         "Use the knowledge base and available tools when relevant to provide better answers."
     )
+
+    # Learned procedural preferences (plan-memory.md Phase 5): appended right after
+    # the YAML base persona, never mutating it. node_load_procedural already gated
+    # this on procedural_overrides_enabled (empty when off) and loads *active* rules
+    # only — so observing/proposed rules can't reach the prompt before approval.
+    _procedural = state.get("procedural_overrides") or []
+    _pref_lines = [f"- {p.get('rule_text', '')}" for p in _procedural if p.get("rule_text")]
+    if _pref_lines:
+        system_prompt += (
+            "\n\n=== LEARNED USER PREFERENCES ===\n"
+            + "\n".join(_pref_lines)
+            + "\n=== END LEARNED USER PREFERENCES ===\n"
+        )
 
     # Enforce response language to avoid drift into unintended languages.
     language_instruction = (
@@ -2215,6 +2238,7 @@ def build_graph() -> StateGraph:
     graph.add_node("crew_chain", node_crew_chain)
     graph.add_node("crew_parallel", node_crew_parallel)
     graph.add_node("load_memory", node_load_memory)
+    graph.add_node("load_procedural", node_load_procedural)
     graph.add_node("retrieve_knowledge", node_retrieve_knowledge)
     graph.add_node("respond", node_generate_response)
     graph.add_node("summarize", node_summarize)
@@ -2326,7 +2350,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("crew_parallel", "memory_query_cache")
     
     graph.add_edge("memory_query_cache", "load_memory")
-    graph.add_edge("load_memory", "retrieve_knowledge")
+    graph.add_edge("load_memory", "load_procedural")
+    graph.add_edge("load_procedural", "retrieve_knowledge")
     graph.add_edge("retrieve_knowledge", "memory_cache_store")
     graph.add_edge("memory_cache_store", "respond")
     graph.add_edge("respond", "compress_conversation")

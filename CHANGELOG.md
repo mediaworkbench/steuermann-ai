@@ -7,6 +7,7 @@
 - groundwork: optional blended memory retrieval that surfaces consolidated "semantic" memories ahead of raw episodic ones, and records when a memory is actually used so stale ones can later be forgotten; off by default, identical to today until enabled.
 - groundwork: a per-user background "dreaming" process that, once enabled, forgets old never-used memories and flags contradictions between new and established facts for you to resolve — privacy-isolated to one user at a time and degrading gracefully when the model provider is offline; off by default.
 - groundwork: the dreaming process now also consolidates recurring memories into a single higher-level "semantic" memory it synthesizes, keeping the originals as provenance; runs on a configurable cadence with per-run caps, off by default.
+- groundwork: the dreaming process can now learn formatting and style preferences from how you interact and, once you approve them, fold them into the assistant's persona; core-logic/safety rules are never auto-learned. Off by default; nothing reaches the prompt without explicit approval.
 
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 

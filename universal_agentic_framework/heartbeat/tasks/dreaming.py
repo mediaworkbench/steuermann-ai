@@ -71,6 +71,19 @@ _EPIPHANY_PROMPT = (
 )
 
 
+def _classify_tier(rule_key: str) -> Optional[int]:
+    """Tier from the rule_key namespace (concept §4): format.*→1, style.*→2,
+    logic.*/safety.*→3 (locked). Unknown namespaces → None (ignored)."""
+    key = (rule_key or "").strip().lower()
+    if key.startswith("format."):
+        return 1
+    if key.startswith("style."):
+        return 2
+    if key.startswith("logic.") or key.startswith("safety."):
+        return 3
+    return None
+
+
 def greedy_cosine_clusters(
     items: List[Dict[str, Any]], *, threshold: float, min_size: int
 ) -> List[List[Dict[str, Any]]]:
@@ -146,6 +159,8 @@ class DreamSnapshot:
     # Promotion (Cycle A) inputs — populated only when promotion is due.
     episodic_vectors: List[Dict[str, Any]] = field(default_factory=list)
     existing_sources: List[List[str]] = field(default_factory=list)
+    # Procedural (Cycle D) inputs — recent behavioural texts, when procedural is due.
+    procedural_observations: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -173,10 +188,27 @@ class PromotionAction:
 
 
 @dataclass
+class ProceduralCandidate:
+    rule_key: str
+    rule_text: str
+    tier: int          # 1 (format.*) or 2 (style.*)
+    samples: int       # behavioural instances supporting it this window
+    example: str
+
+
+@dataclass
+class Tier3Suggestion:
+    rule_key: str
+    rule_text: str
+
+
+@dataclass
 class DreamPlan:
     forget: List[ForgetAction] = field(default_factory=list)
     drift: List[DriftAction] = field(default_factory=list)
     promote: List[PromotionAction] = field(default_factory=list)
+    procedural: List[ProceduralCandidate] = field(default_factory=list)
+    tier3_suggestions: List[Tier3Suggestion] = field(default_factory=list)
     completed_cycles: set[str] = field(default_factory=set)
     deferred: List[str] = field(default_factory=list)
     tokens: int = 0
@@ -232,6 +264,8 @@ class DreamingEngineTask(HeartbeatTask):
         opt_out_checker: Callable[[str], bool],
         settings: Any,  # CognitiveMemorySettings
         synthesizer: Optional[Callable[[List[str]], Awaitable[Dict[str, Any]]]] = None,
+        procedural_store: Any = None,
+        proposer: Optional[Callable[[List[str]], Awaitable[Dict[str, Any]]]] = None,
         semaphore: Optional[asyncio.Semaphore] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
@@ -240,9 +274,11 @@ class DreamingEngineTask(HeartbeatTask):
         )
         self._audit = audit_store
         self._conflicts = conflict_store
+        self._procedural = procedural_store
         self._reader = reader
         self._adjudicator = adjudicator
         self._synthesizer = synthesizer
+        self._proposer = proposer
         self._health_gate = health_gate
         self._opt_out = opt_out_checker
         self._s = settings
@@ -287,6 +323,7 @@ class DreamingEngineTask(HeartbeatTask):
                 "forgot": len(plan.forget),
                 "drift": len(plan.drift),
                 "promoted": len(plan.promote),
+                "procedural": len(plan.procedural),
             }
             if plan.deferred:
                 detail["deferred"] = plan.deferred
@@ -349,6 +386,17 @@ class DreamingEngineTask(HeartbeatTask):
         ):
             due.add("promotion")
 
+        # Procedural (Cycle D) runs daily over 24h windows; needs the proposer + store.
+        procedural_last = await asyncio.to_thread(
+            self._audit.last_cycle_run, user_id=user_id, cycle="procedural"
+        )
+        if (
+            self._proposer is not None
+            and self._procedural is not None
+            and (procedural_last is None or (now - procedural_last) >= timedelta(days=1))
+        ):
+            due.add("procedural")
+
         drift_candidates: List[DriftCandidate] = []
         if "drift" in due:
             recent = [
@@ -381,6 +429,16 @@ class DreamingEngineTask(HeartbeatTask):
                 self._reader.existing_semantic_sources, user_id
             )
 
+        procedural_observations: List[str] = []
+        if "procedural" in due:
+            window = int(getattr(self._s, "procedural_tier2_window_days", 5))
+            recent_cutoff = now - timedelta(days=window)
+            procedural_observations = [
+                e.text
+                for e in episodics
+                if e.text and e.created_at is not None and e.created_at >= recent_cutoff
+            ][:40]
+
         return DreamSnapshot(
             episodics=episodics,
             drift_candidates=drift_candidates,
@@ -389,6 +447,7 @@ class DreamingEngineTask(HeartbeatTask):
             now=now,
             episodic_vectors=episodic_vectors,
             existing_sources=existing_sources,
+            procedural_observations=procedural_observations,
         )
 
     # --- reason (all LLM, no writes) ----------------------------------------
@@ -433,6 +492,22 @@ class DreamingEngineTask(HeartbeatTask):
                     plan.completed_cycles.add("promotion")
         elif "promotion" in snapshot.due_cycles:
             plan.completed_cycles.add("promotion")  # due but nothing to cluster
+
+        # Cycle D — Procedural learning.
+        if "procedural" in snapshot.due_cycles and snapshot.procedural_observations:
+            if not await self._reachable(plan):
+                self._defer(plan, "procedural")
+            else:
+                candidates, suggestions, tokens, broke = await self._plan_procedural(ctx, snapshot)
+                plan.procedural = candidates
+                plan.tier3_suggestions = suggestions
+                plan.tokens += tokens
+                if broke:
+                    self._defer(plan, "procedural", reason="procedural_partial")
+                else:
+                    plan.completed_cycles.add("procedural")
+        elif "procedural" in snapshot.due_cycles:
+            plan.completed_cycles.add("procedural")  # due but no behaviour to analyse
 
         # Same-tick de-confliction: never forget an episodic that this tick just
         # promoted (its epiphany_contributor flag isn't written until act()).
@@ -558,6 +633,80 @@ class DreamingEngineTask(HeartbeatTask):
             existing.append(id_set)
         return actions, tokens, broke
 
+    async def _plan_procedural(
+        self, ctx: TickContext, snapshot: DreamSnapshot
+    ) -> tuple[List[ProceduralCandidate], List[Tier3Suggestion], int, bool]:
+        candidates: List[ProceduralCandidate] = []
+        suggestions: List[Tier3Suggestion] = []
+        tokens = 0
+        broke = False
+        try:
+            result = await self._breaker_for(ctx.user_id).call(
+                self._proposer, snapshot.procedural_observations
+            )
+        except CircuitBreakerOpenError:
+            return candidates, suggestions, 0, True
+        except Exception:  # noqa: BLE001 — provider failure → defer
+            return candidates, suggestions, 0, True
+
+        tokens += int((result or {}).get("tokens", 0) or 0)
+        for rule in (result or {}).get("rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            rule_key = str(rule.get("rule_key") or "").strip()
+            rule_text = str(rule.get("rule_text") or "").strip()
+            tier = _classify_tier(rule_key)
+            if tier is None or not rule_text:  # unknown namespace / empty → reject
+                continue
+            if tier == 3:  # locked: never written, only a read-only suggestion
+                suggestions.append(Tier3Suggestion(rule_key=rule_key, rule_text=rule_text))
+                continue
+            candidates.append(
+                ProceduralCandidate(
+                    rule_key=rule_key,
+                    rule_text=rule_text,
+                    tier=tier,
+                    samples=max(1, int(rule.get("samples", 1) or 1)),
+                    example=str(rule.get("example") or rule_text)[:300],
+                )
+            )
+        return candidates, suggestions, tokens, broke
+
+    def _tier_thresholds(self, tier: int) -> tuple[int, int]:
+        if tier == 1:
+            return (
+                int(self._s.procedural_tier1_window_days),
+                int(self._s.procedural_tier1_min_samples),
+            )
+        return (
+            int(self._s.procedural_tier2_window_days),
+            int(self._s.procedural_tier2_min_samples),
+        )
+
+    def _merge_evidence(
+        self, existing: Optional[Dict[str, Any]], candidate: ProceduralCandidate, now: datetime
+    ) -> Dict[str, Any]:
+        prior = dict((existing or {}).get("evidence") or {})
+        day = now.date().isoformat()
+        days = set(prior.get("observation_days") or [])
+        days.add(day)
+        examples = list(prior.get("examples") or [])
+        if candidate.example and candidate.example not in examples:
+            examples.append(candidate.example)
+        return {
+            "observation_days": sorted(days),
+            "sample_count": int(prior.get("sample_count", 0) or 0) + candidate.samples,
+            "first_seen": prior.get("first_seen") or now.isoformat(),
+            "examples": examples[:5],
+        }
+
+    @staticmethod
+    def _is_mature(evidence: Dict[str, Any], window_days: int, min_samples: int) -> bool:
+        return (
+            len(evidence.get("observation_days") or []) >= window_days
+            and int(evidence.get("sample_count", 0) or 0) >= min_samples
+        )
+
     # --- act (all writes, no LLM) -------------------------------------------
     async def act(self, ctx: TickContext, plan: DreamPlan) -> None:
         user_id = ctx.user_id
@@ -628,6 +777,52 @@ class DreamingEngineTask(HeartbeatTask):
                     "source_episodic_ids": p.source_episodic_ids,
                 },
                 reversible_until=reversible_until,
+            )
+
+        # Cycle D — Procedural. Accumulate evidence (observing), mature → proposed
+        # (never auto-active; user approval is the gate to the prompt). Tier-3 is
+        # locked: the engine logs a read-only suggestion and writes no rule.
+        for candidate in plan.procedural:
+            existing = await asyncio.to_thread(
+                self._procedural.get, user_id, candidate.rule_key
+            )
+            evidence = self._merge_evidence(existing, candidate, now)
+            await asyncio.to_thread(
+                self._procedural.upsert_observation,
+                user_id=user_id,
+                rule_key=candidate.rule_key,
+                rule_text=candidate.rule_text,
+                tier=candidate.tier,
+                confidence=0.0,
+                evidence=evidence,
+            )
+            window_days, min_samples = self._tier_thresholds(candidate.tier)
+            if self._is_mature(evidence, window_days, min_samples):
+                promoted = await asyncio.to_thread(
+                    self._procedural.promote_to_proposed,
+                    user_id=user_id,
+                    rule_key=candidate.rule_key,
+                )
+                if promoted is not None:  # only audit the actual observing→proposed flip
+                    await asyncio.to_thread(
+                        self._audit.record,
+                        user_id=user_id,
+                        cycle="procedural",
+                        action="propose",
+                        target_kind="procedural_rule",
+                        target_id=candidate.rule_key,
+                        after_state={"rule_text": candidate.rule_text, "tier": candidate.tier},
+                    )
+
+        for suggestion in plan.tier3_suggestions:
+            await asyncio.to_thread(
+                self._audit.record,
+                user_id=user_id,
+                cycle="procedural",
+                action="tier3_suggestion",
+                target_kind="procedural_rule",
+                target_id=suggestion.rule_key,
+                after_state={"rule_text": suggestion.rule_text, "tier": 3},
             )
 
         # Advance last_cycle_run ONLY for fully-completed cycles (a marker row).
@@ -755,6 +950,54 @@ def build_auxiliary_epiphany_synthesizer(
     return _synthesize
 
 
+_PROCEDURAL_PROMPT = (
+    "From the observations below about one user's interactions, infer up to 3 stable "
+    "BEHAVIOURAL preferences (how they like answers formatted or styled). Use a "
+    "namespaced rule_key: 'format.*' for formatting/UI, 'style.*' for tone/length. "
+    "Do NOT propose core-logic or safety rules.\n"
+    'Reply ONLY with JSON: {{"rules":[{{"rule_key":"format.bullets","rule_text":"...",'
+    '"samples":1}}]}}. Empty list if nothing is consistent.\n\nOBSERVATIONS:\n{observations}'
+)
+
+
+def build_auxiliary_procedural_proposer(
+    config: Any,
+) -> Callable[[List[str]], Awaitable[Dict[str, Any]]]:
+    """Async procedural-rule proposer over recent behaviour (auxiliary provider).
+    Returns ``{"rules": [{rule_key, rule_text, samples}], "tokens": int}``; the
+    engine classifies tier from the rule_key namespace (never trusts the model)."""
+
+    async def _propose(observations: List[str]) -> Dict[str, Any]:
+        provider = config.llm.get_role_provider("auxiliary")
+        api_base = str(getattr(provider, "api_base", "") or "").rstrip("/")
+        if not api_base:
+            raise RuntimeError("auxiliary api_base not configured")
+        model_name = config.llm.get_role_model_name("auxiliary", "en")
+        bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
+        joined = "\n".join(f"- {o[:200]}" for o in observations[:40])
+        prompt = _PROCEDURAL_PROMPT.format(observations=joined)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                json={
+                    "model": bare,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                    "max_tokens": 300,
+                },
+                headers={"Authorization": f"Bearer {getattr(provider, 'api_key', None) or 'no-key'}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        content = str(data["choices"][0]["message"]["content"] or "")
+        tokens = int((data.get("usage") or {}).get("total_tokens", 0) or 0)
+        parsed = extract_json_object(content) or {}
+        rules = parsed.get("rules") if isinstance(parsed.get("rules"), list) else []
+        return {"rules": rules, "tokens": tokens}
+
+    return _propose
+
+
 def build_provider_reachability_gate(config: Any) -> Callable[[], Awaitable[bool]]:
     """One-shot auxiliary-provider reachability probe (degrade-by-cost gate)."""
 
@@ -800,6 +1043,7 @@ def build_dreaming_task(
     run_store: Any,
     audit_store: Any,
     conflict_store: Any,
+    procedural_store: Any = None,
 ) -> DreamingEngineTask:
     """Construct a fully-wired DreamingEngineTask from runtime config.
 
@@ -826,6 +1070,8 @@ def build_dreaming_task(
         reader=Mem0DreamReader(backend),
         adjudicator=build_auxiliary_drift_adjudicator(config),
         synthesizer=build_auxiliary_epiphany_synthesizer(config),
+        proposer=build_auxiliary_procedural_proposer(config),
+        procedural_store=procedural_store,
         health_gate=build_provider_reachability_gate(config),
         opt_out_checker=make_opt_out_checker(settings_store),
         settings=cognitive,
