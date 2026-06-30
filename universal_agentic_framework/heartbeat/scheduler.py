@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -261,8 +261,14 @@ class HeartbeatScheduler:
     async def _enqueue_per_user(self, task: HeartbeatTask) -> int:
         if self._user_store is None:
             return 0
+        recency = getattr(task, "active_user_recency_days", None)
         try:
-            user_ids = await asyncio.to_thread(self._user_store.get_active_user_ids)
+            if recency is not None and hasattr(self._user_store, "get_recently_active_user_ids"):
+                user_ids = await asyncio.to_thread(
+                    self._user_store.get_recently_active_user_ids, recency
+                )
+            else:
+                user_ids = await asyncio.to_thread(self._user_store.get_active_user_ids)
         except Exception as exc:  # noqa: BLE001 — best-effort; skip this task this beat
             logger.warning("heartbeat_user_list_failed", task=task.name, error=str(exc))
             return 0
@@ -323,6 +329,17 @@ class HeartbeatScheduler:
                 continue
             try:
                 cls = _import_entry_point(tcfg.type)
+            except Exception as exc:  # noqa: BLE001 — skip a bad task, keep the rest
+                logger.warning("heartbeat_task_load_failed", task=tcfg.name, type=tcfg.type, error=str(exc))
+                continue
+
+            if self._is_dreaming_class(cls):
+                task = self._build_dreaming_task(tcfg)
+                if task is not None:
+                    tasks.append(task)
+                continue
+
+            try:
                 tasks.append(
                     cls(
                         name=tcfg.name,
@@ -334,6 +351,49 @@ class HeartbeatScheduler:
             except Exception as exc:  # noqa: BLE001 — skip a bad task, keep the rest
                 logger.warning("heartbeat_task_load_failed", task=tcfg.name, type=tcfg.type, error=str(exc))
         return tasks
+
+    @staticmethod
+    def _is_dreaming_class(cls: Any) -> bool:
+        try:
+            from universal_agentic_framework.heartbeat.tasks.dreaming import DreamingEngineTask
+
+            return isinstance(cls, type) and issubclass(cls, DreamingEngineTask)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _build_dreaming_task(self, tcfg) -> Optional[HeartbeatTask]:
+        """Construct the Dreaming Engine task — gated by the feature flag and its
+        data contracts (audit/conflict stores). Returns None (skips) when off or
+        when its stores/backend are unavailable, never blocking the heartbeat."""
+        try:
+            from universal_agentic_framework.config import load_features_config
+
+            features = load_features_config()
+            if not getattr(features, "dreaming_engine_enabled", False):
+                logger.info("dreaming_task_disabled_by_flag", task=tcfg.name)
+                return None
+        except Exception as exc:  # noqa: BLE001 — no flag access → stay off
+            logger.warning("dreaming_flag_read_failed", task=tcfg.name, error=str(exc))
+            return None
+
+        if self._audit_store is None or self._conflict_store is None:
+            logger.warning("dreaming_stores_unavailable", task=tcfg.name)
+            return None
+
+        try:
+            from universal_agentic_framework.heartbeat.tasks.dreaming import build_dreaming_task
+
+            return build_dreaming_task(
+                name=tcfg.name,
+                cooldown_seconds=tcfg.cooldown_seconds,
+                scope=tcfg.scope,
+                run_store=self._run_store,
+                audit_store=self._audit_store,
+                conflict_store=self._conflict_store,
+            )
+        except Exception as exc:  # noqa: BLE001 — backend/config failure → skip task
+            logger.warning("dreaming_task_build_failed", task=tcfg.name, error=str(exc))
+            return None
 
     def _effective_rate(self) -> int:
         """Admin override (global_settings) if set, else the config default."""

@@ -84,7 +84,9 @@ memory:
     drift_decrement: 0.15
     max_drift_checks_per_user: 10
     forget_age_days: 30
+    max_forgets_per_run: 50
     forget_contributor_age_days: null  # future: hard-delete old epiphany contributors
+    dreaming_active_user_days: 30      # only dream users active within this window
     procedural_tier1_window_days: 2
     procedural_tier2_window_days: 5
     procedural_tier1_min_samples: 3
@@ -161,3 +163,11 @@ heartbeat:
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
       scope: per_user
       cooldown_seconds: 300
+    # Dreaming Engine (plan-memory.md) — per-user background memory cognition.
+    # Only built when features.dreaming_engine_enabled is true (off by default);
+    # 24h cooldown so a user dreams at most once per day. Cost-tiered cycles run
+    # one user at a time (Semaphore) over the cheap cycles (Forgetting + Drift).
+    - name: dreaming
+      type: universal_agentic_framework.heartbeat.tasks.dreaming:DreamingEngineTask
+      scope: per_user
+      cooldown_seconds: 86400

@@ -545,6 +545,37 @@ class Mem0MemoryBackend(MemoryBackend):
             out.append(self._to_memory_record(user_id, item))
         return out
 
+    def find_nearest_semantic(
+        self, user_id: str, query: str, top_k: int = 1
+    ) -> List[Dict[str, Any]]:
+        """Vector-nearest semantic-tier memories for a query (drift Cycle B).
+
+        Raw Mem0 search (cosine vector distance), filtered to
+        ``cognitive_tier == "semantic"`` and ordered by raw similarity score —
+        NOT importance-reranked, since drift wants true vector proximity. Returns
+        ``[{memory_id, text, confidence, score}]`` (≤ top_k), user_id-filtered.
+        """
+        if not query:
+            return []
+        response = self._search_memories(
+            query, user_id=user_id, limit=max(top_k * 4, self.search_limit)
+        )
+        out: List[Dict[str, Any]] = []
+        for item in self._extract_results(response):
+            norm = self._normalize_item(item)
+            if str(norm["metadata"].get("cognitive_tier")) != "semantic":
+                continue
+            out.append(
+                {
+                    "memory_id": norm["memory_id"],
+                    "text": norm["text"],
+                    "confidence": float(norm["metadata"].get("confidence", 1.0)),
+                    "score": float(norm["score"]),
+                }
+            )
+        out.sort(key=lambda r: r["score"], reverse=True)
+        return out[: max(1, int(top_k))]
+
     def get_all_for_dreaming(self, user_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """Return all of a user's memories (normalized) for batch cognition.
 

@@ -318,8 +318,12 @@ class CognitiveMemorySettings(BaseModel):
 
     # Forgetting / GC (Cycle C).
     forget_age_days: PositiveInt = 30
+    max_forgets_per_run: PositiveInt = 50  # per-run delete cap (blast-radius guard)
     # Future: hard-delete epiphany contributors older than this (unset = never).
     forget_contributor_age_days: Optional[PositiveInt] = None
+
+    # Only dream users active within this window (dormant accounts aren't dreamed).
+    dreaming_active_user_days: PositiveInt = 30
 
     # Procedural learning (Cycle D) — evaluated over continuous 24h windows.
     procedural_tier1_window_days: PositiveInt = 2

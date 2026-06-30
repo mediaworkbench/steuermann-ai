@@ -637,6 +637,29 @@ class UserStore:
                 rows = cur.fetchall()
         return [str(row["user_id"]) for row in rows if row.get("user_id")]
 
+    def get_recently_active_user_ids(self, days: int) -> list[str]:
+        """Active users with a conversation touched within the last ``days``.
+
+        Used by the Dreaming Engine so dormant accounts aren't dreamed (cost
+        control). Conversation ``updated_at`` is the activity signal.
+        """
+        statement = """
+            SELECT u.user_id
+            FROM users u
+            WHERE u.status = 'active'
+              AND EXISTS (
+                  SELECT 1 FROM conversations c
+                  WHERE c.user_id = u.user_id
+                    AND c.updated_at >= NOW() - make_interval(days => %s)
+              )
+            ORDER BY u.created_at;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (max(0, int(days)),))
+                rows = cur.fetchall()
+        return [str(row["user_id"]) for row in rows if row.get("user_id")]
+
     def count_admins(self, active_only: bool = True) -> int:
         """Count users with the administrator role (active only by default)."""
         statement = """
