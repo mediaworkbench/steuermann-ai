@@ -901,14 +901,17 @@ def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Await
         model_name = config.llm.get_role_model_name("auxiliary", "en")
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         prompt = _DRIFT_PROMPT.format(semantic=semantic_text[:1000], episodic=episodic_text[:1000])
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
                     "model": bare,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.0,
-                    "max_tokens": 200,
+                    # Generous cap so a reasoning model finishes thinking and still
+                    # emits the JSON verdict (a tight cap truncated mid-<think> and
+                    # the verdict came back unparseable → no drift, no conflicts).
+                    "max_tokens": 512,
                 },
                 headers={"Authorization": f"Bearer {getattr(provider, 'api_key', None) or 'no-key'}"},
             )

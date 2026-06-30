@@ -13,6 +13,7 @@
 - feature: the cognitive memory + dreaming engine is now **enabled in the starter profile** and validated end-to-end against a live model — chat tags and consolidates memories, the background engine forgets/reconciles/consolidates on its schedule, and the Memory Review + admin pages drive it. Disable per profile via the `cognitive_memory_enabled` / `dreaming_engine_enabled` / `procedural_overrides_enabled` flags.
 - feature: admins can now set each heartbeat task's cooldown (how often a per-user task like dreaming runs for a given user) directly on the `/admin/heartbeat` page — applied by the scheduler within ~30 seconds, no rebuild; setting a task back to its configured value clears the override.
 - fix: the dreaming engine no longer logs an error each beat for a user who has no memories yet (or a fresh deployment before anyone has chatted) — a missing memory store is now treated as "nothing to do" and the run records OK instead of failing.
+- fix: contradiction detection now works reliably with reasoning-style local models — the contradiction check was using too small a token budget, so the model ran out of room while "thinking" and returned no verdict, silently producing zero conflicts; raised to match the other engine steps.
 
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
