@@ -1148,3 +1148,117 @@ export async function deleteUser(userId: string): Promise<void> {
     throw new Error(await _detail(response, "Failed to delete user"));
   }
 }
+
+// --------------------------------------------------------------------------- //
+// Cognitive memory — Dreaming Engine HITL (plan-memory.md Phase 6)
+// --------------------------------------------------------------------------- //
+export type DreamConflictChoice = "keep_old" | "accept_new" | "depends";
+
+export interface DreamConflict {
+  conflict_id: string;
+  semantic_text: string;
+  contradiction_text: string;
+  prior_confidence: number | null;
+  new_confidence: number | null;
+  choices: Array<{ id: string; label: string }>;
+  created_at: string | null;
+}
+
+export interface DreamProceduralRule {
+  rule_key: string;
+  rule_text: string;
+  tier: number;
+  status: string;
+  confidence: number | null;
+  evidence: Record<string, unknown>;
+  updated_at: string | null;
+}
+
+export interface DreamAuditItem {
+  audit_id: string;
+  cycle: string | null;
+  action: string | null;
+  target_kind: string | null;
+  target_id: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  created_at: string | null;
+  reversible_until: string | null;
+}
+
+export interface DreamingMetrics {
+  cycles_run: number;
+  vector_count: number;
+  total_tokens: number;
+  avg_tokens_per_cycle: number;
+  pending_resolutions: { open_conflicts: number; proposed_procedural: number; total: number };
+  deletion_count: number;
+  promotion_count: number;
+  run_status: Record<string, number>;
+}
+
+export async function fetchDreamConflicts(): Promise<DreamConflict[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/conflicts`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load conflicts"));
+  return ((await response.json()) as { conflicts: DreamConflict[] }).conflicts ?? [];
+}
+
+export async function resolveDreamConflict(
+  conflictId: string,
+  choice: DreamConflictChoice,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to resolve conflict"));
+}
+
+export async function fetchDreamProcedural(): Promise<DreamProceduralRule[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/procedural`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load rules"));
+  return ((await response.json()) as { rules: DreamProceduralRule[] }).rules ?? [];
+}
+
+export async function decideDreamRule(
+  ruleKey: string,
+  decision: "approve" | "reject",
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/procedural/${encodeURIComponent(ruleKey)}/${decision}`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to update rule"));
+}
+
+export async function fetchDreamAudit(): Promise<DreamAuditItem[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/audit`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load undo feed"));
+  return ((await response.json()) as { reversible: DreamAuditItem[] }).reversible ?? [];
+}
+
+export async function undoDreamAction(auditId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/audit/${encodeURIComponent(auditId)}/undo`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to undo"));
+}
+
+export async function fetchDreamingMetrics(): Promise<DreamingMetrics | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/dreaming-metrics`);
+    if (!response.ok) {
+      console.error(`Failed to fetch dreaming metrics: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as DreamingMetrics;
+  } catch (error) {
+    console.error("Error fetching dreaming metrics:", error);
+    return null;
+  }
+}

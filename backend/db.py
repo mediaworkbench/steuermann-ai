@@ -1543,6 +1543,32 @@ class HeartbeatRunStore:
                 rows = cur.fetchall()
         return [dict(row) for row in rows]
 
+    def aggregate_task_stats(self, task_name: str) -> Dict[str, Any]:
+        """Admin-safe rollup for one task — run count, status breakdown, and summed
+        ``detail.tokens`` (the cost signal). COUNT/SUM/GROUP BY only, no user_id or
+        payload columns, so it's structurally PII-free (concept §5A)."""
+        statement = """
+            SELECT status,
+                   COUNT(*) AS n,
+                   COALESCE(SUM((detail->>'tokens')::numeric), 0) AS tokens
+            FROM heartbeat_runs
+            WHERE task_name = %s
+            GROUP BY status;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (task_name,))
+                rows = cur.fetchall()
+        by_status: Dict[str, int] = {}
+        total = 0
+        total_tokens = 0
+        for row in rows:
+            n = int(row["n"])
+            total += n
+            total_tokens += int(row["tokens"] or 0)
+            by_status[row["status"]] = by_status.get(row["status"], 0) + n
+        return {"count": total, "by_status": by_status, "total_tokens": total_tokens}
+
     def prune_runs(self, *, cutoff: datetime) -> int:
         """Delete run rows older than ``cutoff`` (keeps per-user volume bounded)."""
         statement = "DELETE FROM heartbeat_runs WHERE fired_at < %s;"
@@ -2047,6 +2073,31 @@ class MemoryAuditLogStore:
                 cur.execute(statement, (user_id, cycle))
                 row = cur.fetchone()
         return row.get("last_run") if row else None
+
+    def get(self, *, audit_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Read one audit row, user-scoped (for the HITL undo handler)."""
+        statement = "SELECT * FROM memory_audit_log WHERE audit_id = %s AND user_id = %s;"
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (audit_id, user_id))
+                row = cur.fetchone()
+        return dict(row) if row else None
+
+    def mark_undone(self, *, audit_id: str, user_id: str) -> bool:
+        """Clear ``reversible_until`` after an undo so the row can't be undone twice
+        (and drops out of the reversible feed). Guarded on still-reversible + owner."""
+        statement = """
+            UPDATE memory_audit_log
+            SET reversible_until = NULL
+            WHERE audit_id = %s AND user_id = %s AND reversible_until IS NOT NULL
+            RETURNING audit_id;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (audit_id, user_id))
+                row = cur.fetchone()
+            conn.commit()
+        return row is not None
 
     def list_reversible(self, *, user_id: str, now: Optional[datetime] = None) -> list[Dict[str, Any]]:
         """Rows still inside their undo window (reversible_until > now), newest first."""

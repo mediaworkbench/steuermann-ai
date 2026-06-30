@@ -673,6 +673,44 @@ class Mem0MemoryBackend(MemoryBackend):
                 sets.append([str(s) for s in src])
         return sets
 
+    def count_points(self) -> int:
+        """Total point count in the memory collection (admin aggregate; no payloads).
+        Returns 0 when the direct Qdrant client is unavailable."""
+        client, collection = self._direct_qdrant()
+        if client is None:
+            return 0
+        try:
+            result = client.count(collection_name=collection, exact=False)
+            return int(getattr(result, "count", result) or 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("qdrant_count_failed", error=str(exc))
+            return 0
+
+    def restore_memory(self, user_id: str, *, text: str, metadata: Dict[str, Any]) -> MemoryRecord:
+        """Re-insert a previously-deleted memory verbatim (``infer=False``) from its
+        audit ``before_state`` — the HITL undo path. The cognitive contract fields
+        are preserved/defaulted; a fresh provider id is assigned."""
+        payload = dict(metadata or {})
+        payload["user_id"] = user_id
+        payload.setdefault("cognitive_tier", "episodic")
+        now = self._now_iso()
+        payload.setdefault("created_at", now)
+        payload.setdefault("last_accessed", now)
+        payload.setdefault("access_count", 0)
+        payload.setdefault("confidence", 1.0)
+        try:
+            add_response = self._memory.add(
+                [{"role": "user", "content": text}],
+                user_id=user_id,
+                metadata=payload,
+                infer=False,
+            )
+        except Exception as exc:
+            logger.error("mem0_restore_failed", user_id=user_id, error=str(exc))
+            raise
+        payload["memory_id"] = self._extract_added_id(add_response)
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
     def add_semantic(
         self,
         user_id: str,

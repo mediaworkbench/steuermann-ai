@@ -8,6 +8,7 @@
 - groundwork: a per-user background "dreaming" process that, once enabled, forgets old never-used memories and flags contradictions between new and established facts for you to resolve — privacy-isolated to one user at a time and degrading gracefully when the model provider is offline; off by default.
 - groundwork: the dreaming process now also consolidates recurring memories into a single higher-level "semantic" memory it synthesizes, keeping the originals as provenance; runs on a configurable cadence with per-run caps, off by default.
 - groundwork: the dreaming process can now learn formatting and style preferences from how you interact and, once you approve them, fold them into the assistant's persona; core-logic/safety rules are never auto-learned. Off by default; nothing reaches the prompt without explicit approval.
+- feature: a Memory Review page (in the user menu) to resolve memory contradictions, approve or reject learned preferences, and undo recent memory changes within a 7-day window; plus an admin Dreaming Metrics dashboard showing anonymized, aggregate engine health (no user content).
 
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
