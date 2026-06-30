@@ -22,6 +22,7 @@ from backend.db import (
     GlobalSettingsStore,
     HeartbeatRunStore,
     HEARTBEAT_RATE_SETTING_KEY,
+    HEARTBEAT_COOLDOWNS_SETTING_KEY,
 )
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.auth import (
@@ -633,13 +634,25 @@ def update_heartbeat_rate(
 MAX_HEARTBEAT_RUNS = 200
 
 
+MIN_HEARTBEAT_COOLDOWN_SECONDS = 0
+MAX_HEARTBEAT_COOLDOWN_SECONDS = 604800  # 7 days
+
+
 class HeartbeatTaskInfo(BaseModel):
     name: str
     type: str
     scope: str  # "global" | "per_user"
-    cooldown_seconds: int
+    cooldown_seconds: int          # effective (override if set, else config default)
+    cooldown_default: int          # configured default (core.yaml)
+    cooldown_source: str           # "override" | "default"
     enabled: bool
     last_run: Optional[Dict[str, Any]] = None
+
+
+class HeartbeatCooldownUpdate(BaseModel):
+    cooldown_seconds: int = Field(
+        ..., ge=MIN_HEARTBEAT_COOLDOWN_SECONDS, le=MAX_HEARTBEAT_COOLDOWN_SECONDS
+    )
 
 
 class HeartbeatTasksResponse(BaseModel):
@@ -686,10 +699,15 @@ def list_heartbeat_tasks(
     request: Request,
     _admin: CurrentUser = Depends(require_admin),
 ) -> Dict[str, Any]:
-    """Admin: the configured heartbeat tasks and each task's most recent run."""
+    """Admin: the configured heartbeat tasks and each task's most recent run.
+
+    ``cooldown_seconds`` is the *effective* value (an admin override from
+    ``global_settings`` wins over the configured default).
+    """
     hb = getattr(load_core_config(), "heartbeat", None)
     configured = list(hb.tasks) if hb is not None else []
     store = _get_heartbeat_run_store(request)
+    overrides = _heartbeat_cooldown_overrides(request)
     tasks: List[Dict[str, Any]] = []
     for tcfg in configured:
         last_run = None
@@ -699,17 +717,64 @@ def list_heartbeat_tasks(
                 last_run = _serialize_run(rows[0]) if rows else None
             except Exception:  # pragma: no cover - best-effort
                 last_run = None
+        default_cd = int(tcfg.cooldown_seconds)
+        override_cd = overrides.get(tcfg.name)
         tasks.append(
             {
                 "name": tcfg.name,
                 "type": tcfg.type,
                 "scope": tcfg.scope,
-                "cooldown_seconds": int(tcfg.cooldown_seconds),
+                "cooldown_seconds": override_cd if override_cd is not None else default_cd,
+                "cooldown_default": default_cd,
+                "cooldown_source": "override" if override_cd is not None else "default",
                 "enabled": bool(tcfg.enabled),
                 "last_run": last_run,
             }
         )
     return {"tasks": tasks}
+
+
+def _heartbeat_cooldown_overrides(request: Request) -> Dict[str, int]:
+    """Read + clamp the admin per-task cooldown override map from global_settings."""
+    store = _get_global_settings_store(request)
+    raw = store.get_setting(HEARTBEAT_COOLDOWNS_SETTING_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, int] = {}
+    for name, value in raw.items():
+        try:
+            out[str(name)] = max(
+                MIN_HEARTBEAT_COOLDOWN_SECONDS, min(MAX_HEARTBEAT_COOLDOWN_SECONDS, int(value))
+            )
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+@router.put("/admin/heartbeat/tasks/{task_name}/cooldown", response_model=HeartbeatTasksResponse)
+def update_heartbeat_cooldown(
+    task_name: str,
+    payload: HeartbeatCooldownUpdate,
+    request: Request,
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin: override a heartbeat task's per-user cooldown (seconds), applied live
+    by the scheduler within ~30s (control poll) — no rebuild. Returns the full task
+    list so the UI can refresh in one round-trip."""
+    hb = getattr(load_core_config(), "heartbeat", None)
+    config_by_name = {t.name: int(t.cooldown_seconds) for t in (hb.tasks if hb is not None else [])}
+    if task_name not in config_by_name:
+        raise HTTPException(status_code=404, detail=f"Unknown heartbeat task '{task_name}'")
+
+    store = _get_global_settings_store(request)
+    overrides = _heartbeat_cooldown_overrides(request)
+    # Setting a task back to its configured default clears the override (→ "default").
+    if int(payload.cooldown_seconds) == config_by_name[task_name]:
+        overrides.pop(task_name, None)
+    else:
+        overrides[task_name] = int(payload.cooldown_seconds)
+    store.set_setting(HEARTBEAT_COOLDOWNS_SETTING_KEY, overrides)
+    return list_heartbeat_tasks(request, _admin)
 
 
 @router.get("/admin/heartbeat/runs", response_model=HeartbeatRunsResponse)

@@ -545,6 +545,26 @@ class Mem0MemoryBackend(MemoryBackend):
             out.append(self._to_memory_record(user_id, item))
         return out
 
+    @staticmethod
+    def _is_missing_collection_error(exc: Exception) -> bool:
+        """True when a Qdrant read failed only because the collection doesn't exist
+        yet — the normal state for a fresh deployment / a user with no memories."""
+        msg = str(exc).lower()
+        return "doesn't exist" in msg or "not found" in msg or "404" in msg
+
+    def _safe_dreaming_read(self, user_id: str, fn, *args) -> Any:
+        """Run a Dreaming-Engine batch read, degrading to None on failure so the
+        engine no-ops on incomplete data instead of erroring (and trips no breaker).
+        A missing collection (no memories yet) is expected → debug, not warning."""
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 — engine reads are best-effort
+            if self._is_missing_collection_error(exc):
+                logger.debug("dreaming_read_no_collection", user_id=user_id)
+            else:
+                logger.warning("dreaming_read_failed", user_id=user_id, error=str(exc))
+            return None
+
     def find_nearest_semantic(
         self, user_id: str, query: str, top_k: int = 1
     ) -> List[Dict[str, Any]]:
@@ -557,9 +577,11 @@ class Mem0MemoryBackend(MemoryBackend):
         """
         if not query:
             return []
-        response = self._search_memories(
-            query, user_id=user_id, limit=max(top_k * 4, self.search_limit)
+        response = self._safe_dreaming_read(
+            user_id, self._search_memories, query, user_id, max(top_k * 4, self.search_limit)
         )
+        if response is None:
+            return []
         out: List[Dict[str, Any]] = []
         for item in self._extract_results(response):
             norm = self._normalize_item(item)
@@ -582,8 +604,13 @@ class Mem0MemoryBackend(MemoryBackend):
         The Dreaming Engine reads Qdrant directly for raw vectors; this Mem0-path
         helper supplies text + contract metadata (tier/confidence/access_count)
         for the cheap cycles that don't need embeddings. Filtered by ``user_id``.
+        Returns [] when the collection doesn't exist yet (no memories).
         """
-        response = self._get_all_memories(user_id=user_id, limit=max(1, int(limit)))
+        response = self._safe_dreaming_read(
+            user_id, self._get_all_memories, user_id, max(1, int(limit))
+        )
+        if response is None:
+            return []
         return [self._normalize_item(item) for item in self._extract_results(response)]
 
     def _direct_qdrant(self) -> tuple[Optional[Any], str]:

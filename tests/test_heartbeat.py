@@ -485,3 +485,81 @@ def test_heartbeat_inspector_endpoints_require_admin(monkeypatch):
     client = _make_client(monkeypatch, role="user")
     assert client.get("/api/admin/heartbeat/tasks").status_code == 403
     assert client.get("/api/admin/heartbeat/runs").status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# Per-task cooldown overrides (admin-configurable, applied live)
+# --------------------------------------------------------------------------- #
+def _sched_for_cooldowns(override):
+    sched = HeartbeatScheduler(
+        _config(), settings_store=_FakeSettingsStore(value=override), build_default_stores=False
+    )
+    task = HeartbeatTask(name="dreaming", cooldown_seconds=86400)
+    sched._tasks = [task]
+    sched._config_cooldowns = {"dreaming": 86400}
+    return sched, task
+
+
+def test_sync_cooldowns_applies_admin_override():
+    sched, task = _sched_for_cooldowns({"dreaming": 3600})
+    sched._sync_cooldowns()
+    assert task.cooldown_seconds == 3600  # override wins over the 86400 config default
+
+
+def test_sync_cooldowns_falls_back_to_config_default():
+    sched, task = _sched_for_cooldowns({})  # no override for this task
+    task.cooldown_seconds = 5  # simulate a prior override that was cleared
+    sched._sync_cooldowns()
+    assert task.cooldown_seconds == 86400  # restored to the configured default
+
+
+def test_sync_cooldowns_clamps_override():
+    sched, task = _sched_for_cooldowns({"dreaming": 99_999_999})
+    sched._sync_cooldowns()
+    assert task.cooldown_seconds == 604800  # clamped to MAX_COOLDOWN_SECONDS (7 days)
+
+
+def test_sync_cooldowns_ignores_garbage_override():
+    sched, task = _sched_for_cooldowns({"dreaming": "nope"})
+    sched._sync_cooldowns()
+    assert task.cooldown_seconds == 86400  # bad value ignored → config default
+
+# --------------------------------------------------------------------------- #
+# Per-task cooldown override endpoint
+# --------------------------------------------------------------------------- #
+def test_put_cooldown_override_reflected_in_tasks(monkeypatch):
+    client = _make_client(monkeypatch)
+    put = client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 600})
+    assert put.status_code == 200
+    up = {t["name"]: t for t in put.json()["tasks"]}["user_pulse"]
+    assert up["cooldown_seconds"] == 600 and up["cooldown_source"] == "override"
+    assert up["cooldown_default"] == 300  # starter config default for user_pulse
+
+    # Persisted: a follow-up tasks fetch still shows the override.
+    again = {t["name"]: t for t in client.get("/api/admin/heartbeat/tasks").json()["tasks"]}["user_pulse"]
+    assert again["cooldown_seconds"] == 600 and again["cooldown_source"] == "override"
+
+
+def test_put_cooldown_unknown_task_404(monkeypatch):
+    client = _make_client(monkeypatch)
+    assert client.put("/api/admin/heartbeat/tasks/nope/cooldown", json={"cooldown_seconds": 60}).status_code == 404
+
+
+def test_put_cooldown_out_of_bounds_422(monkeypatch):
+    client = _make_client(monkeypatch)
+    assert client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": -1}).status_code == 422
+    assert client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 604801}).status_code == 422
+
+
+def test_put_cooldown_requires_admin(monkeypatch):
+    client = _make_client(monkeypatch, role="user")
+    assert client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 60}).status_code == 403
+
+
+def test_put_cooldown_equal_to_default_clears_override(monkeypatch):
+    client = _make_client(monkeypatch)
+    # Override, then set back to the configured default → override cleared.
+    client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 600})
+    back = client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 300})
+    up = {t["name"]: t for t in back.json()["tasks"]}["user_pulse"]
+    assert up["cooldown_seconds"] == 300 and up["cooldown_source"] == "default"

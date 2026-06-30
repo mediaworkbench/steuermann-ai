@@ -5,6 +5,7 @@ import {
   fetchHeartbeatRate,
   fetchHeartbeatTasks,
   fetchHeartbeatRuns,
+  updateHeartbeatCooldown,
 } from "@/lib/api";
 
 jest.mock("@/hooks/useI18n");
@@ -13,16 +14,18 @@ jest.mock("@/lib/api", () => ({
   fetchHeartbeatTasks: jest.fn(),
   fetchHeartbeatRuns: jest.fn(),
   updateHeartbeatRate: jest.fn(),
+  updateHeartbeatCooldown: jest.fn(),
 }));
 
 const mockUseI18n = useI18n as jest.MockedFunction<typeof useI18n>;
 const mockFetchRate = fetchHeartbeatRate as jest.MockedFunction<typeof fetchHeartbeatRate>;
 const mockFetchTasks = fetchHeartbeatTasks as jest.MockedFunction<typeof fetchHeartbeatTasks>;
 const mockFetchRuns = fetchHeartbeatRuns as jest.MockedFunction<typeof fetchHeartbeatRuns>;
+const mockUpdateCooldown = updateHeartbeatCooldown as jest.MockedFunction<typeof updateHeartbeatCooldown>;
 
 const TASKS = [
-  { name: "health", type: "pkg:Health", scope: "global" as const, cooldown_seconds: 0, enabled: true, last_run: null },
-  { name: "user_pulse", type: "pkg:Health", scope: "per_user" as const, cooldown_seconds: 300, enabled: true, last_run: null },
+  { name: "health", type: "pkg:Health", scope: "global" as const, cooldown_seconds: 0, cooldown_default: 0, cooldown_source: "default" as const, enabled: true, last_run: null },
+  { name: "user_pulse", type: "pkg:Health", scope: "per_user" as const, cooldown_seconds: 300, cooldown_default: 300, cooldown_source: "default" as const, enabled: true, last_run: null },
 ];
 
 const RUNS = [
@@ -94,4 +97,25 @@ test("user filter narrows the log to a single user", async () => {
   });
 
   expect(bodyRowCount()).toBe(1);
+});
+
+test("editing a task cooldown saves the override", async () => {
+  mockUpdateCooldown.mockResolvedValue([
+    { ...TASKS[1], cooldown_seconds: 600, cooldown_source: "override" },
+  ]);
+  render(<HeartbeatSettingsSection />);
+  // Wait for the per-task cooldown inputs (one per configured task).
+  await waitFor(() =>
+    expect(screen.getAllByLabelText("adminPage.heartbeatCooldownEditLabel")).toHaveLength(2),
+  );
+
+  // Two cooldown inputs (one per task); the second is user_pulse (value 300).
+  const inputs = screen.getAllByLabelText("adminPage.heartbeatCooldownEditLabel");
+  fireEvent.change(inputs[1], { target: { value: "600" } });
+
+  // The Save next to the cooldown row (Save buttons: rate + per-task). Last one is user_pulse.
+  const saveButtons = screen.getAllByText("adminPage.heartbeatSave");
+  fireEvent.click(saveButtons[saveButtons.length - 1]);
+
+  await waitFor(() => expect(mockUpdateCooldown).toHaveBeenCalledWith("user_pulse", 600));
 });

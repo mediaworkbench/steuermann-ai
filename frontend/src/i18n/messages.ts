@@ -168,6 +168,11 @@ export type Messages = {
     heartbeatScopePerUser: string;
     heartbeatTaskDisabled: string;
     heartbeatCooldownLabel: string;
+    heartbeatCooldownEditLabel: string;
+    heartbeatCooldownDefault: string;
+    heartbeatCooldownSaved: string;
+    heartbeatCooldownSaveFailed: string;
+    heartbeatCooldownInvalid: string;
     heartbeatNoTasks: string;
     heartbeatLogTitle: string;
     heartbeatLogHelp: string;
@@ -910,6 +915,11 @@ export const messages: Record<Locale, Messages> = {
       heartbeatScopePerUser: "Per-user",
       heartbeatTaskDisabled: "Disabled",
       heartbeatCooldownLabel: "Cooldown {seconds}s",
+      heartbeatCooldownEditLabel: "Cooldown (seconds)",
+      heartbeatCooldownDefault: "default {seconds}s",
+      heartbeatCooldownSaved: "Cooldown updated (applies within ~30s)",
+      heartbeatCooldownSaveFailed: "Failed to update cooldown",
+      heartbeatCooldownInvalid: "Enter a value between 0 and {max} seconds",
       heartbeatNoTasks: "No tasks configured.",
       heartbeatLogTitle: "Run log",
       heartbeatLogHelp: "Most recent beats, newest first. Expand an error row for details.",
@@ -1650,6 +1660,11 @@ export const messages: Record<Locale, Messages> = {
       heartbeatScopePerUser: "Pro Benutzer",
       heartbeatTaskDisabled: "Deaktiviert",
       heartbeatCooldownLabel: "Abklingzeit {seconds}s",
+      heartbeatCooldownEditLabel: "Abklingzeit (Sekunden)",
+      heartbeatCooldownDefault: "Standard {seconds}s",
+      heartbeatCooldownSaved: "Abklingzeit aktualisiert (gilt in ~30s)",
+      heartbeatCooldownSaveFailed: "Abklingzeit konnte nicht aktualisiert werden",
+      heartbeatCooldownInvalid: "Wert zwischen 0 und {max} Sekunden eingeben",
       heartbeatNoTasks: "Keine Aufgaben konfiguriert.",
       heartbeatLogTitle: "Ausführungsprotokoll",
       heartbeatLogHelp: "Neueste Takte zuerst. Fehlerzeile zum Aufklappen der Details anklicken.",

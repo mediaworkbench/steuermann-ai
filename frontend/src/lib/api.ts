@@ -277,7 +277,9 @@ export interface HeartbeatTaskInfo {
   name: string;
   type: string;
   scope: "global" | "per_user";
-  cooldown_seconds: number;
+  cooldown_seconds: number; // effective (override if set, else default)
+  cooldown_default: number;
+  cooldown_source: "override" | "default";
   enabled: boolean;
   last_run: HeartbeatRun | null;
 }
@@ -294,6 +296,33 @@ export async function fetchHeartbeatTasks(): Promise<HeartbeatTaskInfo[] | null>
     return data.tasks ?? [];
   } catch (error) {
     console.error("Error fetching heartbeat tasks:", error);
+    return null;
+  }
+}
+
+// Admin-only: override a heartbeat task's cooldown (seconds). Returns the full
+// task list (refreshed) or null on failure.
+export async function updateHeartbeatCooldown(
+  taskName: string,
+  cooldownSeconds: number,
+): Promise<HeartbeatTaskInfo[] | null> {
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/admin/heartbeat/tasks/${encodeURIComponent(taskName)}/cooldown`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cooldown_seconds: cooldownSeconds }),
+      },
+    );
+    if (!response.ok) {
+      console.error(`Failed to update heartbeat cooldown: ${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as { tasks: HeartbeatTaskInfo[] };
+    return data.tasks ?? [];
+  } catch (error) {
+    console.error("Error updating heartbeat cooldown:", error);
     return null;
   }
 }

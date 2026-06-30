@@ -1362,6 +1362,10 @@ def _ensure_global_settings_table(db_pool: DatabasePool) -> None:
 # Single source of truth shared by the FastAPI admin endpoint (writer) and the
 # LangGraph-embedded HeartbeatScheduler (reader).
 HEARTBEAT_RATE_SETTING_KEY = "heartbeat_rate_minutes"
+# Admin-controlled per-task cooldown overrides: JSON {task_name: seconds}. Empty/
+# absent for a task → fall back to the config cooldown_seconds. Shared by the
+# FastAPI admin endpoint (writer) and the scheduler control loop (reader).
+HEARTBEAT_COOLDOWNS_SETTING_KEY = "heartbeat_task_cooldowns"
 
 
 class GlobalSettingsStore:

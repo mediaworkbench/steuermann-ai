@@ -258,3 +258,19 @@ def test_update_metadata_preserves_text():
 def test_update_metadata_missing_memory_returns_false():
     backend = _make_backend()
     assert backend.update_metadata("nonexistent-id", {"confidence": 0.1}) is False
+
+
+def test_dreaming_reads_degrade_when_collection_missing():
+    # A fresh deployment / a user with no memories => Qdrant collection doesn't
+    # exist yet. The engine's batch reads must no-op (return []), not raise, so the
+    # dreaming tick doesn't error every beat.
+    backend = _make_backend()
+
+    def _missing(*_a, **_k):
+        raise Exception("Unexpected Response: 404 (Not Found) Collection `test_memory` doesn't exist!")
+
+    backend._memory.get_all = _missing
+    backend._memory.search = _missing
+
+    assert backend.get_all_for_dreaming("u1") == []
+    assert backend.find_nearest_semantic("u1", "anything") == []

@@ -10,6 +10,9 @@
 - groundwork: the dreaming process can now learn formatting and style preferences from how you interact and, once you approve them, fold them into the assistant's persona; core-logic/safety rules are never auto-learned. Off by default; nothing reaches the prompt without explicit approval.
 - feature: a Memory Review page (in the user menu) to resolve memory contradictions, approve or reject learned preferences, and undo recent memory changes within a 7-day window; plus an admin Dreaming Metrics dashboard showing anonymized, aggregate engine health (no user content).
 - fix: the background memory consolidation and preference-learning steps now use a larger model token budget (and strip inline reasoning), so reasoning-style local models reliably return a result instead of an empty one. Found during end-to-end validation against a live model.
+- feature: the cognitive memory + dreaming engine is now **enabled in the starter profile** and validated end-to-end against a live model — chat tags and consolidates memories, the background engine forgets/reconciles/consolidates on its schedule, and the Memory Review + admin pages drive it. Disable per profile via the `cognitive_memory_enabled` / `dreaming_engine_enabled` / `procedural_overrides_enabled` flags.
+- feature: admins can now set each heartbeat task's cooldown (how often a per-user task like dreaming runs for a given user) directly on the `/admin/heartbeat` page — applied by the scheduler within ~30 seconds, no rebuild; setting a task back to its configured value clears the override.
+- fix: the dreaming engine no longer logs an error each beat for a user who has no memories yet (or a fresh deployment before anyone has chatted) — a missing memory store is now treated as "nothing to do" and the run records OK instead of failing.
 
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
