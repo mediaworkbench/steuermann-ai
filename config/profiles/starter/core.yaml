@@ -80,6 +80,8 @@ memory:
     promotion_interval_days: 7
     promotion_min_cluster_size: 3
     max_promotions_per_run: 5
+    promotion_similarity_threshold: 0.83
+    promotion_start_confidence: 0.6
     drift_confidence_floor: 0.3
     drift_decrement: 0.15
     max_drift_checks_per_user: 10

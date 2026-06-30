@@ -310,6 +310,8 @@ class CognitiveMemorySettings(BaseModel):
     promotion_interval_days: PositiveInt = 7
     promotion_min_cluster_size: PositiveInt = 3
     max_promotions_per_run: PositiveInt = 5
+    promotion_similarity_threshold: confloat(ge=0.0, le=1.0) = 0.83  # greedy-cosine cluster join
+    promotion_start_confidence: confloat(ge=0.0, le=1.0) = 0.6       # synthesized semantic confidence
 
     # Drift adjudication (Cycle B).
     drift_confidence_floor: confloat(ge=0.0, le=1.0) = 0.3

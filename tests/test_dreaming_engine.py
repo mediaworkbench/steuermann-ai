@@ -77,11 +77,18 @@ class _FakeRunStore:
 
 class _FakeReader:
     def __init__(self, items: Optional[List[Dict[str, Any]]] = None,
-                 nearest: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+                 nearest: Optional[Dict[str, Dict[str, Any]]] = None,
+                 vectors: Optional[List[Dict[str, Any]]] = None,
+                 sources: Optional[List[List[str]]] = None) -> None:
         self._items = {i["memory_id"]: i for i in (items or [])}
         self._nearest = nearest or {}
+        self._vectors = vectors or []
+        self._sources = sources or []
         self.deleted: List[str] = []
         self.confidence_set: List[tuple] = []
+        self.written: List[Dict[str, Any]] = []
+        self.flagged: List[str] = []
+        self.vectors_fetched = 0
 
     def fetch_all(self, user_id):
         return list(self._items.values())
@@ -95,6 +102,24 @@ class _FakeReader:
 
     def set_confidence(self, user_id, memory_id, confidence):
         self.confidence_set.append((memory_id, confidence))
+
+    # --- promotion (Cycle A) ---
+    def fetch_episodic_vectors(self, user_id):
+        self.vectors_fetched += 1
+        return list(self._vectors)
+
+    def existing_semantic_sources(self, user_id):
+        return [list(s) for s in self._sources]
+
+    def write_semantic(self, user_id, text, confidence, source_episodic_ids):
+        sid = "sem-%d" % (len(self.written) + 1)
+        self.written.append(
+            {"id": sid, "text": text, "confidence": confidence, "sources": list(source_episodic_ids)}
+        )
+        return sid
+
+    def flag_contributor(self, user_id, memory_id):
+        self.flagged.append(memory_id)
 
 
 def _episodic(mid, *, age_days, access=0, contributor=False, text="ep") -> Dict[str, Any]:
@@ -120,8 +145,8 @@ async def _never_reachable() -> bool:
 
 
 def _make_task(reader, *, audit=None, conflicts=None, run_store=None, adjudicator=None,
-               health=_always_reachable, opt_out=lambda _u: False, semaphore=None,
-               settings=None) -> DreamingEngineTask:
+               synthesizer=None, health=_always_reachable, opt_out=lambda _u: False,
+               semaphore=None, settings=None) -> DreamingEngineTask:
     async def _default_adj(_s, _e):
         return {"contradicts": False, "tokens": 5}
 
@@ -134,12 +159,27 @@ def _make_task(reader, *, audit=None, conflicts=None, run_store=None, adjudicato
         conflict_store=conflicts or _FakeConflicts(),
         reader=reader,
         adjudicator=adjudicator or _default_adj,
+        synthesizer=synthesizer,
         health_gate=health,
         opt_out_checker=opt_out,
         settings=settings or CognitiveMemorySettings(),
         semaphore=semaphore,
         clock=lambda: NOW,
     )
+
+
+# Three near-collinear vectors (one cluster) + one orthogonal (excluded).
+def _cluster_vectors() -> List[Dict[str, Any]]:
+    return [
+        {"memory_id": "e1", "text": "drinks oat milk latte", "vector": [1.0, 0.0, 0.0]},
+        {"memory_id": "e2", "text": "ordered an oat latte", "vector": [0.99, 0.02, 0.0]},
+        {"memory_id": "e3", "text": "oat milk in coffee", "vector": [0.98, 0.03, 0.0]},
+        {"memory_id": "e4", "text": "unrelated", "vector": [0.0, 1.0, 0.0]},
+    ]
+
+
+async def _synth_ok(_texts):
+    return {"text": "User prefers oat milk in coffee.", "tokens": 20}
 
 
 # --------------------------------------------------------------------------- #
@@ -385,3 +425,137 @@ async def test_concurrency_above_one_allows_overlap():
         task.tick(TickContext(user_id="B")),
     )
     assert state["max"] == 2  # the semaphore is what serialises, not luck
+
+
+# --------------------------------------------------------------------------- #
+# Cycle A — Promotion / Epiphany (Phase 4)
+# --------------------------------------------------------------------------- #
+def test_greedy_cosine_clusters_pure():
+    from universal_agentic_framework.heartbeat.tasks.dreaming import greedy_cosine_clusters
+
+    items = _cluster_vectors()
+    clusters = greedy_cosine_clusters(items, threshold=0.9, min_size=3)
+    assert len(clusters) == 1
+    assert {m["memory_id"] for m in clusters[0]} == {"e1", "e2", "e3"}
+
+    # Below min_size → no cluster; a zero vector is ignored, not crashed on.
+    assert greedy_cosine_clusters(items, threshold=0.9, min_size=4) == []
+    assert greedy_cosine_clusters(
+        [{"memory_id": "z", "text": "t", "vector": [0.0, 0.0, 0.0]}], threshold=0.5, min_size=1
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_promotion_clusters_to_one_semantic_and_flags_contributors():
+    reader = _FakeReader(vectors=_cluster_vectors())
+    audit = _FakeAudit()
+    task = _make_task(reader, audit=audit, synthesizer=_synth_ok)
+
+    res = await task.tick(TickContext(user_id="u1"))
+
+    assert res["status"] == "ok"
+    assert len(reader.written) == 1
+    written = reader.written[0]
+    assert written["text"] == "User prefers oat milk in coffee."
+    assert written["confidence"] == pytest.approx(0.6)
+    assert set(written["sources"]) == {"e1", "e2", "e3"}
+    # Each source episodic is flagged as an epiphany contributor (spared by GC).
+    assert set(reader.flagged) == {"e1", "e2", "e3"}
+    promote_rows = [r for r in audit.records if r["action"] == "promote"]
+    assert len(promote_rows) == 1
+    assert promote_rows[0]["after_state"]["source_episodic_ids"] == ["e1", "e2", "e3"]
+    assert promote_rows[0]["reversible_until"] == NOW + timedelta(days=7)
+    assert any(r["cycle"] == "promotion" and r["action"] == "cycle_run" for r in audit.records)
+
+
+@pytest.mark.asyncio
+async def test_promotion_skips_cluster_already_covered():
+    reader = _FakeReader(vectors=_cluster_vectors(), sources=[["e1", "e2", "e3"]])
+    task = _make_task(reader, synthesizer=_synth_ok)
+
+    await task.tick(TickContext(user_id="u1"))
+
+    assert reader.written == []   # already covered by an existing semantic
+    assert reader.flagged == []
+
+
+@pytest.mark.asyncio
+async def test_promotion_respects_interval_days():
+    # Promotion ran 2 days ago; interval is 7 → not due, no clustering at all.
+    reader = _FakeReader(vectors=_cluster_vectors())
+    audit = _FakeAudit(last={"promotion": NOW - timedelta(days=2), "drift": NOW})
+    task = _make_task(reader, audit=audit, synthesizer=_synth_ok)
+
+    await task.tick(TickContext(user_id="u1"))
+
+    assert reader.written == []
+    assert reader.vectors_fetched == 0  # not even read when the cycle isn't due
+
+
+@pytest.mark.asyncio
+async def test_promotion_offline_defers_without_writing():
+    reader = _FakeReader(vectors=_cluster_vectors())
+    audit = _FakeAudit()
+    run_store = _FakeRunStore()
+    task = _make_task(reader, audit=audit, run_store=run_store,
+                      synthesizer=_synth_ok, health=_never_reachable)
+
+    res = await task.tick(TickContext(user_id="u1"))
+
+    assert res["status"] == "partial"
+    assert reader.written == []
+    assert "promotion" in run_store.runs[-1]["detail"]["deferred"]
+    assert not any(r["cycle"] == "promotion" and r["action"] == "cycle_run" for r in audit.records)
+
+
+@pytest.mark.asyncio
+async def test_promotion_cap_limits_writes_per_run():
+    # Two disjoint clusters of 3; cap = 1 → only one promotion this run.
+    vectors = [
+        {"memory_id": "a1", "text": "a one", "vector": [1.0, 0.0, 0.0]},
+        {"memory_id": "a2", "text": "a two", "vector": [0.99, 0.01, 0.0]},
+        {"memory_id": "a3", "text": "a three", "vector": [0.98, 0.02, 0.0]},
+        {"memory_id": "b1", "text": "b one", "vector": [0.0, 1.0, 0.0]},
+        {"memory_id": "b2", "text": "b two", "vector": [0.0, 0.99, 0.01]},
+        {"memory_id": "b3", "text": "b three", "vector": [0.0, 0.98, 0.02]},
+    ]
+    reader = _FakeReader(vectors=vectors)
+    task = _make_task(reader, synthesizer=_synth_ok,
+                      settings=CognitiveMemorySettings(max_promotions_per_run=1))
+
+    await task.tick(TickContext(user_id="u1"))
+    assert len(reader.written) == 1
+
+
+@pytest.mark.asyncio
+async def test_promotion_rejects_empty_synthesis():
+    reader = _FakeReader(vectors=_cluster_vectors())
+
+    async def _synth_empty(_texts):
+        return {"text": "   ", "tokens": 3}
+
+    task = _make_task(reader, synthesizer=_synth_empty)
+    await task.tick(TickContext(user_id="u1"))
+    assert reader.written == []   # garbage synthesis is skipped, nothing written
+
+
+@pytest.mark.asyncio
+async def test_promotion_contributor_not_forgotten_same_tick():
+    # An episodic that is both GC-eligible (old, untouched) AND a promotion source
+    # must survive this tick (its contributor flag isn't persisted until act()).
+    old_contrib = _episodic("e1", age_days=99)  # old + untouched → GC-eligible
+    reader = _FakeReader(
+        items=[old_contrib],
+        vectors=[
+            {"memory_id": "e1", "text": "x", "vector": [1.0, 0.0, 0.0]},
+            {"memory_id": "e2", "text": "y", "vector": [0.99, 0.01, 0.0]},
+            {"memory_id": "e3", "text": "z", "vector": [0.98, 0.02, 0.0]},
+        ],
+    )
+    task = _make_task(reader, synthesizer=_synth_ok)
+
+    await task.tick(TickContext(user_id="u1"))
+
+    assert len(reader.written) == 1
+    assert "e1" not in reader.deleted   # de-conflicted: promoted source not GC'd
+

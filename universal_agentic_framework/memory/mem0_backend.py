@@ -586,6 +586,129 @@ class Mem0MemoryBackend(MemoryBackend):
         response = self._get_all_memories(user_id=user_id, limit=max(1, int(limit)))
         return [self._normalize_item(item) for item in self._extract_results(response)]
 
+    def _direct_qdrant(self) -> tuple[Optional[Any], str]:
+        """Reach Mem0's underlying QdrantClient + collection for raw-vector reads
+        (Mem0's ``list`` drops vectors). Returns (None, name) when unavailable
+        (e.g. the fake client in unit tests) so callers degrade to empty."""
+        vector_store = getattr(self._memory, "vector_store", None)
+        client = getattr(vector_store, "client", None)
+        collection = getattr(vector_store, "collection_name", None) or self.collection_name
+        return client, collection
+
+    @staticmethod
+    def _scroll_vector(raw: Any) -> Optional[List[float]]:
+        """Coerce a Qdrant point's vector (list, or named-vector dict) to a list."""
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            for value in raw.values():
+                if isinstance(value, (list, tuple)):
+                    return [float(x) for x in value]
+            return None
+        if isinstance(raw, (list, tuple)):
+            return [float(x) for x in raw]
+        return None
+
+    def _scroll_user_points(
+        self, user_id: str, *, tier: Optional[str], with_vectors: bool, limit: int
+    ) -> List[Any]:
+        client, collection = self._direct_qdrant()
+        if client is None:
+            return []
+        try:
+            from qdrant_client import models as qmodels
+
+            must = [qmodels.FieldCondition(key="user_id", match=qmodels.MatchValue(value=user_id))]
+            if tier is not None:
+                must.append(
+                    qmodels.FieldCondition(key="cognitive_tier", match=qmodels.MatchValue(value=tier))
+                )
+            points, _next = client.scroll(
+                collection_name=collection,
+                scroll_filter=qmodels.Filter(must=must),
+                limit=max(1, int(limit)),
+                with_payload=True,
+                with_vectors=with_vectors,
+            )
+            return list(points)
+        except Exception as exc:  # noqa: BLE001 — engine read is best-effort
+            logger.warning("qdrant_direct_scroll_failed", user_id=user_id, error=str(exc))
+            return []
+
+    def get_episodic_points_with_vectors(
+        self, user_id: str, limit: int = 1000
+    ) -> List[Dict[str, Any]]:
+        """Direct-Qdrant read of a user's episodic points WITH raw vectors, for
+        the promotion cycle's greedy-cosine clustering (Mem0 hides vectors).
+
+        Mem0 flattens custom metadata into the Qdrant payload, so the whole
+        payload is treated as metadata. Points without a tier default to episodic.
+        """
+        out: List[Dict[str, Any]] = []
+        for point in self._scroll_user_points(user_id, tier=None, with_vectors=True, limit=limit):
+            payload = dict(getattr(point, "payload", None) or {})
+            if str(payload.get("cognitive_tier", "episodic")) != "episodic":
+                continue
+            vector = self._scroll_vector(getattr(point, "vector", None))
+            if vector is None:
+                continue
+            out.append(
+                {
+                    "memory_id": str(payload.get("memory_id") or getattr(point, "id", "")),
+                    "text": str(payload.get("data") or payload.get("memory") or payload.get("text") or ""),
+                    "vector": vector,
+                    "metadata": payload,
+                }
+            )
+        return out
+
+    def get_semantic_source_sets(self, user_id: str, limit: int = 1000) -> List[List[str]]:
+        """The ``source_episodic_ids`` of every existing semantic memory, so the
+        promotion cycle can skip clusters it has already covered (idempotency)."""
+        sets: List[List[str]] = []
+        for point in self._scroll_user_points(user_id, tier="semantic", with_vectors=False, limit=limit):
+            payload = dict(getattr(point, "payload", None) or {})
+            src = payload.get("source_episodic_ids")
+            if isinstance(src, (list, tuple)):
+                sets.append([str(s) for s in src])
+        return sets
+
+    def add_semantic(
+        self,
+        user_id: str,
+        text: str,
+        *,
+        confidence: float,
+        source_episodic_ids: List[str],
+    ) -> MemoryRecord:
+        """Write an engine-synthesized semantic memory verbatim (``infer=False``
+        so Mem0's merge/dedup can't mangle it), carrying the cognitive contract
+        plus semantic-only provenance (``source_episodic_ids``, ``epiphany_at``)."""
+        now = self._now_iso()
+        payload: Dict[str, Any] = {
+            "user_id": user_id,
+            "cognitive_tier": "semantic",
+            "confidence": float(confidence),
+            "source_episodic_ids": [str(s) for s in source_episodic_ids],
+            "epiphany_at": now,
+            "created_at": now,
+            "last_accessed": now,
+            "access_count": 0,
+        }
+        try:
+            add_response = self._memory.add(
+                [{"role": "user", "content": text}],
+                user_id=user_id,
+                metadata=payload,
+                infer=False,
+            )
+        except Exception as exc:
+            logger.error("mem0_add_semantic_failed", user_id=user_id, error=str(exc))
+            raise
+
+        payload["memory_id"] = self._extract_added_id(add_response)
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
     def update_metadata(self, memory_id: str, patch: Dict[str, Any]) -> bool:
         """Patch a memory's metadata WITHOUT altering its text.
 
@@ -729,26 +852,29 @@ class Mem0MemoryBackend(MemoryBackend):
                 logger.error("mem0_verbatim_fallback_failed", error=str(exc), user_id=user_id)
                 add_response = {}
 
+        payload["memory_id"] = self._extract_added_id(add_response)
+
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    @staticmethod
+    def _extract_added_id(add_response: Any) -> str:
+        """Pull the memory id out of Mem0's ``add`` response across its shapes."""
         memory_id = uuid.uuid4().hex[:12]
         if isinstance(add_response, dict):
             if isinstance(add_response.get("id"), str):
-                memory_id = add_response["id"]
-            elif isinstance(add_response.get("memory_id"), str):
-                memory_id = add_response["memory_id"]
-            elif isinstance(add_response.get("memory_ids"), list) and add_response.get("memory_ids"):
+                return add_response["id"]
+            if isinstance(add_response.get("memory_id"), str):
+                return add_response["memory_id"]
+            if isinstance(add_response.get("memory_ids"), list) and add_response.get("memory_ids"):
                 first_id = add_response.get("memory_ids")[0]
                 if isinstance(first_id, str):
-                    memory_id = first_id
-            else:
-                results = add_response.get("results")
-                if isinstance(results, list) and results:
-                    first = results[0]
-                    if isinstance(first, dict) and isinstance(first.get("id"), str):
-                        memory_id = first["id"]
-
-        payload["memory_id"] = memory_id
-
-        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+                    return first_id
+            results = add_response.get("results")
+            if isinstance(results, list) and results:
+                first = results[0]
+                if isinstance(first, dict) and isinstance(first.get("id"), str):
+                    return first["id"]
+        return memory_id
 
     def clear(self, user_id: str) -> None:
         # Keep explicit list-before-delete flow so API contract checks observe filters-based get_all usage.

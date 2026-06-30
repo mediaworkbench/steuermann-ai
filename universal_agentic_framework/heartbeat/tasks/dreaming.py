@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 
 import httpx
+import numpy as np
 
 from backend.circuit_breaker import CircuitBreakerOpenError
 from universal_agentic_framework.monitoring.logging import get_logger
@@ -61,6 +62,52 @@ _DRIFT_PROMPT = (
     'Reply ONLY with a JSON object: {{"contradicts": true}} or {{"contradicts": false}}. '
     "Answer true only when the two statements cannot both be true."
 )
+
+_EPIPHANY_PROMPT = (
+    "Below are several related things observed about the same user over time. "
+    "Synthesize ONE concise, general statement (an enduring fact or preference) that "
+    "captures what they have in common. Write a single sentence in the third person, "
+    "no preamble.\n\nOBSERVATIONS:\n{observations}"
+)
+
+
+def greedy_cosine_clusters(
+    items: List[Dict[str, Any]], *, threshold: float, min_size: int
+) -> List[List[Dict[str, Any]]]:
+    """Greedy single-pass cosine clustering over item ``vector``s.
+
+    Each unclustered item seeds a cluster and absorbs every other unclustered item
+    within ``threshold`` cosine similarity. Only clusters of ≥ ``min_size`` are
+    returned. Deterministic (input order) and side-effect free.
+    """
+    rows: List[tuple[Dict[str, Any], Any]] = []
+    for it in items:
+        vec = it.get("vector")
+        if not vec:
+            continue
+        arr = np.asarray(vec, dtype=float)
+        norm = float(np.linalg.norm(arr))
+        if norm == 0.0:
+            continue
+        rows.append((it, arr / norm))
+
+    used = [False] * len(rows)
+    clusters: List[List[Dict[str, Any]]] = []
+    for i in range(len(rows)):
+        if used[i]:
+            continue
+        it_i, v_i = rows[i]
+        members = [it_i]
+        used[i] = True
+        for j in range(i + 1, len(rows)):
+            if used[j]:
+                continue
+            if float(v_i @ rows[j][1]) >= threshold:
+                members.append(rows[j][0])
+                used[j] = True
+        if len(members) >= min_size:
+            clusters.append(members)
+    return clusters
 
 
 # --------------------------------------------------------------------------- #
@@ -96,6 +143,9 @@ class DreamSnapshot:
     due_cycles: set[str]
     promotion_last: Optional[datetime]
     now: datetime
+    # Promotion (Cycle A) inputs — populated only when promotion is due.
+    episodic_vectors: List[Dict[str, Any]] = field(default_factory=list)
+    existing_sources: List[List[str]] = field(default_factory=list)
 
 
 @dataclass
@@ -116,9 +166,17 @@ class DriftAction:
 
 
 @dataclass
+class PromotionAction:
+    text: str
+    confidence: float
+    source_episodic_ids: List[str]
+
+
+@dataclass
 class DreamPlan:
     forget: List[ForgetAction] = field(default_factory=list)
     drift: List[DriftAction] = field(default_factory=list)
+    promote: List[PromotionAction] = field(default_factory=list)
     completed_cycles: set[str] = field(default_factory=set)
     deferred: List[str] = field(default_factory=list)
     tokens: int = 0
@@ -134,6 +192,13 @@ class DreamMemoryReader(Protocol):
     def nearest_semantic(self, user_id: str, text: str) -> Optional[Dict[str, Any]]: ...
     def delete_memory(self, user_id: str, memory_id: str) -> None: ...
     def set_confidence(self, user_id: str, memory_id: str, confidence: float) -> None: ...
+    # Promotion (Cycle A)
+    def fetch_episodic_vectors(self, user_id: str) -> List[Dict[str, Any]]: ...
+    def existing_semantic_sources(self, user_id: str) -> List[List[str]]: ...
+    def write_semantic(
+        self, user_id: str, text: str, confidence: float, source_episodic_ids: List[str]
+    ) -> str: ...
+    def flag_contributor(self, user_id: str, memory_id: str) -> None: ...
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -166,6 +231,7 @@ class DreamingEngineTask(HeartbeatTask):
         health_gate: Callable[[], Awaitable[bool]],
         opt_out_checker: Callable[[str], bool],
         settings: Any,  # CognitiveMemorySettings
+        synthesizer: Optional[Callable[[List[str]], Awaitable[Dict[str, Any]]]] = None,
         semaphore: Optional[asyncio.Semaphore] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
@@ -176,6 +242,7 @@ class DreamingEngineTask(HeartbeatTask):
         self._conflicts = conflict_store
         self._reader = reader
         self._adjudicator = adjudicator
+        self._synthesizer = synthesizer
         self._health_gate = health_gate
         self._opt_out = opt_out_checker
         self._s = settings
@@ -219,6 +286,7 @@ class DreamingEngineTask(HeartbeatTask):
                 "tokens": plan.tokens,
                 "forgot": len(plan.forget),
                 "drift": len(plan.drift),
+                "promoted": len(plan.promote),
             }
             if plan.deferred:
                 detail["deferred"] = plan.deferred
@@ -231,6 +299,7 @@ class DreamingEngineTask(HeartbeatTask):
                 status=plan.status,
                 forgot=len(plan.forget),
                 drift=len(plan.drift),
+                promoted=len(plan.promote),
                 tokens=plan.tokens,
             )
             return {"status": plan.status, "duration_ms": duration_ms}
@@ -273,6 +342,12 @@ class DreamingEngineTask(HeartbeatTask):
         due: set[str] = {"forgetting"}  # GC runs every tick
         if drift_last is None or (now - drift_last) >= timedelta(days=1):
             due.add("drift")
+        # Promotion needs the LLM synthesizer; without it the cycle can't run.
+        promotion_interval = int(getattr(self._s, "promotion_interval_days", 7))
+        if self._synthesizer is not None and (
+            promotion_last is None or (now - promotion_last) >= timedelta(days=promotion_interval)
+        ):
+            due.add("promotion")
 
         drift_candidates: List[DriftCandidate] = []
         if "drift" in due:
@@ -296,12 +371,24 @@ class DreamingEngineTask(HeartbeatTask):
                     )
                 )
 
+        episodic_vectors: List[Dict[str, Any]] = []
+        existing_sources: List[List[str]] = []
+        if "promotion" in due:
+            episodic_vectors = await asyncio.to_thread(
+                self._reader.fetch_episodic_vectors, user_id
+            )
+            existing_sources = await asyncio.to_thread(
+                self._reader.existing_semantic_sources, user_id
+            )
+
         return DreamSnapshot(
             episodics=episodics,
             drift_candidates=drift_candidates,
             due_cycles=due,
             promotion_last=promotion_last,
             now=now,
+            episodic_vectors=episodic_vectors,
+            existing_sources=existing_sources,
         )
 
     # --- reason (all LLM, no writes) ----------------------------------------
@@ -313,29 +400,59 @@ class DreamingEngineTask(HeartbeatTask):
             plan.forget = self._plan_forgetting(snapshot)
             plan.completed_cycles.add("forgetting")
 
-        # Cycle B — Drift: gated by provider reachability (degrade-by-cost).
+        # The two LLM cycles share one reachability probe (don't hammer a dead
+        # provider with N calls). Resolved lazily, at most once per tick.
+        self._reachable_cache: Optional[bool] = None
+
+        # Cycle B — Drift.
         if "drift" in snapshot.due_cycles and snapshot.drift_candidates:
-            reachable = await self._health_gate()
-            if not reachable:
-                plan.deferred.append("drift")
-                plan.status = "partial"
-                plan.reason = "provider_offline"
+            if not await self._reachable(plan):
+                self._defer(plan, "drift")
             else:
                 drift_actions, tokens, broke = await self._plan_drift(ctx, snapshot)
                 plan.drift = drift_actions
                 plan.tokens += tokens
                 if broke:
-                    # Partial: keep what succeeded, defer the rest (don't advance cadence).
-                    plan.status = "partial"
-                    plan.reason = plan.reason or "drift_partial"
-                    plan.deferred.append("drift")
+                    self._defer(plan, "drift", reason="drift_partial")
                 else:
                     plan.completed_cycles.add("drift")
         elif "drift" in snapshot.due_cycles:
-            # Due but nothing to check → the cycle still ran to completion.
-            plan.completed_cycles.add("drift")
+            plan.completed_cycles.add("drift")  # due but nothing to check
+
+        # Cycle A — Promotion / Epiphany.
+        if "promotion" in snapshot.due_cycles and snapshot.episodic_vectors:
+            if not await self._reachable(plan):
+                self._defer(plan, "promotion")
+            else:
+                promotions, tokens, broke = await self._plan_promotions(ctx, snapshot)
+                plan.promote = promotions
+                plan.tokens += tokens
+                if broke:
+                    self._defer(plan, "promotion", reason="promotion_partial")
+                else:
+                    plan.completed_cycles.add("promotion")
+        elif "promotion" in snapshot.due_cycles:
+            plan.completed_cycles.add("promotion")  # due but nothing to cluster
+
+        # Same-tick de-confliction: never forget an episodic that this tick just
+        # promoted (its epiphany_contributor flag isn't written until act()).
+        if plan.promote and plan.forget:
+            promoted_ids = {sid for p in plan.promote for sid in p.source_episodic_ids}
+            plan.forget = [f for f in plan.forget if f.memory_id not in promoted_ids]
 
         return plan
+
+    async def _reachable(self, plan: DreamPlan) -> bool:
+        """Provider reachability, probed at most once per tick (degrade-by-cost)."""
+        if self._reachable_cache is None:
+            self._reachable_cache = await self._health_gate()
+        return self._reachable_cache
+
+    @staticmethod
+    def _defer(plan: DreamPlan, cycle: str, *, reason: str = "provider_offline") -> None:
+        plan.deferred.append(cycle)
+        plan.status = "partial"
+        plan.reason = plan.reason or reason
 
     def _plan_forgetting(self, snapshot: DreamSnapshot) -> List[ForgetAction]:
         cutoff = snapshot.now - timedelta(days=int(self._s.forget_age_days))
@@ -393,6 +510,54 @@ class DreamingEngineTask(HeartbeatTask):
             )
         return actions, tokens, broke
 
+    async def _plan_promotions(
+        self, ctx: TickContext, snapshot: DreamSnapshot
+    ) -> tuple[List[PromotionAction], int, bool]:
+        min_size = int(self._s.promotion_min_cluster_size)
+        clusters = greedy_cosine_clusters(
+            snapshot.episodic_vectors,
+            threshold=float(self._s.promotion_similarity_threshold),
+            min_size=min_size,
+        )
+        existing = [set(s) for s in snapshot.existing_sources]
+        confidence = float(getattr(self._s, "promotion_start_confidence", 0.6))
+        cap = int(self._s.max_promotions_per_run)
+        breaker = self._breaker_for(ctx.user_id)
+
+        actions: List[PromotionAction] = []
+        tokens = 0
+        broke = False
+        for cluster in clusters:
+            if len(actions) >= cap:
+                break
+            ids = [str(m.get("memory_id")) for m in cluster if m.get("memory_id")]
+            id_set = set(ids)
+            # Skip clusters already covered by an existing semantic (idempotency).
+            if any(len(id_set & cov) >= min_size for cov in existing):
+                continue
+            texts = [str(m.get("text") or "") for m in cluster if m.get("text")]
+            if not texts:
+                continue
+            try:
+                result = await breaker.call(self._synthesizer, texts)
+            except CircuitBreakerOpenError:
+                broke = True
+                break
+            except Exception:  # noqa: BLE001 — provider failure → defer the rest
+                broke = True
+                break
+            tokens += int((result or {}).get("tokens", 0) or 0)
+            text = str((result or {}).get("text") or "").strip()
+            if not text:  # reject garbage: an unparseable synthesis is skipped
+                continue
+            actions.append(
+                PromotionAction(text=text, confidence=confidence, source_episodic_ids=ids)
+            )
+            # Treat the just-synthesized cluster as covered so an overlapping later
+            # cluster in the same run isn't double-promoted.
+            existing.append(id_set)
+        return actions, tokens, broke
+
     # --- act (all writes, no LLM) -------------------------------------------
     async def act(self, ctx: TickContext, plan: DreamPlan) -> None:
         user_id = ctx.user_id
@@ -442,6 +607,29 @@ class DreamingEngineTask(HeartbeatTask):
                     choices=CONFLICT_CHOICES,
                 )
 
+        # Cycle A — Promotion. Write the synthesized semantic, flag each source
+        # episodic as an epiphany contributor (so forgetting spares it), audit.
+        for p in plan.promote:
+            new_id = await asyncio.to_thread(
+                self._reader.write_semantic, user_id, p.text, p.confidence, p.source_episodic_ids
+            )
+            for episodic_id in p.source_episodic_ids:
+                await asyncio.to_thread(self._reader.flag_contributor, user_id, episodic_id)
+            await asyncio.to_thread(
+                self._audit.record,
+                user_id=user_id,
+                cycle="promotion",
+                action="promote",
+                target_kind="semantic",
+                target_id=new_id,
+                after_state={
+                    "text": p.text,
+                    "confidence": p.confidence,
+                    "source_episodic_ids": p.source_episodic_ids,
+                },
+                reversible_until=reversible_until,
+            )
+
         # Advance last_cycle_run ONLY for fully-completed cycles (a marker row).
         # A partial run skips its cycle here, so due-ness keeps it for next beat.
         for cycle in sorted(plan.completed_cycles):
@@ -476,6 +664,23 @@ class Mem0DreamReader:
 
     def set_confidence(self, user_id: str, memory_id: str, confidence: float) -> None:
         self._b.update_metadata(memory_id, {"confidence": confidence})
+
+    def fetch_episodic_vectors(self, user_id: str) -> List[Dict[str, Any]]:
+        return self._b.get_episodic_points_with_vectors(user_id, limit=2000)
+
+    def existing_semantic_sources(self, user_id: str) -> List[List[str]]:
+        return self._b.get_semantic_source_sets(user_id, limit=2000)
+
+    def write_semantic(
+        self, user_id: str, text: str, confidence: float, source_episodic_ids: List[str]
+    ) -> str:
+        record = self._b.add_semantic(
+            user_id, text, confidence=confidence, source_episodic_ids=source_episodic_ids
+        )
+        return str(record.metadata.get("memory_id"))
+
+    def flag_contributor(self, user_id: str, memory_id: str) -> None:
+        self._b.update_metadata(memory_id, {"epiphany_contributor": True})
 
 
 def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Awaitable[Dict[str, Any]]]:
@@ -513,6 +718,41 @@ def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Await
         return {"contradicts": contradicts, "tokens": tokens}
 
     return _adjudicate
+
+
+def build_auxiliary_epiphany_synthesizer(
+    config: Any,
+) -> Callable[[List[str]], Awaitable[Dict[str, Any]]]:
+    """Async epiphany synthesizer: condense a cluster of episodic texts into one
+    enduring semantic statement via the auxiliary provider (direct httpx)."""
+
+    async def _synthesize(observations: List[str]) -> Dict[str, Any]:
+        provider = config.llm.get_role_provider("auxiliary")
+        api_base = str(getattr(provider, "api_base", "") or "").rstrip("/")
+        if not api_base:
+            raise RuntimeError("auxiliary api_base not configured")
+        model_name = config.llm.get_role_model_name("auxiliary", "en")
+        bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
+        joined = "\n".join(f"- {o[:300]}" for o in observations[:12])
+        prompt = _EPIPHANY_PROMPT.format(observations=joined)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                json={
+                    "model": bare,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                    "max_tokens": 200,
+                },
+                headers={"Authorization": f"Bearer {getattr(provider, 'api_key', None) or 'no-key'}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        content = str(data["choices"][0]["message"]["content"] or "").strip()
+        tokens = int((data.get("usage") or {}).get("total_tokens", 0) or 0)
+        return {"text": content, "tokens": tokens}
+
+    return _synthesize
 
 
 def build_provider_reachability_gate(config: Any) -> Callable[[], Awaitable[bool]]:
@@ -585,6 +825,7 @@ def build_dreaming_task(
         conflict_store=conflict_store,
         reader=Mem0DreamReader(backend),
         adjudicator=build_auxiliary_drift_adjudicator(config),
+        synthesizer=build_auxiliary_epiphany_synthesizer(config),
         health_gate=build_provider_reachability_gate(config),
         opt_out_checker=make_opt_out_checker(settings_store),
         settings=cognitive,
