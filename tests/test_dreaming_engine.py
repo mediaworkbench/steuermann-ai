@@ -461,6 +461,17 @@ async def test_concurrency_above_one_allows_overlap():
 # --------------------------------------------------------------------------- #
 # Cycle A — Promotion / Epiphany (Phase 4)
 # --------------------------------------------------------------------------- #
+def test_strip_reasoning_removes_think_blocks():
+    # Reasoning models inline <think>…</think>; only the final answer must survive
+    # (regression for the live finding that synthesis returned empty content).
+    from universal_agentic_framework.heartbeat.tasks.dreaming import _strip_reasoning
+
+    assert _strip_reasoning("<think>let me consider</think> User likes tea.") == "User likes tea."
+    assert _strip_reasoning("User likes tea.") == "User likes tea."
+    # An unterminated (token-truncated) think block collapses to empty.
+    assert _strip_reasoning("<think>thinking but ran out of tokens") == ""
+
+
 def test_greedy_cosine_clusters_pure():
     from universal_agentic_framework.heartbeat.tasks.dreaming import greedy_cosine_clusters
 

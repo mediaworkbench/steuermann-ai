@@ -30,6 +30,7 @@ Design guarantees (concept §3 + Resilience):
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -69,6 +70,16 @@ _EPIPHANY_PROMPT = (
     "captures what they have in common. Write a single sentence in the third person, "
     "no preamble.\n\nOBSERVATIONS:\n{observations}"
 )
+
+
+def _strip_reasoning(text: str) -> str:
+    """Drop a ``<think>…</think>`` reasoning block some local models inline into the
+    content (and an unterminated/truncated one), so only the final answer remains.
+    Mirrors the conversation-title sanitizer — reasoning models need a generous
+    token budget AND defensive stripping or the answer is lost."""
+    cleaned = re.sub(r"(?is)<think>.*?</think>", "", text)
+    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
+    return cleaned.strip()
 
 
 def _classify_tier(rule_key: str) -> Optional[int]:
@@ -930,20 +941,23 @@ def build_auxiliary_epiphany_synthesizer(
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:300]}" for o in observations[:12])
         prompt = _EPIPHANY_PROMPT.format(observations=joined)
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
                     "model": bare,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.2,
-                    "max_tokens": 200,
+                    # Generous cap: reasoning auxiliary models (e.g. gemma-4-e2b)
+                    # spend budget "thinking" first; a tight cap truncates before the
+                    # answer and returns empty content.
+                    "max_tokens": 512,
                 },
                 headers={"Authorization": f"Bearer {getattr(provider, 'api_key', None) or 'no-key'}"},
             )
             resp.raise_for_status()
             data = resp.json()
-        content = str(data["choices"][0]["message"]["content"] or "").strip()
+        content = _strip_reasoning(str(data["choices"][0]["message"]["content"] or ""))
         tokens = int((data.get("usage") or {}).get("total_tokens", 0) or 0)
         return {"text": content, "tokens": tokens}
 
@@ -976,14 +990,15 @@ def build_auxiliary_procedural_proposer(
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:200]}" for o in observations[:40])
         prompt = _PROCEDURAL_PROMPT.format(observations=joined)
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
                     "model": bare,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
-                    "max_tokens": 300,
+                    # Generous cap so a reasoning model reaches the JSON after thinking.
+                    "max_tokens": 512,
                 },
                 headers={"Authorization": f"Bearer {getattr(provider, 'api_key', None) or 'no-key'}"},
             )
