@@ -23,7 +23,8 @@ const MIN_RATE = 1;
 const MAX_RATE = 1440;
 const MIN_COOLDOWN = 0;
 const MAX_COOLDOWN = 604800; // 7 days
-const LOG_LIMIT = 50;
+const LOG_WINDOW_HOURS = 24; // run log shows the last 24h
+const PAGE_SIZE = 25; // ...paginated 25 rows per page
 
 /** Compact human label for a seconds duration (e.g. 86400 → "24h", 300 → "5m"). */
 function humanizeSeconds(total: number): string {
@@ -48,8 +49,9 @@ function statusVariant(status: string): "secondary" | "destructive" | "outline" 
  * Admin heartbeat panel (rendered on its own `/admin/heartbeat` page): the global
  * beat rate, the configured tasks (scope + last run), and the run log. Global
  * tasks run once per beat; per-user tasks fan out once per active user, so the
- * log shows one row per user for them. The log loads the last {@link LOG_LIMIT}
- * beats and is filtered client-side by task, user, and status. The rate is a
+ * log shows one row per user for them. The log loads the last {@link LOG_WINDOW_HOURS}h
+ * of beats (newest first, server-capped), is filtered client-side by task, user, and
+ * status, and is paginated {@link PAGE_SIZE} rows per page. The rate is a
  * deployment-wide setting persisted in Postgres; the LangGraph-embedded scheduler
  * applies a change within ~30s.
  */
@@ -69,6 +71,7 @@ export function HeartbeatSettingsSection() {
   const [userFilter, setUserFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,9 +117,10 @@ export function HeartbeatSettingsSection() {
 
   const loadRuns = useCallback(async () => {
     setLogLoading(true);
-    const data = await fetchHeartbeatRuns({ limit: LOG_LIMIT });
+    const data = await fetchHeartbeatRuns({ hours: LOG_WINDOW_HOURS });
     setRuns(data ?? []);
     setExpanded(null);
+    setPage(0);
     setLogLoading(false);
   }, []);
 
@@ -145,7 +149,7 @@ export function HeartbeatSettingsSection() {
     return Array.from(seen).sort();
   }, [runs]);
 
-  // All filtering is client-side over the last {LOG_LIMIT} beats.
+  // All filtering is client-side over the last 24h window of beats.
   const displayedRuns = useMemo(
     () =>
       runs.filter(
@@ -157,10 +161,18 @@ export function HeartbeatSettingsSection() {
     [runs, taskFilter, userFilter, statusFilter]
   );
 
-  // Collapse any open detail row when the filtered set changes (the expanded
-  // index would otherwise point at a different row).
+  const pageCount = Math.max(1, Math.ceil(displayedRuns.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedRuns = useMemo(
+    () => displayedRuns.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [displayedRuns, safePage]
+  );
+
+  // Reset to the first page + collapse any open detail row when the filtered set
+  // changes (the expanded index is page-relative and would otherwise mis-point).
   useEffect(() => {
     setExpanded(null);
+    setPage(0);
   }, [taskFilter, userFilter, statusFilter]);
 
   const rateDisabled = saving || (config ? !config.enabled : false);
@@ -401,7 +413,7 @@ export function HeartbeatSettingsSection() {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedRuns.map((run, index) => {
+                  {pagedRuns.map((run, index) => {
                     const hasDetail =
                       run.status !== "ok" && run.detail && Object.keys(run.detail).length > 0;
                     const isExpanded = expanded === index;
@@ -434,6 +446,42 @@ export function HeartbeatSettingsSection() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!logLoading && displayedRuns.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+              <span>
+                {t("adminPage.heartbeatLogPageInfo", {
+                  page: safePage + 1,
+                  pages: pageCount,
+                  total: displayedRuns.length,
+                })}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage <= 0}
+                  onClick={() => {
+                    setExpanded(null);
+                    setPage((p) => Math.max(0, p - 1));
+                  }}
+                >
+                  {t("adminPage.heartbeatLogPrev")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={safePage >= pageCount - 1}
+                  onClick={() => {
+                    setExpanded(null);
+                    setPage((p) => Math.min(pageCount - 1, p + 1));
+                  }}
+                >
+                  {t("adminPage.heartbeatLogNext")}
+                </Button>
+              </div>
             </div>
           )}
         </div>

@@ -70,8 +70,8 @@ test("renders the configured tasks (global + per-user) and the run log", async (
   expect(screen.getByText("adminPage.heartbeatScopeGlobal")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
   expect(bodyRowCount()).toBe(3);
-  // Loads the last 50 once, with no server-side filter params.
-  expect(mockFetchRuns).toHaveBeenCalledWith({ limit: 50 });
+  // Loads the last 24h once (server-windowed); filtering/paging is client-side.
+  expect(mockFetchRuns).toHaveBeenCalledWith({ hours: 24 });
 });
 
 test("status filter narrows the log client-side without refetching", async () => {
@@ -118,4 +118,27 @@ test("editing a task cooldown saves the override", async () => {
   fireEvent.click(saveButtons[saveButtons.length - 1]);
 
   await waitFor(() => expect(mockUpdateCooldown).toHaveBeenCalledWith("user_pulse", 600));
+});
+
+test("run log paginates 25 rows per page", async () => {
+  const many = Array.from({ length: 30 }, () => ({
+    task_name: "health",
+    user_id: null,
+    status: "ok",
+    duration_ms: 1,
+    fired_at: "2026-06-30T10:00:00Z",
+    detail: {},
+  }));
+  mockFetchRuns.mockResolvedValue(many);
+  render(<HeartbeatSettingsSection />);
+  await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+  // Page 1: first 25 of 30.
+  expect(bodyRowCount()).toBe(25);
+  // Next → page 2 shows the remaining 5.
+  fireEvent.click(screen.getByText("adminPage.heartbeatLogNext"));
+  expect(bodyRowCount()).toBe(5);
+  // Previous → back to 25.
+  fireEvent.click(screen.getByText("adminPage.heartbeatLogPrev"));
+  expect(bodyRowCount()).toBe(25);
 });

@@ -1519,10 +1519,12 @@ class HeartbeatRunStore:
         *,
         task_name: Optional[str] = None,
         user_id: Optional[str] = None,
+        since: Optional[datetime] = None,
     ) -> list[Dict[str, Any]]:
         """Inspector log: most recent runs across all tasks/users, newest first.
 
-        Optional ``task_name`` / ``user_id`` filters narrow the view.
+        Optional ``task_name`` / ``user_id`` filters narrow the view; ``since``
+        bounds it to a time window (e.g. the last 24h).
         """
         clauses: list[str] = []
         params: list[Any] = []
@@ -1532,6 +1534,9 @@ class HeartbeatRunStore:
         if user_id is not None:
             clauses.append("user_id = %s")
             params.append(user_id)
+        if since is not None:
+            clauses.append("fired_at >= %s")
+            params.append(since)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(int(limit))
         statement = f"""

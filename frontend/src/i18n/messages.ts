@@ -176,6 +176,9 @@ export type Messages = {
     heartbeatNoTasks: string;
     heartbeatLogTitle: string;
     heartbeatLogHelp: string;
+    heartbeatLogPageInfo: string;
+    heartbeatLogPrev: string;
+    heartbeatLogNext: string;
     heartbeatColTask: string;
     heartbeatColUser: string;
     heartbeatColStatus: string;
@@ -922,7 +925,10 @@ export const messages: Record<Locale, Messages> = {
       heartbeatCooldownInvalid: "Enter a value between 0 and {max} seconds",
       heartbeatNoTasks: "No tasks configured.",
       heartbeatLogTitle: "Run log",
-      heartbeatLogHelp: "Most recent beats, newest first. Expand an error row for details.",
+      heartbeatLogHelp: "Beats from the last 24 hours, newest first, 25 per page. Expand an error row for details.",
+      heartbeatLogPageInfo: "Page {page} of {pages} · {total} runs (last 24h)",
+      heartbeatLogPrev: "Previous",
+      heartbeatLogNext: "Next",
       heartbeatColTask: "Task",
       heartbeatColUser: "User",
       heartbeatColStatus: "Status",
@@ -1667,7 +1673,10 @@ export const messages: Record<Locale, Messages> = {
       heartbeatCooldownInvalid: "Wert zwischen 0 und {max} Sekunden eingeben",
       heartbeatNoTasks: "Keine Aufgaben konfiguriert.",
       heartbeatLogTitle: "Ausführungsprotokoll",
-      heartbeatLogHelp: "Neueste Takte zuerst. Fehlerzeile zum Aufklappen der Details anklicken.",
+      heartbeatLogHelp: "Takte der letzten 24 Stunden, neueste zuerst, 25 pro Seite. Fehlerzeile zum Aufklappen anklicken.",
+      heartbeatLogPageInfo: "Seite {page} von {pages} · {total} Läufe (letzte 24h)",
+      heartbeatLogPrev: "Zurück",
+      heartbeatLogNext: "Weiter",
       heartbeatColTask: "Aufgabe",
       heartbeatColUser: "Benutzer",
       heartbeatColStatus: "Status",

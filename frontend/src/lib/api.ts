@@ -327,17 +327,20 @@ export async function updateHeartbeatCooldown(
   }
 }
 
-// Admin-only: the heartbeat run log, newest first, optionally filtered.
+// Admin-only: the heartbeat run log, newest first, within the last `hours` window
+// (default 24h), optionally filtered. The caller paginates the result client-side.
 export async function fetchHeartbeatRuns(opts?: {
   task?: string;
   user?: string;
+  hours?: number;
   limit?: number;
 }): Promise<HeartbeatRun[] | null> {
   try {
     const params = new URLSearchParams();
     if (opts?.task) params.set("task", opts.task);
     if (opts?.user) params.set("user", opts.user);
-    params.set("limit", String(opts?.limit ?? 50));
+    params.set("hours", String(opts?.hours ?? 24));
+    params.set("limit", String(opts?.limit ?? 500));
     const response = await fetch(`${API_BASE}/api/admin/heartbeat/runs?${params.toString()}`);
     if (!response.ok) {
       console.error(`Failed to fetch heartbeat runs: ${response.status}`);

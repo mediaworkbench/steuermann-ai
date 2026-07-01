@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -631,7 +631,7 @@ def update_heartbeat_rate(
 
 # --- Heartbeat inspector (admin) ---------------------------------------------
 
-MAX_HEARTBEAT_RUNS = 200
+MAX_HEARTBEAT_RUNS = 500  # cap on the windowed run log (newest); the UI pages by 25
 
 
 MIN_HEARTBEAT_COOLDOWN_SECONDS = 0
@@ -782,15 +782,19 @@ def list_heartbeat_runs(
     request: Request,
     task: Optional[str] = Query(default=None),
     user: Optional[str] = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=MAX_HEARTBEAT_RUNS),
+    hours: int = Query(default=24, ge=1, le=168),
+    limit: int = Query(default=MAX_HEARTBEAT_RUNS, ge=1, le=MAX_HEARTBEAT_RUNS),
     _admin: CurrentUser = Depends(require_admin),
 ) -> Dict[str, Any]:
-    """Admin: the heartbeat run log, newest first, optionally filtered by task/user."""
+    """Admin: the heartbeat run log, newest first, within the last ``hours`` window
+    (default 24h), optionally filtered by task/user. Capped at ``MAX_HEARTBEAT_RUNS``
+    rows (newest); the UI paginates client-side."""
     store = _get_heartbeat_run_store(request)
     if store is None:
         return {"runs": []}
+    since = datetime.now(timezone.utc) - timedelta(hours=int(hours))
     try:
-        rows = store.recent_runs_all(int(limit), task_name=task, user_id=user)
+        rows = store.recent_runs_all(int(limit), task_name=task, user_id=user, since=since)
     except Exception:  # pragma: no cover - best-effort observability
         return {"runs": []}
     return {"runs": [_serialize_run(row) for row in rows]}

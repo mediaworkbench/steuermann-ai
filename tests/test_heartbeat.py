@@ -563,3 +563,34 @@ def test_put_cooldown_equal_to_default_clears_override(monkeypatch):
     back = client.put("/api/admin/heartbeat/tasks/user_pulse/cooldown", json={"cooldown_seconds": 300})
     up = {t["name"]: t for t in back.json()["tasks"]}["user_pulse"]
     assert up["cooldown_seconds"] == 300 and up["cooldown_source"] == "default"
+
+
+def test_runs_endpoint_defaults_to_24h_window(monkeypatch):
+    # Records the args recent_runs_all is called with via a capturing fake store.
+    captured = {}
+
+    class _CapturingRunStore:
+        def recent_runs_all(self, limit, *, task_name=None, user_id=None, since=None):
+            captured.update(limit=limit, task_name=task_name, user_id=user_id, since=since)
+            return []
+
+    monkeypatch.setenv("PROFILE_ID", "starter")
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("NEXT_PUBLIC_AUTH_USER_ROLE", "administrator")
+    from backend.routers import settings as settings_mod
+    monkeypatch.setattr(settings_mod, "_get_heartbeat_run_store", lambda _r: _CapturingRunStore())
+
+    client = _make_client(monkeypatch)
+    assert client.get("/api/admin/heartbeat/runs").status_code == 200
+    # Default 24h window → a `since` cutoff ~24h ago is passed.
+    from datetime import datetime, timezone, timedelta
+    assert captured["since"] is not None
+    age_h = (datetime.now(timezone.utc) - captured["since"]).total_seconds() / 3600
+    assert 23.5 <= age_h <= 24.5
+
+
+def test_runs_endpoint_hours_and_limit_validated(monkeypatch):
+    client = _make_client(monkeypatch)
+    assert client.get("/api/admin/heartbeat/runs?hours=0").status_code == 422
+    assert client.get("/api/admin/heartbeat/runs?hours=200").status_code == 422  # > 168
+    assert client.get("/api/admin/heartbeat/runs?limit=501").status_code == 422  # > MAX (500)
