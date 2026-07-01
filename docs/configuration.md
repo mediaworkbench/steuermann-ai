@@ -276,6 +276,49 @@ LLM_PROVIDERS_OPENROUTER_API_BASE=https://openrouter.ai/api/v1       # OpenRoute
 
 `EMBEDDING_SERVER` and the `LLM_PROVIDERS_*_API_BASE` vars are independent — they can point to the same LM Studio instance or to separate servers. Only set the vars for providers you are actually using.
 
+### Cognitive Memory & Dreaming Engine Configuration (`memory.cognitive`)
+
+Tuning knobs for the tiered cognitive-memory layer and the background Dreaming Engine. **Enablement is owned by three `features.yaml` flags** (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled` — see the Features section); this block holds only the numeric/behavioural levers and has no effect while those flags are off. The Dreaming Engine also requires the `dreaming` heartbeat task to be present in `core.yaml` under `heartbeat.tasks` (scaffolded in `starter`).
+
+```yaml
+memory:
+  cognitive:
+    # Blended retrieval (Phase 2) — one search split into tiers, semantic prepended.
+    semantic_top_k: 3
+    episodic_top_k: 5
+    # Dreaming Engine — 1 = one user dreams at a time (privacy isolation).
+    dreaming_max_concurrency: 1
+    dreaming_active_user_days: 30       # only dream users active within this window
+    # Promotion / Epiphany (Cycle A) — cluster recurring episodics into a semantic.
+    promotion_interval_days: 7
+    promotion_min_cluster_size: 3
+    max_promotions_per_run: 5
+    promotion_similarity_threshold: 0.83  # greedy-cosine cluster join (lower = more aggressive)
+    promotion_start_confidence: 0.6       # confidence of a synthesized semantic
+    # Drift (Cycle B) — contradiction lowers a semantic's confidence.
+    drift_confidence_floor: 0.3           # below this → open a conflict for the user
+    drift_decrement: 0.15
+    max_drift_checks_per_user: 10
+    # Forgetting (Cycle C) — GC old, never-retrieved episodics.
+    forget_age_days: 30
+    max_forgets_per_run: 50
+    forget_contributor_age_days: null     # future: hard-delete old epiphany contributors
+    # Procedural (Cycle D) — learned behavioural rules, evaluated over 24h windows.
+    procedural_tier1_window_days: 2       # format.* (formatting/UI)
+    procedural_tier2_window_days: 5       # style.*  (cognitive style)
+    procedural_tier1_min_samples: 3
+    procedural_tier2_min_samples: 3
+    # Human-in-the-loop.
+    undo_window_days: 7                   # every autonomous change is undoable for this long
+    audit_retention_days: 90              # prune audit rows older than this (> undo window)
+```
+
+**Notes:**
+
+- All three engine LLM calls (drift adjudication, epiphany synthesis, procedural proposal) use the `llm.roles.auxiliary` model with a generous `max_tokens` — reasoning-style local models need room to "think" before emitting their answer.
+- `logic.*` / `safety.*` (Tier 3) procedural rules are **locked**: the engine never writes them (it only logs a read-only suggestion to the audit feed).
+- Per-task heartbeat cooldowns (including how often the `dreaming` task runs for a given user) are admin-configurable at runtime on `/admin/heartbeat` — see the Heartbeat section.
+
 ### RAG Retrieval Configuration
 
 ```yaml
@@ -598,6 +641,12 @@ memory_load_enabled: true           # Enable load_memory_node retrieval path
 memory_update_enabled: true         # Enable update_memory_node persistence path
 memory_co_occurrence_enabled: true  # Enable co-occurrence tracking updates
 memory_digest_chain_enabled: true   # Enable digest metadata propagation
+
+# Cognitive memory + Dreaming Engine (see memory.cognitive in core.yaml for tuning).
+# All off by default; the starter profile enables them. Each is independently useful.
+cognitive_memory_enabled: false      # Tiered tagging + blended semantic/episodic retrieval + retrieval-touch
+dreaming_engine_enabled: false       # The per-user background Dreaming heartbeat task (needs the `dreaming` task in core.yaml)
+procedural_overrides_enabled: false  # Merge approved learned procedural rules onto the persona
 ```
 
 **Deployment-global flags** (`ingestion_service`, `authentication`, `monitoring`) cannot be overridden in a profile overlay — only in `config/features.yaml`.

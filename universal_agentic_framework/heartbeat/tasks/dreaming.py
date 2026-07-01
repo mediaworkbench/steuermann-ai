@@ -470,13 +470,20 @@ class DreamingEngineTask(HeartbeatTask):
             plan.forget = self._plan_forgetting(snapshot)
             plan.completed_cycles.add("forgetting")
 
-        # The two LLM cycles share one reachability probe (don't hammer a dead
-        # provider with N calls). Resolved lazily, at most once per tick.
-        self._reachable_cache: Optional[bool] = None
+        # The LLM cycles share ONE reachability probe per tick (don't hammer a dead
+        # provider with N calls). A per-tick local (not instance state) keeps ticks
+        # isolated when dreaming_max_concurrency > 1; probed only if an LLM cycle
+        # actually has work.
+        needs_llm = (
+            ("drift" in snapshot.due_cycles and snapshot.drift_candidates)
+            or ("promotion" in snapshot.due_cycles and snapshot.episodic_vectors)
+            or ("procedural" in snapshot.due_cycles and snapshot.procedural_observations)
+        )
+        reachable = (await self._health_gate()) if needs_llm else True
 
         # Cycle B — Drift.
         if "drift" in snapshot.due_cycles and snapshot.drift_candidates:
-            if not await self._reachable(plan):
+            if not reachable:
                 self._defer(plan, "drift")
             else:
                 drift_actions, tokens, broke = await self._plan_drift(ctx, snapshot)
@@ -491,7 +498,7 @@ class DreamingEngineTask(HeartbeatTask):
 
         # Cycle A — Promotion / Epiphany.
         if "promotion" in snapshot.due_cycles and snapshot.episodic_vectors:
-            if not await self._reachable(plan):
+            if not reachable:
                 self._defer(plan, "promotion")
             else:
                 promotions, tokens, broke = await self._plan_promotions(ctx, snapshot)
@@ -506,7 +513,7 @@ class DreamingEngineTask(HeartbeatTask):
 
         # Cycle D — Procedural learning.
         if "procedural" in snapshot.due_cycles and snapshot.procedural_observations:
-            if not await self._reachable(plan):
+            if not reachable:
                 self._defer(plan, "procedural")
             else:
                 candidates, suggestions, tokens, broke = await self._plan_procedural(ctx, snapshot)
@@ -527,12 +534,6 @@ class DreamingEngineTask(HeartbeatTask):
             plan.forget = [f for f in plan.forget if f.memory_id not in promoted_ids]
 
         return plan
-
-    async def _reachable(self, plan: DreamPlan) -> bool:
-        """Provider reachability, probed at most once per tick (degrade-by-cost)."""
-        if self._reachable_cache is None:
-            self._reachable_cache = await self._health_gate()
-        return self._reachable_cache
 
     @staticmethod
     def _defer(plan: DreamPlan, cycle: str, *, reason: str = "provider_offline") -> None:

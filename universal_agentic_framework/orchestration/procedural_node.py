@@ -55,7 +55,7 @@ def _get_redis() -> Any:
         import redis as _redis
 
         client = _redis.from_url(
-            os.getenv("REDIS_URL", "redis://redis:6379/0"),
+            os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             socket_connect_timeout=0.5,
             socket_timeout=0.5,
             decode_responses=True,
