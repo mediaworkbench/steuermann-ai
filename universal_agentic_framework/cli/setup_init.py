@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import copy
 import getpass
+import json
 import os
 from pathlib import Path
 import platform
@@ -25,6 +26,8 @@ import secrets
 import sys
 import time
 from typing import Any
+import urllib.error
+import urllib.request
 
 import yaml
 
@@ -61,6 +64,15 @@ PROVIDER_ENV: dict[str, dict[str, str]] = {
     },
 }
 PROVIDER_CHOICES = list(PROVIDER_ENV.keys())
+
+# Providers whose endpoint exposes an OpenAI-compatible ``GET /v1/models`` we can
+# enumerate to offer an interactive pick-list. (OpenRouter also exposes one, but
+# its catalog is hundreds of entries — not useful as a scrolling terminal list.)
+LISTABLE_PROVIDERS = frozenset({"lmstudio", "ollama"})
+
+# LiteLLM transport prefixes we must not double-up. A model id lacking any of
+# these gets ``openai/`` prepended (see :func:`ensure_openai_prefix`).
+_KNOWN_MODEL_PREFIXES = ("openai/", "ollama/", "lm_studio/", "lmstudio/", "openrouter/")
 
 
 # --- Narration ---------------------------------------------------------------
@@ -428,18 +440,89 @@ def provider_env_overrides(provider: str, api_base: str, api_key: str) -> dict[s
     }
 
 
+def ensure_openai_prefix(model: str) -> str:
+    """Prepend the LiteLLM ``openai/`` transport prefix unless one is already present.
+
+    LM Studio and Ollama are both reached over their OpenAI-compatible ``/v1``
+    endpoint, so their native ids (``gemma4:e2b``, ``google/gemma-4-e2b``) must be
+    written to config as ``openai/<id>``. Without it LiteLLM would parse a bare
+    ``google/…`` as the *google* provider (Gemini) rather than the local server.
+    """
+    stripped = model.strip()
+    if not stripped:
+        return stripped
+    if any(stripped.startswith(prefix) for prefix in _KNOWN_MODEL_PREFIXES):
+        return stripped
+    return f"openai/{stripped}"
+
+
+def fetch_provider_models(endpoint: str, api_key: str, *, timeout: float = 4.0) -> list[str]:
+    """Return de-duplicated, sorted model ids from ``GET {endpoint}/models``.
+
+    Works against any OpenAI-compatible server (LM Studio, Ollama's ``/v1``).
+    ``host.docker.internal`` is rewritten to ``localhost`` because the wizard runs
+    on the host, where that docker-only alias does not resolve. Returns ``[]`` on
+    any network/parse error so callers fall back to a free-text prompt.
+    """
+    probe = endpoint.replace("host.docker.internal", "localhost").rstrip("/")
+    request = urllib.request.Request(probe + "/models", headers={"Accept": "application/json"})
+    if api_key:
+        request.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return []
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return []
+    ids = [str(item["id"]) for item in data if isinstance(item, dict) and item.get("id")]
+    return sorted(dict.fromkeys(ids))
+
+
+def _prompt_model_from_list(label: str, models: list[str], default: str) -> str:
+    """Prompt for a model id, offering ``models`` as a numbered pick-list.
+
+    ``default`` and the return value are BARE ids (no transport prefix). Accepts a
+    list number, a typed id (custom), or Enter (keep ``default``). Falls back to a
+    plain default prompt when non-interactive or the list is empty.
+    """
+    if not _is_tty() or not models:
+        return _prompt_with_default(label, default)
+
+    _say(f"{label} — available on this server:")
+    for index, name in enumerate(models, 1):
+        marker = "  ← current" if name == default else ""
+        _say(f"   {index:2}. {name}{marker}")
+    raw = input(f"{label} — number, id, or Enter for [{default}]: ").strip()
+    if not raw:
+        return default
+    if raw.isdigit():
+        choice = int(raw)
+        if 1 <= choice <= len(models):
+            return models[choice - 1]
+        _say(f"   ⚠️  {choice} is out of range; keeping {default!r}.")
+        return default
+    return raw  # treated as a custom id
+
+
 def prompt_provider_config(
     provider: str,
     current_core: dict[str, Any],
     current_env: dict[str, str],
     *,
+    endpoint: str,
+    api_key: str,
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     """Collect per-role models + embedding settings, pre-filled from the source.
 
-    Returns ``{chat, vision, auxiliary}`` role configs (with ``$``-placeholder
+    For locally listable providers (LM Studio / Ollama) the chat/vision/auxiliary/
+    embedding prompts offer a live pick-list fetched from ``{endpoint}/models``;
+    the selected bare id is stored with the ``openai/`` transport prefix. Returns
+    ``{chat, vision, auxiliary}`` role configs (with ``$``-placeholder
     ``api_base``/``api_key`` references) plus an ``embedding`` block
-    ``{endpoint, model, dimension}``. Model ids are written verbatim.
+    ``{endpoint, model, dimension}``.
     """
     penv = PROVIDER_ENV[provider]
     api_base_ref = f"${penv['api_base_var']}"
@@ -447,18 +530,47 @@ def prompt_provider_config(
 
     roles_cur = (current_core.get("llm") or {}).get("roles") or {}
 
-    chat_default = (roles_cur.get("chat") or {}).get("model") or DEFAULT_CHAT_MODEL
-    chat_model = _prompt_with_default("Chat model id", chat_default)
-    vision_default = (roles_cur.get("vision") or {}).get("model") or chat_model
-    vision_model = _prompt_with_default("Vision model id (Enter = chat model)", vision_default)
-    aux_default = (roles_cur.get("auxiliary") or {}).get("model") or chat_model
-    aux_model = _prompt_with_default("Auxiliary model id (Enter = chat model)", aux_default)
+    # Offer a live pick-list of the server's models. Interactive-only (there is
+    # nothing to pick non-interactively) and best-effort — a down/unreachable
+    # server just degrades to the free-text prompt.
+    models: list[str] = []
+    if provider in LISTABLE_PROVIDERS and _is_tty():
+        models = fetch_provider_models(endpoint, api_key)
+        if models:
+            _say(f"🔎 Found {len(models)} model(s) on the {provider} endpoint ({endpoint}).")
+        else:
+            _say(
+                f"   ⚠️  Could not list models from {endpoint} — is {provider} reachable "
+                "from this host? You can still type a model id manually."
+            )
+
+    chat_default = _bare_model((roles_cur.get("chat") or {}).get("model") or DEFAULT_CHAT_MODEL)
+    chat_bare = _prompt_model_from_list("Chat model", models, chat_default)
+    chat_model = ensure_openai_prefix(chat_bare)
+    vision_default = _bare_model((roles_cur.get("vision") or {}).get("model") or chat_bare)
+    vision_model = ensure_openai_prefix(
+        _prompt_model_from_list("Vision model (Enter = chat model)", models, vision_default)
+    )
+    aux_default = _bare_model((roles_cur.get("auxiliary") or {}).get("model") or chat_bare)
+    aux_model = ensure_openai_prefix(
+        _prompt_model_from_list("Auxiliary model (Enter = chat model)", models, aux_default)
+    )
 
     emb_role_cur = roles_cur.get("embedding") or {}
     emb_endpoint_default = current_env.get("EMBEDDING_SERVER") or DEFAULT_EMBEDDING_ENDPOINT
     emb_endpoint = _prompt_with_default("Embedding endpoint", emb_endpoint_default)
-    emb_model_default = emb_role_cur.get("model") or DEFAULT_EMBEDDING_MODEL
-    emb_model = _prompt_with_default("Embedding model id", emb_model_default)
+    # Reuse the fetched list when the embedding endpoint matches; otherwise probe
+    # the (possibly different) embedding endpoint on its own.
+    if emb_endpoint.rstrip("/") == endpoint.rstrip("/"):
+        emb_models = models
+    elif provider in LISTABLE_PROVIDERS and _is_tty():
+        emb_models = fetch_provider_models(emb_endpoint, api_key)
+    else:
+        emb_models = []
+    emb_model_default = _bare_model(emb_role_cur.get("model") or DEFAULT_EMBEDDING_MODEL)
+    emb_model = ensure_openai_prefix(
+        _prompt_model_from_list("Embedding model", emb_models, emb_model_default)
+    )
     dim_default = str(
         (current_core.get("memory") or {}).get("embeddings", {}).get("dimension")
         or DEFAULT_EMBEDDING_DIMENSION
@@ -666,7 +778,9 @@ def cmd_setup_init(args: argparse.Namespace) -> int:
         key_default = current_env.get(penv["api_key_var"]) or penv["default_api_key"]
         api_key = _prompt_with_default(f"{provider} API key", key_default)
 
-    role_cfg = prompt_provider_config(provider, current_core, current_env, args=args)
+    role_cfg = prompt_provider_config(
+        provider, current_core, current_env, endpoint=endpoint, api_key=api_key, args=args
+    )
     changed = _config_differs_from_current(current_core, role_cfg, provider, current_env)
     _say()
 

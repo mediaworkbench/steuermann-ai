@@ -1509,3 +1509,67 @@ def test_read_env_file_values_inline_comments(tmp_path: Path) -> None:
     assert result["SINGLE_QUOTED"] == "$argon2id$v=19$abc"
     assert result["UNQUOTED"] == "lm-studio"
     assert result["HASH_IN_VALUE"] == "pass#word"
+
+
+# 17. ensure_openai_prefix adds the transport prefix only when absent, and never
+#     misreads a HuggingFace-style ``google/…`` model name as a provider prefix.
+def test_ensure_openai_prefix() -> None:
+    assert setup_init.ensure_openai_prefix("gemma4:e2b") == "openai/gemma4:e2b"
+    assert setup_init.ensure_openai_prefix("google/gemma-4-e2b") == "openai/google/gemma-4-e2b"
+    assert setup_init.ensure_openai_prefix("openai/gemma4:e2b") == "openai/gemma4:e2b"
+    assert setup_init.ensure_openai_prefix("ollama/x") == "ollama/x"
+    assert setup_init.ensure_openai_prefix("  gemma4:e2b  ") == "openai/gemma4:e2b"
+    assert setup_init.ensure_openai_prefix("") == ""
+
+
+# 18. fetch_provider_models parses OpenAI-style {"data":[{"id":...}]}, de-dupes +
+#     sorts, and returns [] on any transport/parse error (never raises).
+def test_fetch_provider_models_parses_and_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+
+    class _Resp:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *a: object) -> None:
+            return None
+
+    body = b'{"data":[{"id":"gemma4:e4b"},{"id":"gemma4:e2b"},{"id":"gemma4:e2b"},{"no_id":1}]}'
+    monkeypatch.setattr(setup_init.urllib.request, "urlopen", lambda *a, **k: _Resp(body))
+    assert setup_init.fetch_provider_models("http://x:11434/v1", "key") == [
+        "gemma4:e2b",
+        "gemma4:e4b",
+    ]
+
+    def _boom(*a: object, **k: object) -> None:
+        raise setup_init.urllib.error.URLError("refused")
+
+    monkeypatch.setattr(setup_init.urllib.request, "urlopen", _boom)
+    assert setup_init.fetch_provider_models("http://x:11434/v1", "key") == []
+
+
+# 19. Interactive model pick-list: a number selects, out-of-range/empty keeps the
+#     default, a typed id is accepted verbatim, and an empty catalog degrades to
+#     the plain default prompt.
+def test_prompt_model_from_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    models = ["gemma4:e2b", "gemma4:e4b", "granite-embedding:278m"]
+
+    def answer(value: str) -> str:
+        monkeypatch.setattr("builtins.input", lambda *a, **k: value)
+        return setup_init._prompt_model_from_list("Chat model", models, "gemma4:e2b")
+
+    assert answer("2") == "gemma4:e4b"
+    assert answer("") == "gemma4:e2b"
+    assert answer("my-custom:latest") == "my-custom:latest"
+    assert answer("9") == "gemma4:e2b"  # out of range → default
+
+    # Empty catalog → falls back to the free-text default prompt.
+    monkeypatch.setattr("builtins.input", lambda *a, **k: "")
+    assert setup_init._prompt_model_from_list("Chat model", [], "def-model") == "def-model"
