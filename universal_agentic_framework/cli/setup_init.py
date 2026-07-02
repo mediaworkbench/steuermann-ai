@@ -74,6 +74,27 @@ LISTABLE_PROVIDERS = frozenset({"lmstudio", "ollama"})
 # these gets ``openai/`` prepended (see :func:`ensure_openai_prefix`).
 _KNOWN_MODEL_PREFIXES = ("openai/", "ollama/", "lm_studio/", "lmstudio/", "openrouter/")
 
+_INIT_EPILOG = """\
+Profile behavior (--profile):
+  (omitted)             Start from the pristine 'starter' profile. If you change any
+                        model or endpoint, a NEW profile is scaffolded (you are prompted
+                        for its id, default 'local') so 'starter' stays untouched.
+  --profile <existing>  Edit that profile IN PLACE, no scaffold. Use this to reconfigure
+                        a profile you already set up, e.g. --profile local.
+  --profile <new-id>    Scaffold a new profile of that name from 'starter'.
+
+Heads-up: this wizard always regenerates AUTH_SESSION_SECRET and CHAT_ACCESS_TOKEN
+(existing logins are invalidated -- run 'docker compose up -d' afterward) and rewrites
+core.yaml with comments dropped. It preserves an existing POSTGRES_PASSWORD. To change
+just one config key without touching secrets, use 'steuermann config set' instead, e.g.:
+  steuermann config set --profile local --key core.llm.roles.chat.model \\
+      --value openai/gemma4:e2b --apply --confirm APPLY
+
+Examples:
+  steuermann setup init --provider ollama
+  steuermann setup init --profile local --provider ollama
+"""
+
 
 # --- Narration ---------------------------------------------------------------
 # Human-facing narration goes to stderr so stdout carries only the final
@@ -936,20 +957,40 @@ def add_setup_init_subcommand(setup_subparsers: argparse._SubParsersAction) -> N
     from universal_agentic_framework.cli import steuermann
 
     init_parser = setup_subparsers.add_parser(
-        "init", help="Interactive first-time setup wizard (writes .env, secrets, profile config)"
+        "init",
+        help="Interactive first-time setup wizard (writes .env, secrets, profile config)",
+        description=(
+            "Interactive first-time setup wizard. Selects and configures an LLM provider "
+            "(with a live model pick-list for LM Studio / Ollama), generates strong secrets "
+            "and an argon2 admin password, writes a valid .env (backing up any existing one), "
+            "creates the data directories, and writes the profile's LLM config."
+        ),
+        epilog=_INIT_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    init_parser.add_argument("--profile", help="Target profile id (default: starter)")
+    init_parser.add_argument(
+        "--profile",
+        help=(
+            "Target profile id. Omit to start from the pristine 'starter' profile "
+            "(a copy is scaffolded if you change anything); pass an EXISTING id "
+            "(e.g. 'local') to edit that profile in place with no scaffold."
+        ),
+    )
     init_parser.add_argument(
         "--provider",
         choices=PROVIDER_CHOICES,
         default="lmstudio",
-        help="LLM provider to configure (default: lmstudio)",
+        help="LLM provider to configure (default: lmstudio). lmstudio/ollama offer a live model pick-list.",
     )
     init_parser.add_argument("--openrouter-api-key", default="", help="OpenRouter API key (provider=openrouter)")
     init_parser.add_argument("--auth-username", default="admin", help="Bootstrap admin username (default: admin)")
     init_parser.add_argument(
         "--auth-email", default="admin@example.com", help="Bootstrap admin email (default: admin@example.com)"
     )
-    init_parser.add_argument("--force", action="store_true", help="Overwrite an existing .env without confirmation")
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing .env without confirmation (a timestamped backup is still kept)",
+    )
     steuermann._add_common_format_arg(init_parser)
     init_parser.set_defaults(func=cmd_setup_init)
