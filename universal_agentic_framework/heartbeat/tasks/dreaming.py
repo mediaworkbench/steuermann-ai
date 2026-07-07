@@ -902,7 +902,7 @@ def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Await
         model_name = config.llm.get_role_model_name("auxiliary", "en")
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         prompt = _DRIFT_PROMPT.format(semantic=semantic_text[:1000], episodic=episodic_text[:1000])
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
@@ -945,7 +945,7 @@ def build_auxiliary_epiphany_synthesizer(
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:300]}" for o in observations[:12])
         prompt = _EPIPHANY_PROMPT.format(observations=joined)
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
@@ -994,7 +994,7 @@ def build_auxiliary_procedural_proposer(
         bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:200]}" for o in observations[:40])
         prompt = _PROCEDURAL_PROMPT.format(observations=joined)
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
