@@ -145,7 +145,7 @@ export function ChatComposer({
   useEdgeEffect(isStreaming, { onFalling: () => textareaRef.current?.focus() });
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface p-4 md:px-6 md:pb-8 lg:px-12">
+    <div className="shrink-0 border-t border-border bg-surface p-4 md:px-6 md:pb-4 lg:px-12">
       <div className="max-w-5xl mx-auto">
 
         {/* Attachment chips */}

@@ -119,11 +119,28 @@ export function ChatInterface() {
 
   // ── Scroll behaviour ─────────────────────────────────────────────────
 
-  // Conversation switch: jump to bottom immediately regardless of scroll position
+  // Conversation switch: open anchored to the user's last question rather than
+  // pinned to the absolute bottom. Jumping to the bottom scrolls the question out
+  // of sight whenever a single answer already fills the (composer-shortened)
+  // viewport — the whole exchange is there, just above the fold. Falls back to
+  // the bottom when there is no user message to anchor to.
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => scrollToBottom("instant"), 0);
-    }
+    if (messages.length === 0) return;
+    const timer = setTimeout(() => {
+      const container = scrollContainerRef.current;
+      const rows = container?.querySelectorAll<HTMLElement>('[data-message-role="user"]');
+      const lastUser = rows && rows.length > 0 ? rows[rows.length - 1] : undefined;
+      if (!container || !lastUser) {
+        scrollToBottom("instant");
+        return;
+      }
+      // Offset via bounding rects (not offsetTop) so an intermediate positioned
+      // ancestor can't skew the target. 16px of breathing room above the bubble.
+      const delta =
+        lastUser.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+      container.scrollTop += delta;
+    }, 0);
+    return () => clearTimeout(timer);
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Streaming / new message: auto-scroll only when already at bottom
