@@ -50,7 +50,18 @@ export function useScrollToBottom(messageCount: number): UseScrollToBottomReturn
   }, [messageCount, isAtBottom]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    // Scroll ONLY the message-list container — not via scrollIntoView on the end
+    // sentinel. scrollIntoView walks up and scrolls every scrollable ancestor
+    // (including <body>/window); on a browser where the body is even slightly
+    // scrollable (e.g. 100vh taller than the visible area on pre-dvh WebKit),
+    // that window-scroll hides the toolbar and shifts the composer — reading as
+    // the composer "growing". scrollTo on the container can't touch the window.
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }
   }, []);
 
   return {

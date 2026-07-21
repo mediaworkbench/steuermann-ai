@@ -217,10 +217,15 @@ export function ChatComposer({
             onChange={(e) => { onInputChange(e.target.value); autoResize(); }}
             onKeyDown={onKeyDown}
             disabled={queueFull}
-            className="resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0 focus-visible:ring-0"
+            // min-h-0 overrides the base Textarea's min-h-[60px] floor so rows={1}
+            // + autoResize() actually govern the height (base would otherwise pin
+            // the composer at 60px even when empty).
+            className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 pb-2 pt-3 text-base text-foreground shadow-none focus:ring-0 focus-visible:ring-0"
             placeholder={queueFull ? t("chat.queuedSlotFull") : isStreaming ? t("chat.queuedHint") : providerOffline ? t("providerHealth.composerHint") : t("chat.typeYourMessage")}
             aria-label={t("chat.typeYourMessage")}
-            rows={2}
+            // One row at rest; autoResize() grows it to the 260px cap while
+            // typing, so the composer only claims the height it actually needs.
+            rows={1}
           />
 
           {/* Bottom toolbar */}

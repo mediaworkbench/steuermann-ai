@@ -119,32 +119,50 @@ export function ChatInterface() {
 
   // ── Scroll behaviour ─────────────────────────────────────────────────
 
-  // Conversation switch: open anchored to the user's last question rather than
-  // pinned to the absolute bottom. Jumping to the bottom scrolls the question out
-  // of sight whenever a single answer already fills the (composer-shortened)
-  // viewport — the whole exchange is there, just above the fold. Falls back to
-  // the bottom when there is no user message to anchor to.
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const timer = setTimeout(() => {
-      const container = scrollContainerRef.current;
-      const rows = container?.querySelectorAll<HTMLElement>('[data-message-role="user"]');
-      const lastUser = rows && rows.length > 0 ? rows[rows.length - 1] : undefined;
-      if (!container || !lastUser) {
-        scrollToBottom("instant");
-        return;
-      }
-      // Offset via bounding rects (not offsetTop) so an intermediate positioned
-      // ancestor can't skew the target. 16px of breathing room above the bubble.
-      const delta =
-        lastUser.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
-      container.scrollTop += delta;
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opening a conversation anchors to the user's last question instead of the
+  // absolute bottom: when a single answer already fills the viewport, pinning to
+  // the bottom scrolls the question out of sight. Messages load asynchronously,
+  // so this fires on the first NON-EMPTY render for a given conversation (tracked
+  // per id) rather than on the activeId change, when the DOM is still empty.
+  const prevConvRef = useRef<string | null>(null);
+  const anchoredConvRef = useRef<string | null>(null);
+  const justAnchoredRef = useRef(false);
 
-  // Streaming / new message: auto-scroll only when already at bottom
   useEffect(() => {
+    // Re-arm on every conversation change, including leaving the chat entirely
+    // (activeId -> null -> same id), so returning to a chat anchors again.
+    if (prevConvRef.current !== activeId) {
+      prevConvRef.current = activeId;
+      anchoredConvRef.current = null;
+    }
+    if (!activeId || messages.length === 0) return;
+    if (anchoredConvRef.current === activeId) return;
+    anchoredConvRef.current = activeId;
+    justAnchoredRef.current = true;
+
+    const container = scrollContainerRef.current;
+    const rows = container?.querySelectorAll<HTMLElement>('[data-message-role="user"]');
+    const lastUser = rows && rows.length > 0 ? rows[rows.length - 1] : undefined;
+    if (!container || !lastUser) {
+      scrollToBottom("instant");
+      return;
+    }
+    // Bounding rects (not offsetTop) so a positioned ancestor can't skew the
+    // target. 16px of breathing room above the bubble.
+    const delta =
+      lastUser.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+    container.scrollTop += delta;
+  }, [activeId, messages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Streaming / new message: auto-scroll only when already at bottom. Skips the
+  // render that just anchored — isAtBottom is still stale-true at that point, so
+  // without this guard it would immediately yank the view back to the bottom and
+  // undo the anchor.
+  useEffect(() => {
+    if (justAnchoredRef.current) {
+      justAnchoredRef.current = false;
+      return;
+    }
     if (shouldAutoScroll) {
       scrollToBottom("smooth");
     }
