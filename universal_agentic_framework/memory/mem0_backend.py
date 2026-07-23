@@ -593,6 +593,7 @@ class Mem0MemoryBackend(MemoryBackend):
                     "text": norm["text"],
                     "confidence": float(norm["metadata"].get("confidence", 1.0)),
                     "score": float(norm["score"]),
+                    "anchored": bool(norm["metadata"].get("anchored_preference", False)),
                 }
             )
         out.sort(key=lambda r: r["score"], reverse=True)
@@ -773,6 +774,26 @@ class Mem0MemoryBackend(MemoryBackend):
 
         payload["memory_id"] = self._extract_added_id(add_response)
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    def promote_to_semantic(
+        self, user_id: str, memory_id: str, *, confidence: float, anchored: bool = True
+    ) -> bool:
+        """Flip an existing episodic point to a semantic **belief** in place (the
+        Dreaming Engine's preference-consolidation path). Keeps the point's id and
+        text; sets the cognitive contract fields for a semantic, marks it
+        ``anchored_preference`` (so drift opens a conflict on the first
+        contradiction), and self-sources its provenance. No new point is created."""
+        now = self._now_iso()
+        return self.update_metadata(
+            memory_id,
+            {
+                "cognitive_tier": "semantic",
+                "confidence": float(confidence),
+                "anchored_preference": bool(anchored),
+                "source_episodic_ids": [str(memory_id)],
+                "epiphany_at": now,
+            },
+        )
 
     def update_metadata(self, memory_id: str, patch: Dict[str, Any]) -> bool:
         """Patch a memory's metadata WITHOUT altering its text.

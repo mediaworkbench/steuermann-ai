@@ -117,6 +117,7 @@ class _FakeReader:
         self.confidence_set: List[tuple] = []
         self.written: List[Dict[str, Any]] = []
         self.flagged: List[str] = []
+        self.promoted: List[tuple] = []
         self.vectors_fetched = 0
 
     def fetch_all(self, user_id):
@@ -149,6 +150,16 @@ class _FakeReader:
 
     def flag_contributor(self, user_id, memory_id):
         self.flagged.append(memory_id)
+
+    # --- preference consolidation (Cycle E) ---
+    def promote_to_semantic(self, user_id, memory_id, confidence):
+        self.promoted.append((memory_id, confidence))
+        item = self._items.get(memory_id)
+        if item is not None:  # reflect the flip so a re-fetch sees a semantic
+            item.setdefault("metadata", {})
+            item["metadata"]["cognitive_tier"] = "semantic"
+            item["metadata"]["confidence"] = confidence
+            item["metadata"]["anchored_preference"] = True
 
 
 def _episodic(mid, *, age_days, access=0, contributor=False, text="ep") -> Dict[str, Any]:
@@ -698,3 +709,117 @@ async def test_procedural_tier2_needs_longer_window():
 
     assert proc.rows["style.concise"]["status"] == "observing"  # 2 of 3 days → not yet proposed
 
+
+
+# --------------------------------------------------------------------------- #
+# Cycle E — Preference consolidation (belief bootstrap + contradiction → conflict)
+# --------------------------------------------------------------------------- #
+from universal_agentic_framework.heartbeat.tasks.dreaming import _is_durable_preference
+
+
+def test_is_durable_preference_heuristic():
+    assert _is_durable_preference("The user is a strict vegetarian.")
+    assert _is_durable_preference("The user enjoys eating a big hamburger.")
+    assert _is_durable_preference("The user is allergic to peanuts.")
+    assert _is_durable_preference("The user never drinks coffee.")
+    # Negatives: ephemeral / non-preference / too short.
+    assert not _is_durable_preference("What's the weather today?")
+    assert not _is_durable_preference("The user asked about the invoice.")
+    assert not _is_durable_preference("hi")
+
+
+@pytest.mark.asyncio
+async def test_preference_consolidation_bootstraps_then_conflicts_same_tick():
+    """The repro: two contradictory preferences, both episodic, no prior belief.
+    Oldest is anchored as a belief; the newer one opens a conflict in the SAME tick."""
+    reader = _FakeReader(items=[
+        _episodic("veg", age_days=1, text="The user is a strict vegetarian."),
+        _episodic("burger", age_days=0, text="The user enjoys eating a big hamburger."),
+    ])  # no `nearest` map → nearest_semantic returns None for both
+    audit = _FakeAudit()
+    conflicts = _FakeConflicts()
+
+    async def _contradicts(_s, _e):
+        return {"contradicts": True, "tokens": 7}
+
+    task = _make_task(reader, audit=audit, conflicts=conflicts, adjudicator=_contradicts)
+    res = await task.tick(TickContext(user_id="admin"))
+
+    assert res["status"] == "ok"
+    # Oldest (vegetarian) is bootstrapped as a belief at the start confidence.
+    assert reader.promoted == [("veg", pytest.approx(0.6))]
+    # The hamburger contradicts it → conflict opened this tick; hamburger stays episodic.
+    assert len(conflicts.opened) == 1
+    assert conflicts.opened[0]["semantic"] == "veg"
+    assert conflicts.opened[0]["episodic"] == "burger"
+    # Belief confidence lowered by one decrement (0.6 − 0.15).
+    assert reader.confidence_set == [("veg", pytest.approx(0.45))]
+    assert "burger" not in [p[0] for p in reader.promoted]  # not anchored
+
+
+@pytest.mark.asyncio
+async def test_preference_consolidation_non_contradiction_anchors_both():
+    """Two compatible preferences on different topics → each becomes its own belief."""
+    reader = _FakeReader(items=[
+        _episodic("veg", age_days=1, text="The user is a strict vegetarian."),
+        _episodic("dark", age_days=0, text="The user prefers dark mode."),
+    ])
+    conflicts = _FakeConflicts()
+
+    async def _no_contradiction(_s, _e):
+        return {"contradicts": False, "tokens": 3}
+
+    task = _make_task(reader, conflicts=conflicts, adjudicator=_no_contradiction)
+    await task.tick(TickContext(user_id="u1"))
+
+    assert sorted(p[0] for p in reader.promoted) == ["dark", "veg"]
+    assert conflicts.opened == []
+
+
+@pytest.mark.asyncio
+async def test_preference_consolidation_contradicts_existing_anchored_belief():
+    """A fresh preference that contradicts an already-persisted anchored belief opens a
+    conflict via consolidation (and is NOT double-processed by drift)."""
+    reader = _FakeReader(
+        items=[_episodic("burger", age_days=0, text="The user loves a big hamburger with meat.")],
+        nearest={
+            "The user loves a big hamburger with meat.": {
+                "memory_id": "veg-sem", "text": "The user is a strict vegetarian.",
+                "confidence": 0.6, "anchored": True,
+            }
+        },
+    )
+    conflicts = _FakeConflicts()
+    audit = _FakeAudit()
+
+    async def _contradicts(_s, _e):
+        return {"contradicts": True, "tokens": 9}
+
+    task = _make_task(reader, conflicts=conflicts, audit=audit, adjudicator=_contradicts)
+    await task.tick(TickContext(user_id="u1"))
+
+    # Exactly one conflict + one confidence-lower (drift did NOT also process it).
+    assert len(conflicts.opened) == 1
+    assert conflicts.opened[0]["semantic"] == "veg-sem"
+    assert reader.confidence_set == [("veg-sem", pytest.approx(0.45))]
+    assert reader.promoted == []  # the contradicting statement is not anchored
+
+
+@pytest.mark.asyncio
+async def test_drift_opens_conflict_on_anchored_belief_above_floor():
+    """A non-preference episodic contradicting an ANCHORED belief opens a conflict on the
+    first hit even though the new confidence stays above the floor."""
+    reader = _FakeReader(
+        items=[_episodic("ep1", age_days=0, text="q")],  # not a preference → drift owns it
+        nearest={"q": {"memory_id": "sem1", "text": "s", "confidence": 0.9, "anchored": True}},
+    )
+    conflicts = _FakeConflicts()
+
+    async def _contradicts(_s, _e):
+        return {"contradicts": True, "tokens": 1}
+
+    task = _make_task(reader, conflicts=conflicts, adjudicator=_contradicts)
+    await task.tick(TickContext(user_id="u1"))
+
+    assert reader.confidence_set == [("sem1", pytest.approx(0.75))]  # 0.9 − 0.15, above floor
+    assert len(conflicts.opened) == 1  # but anchored → conflict opens anyway

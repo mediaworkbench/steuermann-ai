@@ -318,6 +318,17 @@ class CognitiveMemorySettings(BaseModel):
     drift_decrement: confloat(ge=0.0, le=1.0) = 0.15
     max_drift_checks_per_user: PositiveInt = 10
 
+    # Preference consolidation (Cycle E) — bootstraps semantic *beliefs* from lone
+    # first-person preference statements so drift has something to contradict, and
+    # opens the dissonance conflict in the same tick. Adjudication is done by the
+    # auxiliary LLM (embeddings can't gate it — cosine of a contradiction is
+    # indistinguishable from unrelated text on the local embedder), so there is no
+    # relatedness threshold here. Anchored beliefs open a conflict on the FIRST
+    # contradiction (an explicit user preference stated both ways IS dissonance).
+    preference_anchoring_enabled: bool = True
+    anchor_start_confidence: confloat(ge=0.0, le=1.0) = 0.6  # confidence of a bootstrapped belief
+    max_preference_checks_per_user: PositiveInt = 10         # per-run LLM-adjudication cap
+
     # Forgetting / GC (Cycle C).
     forget_age_days: PositiveInt = 30
     max_forgets_per_run: PositiveInt = 50  # per-run delete cap (blast-radius guard)

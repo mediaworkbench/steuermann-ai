@@ -64,7 +64,14 @@ memory:
     user_memory_days: 365
   mem0:
     search_limit: 10
-    custom_instructions: null
+    # Sharpen extraction toward clean, atomic first-person preference facts (helps the
+    # Dreaming Engine's preference-consolidation heuristic). NOTE: this mem0 build is
+    # additive-only — custom_instructions shapes WHAT is extracted, it does NOT reconcile
+    # or overwrite contradicting memories (that is the Dreaming Engine's job).
+    custom_instructions: >-
+      Extract durable, first-person facts and preferences as separate, atomic statements
+      (diet, allergies, likes/dislikes, habits, identity). Prefer one clear fact per memory.
+      Do not merge or drop a stated preference just because an earlier one exists.
     llm_provider: "lmstudio"
     co_occurrence_fanout_cap: 5
     co_occurrence_prune_interval_seconds: 300
@@ -85,6 +92,11 @@ memory:
     drift_confidence_floor: 0.3
     drift_decrement: 0.15
     max_drift_checks_per_user: 10
+    # Preference consolidation (Cycle E) — bootstraps beliefs from lone preference
+    # statements so drift has something to contradict; adjudication is LLM-only.
+    preference_anchoring_enabled: true
+    anchor_start_confidence: 0.6
+    max_preference_checks_per_user: 10
     forget_age_days: 30
     max_forgets_per_run: 50
     forget_contributor_age_days: null  # future: hard-delete old epiphany contributors

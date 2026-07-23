@@ -35,6 +35,58 @@ if _raw_embedding_server.endswith("/v1"):
 EMBEDDING_ENDPOINT = os.environ.get("EMBEDDING_SERVER", "http://localhost:1234") + "/v1"
 
 
+def isolated_test_dsn() -> str:
+    """Return a DSN to a DEDICATED, auto-provisioned throwaway Postgres database.
+
+    Several store round-trip tests run GLOBAL, destructive SQL (``prune`` and unscoped
+    ``DELETE FROM …``), so they must NEVER touch the live application database. This
+    central guard refuses the live DB name outright and otherwise creates a disposable
+    ``framework_test`` DB (the stores self-create their tables via
+    ``CREATE TABLE IF NOT EXISTS`` on construction). Skips the test when Postgres or the
+    throwaway DB can't be reached/created. Override via ``TEST_DB_*`` env vars.
+    """
+    import psycopg2
+
+    host = os.environ.get("TEST_DB_HOST", "localhost")
+    port = os.environ.get("TEST_DB_PORT", "5432")
+    user = os.environ.get("TEST_DB_USER", "framework")
+    password = os.environ.get("TEST_DB_PASSWORD", "framework")
+    live_db = os.environ.get("TEST_DB_LIVE_NAME", "framework")
+    test_db = os.environ.get("TEST_DB_NAME", "framework_test")
+
+    if test_db == live_db:
+        pytest.skip(
+            f"Refusing destructive DB tests against the live database '{live_db}'. "
+            "Set TEST_DB_NAME to a throwaway database."
+        )
+
+    try:  # CREATE DATABASE needs autocommit and must run outside a transaction.
+        admin = psycopg2.connect(
+            host=host, port=port, user=user, password=password, dbname="postgres"
+        )
+        admin.autocommit = True
+        try:
+            with admin.cursor() as cur:
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (test_db,))
+                if cur.fetchone() is None:
+                    cur.execute(f'CREATE DATABASE "{test_db}";')
+        finally:
+            admin.close()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Postgres unavailable / cannot provision test DB '{test_db}': {exc}")
+
+    return f"postgresql://{user}:{password}@{host}:{port}/{test_db}"
+
+
+@pytest.fixture(scope="session")
+def isolated_db_dsn() -> str:
+    """DSN to an isolated throwaway Postgres DB (see :func:`isolated_test_dsn`).
+
+    Use this in any DB round-trip test instead of hard-coding the live ``framework`` DSN,
+    so destructive SQL can never hit live data."""
+    return isolated_test_dsn()
+
+
 @pytest.fixture(scope="session")
 def _embedding_provider_session():
     """Session-scoped probe: builds the provider and encodes once to verify LM Studio is up.

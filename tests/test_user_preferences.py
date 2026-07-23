@@ -6,6 +6,7 @@ Tests the full stack: database schema, API endpoints, and frontend integration.
 import os
 import pytest
 from backend.db import DatabasePool, SettingsStore, LLMCapabilityProbeStore, DatabaseConfig
+from conftest import isolated_test_dsn
 
 
 class TestUserPreferencesSchema:
@@ -16,7 +17,7 @@ class TestUserPreferencesSchema:
         """Create an in-memory PostgreSQL test database."""
         # Using test database credentials
         config = DatabaseConfig(
-            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
+            dsn=isolated_test_dsn(),
             minconn=1,
             maxconn=5,
         )
@@ -83,7 +84,7 @@ class TestSettingsStore:
     def db_pool(self):
         """Create a test database pool."""
         config = DatabaseConfig(
-            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
+            dsn=isolated_test_dsn(),
             minconn=1,
             maxconn=5,
         )
@@ -306,7 +307,7 @@ class TestLLMCapabilityProbeStore:
     @pytest.fixture
     def db_pool(self):
         config = DatabaseConfig(
-            dsn=f'postgresql://framework:framework@{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework',
+            dsn=isolated_test_dsn(),
             minconn=1,
             maxconn=5,
         )

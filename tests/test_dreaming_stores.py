@@ -187,13 +187,15 @@ def test_procedural_set_status_rejects_invalid():
 # DB round-trips — skipped when Postgres is unreachable
 # --------------------------------------------------------------------------- #
 @pytest.fixture(scope="module")
-def db_pool():
-    dsn = (
-        f'postgresql://framework:framework@'
-        f'{os.environ.get("TEST_DB_HOST", "localhost")}:5432/framework'
-    )
+def db_pool(isolated_db_dsn):
+    """A pool on a DEDICATED, auto-provisioned throwaway database.
+
+    These round-trips exercise global, destructive paths (``prune`` deletes rows for ALL
+    users by ``created_at`` cutoff), so they must NEVER run against the live application
+    database — ``isolated_db_dsn`` (conftest) enforces that and provisions the throwaway DB.
+    """
     try:
-        pool = DatabasePool(DatabaseConfig(dsn=dsn, minconn=1, maxconn=3))
+        pool = DatabasePool(DatabaseConfig(dsn=isolated_db_dsn, minconn=1, maxconn=3))
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1;")
