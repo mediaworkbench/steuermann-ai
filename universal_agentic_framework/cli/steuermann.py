@@ -1482,8 +1482,28 @@ def _add_common_format_arg(parser: argparse.ArgumentParser, default: str = "yaml
     parser.add_argument("--format", choices=["yaml", "json"], default=default, help="Output format")
 
 
+_CLI_EPILOG = """\
+Common workflows:
+  steuermann setup init                    First-time setup: generate .env, secrets, and profile config
+  steuermann setup init --profile local    Reconfigure an EXISTING profile in place (no new scaffold)
+  steuermann setup check                   Pre-flight validation (doctor + config validate + contract-check)
+  steuermann config show --profile local   Show the effective config for a profile
+  steuermann config set --profile local --key core.llm.roles.chat.model --value openai/gemma4:e2b
+                                           Change ONE config key without touching secrets
+                                           (dry-run; add --apply --confirm APPLY to persist)
+
+Run 'steuermann <command> --help' for details on any command, e.g.
+'steuermann setup init --help' for the full first-time-setup options.
+"""
+
+
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Steuermann operations CLI")
+    parser = argparse.ArgumentParser(
+        prog="steuermann",
+        description="Steuermann operations CLI",
+        epilog=_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     profile_parser = subparsers.add_parser("profile", help="Profile operations")

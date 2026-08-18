@@ -33,7 +33,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="font-sans">
-      <body className="bg-background text-foreground h-screen overflow-hidden flex flex-col md:flex-row">
+      <body className="app-viewport-height bg-background text-foreground overflow-hidden flex flex-col md:flex-row">
         <ThemeProvider>
           <SessionProvider>
             <I18nProvider>

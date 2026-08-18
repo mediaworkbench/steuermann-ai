@@ -23,6 +23,7 @@ from backend.routers.conversations import router as conversations_router
 from backend.routers.memories import router as memories_router
 from backend.routers.workspace import router as workspace_router
 from backend.routers.rag_search import router as rag_search_router
+from backend.routers.dreaming import router as dreaming_router
 from backend.db import (
     LLMCapabilityProbeStore,
     SettingsStore,
@@ -34,6 +35,10 @@ from backend.db import (
     WorkspaceDocumentStore,
     UserStore,
     GlobalSettingsStore,
+    ProceduralOverrideStore,
+    MemoryConflictStore,
+    MemoryAuditLogStore,
+    HeartbeatRunStore,
     init_db_pool,
 )
 from backend.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
@@ -265,6 +270,11 @@ async def lifespan(app: FastAPI):
     app.state.user_store = UserStore(db_pool)
     app.state.role_tool_store = RoleToolPermissionStore(db_pool)
     app.state.global_settings_store = GlobalSettingsStore(db_pool)
+    # Cognitive memory + Dreaming Engine HITL stores (plan-memory.md Phase 6).
+    app.state.procedural_store = ProceduralOverrideStore(db_pool)
+    app.state.memory_conflict_store = MemoryConflictStore(db_pool)
+    app.state.memory_audit_store = MemoryAuditLogStore(db_pool)
+    app.state.heartbeat_run_store = HeartbeatRunStore(db_pool)
 
     # Seed default role→tool permissions so a fresh deployment grants 'user' and
     # 'researcher' the full tool catalog (admins narrow from there). Only seeds when
@@ -344,6 +354,7 @@ def create_app() -> FastAPI:
     app.include_router(memories_router)
     app.include_router(workspace_router)
     app.include_router(rag_search_router)
+    app.include_router(dreaming_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

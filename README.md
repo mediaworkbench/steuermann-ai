@@ -80,6 +80,17 @@ Memory is an explicit, first-class part of the execution graph. Dedicated nodes 
 
 See [docs/technical_architecture.md](docs/technical_architecture.md) for memory pipeline details.
 
+### Cognitive Memory & Dreaming Engine (optional)
+
+An opt-in upgrade turns flat memory into a **tiered, self-evolving** store. Memories carry a cognitive tier (episodic vs. semantic), a confidence score, and access tracking. Retrieval blends consolidated semantic knowledge ahead of raw episodic recall. A per-user **Dreaming Engine** — a background heartbeat task that processes one user at a time under strict privacy isolation — runs four cost-tiered cognitive cycles on its own schedule:
+
+- **Forgetting** — deletes old, never-retrieved memories (7-day undo).
+- **Drift** — detects when a new observation contradicts an established belief, lowers its confidence, and surfaces a conflict for the user to resolve.
+- **Promotion** — clusters recurring episodic memories and synthesizes them into one higher-level semantic memory, preserving the originals as provenance.
+- **Procedural** — learns formatting/style preferences from behaviour and proposes them (core-logic/safety rules are never auto-learned); approved rules are merged onto the persona.
+
+Every autonomous change is auditable with a 7-day undo, and behavioural rules require explicit approval. Users manage it from a **Memory Review** page (resolve conflicts, approve preferences, undo changes); admins see anonymized aggregate health on a **Dreaming Metrics** dashboard (no user content). It is disabled by default and gated by three per-profile feature flags. The engine degrades gracefully when the model provider is offline (cheap cycles keep running; LLM cycles defer). See [docs/technical_architecture.md](docs/technical_architecture.md).
+
 ### RAG & Knowledge Ingestion
 
 Drop documents into a watched directory and they are automatically chunked, embedded, and indexed into Qdrant. The ingestion service handles incremental updates, file deletions, and startup sweeps — no manual re-indexing needed. RAG retrieval is skipped automatically for queries where it adds no value.
@@ -96,7 +107,7 @@ See [docs/tool_development_guide.md](docs/tool_development_guide.md) for buildin
 
 ### Operational Interface
 
-A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, a RAG knowledge explorer (open to administrators and researchers) for searching the knowledge base by keyword and reviewing retrieved documents, an admin user-management page, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
+A Next.js frontend built for operators. It ships a streaming chat interface with image attachment support, a settings panel for runtime configuration, a metrics dashboard with real-time and historical views, a memory management page, a Memory Review page (resolve memory conflicts, approve learned preferences, undo recent memory changes — when the Dreaming Engine is enabled), a RAG knowledge explorer (open to administrators and researchers) for searching the knowledge base by keyword and reviewing retrieved documents, an admin user-management page, admin heartbeat and dreaming-metrics dashboards, and persistent workspace documents with version history and AI-driven save-back. Branding and theming adapt to the active profile.
 
 ### User Accounts & Roles
 
@@ -110,7 +121,7 @@ See [docs/performance_optimization.md](docs/performance_optimization.md) for tun
 
 ### Heartbeat (proactive scheduling)
 
-A virtual cron embedded in the orchestration service wakes the agent on a fixed schedule and runs background tasks through an observe → reason → act tick. It is the foundation for proactive behavior; today it ships as scaffolding (no external actions), with every beat recorded for observability. The beat rate is admin-configurable at runtime and enabled per profile.
+A virtual cron embedded in the orchestration service wakes the agent on a fixed schedule and runs background tasks through an observe → reason → act tick. Tasks are either global (run once per beat) or per-user (fanned out to each active user through a bounded worker pool). The Cognitive Memory Dreaming Engine is the first substantial per-user task; other tasks remain scaffolding for proactive behavior. Every beat is recorded for observability, and admins inspect the configured tasks and run log on the `/admin/heartbeat` page. The beat rate and each task's per-user cooldown are admin-configurable at runtime (applied within ~30s, no restart); the heartbeat is enabled per profile.
 
 ### Monitoring & Observability
 

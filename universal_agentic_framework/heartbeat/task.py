@@ -75,6 +75,11 @@ class HeartbeatTask:
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._run_store = run_store
         self.scope = scope
+        # When set (per_user tasks only), the scheduler enqueues only users active
+        # within this many days (via UserStore.get_recently_active_user_ids) instead
+        # of all active users. None = fan out to every active user. Used by the
+        # Dreaming Engine to skip dormant accounts.
+        self.active_user_recency_days: Optional[int] = None
         # Scaffold for future external calls: when observe() starts hitting flaky
         # APIs, repeated failures trip the breaker instead of acting on bad data.
         # Keyed per user_id (None for global) so one user's failures don't trip

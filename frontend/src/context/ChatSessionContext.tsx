@@ -255,6 +255,11 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     // stream keeps running in the background bound to its own conversation (its
     // UI is gated off here); only drop a queued follow-up when no stream owns it.
     if (!isStreamingRef.current) clearQueue();
+    // Drop the previous conversation's messages before the (async) fetch so the
+    // view never renders one conversation's history under another's id. The
+    // scroll anchoring in ChatInterface keys off the first non-empty render, so
+    // a stale in-between render would otherwise anchor against the wrong DOM.
+    setMessages([]);
     let cancelled = false;
     (async () => {
       const detail = await fetchConversation(activeId);

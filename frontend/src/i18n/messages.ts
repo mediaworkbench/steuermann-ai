@@ -168,9 +168,17 @@ export type Messages = {
     heartbeatScopePerUser: string;
     heartbeatTaskDisabled: string;
     heartbeatCooldownLabel: string;
+    heartbeatCooldownEditLabel: string;
+    heartbeatCooldownDefault: string;
+    heartbeatCooldownSaved: string;
+    heartbeatCooldownSaveFailed: string;
+    heartbeatCooldownInvalid: string;
     heartbeatNoTasks: string;
     heartbeatLogTitle: string;
     heartbeatLogHelp: string;
+    heartbeatLogPageInfo: string;
+    heartbeatLogPrev: string;
+    heartbeatLogNext: string;
     heartbeatColTask: string;
     heartbeatColUser: string;
     heartbeatColStatus: string;
@@ -649,6 +657,53 @@ export type Messages = {
     clearAllSuccess: string;
     clearAllFailed: string;
   };
+  dreaming: {
+    userTitle: string;
+    userSubtitle: string;
+    adminTitle: string;
+    adminDescription: string;
+    refresh: string;
+    loadError: string;
+    conflictsTitle: string;
+    conflictsDescription: string;
+    conflictsEmpty: string;
+    conflictEstablished: string;
+    conflictNew: string;
+    keepOld: string;
+    acceptNew: string;
+    dependsLabel: string;
+    proceduralTitle: string;
+    proceduralDescription: string;
+    proceduralEmpty: string;
+    approve: string;
+    reject: string;
+    tierLabel: string;
+    tier3Locked: string;
+    statusProposed: string;
+    statusActive: string;
+    statusObserving: string;
+    statusRejected: string;
+    undoTitle: string;
+    undoDescription: string;
+    undoEmpty: string;
+    undoButton: string;
+    expiresIn: string;
+    actionDelete: string;
+    actionLowerConfidence: string;
+    actionPromote: string;
+    actionPropose: string;
+    cyclesRun: string;
+    vectorCount: string;
+    avgCost: string;
+    totalTokens: string;
+    pendingResolutions: string;
+    openConflicts: string;
+    proposedRules: string;
+    deletions: string;
+    promotions: string;
+    actionSuccess: string;
+    actionFailed: string;
+  };
   charts: {
     loading: string;
     noData: string;
@@ -863,9 +918,17 @@ export const messages: Record<Locale, Messages> = {
       heartbeatScopePerUser: "Per-user",
       heartbeatTaskDisabled: "Disabled",
       heartbeatCooldownLabel: "Cooldown {seconds}s",
+      heartbeatCooldownEditLabel: "Cooldown (seconds)",
+      heartbeatCooldownDefault: "default {seconds}s",
+      heartbeatCooldownSaved: "Cooldown updated (applies within ~30s)",
+      heartbeatCooldownSaveFailed: "Failed to update cooldown",
+      heartbeatCooldownInvalid: "Enter a value between 0 and {max} seconds",
       heartbeatNoTasks: "No tasks configured.",
       heartbeatLogTitle: "Run log",
-      heartbeatLogHelp: "Most recent beats, newest first. Expand an error row for details.",
+      heartbeatLogHelp: "Beats from the last 24 hours, newest first, 25 per page. Expand an error row for details.",
+      heartbeatLogPageInfo: "Page {page} of {pages} · {total} runs (last 24h)",
+      heartbeatLogPrev: "Previous",
+      heartbeatLogNext: "Next",
       heartbeatColTask: "Task",
       heartbeatColUser: "User",
       heartbeatColStatus: "Status",
@@ -1344,6 +1407,53 @@ export const messages: Record<Locale, Messages> = {
       clearAllSuccess: "All memories cleared.",
       clearAllFailed: "Failed to clear memories. Please try again.",
     },
+    dreaming: {
+      userTitle: "Memory Review",
+      userSubtitle: "Resolve contradictions, approve learned preferences, and undo recent memory changes.",
+      adminTitle: "Dreaming Metrics",
+      adminDescription: "Aggregate, anonymized health of the background memory engine. No user content is shown.",
+      refresh: "Refresh",
+      loadError: "Could not load. Please try again.",
+      conflictsTitle: "Memory Conflicts",
+      conflictsDescription: "The engine found new information that may contradict something it remembers. How should it reconcile them?",
+      conflictsEmpty: "No conflicts to resolve.",
+      conflictEstablished: "Remembered",
+      conflictNew: "New observation",
+      keepOld: "Keep remembered",
+      acceptNew: "Accept new",
+      dependsLabel: "It depends",
+      proceduralTitle: "Learned Preferences",
+      proceduralDescription: "Behavioural preferences the engine learned from how you interact. They only affect responses once you approve them.",
+      proceduralEmpty: "No preferences awaiting review.",
+      approve: "Approve",
+      reject: "Reject",
+      tierLabel: "Tier {tier}",
+      tier3Locked: "Core-logic and safety rules are never auto-learned.",
+      statusProposed: "Awaiting approval",
+      statusActive: "Active",
+      statusObserving: "Observing",
+      statusRejected: "Rejected",
+      undoTitle: "Recent Changes",
+      undoDescription: "Memory changes the engine made recently. You can undo each one within its window.",
+      undoEmpty: "Nothing to undo.",
+      undoButton: "Undo",
+      expiresIn: "Undo available for {time}",
+      actionDelete: "Forgot a memory",
+      actionLowerConfidence: "Lowered confidence",
+      actionPromote: "Consolidated memories",
+      actionPropose: "Proposed a preference",
+      cyclesRun: "Engine cycles run",
+      vectorCount: "Stored memory vectors",
+      avgCost: "Avg tokens / cycle",
+      totalTokens: "Total tokens",
+      pendingResolutions: "Pending resolutions",
+      openConflicts: "Open conflicts",
+      proposedRules: "Proposed rules",
+      deletions: "Memories forgotten",
+      promotions: "Memories consolidated",
+      actionSuccess: "Done.",
+      actionFailed: "Action failed. Please try again.",
+    },
     charts: {
       loading: "Loading...",
       noData: "No data available",
@@ -1556,9 +1666,17 @@ export const messages: Record<Locale, Messages> = {
       heartbeatScopePerUser: "Pro Benutzer",
       heartbeatTaskDisabled: "Deaktiviert",
       heartbeatCooldownLabel: "Abklingzeit {seconds}s",
+      heartbeatCooldownEditLabel: "Abklingzeit (Sekunden)",
+      heartbeatCooldownDefault: "Standard {seconds}s",
+      heartbeatCooldownSaved: "Abklingzeit aktualisiert (gilt in ~30s)",
+      heartbeatCooldownSaveFailed: "Abklingzeit konnte nicht aktualisiert werden",
+      heartbeatCooldownInvalid: "Wert zwischen 0 und {max} Sekunden eingeben",
       heartbeatNoTasks: "Keine Aufgaben konfiguriert.",
       heartbeatLogTitle: "Ausführungsprotokoll",
-      heartbeatLogHelp: "Neueste Takte zuerst. Fehlerzeile zum Aufklappen der Details anklicken.",
+      heartbeatLogHelp: "Takte der letzten 24 Stunden, neueste zuerst, 25 pro Seite. Fehlerzeile zum Aufklappen anklicken.",
+      heartbeatLogPageInfo: "Seite {page} von {pages} · {total} Läufe (letzte 24h)",
+      heartbeatLogPrev: "Zurück",
+      heartbeatLogNext: "Weiter",
       heartbeatColTask: "Aufgabe",
       heartbeatColUser: "Benutzer",
       heartbeatColStatus: "Status",
@@ -2036,6 +2154,53 @@ export const messages: Record<Locale, Messages> = {
       clearAllConfirmMessage: "Dies löscht dauerhaft alle deine Erinnerungen. Der Assistent startet ohne jegliches Wissen über dich neu.",
       clearAllSuccess: "Alle Erinnerungen gelöscht.",
       clearAllFailed: "Erinnerungen konnten nicht gelöscht werden. Bitte erneut versuchen.",
+    },
+    dreaming: {
+      userTitle: "Speicher-Überprüfung",
+      userSubtitle: "Widersprüche auflösen, gelernte Präferenzen freigeben und kürzliche Speicheränderungen rückgängig machen.",
+      adminTitle: "Dreaming-Metriken",
+      adminDescription: "Aggregierte, anonymisierte Übersicht des Hintergrund-Speichermoduls. Es werden keine Nutzerinhalte angezeigt.",
+      refresh: "Aktualisieren",
+      loadError: "Laden fehlgeschlagen. Bitte erneut versuchen.",
+      conflictsTitle: "Speicher-Konflikte",
+      conflictsDescription: "Das Modul hat neue Informationen gefunden, die einer Erinnerung widersprechen könnten. Wie soll es sie abgleichen?",
+      conflictsEmpty: "Keine Konflikte zu lösen.",
+      conflictEstablished: "Erinnert",
+      conflictNew: "Neue Beobachtung",
+      keepOld: "Erinnerung behalten",
+      acceptNew: "Neues übernehmen",
+      dependsLabel: "Kommt darauf an",
+      proceduralTitle: "Gelernte Präferenzen",
+      proceduralDescription: "Verhaltenspräferenzen, die das Modul aus deinen Interaktionen gelernt hat. Sie wirken sich erst nach deiner Freigabe aus.",
+      proceduralEmpty: "Keine Präferenzen zur Überprüfung.",
+      approve: "Freigeben",
+      reject: "Ablehnen",
+      tierLabel: "Stufe {tier}",
+      tier3Locked: "Kernlogik- und Sicherheitsregeln werden nie automatisch gelernt.",
+      statusProposed: "Wartet auf Freigabe",
+      statusActive: "Aktiv",
+      statusObserving: "Wird beobachtet",
+      statusRejected: "Abgelehnt",
+      undoTitle: "Kürzliche Änderungen",
+      undoDescription: "Speicheränderungen des Moduls. Jede kann innerhalb ihres Zeitfensters rückgängig gemacht werden.",
+      undoEmpty: "Nichts rückgängig zu machen.",
+      undoButton: "Rückgängig",
+      expiresIn: "Rückgängig möglich für {time}",
+      actionDelete: "Erinnerung vergessen",
+      actionLowerConfidence: "Konfidenz gesenkt",
+      actionPromote: "Erinnerungen zusammengeführt",
+      actionPropose: "Präferenz vorgeschlagen",
+      cyclesRun: "Modul-Zyklen ausgeführt",
+      vectorCount: "Gespeicherte Speichervektoren",
+      avgCost: "Ø Tokens / Zyklus",
+      totalTokens: "Tokens gesamt",
+      pendingResolutions: "Offene Vorgänge",
+      openConflicts: "Offene Konflikte",
+      proposedRules: "Vorgeschlagene Regeln",
+      deletions: "Vergessene Erinnerungen",
+      promotions: "Zusammengeführte Erinnerungen",
+      actionSuccess: "Erledigt.",
+      actionFailed: "Aktion fehlgeschlagen. Bitte erneut versuchen.",
     },
     charts: {
       loading: "Wird geladen...",

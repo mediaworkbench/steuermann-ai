@@ -277,7 +277,9 @@ export interface HeartbeatTaskInfo {
   name: string;
   type: string;
   scope: "global" | "per_user";
-  cooldown_seconds: number;
+  cooldown_seconds: number; // effective (override if set, else default)
+  cooldown_default: number;
+  cooldown_source: "override" | "default";
   enabled: boolean;
   last_run: HeartbeatRun | null;
 }
@@ -298,17 +300,47 @@ export async function fetchHeartbeatTasks(): Promise<HeartbeatTaskInfo[] | null>
   }
 }
 
-// Admin-only: the heartbeat run log, newest first, optionally filtered.
+// Admin-only: override a heartbeat task's cooldown (seconds). Returns the full
+// task list (refreshed) or null on failure.
+export async function updateHeartbeatCooldown(
+  taskName: string,
+  cooldownSeconds: number,
+): Promise<HeartbeatTaskInfo[] | null> {
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/admin/heartbeat/tasks/${encodeURIComponent(taskName)}/cooldown`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cooldown_seconds: cooldownSeconds }),
+      },
+    );
+    if (!response.ok) {
+      console.error(`Failed to update heartbeat cooldown: ${response.status}`);
+      return null;
+    }
+    const data = (await response.json()) as { tasks: HeartbeatTaskInfo[] };
+    return data.tasks ?? [];
+  } catch (error) {
+    console.error("Error updating heartbeat cooldown:", error);
+    return null;
+  }
+}
+
+// Admin-only: the heartbeat run log, newest first, within the last `hours` window
+// (default 24h), optionally filtered. The caller paginates the result client-side.
 export async function fetchHeartbeatRuns(opts?: {
   task?: string;
   user?: string;
+  hours?: number;
   limit?: number;
 }): Promise<HeartbeatRun[] | null> {
   try {
     const params = new URLSearchParams();
     if (opts?.task) params.set("task", opts.task);
     if (opts?.user) params.set("user", opts.user);
-    params.set("limit", String(opts?.limit ?? 50));
+    params.set("hours", String(opts?.hours ?? 24));
+    params.set("limit", String(opts?.limit ?? 500));
     const response = await fetch(`${API_BASE}/api/admin/heartbeat/runs?${params.toString()}`);
     if (!response.ok) {
       console.error(`Failed to fetch heartbeat runs: ${response.status}`);
@@ -1146,5 +1178,119 @@ export async function deleteUser(userId: string): Promise<void> {
   });
   if (!response.ok && response.status !== 204) {
     throw new Error(await _detail(response, "Failed to delete user"));
+  }
+}
+
+// --------------------------------------------------------------------------- //
+// Cognitive memory — Dreaming Engine HITL (plan-memory.md Phase 6)
+// --------------------------------------------------------------------------- //
+export type DreamConflictChoice = "keep_old" | "accept_new" | "depends";
+
+export interface DreamConflict {
+  conflict_id: string;
+  semantic_text: string;
+  contradiction_text: string;
+  prior_confidence: number | null;
+  new_confidence: number | null;
+  choices: Array<{ id: string; label: string }>;
+  created_at: string | null;
+}
+
+export interface DreamProceduralRule {
+  rule_key: string;
+  rule_text: string;
+  tier: number;
+  status: string;
+  confidence: number | null;
+  evidence: Record<string, unknown>;
+  updated_at: string | null;
+}
+
+export interface DreamAuditItem {
+  audit_id: string;
+  cycle: string | null;
+  action: string | null;
+  target_kind: string | null;
+  target_id: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  created_at: string | null;
+  reversible_until: string | null;
+}
+
+export interface DreamingMetrics {
+  cycles_run: number;
+  vector_count: number;
+  total_tokens: number;
+  avg_tokens_per_cycle: number;
+  pending_resolutions: { open_conflicts: number; proposed_procedural: number; total: number };
+  deletion_count: number;
+  promotion_count: number;
+  run_status: Record<string, number>;
+}
+
+export async function fetchDreamConflicts(): Promise<DreamConflict[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/conflicts`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load conflicts"));
+  return ((await response.json()) as { conflicts: DreamConflict[] }).conflicts ?? [];
+}
+
+export async function resolveDreamConflict(
+  conflictId: string,
+  choice: DreamConflictChoice,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to resolve conflict"));
+}
+
+export async function fetchDreamProcedural(): Promise<DreamProceduralRule[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/procedural`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load rules"));
+  return ((await response.json()) as { rules: DreamProceduralRule[] }).rules ?? [];
+}
+
+export async function decideDreamRule(
+  ruleKey: string,
+  decision: "approve" | "reject",
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/procedural/${encodeURIComponent(ruleKey)}/${decision}`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to update rule"));
+}
+
+export async function fetchDreamAudit(): Promise<DreamAuditItem[]> {
+  const response = await fetch(`${API_BASE}/api/memory/dreaming/audit`);
+  if (!response.ok) throw new Error(await _detail(response, "Failed to load undo feed"));
+  return ((await response.json()) as { reversible: DreamAuditItem[] }).reversible ?? [];
+}
+
+export async function undoDreamAction(auditId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/memory/dreaming/audit/${encodeURIComponent(auditId)}/undo`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error(await _detail(response, "Failed to undo"));
+}
+
+export async function fetchDreamingMetrics(): Promise<DreamingMetrics | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/dreaming-metrics`);
+    if (!response.ok) {
+      console.error(`Failed to fetch dreaming metrics: ${response.status}`);
+      return null;
+    }
+    return (await response.json()) as DreamingMetrics;
+  } catch (error) {
+    console.error("Error fetching dreaming metrics:", error);
+    return null;
   }
 }

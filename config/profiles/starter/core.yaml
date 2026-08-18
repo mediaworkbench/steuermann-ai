@@ -64,12 +64,49 @@ memory:
     user_memory_days: 365
   mem0:
     search_limit: 10
-    custom_instructions: null
+    # Sharpen extraction toward clean, atomic first-person preference facts (helps the
+    # Dreaming Engine's preference-consolidation heuristic). NOTE: this mem0 build is
+    # additive-only — custom_instructions shapes WHAT is extracted, it does NOT reconcile
+    # or overwrite contradicting memories (that is the Dreaming Engine's job).
+    custom_instructions: >-
+      Extract durable, first-person facts and preferences as separate, atomic statements
+      (diet, allergies, likes/dislikes, habits, identity). Prefer one clear fact per memory.
+      Do not merge or drop a stated preference just because an earlier one exists.
     llm_provider: "lmstudio"
     co_occurrence_fanout_cap: 5
     co_occurrence_prune_interval_seconds: 300
     co_occurrence_related_top_k_per_memory: 5
     infer_enabled: true
+  # Cognitive memory + Dreaming Engine tuning (plan-memory.md). Enablement is
+  # owned by features.yaml flags (cognitive_memory_enabled / dreaming_engine_enabled
+  # / procedural_overrides_enabled), all OFF by default — these are only the levers.
+  cognitive:
+    semantic_top_k: 3
+    episodic_top_k: 5
+    dreaming_max_concurrency: 1        # one user dreams at a time (privacy isolation)
+    promotion_interval_days: 7
+    promotion_min_cluster_size: 3
+    max_promotions_per_run: 5
+    promotion_similarity_threshold: 0.83
+    promotion_start_confidence: 0.6
+    drift_confidence_floor: 0.3
+    drift_decrement: 0.15
+    max_drift_checks_per_user: 10
+    # Preference consolidation (Cycle E) — bootstraps beliefs from lone preference
+    # statements so drift has something to contradict; adjudication is LLM-only.
+    preference_anchoring_enabled: true
+    anchor_start_confidence: 0.6
+    max_preference_checks_per_user: 10
+    forget_age_days: 30
+    max_forgets_per_run: 50
+    forget_contributor_age_days: null  # future: hard-delete old epiphany contributors
+    dreaming_active_user_days: 30      # only dream users active within this window
+    procedural_tier1_window_days: 2
+    procedural_tier2_window_days: 5
+    procedural_tier1_min_samples: 3
+    procedural_tier2_min_samples: 3
+    undo_window_days: 7
+    audit_retention_days: 90
 
 rag:
   enabled: true
@@ -140,3 +177,11 @@ heartbeat:
       type: universal_agentic_framework.heartbeat.tasks.health:HealthHeartbeatTask
       scope: per_user
       cooldown_seconds: 300
+    # Dreaming Engine (plan-memory.md) — per-user background memory cognition.
+    # Only built when features.dreaming_engine_enabled is true (off by default);
+    # 24h cooldown so a user dreams at most once per day. Cost-tiered cycles run
+    # one user at a time (Semaphore) over the cheap cycles (Forgetting + Drift).
+    - name: dreaming
+      type: universal_agentic_framework.heartbeat.tasks.dreaming:DreamingEngineTask
+      scope: per_user
+      cooldown_seconds: 86400

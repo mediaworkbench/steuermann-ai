@@ -43,6 +43,7 @@ profile_safety:
     - memory.embeddings
     - memory.mem0
     - memory.retention
+    - memory.cognitive
   disallowed_feature_flags:
     - authentication
     - ingestion_service

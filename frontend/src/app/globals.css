@@ -277,9 +277,25 @@ body {
   color: var(--foreground);
 }
 
+/* Body viewport height: a guaranteed 100vh base, upgraded to 100dvh only where
+   supported. @supports (not the two-`height`-declarations trick) is required
+   because the CSS minifier collapses duplicate `height` declarations down to the
+   last one, silently dropping a plain 100vh fallback. Without a surviving
+   fallback, a no-dvh browser drops the invalid height entirely, the body
+   collapses to content height, the page scrolls, and the composer unpins. */
+.app-viewport-height {
+  height: 100vh;
+}
+@supports (height: 100dvh) {
+  .app-viewport-height {
+    height: 100dvh;
+  }
+}
+
 .app-layout {
   display: flex;
-  height: 100vh;
+  height: 100vh;      /* fallback for browsers without dvh */
+  height: 100dvh;     /* track the visible viewport as mobile UI chrome shows/hides */
   overflow: hidden;
   background: var(--bg-primary);
   font-family: var(--font-sans);
@@ -289,7 +305,8 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100vh;   /* fallback for browsers without dvh */
+  min-height: 100dvh;  /* don't force taller than the visible viewport (mobile) */
   min-width: 0;
   background: var(--surface);
   position: relative;

@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — cognitive memory architecture
+
+- groundwork: cognitive-memory foundation — long-term memories now carry a tier tag (episodic/semantic), a confidence score, and a last-accessed timestamp, with legacy memories normalizing automatically; behaviour is unchanged until the new feature flags are enabled.
+- groundwork: added the per-user data stores for learned preferences, memory-conflict resolution, and a reversible audit log that back the upcoming Dreaming Engine; not yet wired into any user-facing flow.
+- groundwork: optional blended memory retrieval that surfaces consolidated "semantic" memories ahead of raw episodic ones, and records when a memory is actually used so stale ones can later be forgotten; off by default, identical to today until enabled.
+- groundwork: a per-user background "dreaming" process that, once enabled, forgets old never-used memories and flags contradictions between new and established facts for you to resolve — privacy-isolated to one user at a time and degrading gracefully when the model provider is offline; off by default.
+- groundwork: the dreaming process now also consolidates recurring memories into a single higher-level "semantic" memory it synthesizes, keeping the originals as provenance; runs on a configurable cadence with per-run caps, off by default.
+- groundwork: the dreaming process can now learn formatting and style preferences from how you interact and, once you approve them, fold them into the assistant's persona; core-logic/safety rules are never auto-learned. Off by default; nothing reaches the prompt without explicit approval.
+- feature: a Memory Review page (in the user menu) to resolve memory contradictions, approve or reject learned preferences, and undo recent memory changes within a 7-day window; plus an admin Dreaming Metrics dashboard showing anonymized, aggregate engine health (no user content).
+- fix: the background memory consolidation and preference-learning steps now use a larger model token budget (and strip inline reasoning), so reasoning-style local models reliably return a result instead of an empty one. Found during end-to-end validation against a live model.
+- feature: the cognitive memory + dreaming engine is now **enabled in the starter profile** and validated end-to-end against a live model — chat tags and consolidates memories, the background engine forgets/reconciles/consolidates on its schedule, and the Memory Review + admin pages drive it. Disable per profile via the `cognitive_memory_enabled` / `dreaming_engine_enabled` / `procedural_overrides_enabled` flags.
+- feature: admins can now set each heartbeat task's cooldown (how often a per-user task like dreaming runs for a given user) directly on the `/admin/heartbeat` page — applied by the scheduler within ~30 seconds, no rebuild; setting a task back to its configured value clears the override.
+- improvement: the admin heartbeat run log now shows the last 24 hours of beats (instead of a fixed count) and paginates 25 rows per page.
+- docs: README, architecture, and configuration references updated to document the cognitive memory + dreaming engine and the runtime-configurable heartbeat controls; internal review pass hardened the dreaming engine's provider-reachability handling for the (non-default) concurrent-ticks configuration.
+- fix: the dreaming engine no longer logs an error each beat for a user who has no memories yet (or a fresh deployment before anyone has chatted) — a missing memory store is now treated as "nothing to do" and the run records OK instead of failing.
+- fix: contradiction detection now works reliably with reasoning-style local models — the contradiction check was using too small a token budget, so the model ran out of room while "thinking" and returned no verdict, silently producing zero conflicts; raised to match the other engine steps.
+
 ## [0.4.8] — intent-detection fixes, tool-routing polish, auth hardening & heartbeat per-user fan-out
 
 - feature: heartbeat tasks can now run per user — a task marked `per_user` fans out once per active user each beat, drained by a bounded worker pool so a large user set never blocks the beat; global system tasks still run once. Run history is per-user and pruned on a retention window.

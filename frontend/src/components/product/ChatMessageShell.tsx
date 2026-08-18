@@ -16,6 +16,7 @@ export function ChatMessageShell({ messageRole, children, className, bodyClassNa
 
   return (
     <div
+      data-message-role={messageRole}
       className={cn(
         "msg-row mx-auto flex max-w-5xl gap-4",
         !assistant && "flex-row-reverse",

@@ -235,6 +235,26 @@ async def health_ready() -> Dict[str, Any]:
     }
 
 
+def _request_driven_state(request: Dict[str, Any]) -> Dict[str, Any]:
+    """The explicit allowlist of request-driven GraphState keys (NOT a passthrough).
+
+    The graph rebuilds state from a fixed key set, so any top-level key a graph node
+    reads must be forwarded here or it silently defaults (see memory
+    `project_server_state_allowlist.md`). Centralized so the /invoke and /stream
+    paths can never drift apart:
+      - workspace_writeback_document → respond node's writeback prompt injection
+      - allowed_tools                → node_load_tools role gate (None = unrestricted)
+      - memory_enabled               → node_load_memory / node_update_memory toggle
+      - cognitive_memory_enabled     → node_load_memory blend override (None = feature flag)
+    """
+    return {
+        "workspace_writeback_document": request.get("workspace_writeback_document"),
+        "allowed_tools": request.get("allowed_tools"),
+        "memory_enabled": request.get("memory_enabled", True),
+        "cognitive_memory_enabled": request.get("cognitive_memory_enabled"),
+    }
+
+
 @app.post("/invoke")
 async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -316,15 +336,8 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             "attachments": request.get("attachments", []),
             "workspace_documents": request.get("workspace_documents", []),
             "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
-            # The graph reconstructs state from this explicit allowlist (NOT a passthrough
-            # of the request body), so any state key a graph node reads must be forwarded
-            # here or it silently defaults. These three are consumed downstream:
-            #   workspace_writeback_document → respond node's writeback prompt injection
-            #   allowed_tools                → node_load_tools role gate (None = unrestricted)
-            #   memory_enabled               → node_load_memory / node_update_memory toggle
-            "workspace_writeback_document": request.get("workspace_writeback_document"),
-            "allowed_tools": request.get("allowed_tools"),
-            "memory_enabled": request.get("memory_enabled", True),
+            # Request-driven GraphState keys (explicit allowlist — see helper).
+            **_request_driven_state(request),
         }
         
         logger.debug("Graph state prepared", session_id=session_id, profile_name=profile_name)
@@ -580,12 +593,8 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         "attachments": request.get("attachments", []),
         "workspace_documents": request.get("workspace_documents", []),
         "workspace_writeback_requested": bool(request.get("workspace_writeback_requested", False)),
-        # See the /invoke handler: graph-consumed keys must be forwarded explicitly here.
-        # workspace_writeback_document → writeback prompt injection; allowed_tools → role
-        # gate (None = unrestricted); memory_enabled → per-session memory toggle.
-        "workspace_writeback_document": request.get("workspace_writeback_document"),
-        "allowed_tools": request.get("allowed_tools"),
-        "memory_enabled": request.get("memory_enabled", True),
+        # Request-driven GraphState keys (explicit allowlist — see helper).
+        **_request_driven_state(request),
     }
     invoke_config = {"configurable": {"thread_id": thread_id}}
 

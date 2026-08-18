@@ -21,12 +21,12 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from backend.db import HEARTBEAT_RATE_SETTING_KEY
+from backend.db import HEARTBEAT_COOLDOWNS_SETTING_KEY, HEARTBEAT_RATE_SETTING_KEY
 from universal_agentic_framework.config.schemas import HeartbeatSettings
 from universal_agentic_framework.heartbeat.task import HeartbeatTask, RunStore, TickContext
 from universal_agentic_framework.monitoring.logging import get_logger
@@ -38,6 +38,8 @@ CONTROL_JOB_ID = "heartbeat_control"
 CONTROL_INTERVAL_SECONDS = 30
 MIN_RATE_MINUTES = 1
 MAX_RATE_MINUTES = 1440  # 24h
+MIN_COOLDOWN_SECONDS = 0
+MAX_COOLDOWN_SECONDS = 604800  # 7 days
 
 # Per-user fan-out is drained by a bounded worker pool — the worker count is the
 # throttle (so a large user set never hammers the LLM all at once). The queue is
@@ -69,20 +71,35 @@ def _import_entry_point(entry_point: str):
 
 
 def _build_default_stores():
-    """Build run + settings + user stores from a single DB pool (best-effort)."""
+    """Build run + settings + user + cognitive-memory stores from one DB pool.
+
+    Best-effort: returns all-None on failure so the heartbeat never blocks boot.
+    The three cognitive stores (procedural / conflicts / audit) are the Dreaming
+    Engine's data contracts (plan-memory.md Phase 1); they ride the same pool.
+    """
     try:
         from backend.db import (
             GlobalSettingsStore,
             HeartbeatRunStore,
+            MemoryAuditLogStore,
+            MemoryConflictStore,
+            ProceduralOverrideStore,
             UserStore,
             init_db_pool,
         )
 
         pool = init_db_pool()
-        return HeartbeatRunStore(pool), GlobalSettingsStore(pool), UserStore(pool)
+        return (
+            HeartbeatRunStore(pool),
+            GlobalSettingsStore(pool),
+            UserStore(pool),
+            ProceduralOverrideStore(pool),
+            MemoryConflictStore(pool),
+            MemoryAuditLogStore(pool),
+        )
     except Exception as exc:  # noqa: BLE001 — heartbeat must not block boot
         logger.warning("heartbeat_stores_unavailable", error=str(exc))
-        return None, None, None
+        return None, None, None, None, None, None
 
 
 def _coerce_rate(value, default: int) -> int:
@@ -110,19 +127,37 @@ class HeartbeatScheduler:
         run_store: Optional[RunStore] = None,
         settings_store=None,
         user_store=None,
+        procedural_store=None,
+        conflict_store=None,
+        audit_store=None,
         build_default_stores: bool = True,
     ) -> None:
         self._config = config
         self._run_store = run_store
         self._settings_store = settings_store
         self._user_store = user_store
+        # Dreaming Engine data contracts (plan-memory.md Phase 1); consumed by the
+        # per-user DreamingEngineTask added in Phase 3.
+        self._procedural_store = procedural_store
+        self._conflict_store = conflict_store
+        self._audit_store = audit_store
         if (
             build_default_stores
             and run_store is None
             and settings_store is None
             and user_store is None
+            and procedural_store is None
+            and conflict_store is None
+            and audit_store is None
         ):
-            self._run_store, self._settings_store, self._user_store = _build_default_stores()
+            (
+                self._run_store,
+                self._settings_store,
+                self._user_store,
+                self._procedural_store,
+                self._conflict_store,
+                self._audit_store,
+            ) = _build_default_stores()
         self.scheduler = AsyncIOScheduler()
         self._tasks: List[HeartbeatTask] = []
         self._running = False
@@ -143,6 +178,10 @@ class HeartbeatScheduler:
             return
 
         self._tasks = self._build_tasks()
+        # Remember the config cooldown per task so an admin override can be applied
+        # live AND cleared back to the configured default.
+        self._config_cooldowns = {t.name: int(t.cooldown_seconds) for t in self._config.tasks}
+        self._sync_cooldowns()
         rate = self._effective_rate()
 
         # Drain the fan-out queue with a bounded worker pool (the throttle). These
@@ -228,8 +267,14 @@ class HeartbeatScheduler:
     async def _enqueue_per_user(self, task: HeartbeatTask) -> int:
         if self._user_store is None:
             return 0
+        recency = getattr(task, "active_user_recency_days", None)
         try:
-            user_ids = await asyncio.to_thread(self._user_store.get_active_user_ids)
+            if recency is not None and hasattr(self._user_store, "get_recently_active_user_ids"):
+                user_ids = await asyncio.to_thread(
+                    self._user_store.get_recently_active_user_ids, recency
+                )
+            else:
+                user_ids = await asyncio.to_thread(self._user_store.get_active_user_ids)
         except Exception as exc:  # noqa: BLE001 — best-effort; skip this task this beat
             logger.warning("heartbeat_user_list_failed", task=task.name, error=str(exc))
             return 0
@@ -251,10 +296,14 @@ class HeartbeatScheduler:
                 self._queue.task_done()
 
     async def _control(self) -> None:
-        """Reschedule the beat when the admin rate changed; prune old runs periodically."""
+        """Reschedule the beat when the admin rate changed; apply per-task cooldown
+        overrides; prune old runs periodically."""
         self._control_ticks += 1
         if self._control_ticks % PRUNE_EVERY_CONTROL_TICKS == 0:
             await self._prune_runs()
+
+        # Per-task cooldown overrides are picked up live (no restart), like the rate.
+        await asyncio.to_thread(self._sync_cooldowns)
 
         desired = await asyncio.to_thread(self._effective_rate)
         job = self.scheduler.get_job(BEAT_JOB_ID)
@@ -290,6 +339,17 @@ class HeartbeatScheduler:
                 continue
             try:
                 cls = _import_entry_point(tcfg.type)
+            except Exception as exc:  # noqa: BLE001 — skip a bad task, keep the rest
+                logger.warning("heartbeat_task_load_failed", task=tcfg.name, type=tcfg.type, error=str(exc))
+                continue
+
+            if self._is_dreaming_class(cls):
+                task = self._build_dreaming_task(tcfg)
+                if task is not None:
+                    tasks.append(task)
+                continue
+
+            try:
                 tasks.append(
                     cls(
                         name=tcfg.name,
@@ -301,6 +361,87 @@ class HeartbeatScheduler:
             except Exception as exc:  # noqa: BLE001 — skip a bad task, keep the rest
                 logger.warning("heartbeat_task_load_failed", task=tcfg.name, type=tcfg.type, error=str(exc))
         return tasks
+
+    @staticmethod
+    def _is_dreaming_class(cls: Any) -> bool:
+        try:
+            from universal_agentic_framework.heartbeat.tasks.dreaming import DreamingEngineTask
+
+            return isinstance(cls, type) and issubclass(cls, DreamingEngineTask)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _build_dreaming_task(self, tcfg) -> Optional[HeartbeatTask]:
+        """Construct the Dreaming Engine task — gated by the feature flag and its
+        data contracts (audit/conflict stores). Returns None (skips) when off or
+        when its stores/backend are unavailable, never blocking the heartbeat."""
+        try:
+            from universal_agentic_framework.config import load_features_config
+
+            features = load_features_config()
+            if not getattr(features, "dreaming_engine_enabled", False):
+                logger.info("dreaming_task_disabled_by_flag", task=tcfg.name)
+                return None
+        except Exception as exc:  # noqa: BLE001 — no flag access → stay off
+            logger.warning("dreaming_flag_read_failed", task=tcfg.name, error=str(exc))
+            return None
+
+        if self._audit_store is None or self._conflict_store is None:
+            logger.warning("dreaming_stores_unavailable", task=tcfg.name)
+            return None
+
+        try:
+            from universal_agentic_framework.heartbeat.tasks.dreaming import build_dreaming_task
+
+            return build_dreaming_task(
+                name=tcfg.name,
+                cooldown_seconds=tcfg.cooldown_seconds,
+                scope=tcfg.scope,
+                run_store=self._run_store,
+                audit_store=self._audit_store,
+                conflict_store=self._conflict_store,
+                procedural_store=self._procedural_store,
+            )
+        except Exception as exc:  # noqa: BLE001 — backend/config failure → skip task
+            logger.warning("dreaming_task_build_failed", task=tcfg.name, error=str(exc))
+            return None
+
+    def _effective_cooldowns(self) -> dict:
+        """Admin per-task cooldown overrides from global_settings (clamped). Missing
+        tasks fall back to their config cooldown in ``_sync_cooldowns``."""
+        if not self._settings_store:
+            return {}
+        try:
+            raw = self._settings_store.get_setting(HEARTBEAT_COOLDOWNS_SETTING_KEY)
+        except Exception as exc:  # noqa: BLE001 — never crash the control loop
+            logger.warning("heartbeat_cooldown_read_failed", error=str(exc))
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict = {}
+        for name, value in raw.items():
+            try:
+                out[str(name)] = max(MIN_COOLDOWN_SECONDS, min(MAX_COOLDOWN_SECONDS, int(value)))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def _sync_cooldowns(self) -> None:
+        """Apply admin cooldown overrides to the live task instances (override wins,
+        else the config default). ``_within_cooldown`` reads ``cooldown_seconds`` per
+        tick, so updating the attribute takes effect on the next beat — no restart."""
+        overrides = self._effective_cooldowns()
+        defaults = getattr(self, "_config_cooldowns", {})
+        for task in self._tasks:
+            desired = overrides.get(task.name, defaults.get(task.name, task.cooldown_seconds))
+            if int(task.cooldown_seconds) != int(desired):
+                logger.info(
+                    "heartbeat_cooldown_applied",
+                    task=task.name,
+                    from_seconds=task.cooldown_seconds,
+                    to_seconds=int(desired),
+                )
+                task.cooldown_seconds = int(desired)
 
     def _effective_rate(self) -> int:
         """Admin override (global_settings) if set, else the config default."""

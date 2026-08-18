@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BarChart3,
   Brain,
+  BrainCog,
   Compass,
   Download,
   LogOut,
@@ -116,6 +117,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const memoryLink = useCallback(() => {
     router.push("/memories");
+  }, [router]);
+
+  const memoryReviewLink = useCallback(() => {
+    router.push("/settings/memory-dreaming");
   }, [router]);
 
   const handleLogout = useCallback(async () => {
@@ -272,6 +277,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {isAdmin && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
+                        tooltip={t("dreaming.adminTitle")}
+                        onClick={() => router.push("/admin/dreaming-metrics")}
+                        className="justify-start"
+                      >
+                        <BrainCog />
+                        <span>{t("dreaming.adminTitle")}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {isAdmin && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
                         tooltip={t("header.admin")}
                         onClick={() => router.push("/admin")}
                         className="justify-start"
@@ -317,6 +334,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <DropdownMenuItem onClick={memoryLink}>
                     <Brain />
                     <span>{t("header.memory")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={memoryReviewLink}>
+                    <BrainCog />
+                    <span>{t("dreaming.userTitle")}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={settingsLink}>
                     <Settings />

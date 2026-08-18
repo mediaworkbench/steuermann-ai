@@ -614,6 +614,42 @@ Critical verification expectation:
 - End-to-end digest metadata persistence must be validated in tests.
 - Co-occurrence persistence, restart durability, and index/schema checks are validated in tests.
 
+### 6.6 Cognitive Memory & Dreaming Engine (optional, flagged off)
+
+An opt-in layer (`plan-memory.md`) that upgrades flat memory into a **4-tier, self-evolving** store — applied to the **chat orchestrator only** (CrewAI crews remain stateless workers). It is gated by three `features.yaml` flags (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled`), all off by default except in the `starter` profile. It extends the existing Mem0 + Qdrant + heartbeat rather than replacing them, going *under* Mem0 to Qdrant directly only where the engine needs raw vectors.
+
+Tiers map to storage as follows:
+
+| Tier | Store | Mechanism |
+| --- | --- | --- |
+| Working | LangGraph checkpointer + `GraphState.digest_context` + Redis retrieval cache | Reuses existing per-session state (no new tier). |
+| Episodic | Qdrant via Mem0, `cognitive_tier="episodic"` | The default respond-time write. |
+| Semantic | Same collection, `cognitive_tier="semantic"`, `confidence:0..1` | Written **only** by the engine's promotion cycle (`infer=False`). |
+| Procedural | Postgres `procedural_overrides` | Approved behavioural rules merged onto the YAML persona at prompt assembly. |
+
+**Payload contract (every memory):** `{user_id, cognitive_tier, confidence, last_accessed}`; semantic-only adds `source_episodic_ids`, `epiphany_at`; forgetting reads `epiphany_contributor`. Read-defaulted in `_normalize_item` so legacy records never crash.
+
+**Live retrieval path (`load_memory_node`, when `cognitive_memory_enabled`):** one blended Mem0 search split in Python into semantic (prepended, high-confidence) then episodic, de-duped and capped (`load_blended`). A best-effort, Redis-debounced retrieval-touch persists `access_count`/`last_accessed` for the injected memories so the forgetting predicate ("never retrieved") is trustworthy. Flag off → byte-identical to the legacy single `store.load()`. `node_load_procedural` then injects a `=== LEARNED USER PREFERENCES ===` block from the user's **active** rules (Redis-cached).
+
+**The Dreaming Engine** — one per-user `DreamingEngineTask` (`heartbeat/tasks/dreaming.py`, `scope: per_user`), run by the heartbeat. An `asyncio.Semaphore(dreaming_max_concurrency=1)` wraps `observe → reason → act` so **one user dreams at a time** (privacy isolation: the engine never holds two users' data at once). It runs four cost-tiered sub-cycles, each gated by its own last-success (`last_cycle_run`) in `memory_audit_log`:
+
+- **Forgetting (Cycle C, no LLM, every tick):** delete episodic where `created_at < now − forget_age_days AND access_count == 0 AND not epiphany_contributor` (capped, undo-audited).
+- **Drift (Cycle B, capped auxiliary-LLM, daily):** for episodics created since the last drift run, find the nearest semantic (vector distance), ask the model whether it contradicts → lower the semantic's confidence; below `drift_confidence_floor` → open a `memory_conflict` (templated MCQ).
+- **Promotion / Epiphany (Cycle A, expensive, every `promotion_interval_days`):** greedy-cosine cluster recurring episodics (raw vectors read directly from Qdrant) → synthesize one semantic (`infer=False`, moderate confidence, `source_episodic_ids`), flag each contributor. Skips clusters already covered.
+- **Procedural (Cycle D, medium, 24h windows):** classify candidate rules by `rule_key` namespace (`format.*`→Tier 1, `style.*`→Tier 2, `logic.*`/`safety.*`→Tier 3). Tier 1/2 accumulate evidence (`observing`) and mature to `proposed`; **Tier 3 is locked** (never written). Approval to `active` is the only path to the prompt.
+
+**Design guarantees:**
+
+- **LLM-then-write separation** — `reason()` does all model work and writes nothing; `act()` does all writes and calls no model, so a provider death mid-cycle can't half-apply a mutation.
+- **Degrade by cost** — one provider-reachability probe per tick; if offline, cheap forgetting still runs and the LLM cycles defer (`status: partial`, `reason: provider_offline`). A partial run does **not** advance `last_cycle_run`, so the cycle stays due and resumes next beat (cadence is the retry).
+- **Per-user circuit breaker** over observe + each LLM call, so one user's flaky provider trips only their breaker.
+- **Undo-safe ordering** — `act()` writes the audit `before_state` **before** any destructive op, with `reversible_until = now + undo_window_days`.
+- **Resilience** — all engine batch reads route through `_safe_dreaming_read` (a missing Qdrant collection = "no memories", not an error). All three engine LLM calls use a generous `max_tokens` + reasoning-block stripping (a tight cap truncates reasoning models before they answer).
+
+**Data contracts (Postgres, `backend/db.py`, mirroring `CoOccurrenceEdgeStore`):** `procedural_overrides` (PK `(user_id, rule_key)`), `memory_conflicts` (`UNIQUE(user_id, semantic_memory_id, episodic_memory_id)`, idempotent `open_conflict`), `memory_audit_log` (`before/after_state`, `reversible_until`, `last_cycle_run`). Every read filters `user_id`; each store's `aggregate_metrics()` is COUNT/GROUP-BY only (no text/ids) for the admin dashboard.
+
+**Human-in-the-loop (`backend/routers/dreaming.py`):** user-scoped handlers take `user_id` from the session only (never the body) — conflicts list/resolve, procedural approve/reject, audit list/undo — surfaced on `/settings/memory-dreaming`. Admin `/api/admin/dreaming-metrics` (→ `/admin/dreaming-metrics`) returns only aggregate counts (cycles run, vector count, token cost, pending resolutions, deletion/promotion rates), structurally PII-safe. Cross-user access returns 404 (no existence leak).
+
 ---
 
 ## **7. LLM Integration Layer**
@@ -850,7 +886,7 @@ The heartbeat is a *virtual cron* — the foundation for proactive agent behavio
 
 **Task lifecycle** (`HeartbeatTask.tick(TickContext)`, `heartbeat/task.py`): each phase receives the `ctx` (carrying the per-user `user_id`, `None` for global). A `cooldown_seconds` idempotency check (scoped per user via `recent_runs(..., user_id=…)`); `observe()` wrapped in a **per-user** `AsyncCircuitBreaker` (`_breaker_for`) so one user's repeated failures don't trip the breaker for the fleet; `reason()`/`act()` skipped on observe failure. Every outcome (`ok` / `skipped` / `error`) is recorded to `heartbeat_runs` (with `user_id`) and emitted as a structured `heartbeat_tick` log. `tick()` never raises. The example `HealthHeartbeatTask` works as both a global liveness probe and a per-user fan-out demo.
 
-**Admin rate + inspection.** A deployment-wide `global_settings` row (`heartbeat_rate_minutes`) overrides the profile's `heartbeat.default_rate_minutes`. Admins set it on `/admin` via `GET`/`PUT /api/admin/settings/heartbeat-rate` (range 1–1440 minutes; the LangGraph scheduler reads it through `GlobalSettingsStore` via `backend.db.init_db_pool()`, changes apply within ~30s). The dedicated `/admin/heartbeat` page also inspects the heartbeat: `GET /api/admin/heartbeat/tasks` (configured tasks with scope, cooldown, and last run) and `GET /api/admin/heartbeat/runs?task=&user=&limit=` (the run log), backed by `HeartbeatRunStore.recent_runs_all(...)`; the UI loads the last 50 beats and filters client-side by task/user/status.
+**Admin rate + inspection.** A deployment-wide `global_settings` row (`heartbeat_rate_minutes`) overrides the profile's `heartbeat.default_rate_minutes`. Admins set it on `/admin/heartbeat` via `GET`/`PUT /api/admin/settings/heartbeat-rate` (range 1–1440 minutes; the LangGraph scheduler reads it through `GlobalSettingsStore` via `backend.db.init_db_pool()`, changes apply within ~30s). Each task's per-user `cooldown_seconds` is likewise runtime-overridable (`PUT /api/admin/heartbeat/tasks/{name}/cooldown`, stored in `global_settings["heartbeat_task_cooldowns"]`, 0–604800s); the control poll's `_sync_cooldowns()` applies overrides onto the live task instances within ~30s (setting a task back to its config default clears the override). The dedicated `/admin/heartbeat` page also inspects the heartbeat: `GET /api/admin/heartbeat/tasks` (configured tasks with scope, effective cooldown, and last run) and `GET /api/admin/heartbeat/runs?task=&user=&hours=&limit=` (the run log, default 24h window), backed by `HeartbeatRunStore.recent_runs_all(..., since=…)`; the UI loads the last 24h and filters client-side by task/user/status, paginated 25 rows per page. The **Cognitive Memory Dreaming Engine** (see §6.6) is the first substantial per-user task.
 
 **Constraint.** The scheduler assumes a single LangGraph process (the default deployment). Multiple workers/replicas would double-fire beats; a single-instance guard (e.g. a Postgres advisory lock) would be required before scaling.
 

@@ -267,6 +267,18 @@ class Mem0MemoryBackend(MemoryBackend):
         if "access_count" not in merged:
             merged["access_count"] = 0
 
+        # Cognitive-memory contract read-defaults (concept §6). Legacy records
+        # written before tier tagging normalize to episodic / full confidence so
+        # they never crash the blended retrieval or the Dreaming Engine.
+        if "cognitive_tier" not in merged:
+            merged["cognitive_tier"] = "episodic"
+
+        if "confidence" not in merged:
+            merged["confidence"] = 1.0
+
+        if "last_accessed" not in merged:
+            merged["last_accessed"] = merged.get("created_at") or self._now_iso()
+
         return merged
 
     def _normalize_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -406,14 +418,7 @@ class Mem0MemoryBackend(MemoryBackend):
             ranked = records
 
         primary = ranked[:top_k]
-        out: List[MemoryRecord] = []
-
-        for item in primary:
-            metadata = dict(item["metadata"])
-            if self._importance_scorer:
-                metadata = self._importance_scorer.update_access_metadata(metadata)
-                metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
-            out.append(MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata))
+        out: List[MemoryRecord] = [self._to_memory_record(user_id, item) for item in primary]
 
         if include_related and self._co_occurrence_tracker and len(out) > 1:
             self._maybe_prune_co_occurrences()
@@ -449,6 +454,378 @@ class Mem0MemoryBackend(MemoryBackend):
 
         return out
 
+    def _to_memory_record(self, user_id: str, item: Dict[str, Any]) -> MemoryRecord:
+        """Build a contract MemoryRecord from a normalized item, applying
+        importance access-metadata + score when the scorer is enabled."""
+        metadata = dict(item["metadata"])
+        if self._importance_scorer:
+            metadata = self._importance_scorer.update_access_metadata(metadata)
+            metadata["importance_score"] = float(item.get("importance", item.get("score", 0.0)))
+        return MemoryRecord(user_id=user_id, text=item["text"], metadata=metadata)
+
+    def _search_and_rank(
+        self,
+        user_id: str,
+        query: Optional[str],
+        fetch_limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Single Mem0 search (or get_all) → normalized + importance-ranked items.
+
+        Shared by ``load`` and ``load_blended`` so blended retrieval never issues
+        a second per-tier search (which would re-run the identical user_id query).
+        """
+        records: List[Dict[str, Any]] = []
+        if query:
+            response = self._search_memories(query, user_id=user_id, limit=fetch_limit)
+            records = [self._normalize_item(item) for item in self._extract_results(response)]
+            if not records:
+                logger.info(
+                    "mem0_search_no_hits_fallback_to_recent",
+                    user_id=user_id,
+                    fetch_limit=fetch_limit,
+                )
+                recent_response = self._get_all_memories(user_id=user_id, limit=fetch_limit)
+                records = [self._normalize_item(item) for item in self._extract_results(recent_response)]
+                records.sort(
+                    key=lambda item: str(item["metadata"].get("created_at") or ""),
+                    reverse=True,
+                )
+        else:
+            response = self._get_all_memories(user_id=user_id, limit=fetch_limit)
+            records = [self._normalize_item(item) for item in self._extract_results(response)]
+            records.sort(
+                key=lambda item: str(item["metadata"].get("created_at") or ""),
+                reverse=True,
+            )
+
+        if self._importance_scorer:
+            return self._importance_scorer.rank_memories(records, min_score=0.0)
+        return records
+
+    def load_blended(
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        semantic_top_k: int = 3,
+        episodic_top_k: int = 5,
+    ) -> List[MemoryRecord]:
+        """Blended semantic/episodic retrieval (concept §3, plan Phase 2).
+
+        Searches **once**, then splits the ranked results into semantic vs
+        episodic by ``cognitive_tier``. High-confidence semantic memories
+        (capped at ``semantic_top_k``) are **prepended** before episodic
+        memories (capped at ``episodic_top_k``), de-duped by ``memory_id``.
+        Does NOT call a per-tier loader twice.
+        """
+        semantic_top_k = max(0, int(semantic_top_k))
+        episodic_top_k = max(0, int(episodic_top_k))
+        fetch_limit = max((semantic_top_k + episodic_top_k) * 2, self.search_limit)
+
+        ranked = self._search_and_rank(user_id, query, fetch_limit)
+
+        semantic_items: List[Dict[str, Any]] = []
+        episodic_items: List[Dict[str, Any]] = []
+        for item in ranked:
+            tier = str(item["metadata"].get("cognitive_tier") or "episodic")
+            if tier == "semantic":
+                semantic_items.append(item)
+            else:
+                episodic_items.append(item)
+
+        selected = semantic_items[:semantic_top_k] + episodic_items[:episodic_top_k]
+
+        out: List[MemoryRecord] = []
+        seen: Set[str] = set()
+        for item in selected:
+            mem_id = item["metadata"].get("memory_id")
+            if mem_id and mem_id in seen:
+                continue
+            if mem_id:
+                seen.add(mem_id)
+            out.append(self._to_memory_record(user_id, item))
+        return out
+
+    @staticmethod
+    def _is_missing_collection_error(exc: Exception) -> bool:
+        """True when a Qdrant read failed only because the collection doesn't exist
+        yet — the normal state for a fresh deployment / a user with no memories."""
+        msg = str(exc).lower()
+        return "doesn't exist" in msg or "not found" in msg or "404" in msg
+
+    def _safe_dreaming_read(self, user_id: str, fn, *args) -> Any:
+        """Run a Dreaming-Engine batch read, degrading to None on failure so the
+        engine no-ops on incomplete data instead of erroring (and trips no breaker).
+        A missing collection (no memories yet) is expected → debug, not warning."""
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 — engine reads are best-effort
+            if self._is_missing_collection_error(exc):
+                logger.debug("dreaming_read_no_collection", user_id=user_id)
+            else:
+                logger.warning("dreaming_read_failed", user_id=user_id, error=str(exc))
+            return None
+
+    def find_nearest_semantic(
+        self, user_id: str, query: str, top_k: int = 1
+    ) -> List[Dict[str, Any]]:
+        """Vector-nearest semantic-tier memories for a query (drift Cycle B).
+
+        Raw Mem0 search (cosine vector distance), filtered to
+        ``cognitive_tier == "semantic"`` and ordered by raw similarity score —
+        NOT importance-reranked, since drift wants true vector proximity. Returns
+        ``[{memory_id, text, confidence, score}]`` (≤ top_k), user_id-filtered.
+        """
+        if not query:
+            return []
+        response = self._safe_dreaming_read(
+            user_id, self._search_memories, query, user_id, max(top_k * 4, self.search_limit)
+        )
+        if response is None:
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in self._extract_results(response):
+            norm = self._normalize_item(item)
+            if str(norm["metadata"].get("cognitive_tier")) != "semantic":
+                continue
+            out.append(
+                {
+                    "memory_id": norm["memory_id"],
+                    "text": norm["text"],
+                    "confidence": float(norm["metadata"].get("confidence", 1.0)),
+                    "score": float(norm["score"]),
+                    "anchored": bool(norm["metadata"].get("anchored_preference", False)),
+                }
+            )
+        out.sort(key=lambda r: r["score"], reverse=True)
+        return out[: max(1, int(top_k))]
+
+    def get_all_for_dreaming(self, user_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Return all of a user's memories (normalized) for batch cognition.
+
+        The Dreaming Engine reads Qdrant directly for raw vectors; this Mem0-path
+        helper supplies text + contract metadata (tier/confidence/access_count)
+        for the cheap cycles that don't need embeddings. Filtered by ``user_id``.
+        Returns [] when the collection doesn't exist yet (no memories).
+        """
+        response = self._safe_dreaming_read(
+            user_id, self._get_all_memories, user_id, max(1, int(limit))
+        )
+        if response is None:
+            return []
+        return [self._normalize_item(item) for item in self._extract_results(response)]
+
+    def _direct_qdrant(self) -> tuple[Optional[Any], str]:
+        """Reach Mem0's underlying QdrantClient + collection for raw-vector reads
+        (Mem0's ``list`` drops vectors). Returns (None, name) when unavailable
+        (e.g. the fake client in unit tests) so callers degrade to empty."""
+        vector_store = getattr(self._memory, "vector_store", None)
+        client = getattr(vector_store, "client", None)
+        collection = getattr(vector_store, "collection_name", None) or self.collection_name
+        return client, collection
+
+    @staticmethod
+    def _scroll_vector(raw: Any) -> Optional[List[float]]:
+        """Coerce a Qdrant point's vector (list, or named-vector dict) to a list."""
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            for value in raw.values():
+                if isinstance(value, (list, tuple)):
+                    return [float(x) for x in value]
+            return None
+        if isinstance(raw, (list, tuple)):
+            return [float(x) for x in raw]
+        return None
+
+    def _scroll_user_points(
+        self, user_id: str, *, tier: Optional[str], with_vectors: bool, limit: int
+    ) -> List[Any]:
+        client, collection = self._direct_qdrant()
+        if client is None:
+            return []
+        try:
+            from qdrant_client import models as qmodels
+
+            must = [qmodels.FieldCondition(key="user_id", match=qmodels.MatchValue(value=user_id))]
+            if tier is not None:
+                must.append(
+                    qmodels.FieldCondition(key="cognitive_tier", match=qmodels.MatchValue(value=tier))
+                )
+            points, _next = client.scroll(
+                collection_name=collection,
+                scroll_filter=qmodels.Filter(must=must),
+                limit=max(1, int(limit)),
+                with_payload=True,
+                with_vectors=with_vectors,
+            )
+            return list(points)
+        except Exception as exc:  # noqa: BLE001 — engine read is best-effort
+            logger.warning("qdrant_direct_scroll_failed", user_id=user_id, error=str(exc))
+            return []
+
+    def get_episodic_points_with_vectors(
+        self, user_id: str, limit: int = 1000
+    ) -> List[Dict[str, Any]]:
+        """Direct-Qdrant read of a user's episodic points WITH raw vectors, for
+        the promotion cycle's greedy-cosine clustering (Mem0 hides vectors).
+
+        Mem0 flattens custom metadata into the Qdrant payload, so the whole
+        payload is treated as metadata. Points without a tier default to episodic.
+        """
+        out: List[Dict[str, Any]] = []
+        for point in self._scroll_user_points(user_id, tier=None, with_vectors=True, limit=limit):
+            payload = dict(getattr(point, "payload", None) or {})
+            if str(payload.get("cognitive_tier", "episodic")) != "episodic":
+                continue
+            vector = self._scroll_vector(getattr(point, "vector", None))
+            if vector is None:
+                continue
+            out.append(
+                {
+                    "memory_id": str(payload.get("memory_id") or getattr(point, "id", "")),
+                    "text": str(payload.get("data") or payload.get("memory") or payload.get("text") or ""),
+                    "vector": vector,
+                    "metadata": payload,
+                }
+            )
+        return out
+
+    def get_semantic_source_sets(self, user_id: str, limit: int = 1000) -> List[List[str]]:
+        """The ``source_episodic_ids`` of every existing semantic memory, so the
+        promotion cycle can skip clusters it has already covered (idempotency)."""
+        sets: List[List[str]] = []
+        for point in self._scroll_user_points(user_id, tier="semantic", with_vectors=False, limit=limit):
+            payload = dict(getattr(point, "payload", None) or {})
+            src = payload.get("source_episodic_ids")
+            if isinstance(src, (list, tuple)):
+                sets.append([str(s) for s in src])
+        return sets
+
+    def count_points(self) -> int:
+        """Total point count in the memory collection (admin aggregate; no payloads).
+        Returns 0 when the direct Qdrant client is unavailable."""
+        client, collection = self._direct_qdrant()
+        if client is None:
+            return 0
+        try:
+            result = client.count(collection_name=collection, exact=False)
+            return int(getattr(result, "count", result) or 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("qdrant_count_failed", error=str(exc))
+            return 0
+
+    def restore_memory(self, user_id: str, *, text: str, metadata: Dict[str, Any]) -> MemoryRecord:
+        """Re-insert a previously-deleted memory verbatim (``infer=False``) from its
+        audit ``before_state`` — the HITL undo path. The cognitive contract fields
+        are preserved/defaulted; a fresh provider id is assigned."""
+        payload = dict(metadata or {})
+        payload["user_id"] = user_id
+        payload.setdefault("cognitive_tier", "episodic")
+        now = self._now_iso()
+        payload.setdefault("created_at", now)
+        payload.setdefault("last_accessed", now)
+        payload.setdefault("access_count", 0)
+        payload.setdefault("confidence", 1.0)
+        try:
+            add_response = self._memory.add(
+                [{"role": "user", "content": text}],
+                user_id=user_id,
+                metadata=payload,
+                infer=False,
+            )
+        except Exception as exc:
+            logger.error("mem0_restore_failed", user_id=user_id, error=str(exc))
+            raise
+        payload["memory_id"] = self._extract_added_id(add_response)
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    def add_semantic(
+        self,
+        user_id: str,
+        text: str,
+        *,
+        confidence: float,
+        source_episodic_ids: List[str],
+    ) -> MemoryRecord:
+        """Write an engine-synthesized semantic memory verbatim (``infer=False``
+        so Mem0's merge/dedup can't mangle it), carrying the cognitive contract
+        plus semantic-only provenance (``source_episodic_ids``, ``epiphany_at``)."""
+        now = self._now_iso()
+        payload: Dict[str, Any] = {
+            "user_id": user_id,
+            "cognitive_tier": "semantic",
+            "confidence": float(confidence),
+            "source_episodic_ids": [str(s) for s in source_episodic_ids],
+            "epiphany_at": now,
+            "created_at": now,
+            "last_accessed": now,
+            "access_count": 0,
+        }
+        try:
+            add_response = self._memory.add(
+                [{"role": "user", "content": text}],
+                user_id=user_id,
+                metadata=payload,
+                infer=False,
+            )
+        except Exception as exc:
+            logger.error("mem0_add_semantic_failed", user_id=user_id, error=str(exc))
+            raise
+
+        payload["memory_id"] = self._extract_added_id(add_response)
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    def promote_to_semantic(
+        self, user_id: str, memory_id: str, *, confidence: float, anchored: bool = True
+    ) -> bool:
+        """Flip an existing episodic point to a semantic **belief** in place (the
+        Dreaming Engine's preference-consolidation path). Keeps the point's id and
+        text; sets the cognitive contract fields for a semantic, marks it
+        ``anchored_preference`` (so drift opens a conflict on the first
+        contradiction), and self-sources its provenance. No new point is created."""
+        now = self._now_iso()
+        return self.update_metadata(
+            memory_id,
+            {
+                "cognitive_tier": "semantic",
+                "confidence": float(confidence),
+                "anchored_preference": bool(anchored),
+                "source_episodic_ids": [str(memory_id)],
+                "epiphany_at": now,
+            },
+        )
+
+    def update_metadata(self, memory_id: str, patch: Dict[str, Any]) -> bool:
+        """Patch a memory's metadata WITHOUT altering its text.
+
+        ⚠ Mem0's ``update()`` wipes the memory text when ``data`` is omitted, so
+        we fetch the existing text first (mirroring ``set_memory_user_rating``)
+        and pass it back unchanged. Returns True on a persisted update, False if
+        the memory is missing/empty or the update fails.
+        """
+        fetched = self._fetch_by_id(memory_id)
+        if not fetched:
+            return False
+
+        text = fetched["text"]
+        if not text:
+            return False
+
+        merged = dict(fetched["metadata"])
+        merged.update(patch or {})
+        merged = self._merge_metadata(memory_id, merged)
+
+        try:
+            self._memory.update(memory_id=memory_id, data=text, metadata=merged)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "mem0_update_metadata_failed",
+                memory_id=memory_id,
+                error=str(exc),
+            )
+            return False
+
     def _maybe_prune_co_occurrences(self) -> None:
         if not self._co_occurrence_tracker:
             return
@@ -480,6 +857,12 @@ class Mem0MemoryBackend(MemoryBackend):
         payload.setdefault("user_id", user_id)
         payload.setdefault("created_at", self._now_iso())
         payload.setdefault("access_count", 0)
+        # Cognitive-memory contract (concept §6): every write carries the four
+        # contract fields. Respond-time writes default to the episodic tier with
+        # full confidence; the Dreaming Engine writes semantic memories explicitly.
+        payload.setdefault("cognitive_tier", "episodic")
+        payload.setdefault("confidence", 1.0)
+        payload.setdefault("last_accessed", payload["created_at"])
         if digest_chain:
             trimmed_chain = digest_chain[:5]
             payload.setdefault("digest_chain", trimmed_chain)
@@ -555,26 +938,29 @@ class Mem0MemoryBackend(MemoryBackend):
                 logger.error("mem0_verbatim_fallback_failed", error=str(exc), user_id=user_id)
                 add_response = {}
 
+        payload["memory_id"] = self._extract_added_id(add_response)
+
+        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    @staticmethod
+    def _extract_added_id(add_response: Any) -> str:
+        """Pull the memory id out of Mem0's ``add`` response across its shapes."""
         memory_id = uuid.uuid4().hex[:12]
         if isinstance(add_response, dict):
             if isinstance(add_response.get("id"), str):
-                memory_id = add_response["id"]
-            elif isinstance(add_response.get("memory_id"), str):
-                memory_id = add_response["memory_id"]
-            elif isinstance(add_response.get("memory_ids"), list) and add_response.get("memory_ids"):
+                return add_response["id"]
+            if isinstance(add_response.get("memory_id"), str):
+                return add_response["memory_id"]
+            if isinstance(add_response.get("memory_ids"), list) and add_response.get("memory_ids"):
                 first_id = add_response.get("memory_ids")[0]
                 if isinstance(first_id, str):
-                    memory_id = first_id
-            else:
-                results = add_response.get("results")
-                if isinstance(results, list) and results:
-                    first = results[0]
-                    if isinstance(first, dict) and isinstance(first.get("id"), str):
-                        memory_id = first["id"]
-
-        payload["memory_id"] = memory_id
-
-        return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+                    return first_id
+            results = add_response.get("results")
+            if isinstance(results, list) and results:
+                first = results[0]
+                if isinstance(first, dict) and isinstance(first.get("id"), str):
+                    return first["id"]
+        return memory_id
 
     def clear(self, user_id: str) -> None:
         # Keep explicit list-before-delete flow so API contract checks observe filters-based get_all usage.

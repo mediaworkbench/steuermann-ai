@@ -38,10 +38,12 @@ See: docs/technical_architecture.md (Memory Architecture) for full architecture
 
 from __future__ import annotations
 
+import os
 import structlog
 import inspect
-from typing import Dict, Any, Optional
-from datetime import datetime
+import time
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
 
 from . import MemoryBackend
 from .factory import build_memory_backend
@@ -49,6 +51,89 @@ from universal_agentic_framework.config import load_core_config, load_features_c
 from universal_agentic_framework.monitoring import metrics
 
 logger = structlog.get_logger(__name__)
+
+
+# --- Retrieval-touch persistence (plan-memory.md Phase 2) -------------------
+# After assembling loaded_memory we best-effort persist access_count/last_accessed
+# for the injected memories so the forgetting cycle can trust "never retrieved".
+# Debounced (≥60s per memory) so a chatty user can't storm Qdrant; Redis-backed
+# with an in-process fallback so it works (degraded) when Redis is down.
+_TOUCH_DEBOUNCE_SECONDS = 60
+_TOUCH_KEY_PREFIX = "mem:touch:"
+_local_touch_cache: Dict[str, float] = {}
+_touch_redis_client: Any = None
+_touch_redis_checked = False
+
+
+def _get_touch_redis() -> Any:
+    """Lazily build a sync Redis client for touch debouncing (best-effort)."""
+    global _touch_redis_client, _touch_redis_checked
+    if _touch_redis_checked:
+        return _touch_redis_client
+    _touch_redis_checked = True
+    try:
+        import redis as _redis
+
+        url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        client = _redis.from_url(
+            url,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            decode_responses=True,
+        )
+        client.ping()  # one probe; fall back to in-process cache on failure
+        _touch_redis_client = client
+    except Exception:
+        _touch_redis_client = None
+    return _touch_redis_client
+
+
+def _should_touch(memory_id: str) -> bool:
+    """Return True if this memory hasn't been touched within the debounce window
+    (and atomically mark it touched). Uses Redis SET NX EX, else a local cache."""
+    client = _get_touch_redis()
+    if client is not None:
+        try:
+            # SET NX returns truthy only when the key was absent → first touch in window.
+            return bool(client.set(f"{_TOUCH_KEY_PREFIX}{memory_id}", "1", nx=True, ex=_TOUCH_DEBOUNCE_SECONDS))
+        except Exception:
+            pass  # fall through to in-process debounce
+    now = time.monotonic()
+    last = _local_touch_cache.get(memory_id)
+    if last is not None and (now - last) < _TOUCH_DEBOUNCE_SECONDS:
+        return False
+    _local_touch_cache[memory_id] = now
+    return True
+
+
+def _persist_retrieval_touch(store: Any, injected: List[Dict[str, Any]]) -> None:
+    """Persist access_count/last_accessed for the injected memories (top_k).
+
+    Best-effort and debounced: never raises, never blocks the turn. Requires the
+    backend to expose ``update_metadata`` (text-preserving). The loaded metadata's
+    ``access_count`` already reflects the in-memory access bump when importance
+    scoring is enabled, so we persist that value plus a fresh ``last_accessed``.
+    """
+    if not hasattr(store, "update_metadata"):
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for entry in injected:
+        metadata = entry.get("metadata") or {}
+        memory_id = metadata.get("memory_id")
+        if not memory_id:
+            continue
+        if not _should_touch(str(memory_id)):
+            continue
+        try:
+            store.update_metadata(
+                str(memory_id),
+                {
+                    "access_count": int(metadata.get("access_count", 0)),
+                    "last_accessed": now_iso,
+                },
+            )
+        except Exception:
+            logger.debug("retrieval_touch_failed", memory_id=memory_id)
 
 
 def _is_digest_memory(entry: Dict[str, Any]) -> bool:
@@ -89,24 +174,31 @@ def _extract_digest_context(
 
 
 def load_memory_node(
-    state: Dict[str, Any], 
+    state: Dict[str, Any],
     backend: Optional[MemoryBackend] = None,
     top_k: int = 5,
     include_related: bool = False,
+    cognitive_enabled: bool = False,
+    semantic_top_k: int = 3,
+    episodic_top_k: int = 5,
 ) -> Dict[str, Any]:
     """Load relevant memory for a user based on latest message.
 
     Expects state to include keys: "user_id" and "messages" (list of dicts with a "content").
-    
+
     Args:
         state: Current graph state with user_id, messages, and optional session_id
         backend: Optional memory backend (uses config if None)
         top_k: Number of primary memories to retrieve (default: 5)
         include_related: If True, fetch related memories via co-occurrence graph (default: False)
-    
+        cognitive_enabled: If True (plan-memory.md Phase 2), retrieve via load_blended
+            (semantic prepended before episodic) and persist a retrieval-touch on the
+            injected memories. Off → byte-identical to the legacy single store.load().
+        semantic_top_k / episodic_top_k: per-tier caps for the blended retrieval.
+
     Returns:
-        Updated state with loaded_memory and memory_analytics fields
-        
+        Updated state with loaded_memory, semantic_memory and memory_analytics fields
+
     KILL SWITCH: Set features.memory_load_enabled=false to disable this operation during emergency rollback.
     """
     # EMERGENCY ROLLBACK: Check memory_load_enabled feature flag
@@ -116,6 +208,7 @@ def load_memory_node(
             logger.info("memory_load_disabled_by_feature_flag")
             # Return empty loaded_memory to bypass retrieval
             state["loaded_memory"] = []
+            state["semantic_memory"] = []
             state["digest_context"] = []
             state["memory_analytics"] = {
                 "primary_count": 0,
@@ -128,7 +221,7 @@ def load_memory_node(
     except Exception as e:
         logger.warning("failed_to_load_features_for_kill_switch", error=str(e))
         # Continue normally if features config unavailable
-    
+
     user_id = state.get("user_id")
     messages = state.get("messages", [])
     query = messages[-1]["content"] if messages else None
@@ -141,10 +234,19 @@ def load_memory_node(
     else:
         store = backend
     
-    # Load memories with optional related memory expansion
+    # Load memories. Cognitive blend (flag on) splits one search into
+    # semantic-prepended-before-episodic; otherwise the legacy single load
+    # (with optional co-occurrence related-memory expansion).
+    use_blended = bool(cognitive_enabled) and hasattr(store, "load_blended")
     try:
-        # Check if backend supports include_related (Qdrant backend does)
-        if hasattr(store, 'load'):
+        if use_blended:
+            results = store.load_blended(
+                user_id=user_id,
+                query=query,
+                semantic_top_k=semantic_top_k,
+                episodic_top_k=episodic_top_k,
+            )
+        elif hasattr(store, 'load'):
             load_kwargs = {
                 "user_id": user_id,
                 "query": query,
@@ -156,16 +258,23 @@ def load_memory_node(
             if "include_related" in sig.parameters:
                 load_kwargs["include_related"] = include_related
                 load_kwargs["session_id"] = session_id
-            
+
             results = store.load(**load_kwargs)
         else:
             results = store.load(user_id=user_id, query=query, top_k=top_k)
     except Exception as e:
         logger.error("memory_load_failed", error=str(e), user_id=user_id, exc_info=True)
         results = []
-    
+
     # Extract memory data and analytics
     loaded_memory = [{"text": r.text, "metadata": r.metadata} for r in results]
+
+    # Semantic-tier subset (graph-produced; populated only under the cognitive blend).
+    semantic_memory = (
+        [m for m in loaded_memory if (m.get("metadata") or {}).get("cognitive_tier") == "semantic"]
+        if use_blended
+        else []
+    )
 
     # Digest context is retrieval-first-class: always attempt to include recent
     # digest summaries, even when the query itself matches only non-summary items.
@@ -198,6 +307,7 @@ def load_memory_node(
         metrics.track_related_memories(profile_name, related_count)
     
     state["loaded_memory"] = loaded_memory
+    state["semantic_memory"] = semantic_memory
     state["digest_context"] = digest_context
     state["memory_analytics"] = {
         "primary_count": memory_count - related_count,
@@ -205,8 +315,14 @@ def load_memory_node(
         "digest_count": digest_count,
         "total_count": memory_count,
         "include_related_enabled": include_related,
+        "semantic_count": len(semantic_memory),
     }
-    
+
+    # Persist a retrieval-touch on the injected memories so the forgetting cycle
+    # can trust access_count/last_accessed. Cognitive-blend only; best-effort.
+    if use_blended and loaded_memory:
+        _persist_retrieval_touch(store, loaded_memory)
+
     logger.info(
         "memory_loaded",
         user_id=user_id,
@@ -214,8 +330,9 @@ def load_memory_node(
         related_count=related_count,
         digest_count=digest_count,
         total_count=memory_count,
+        semantic_count=len(semantic_memory),
     )
-    
+
     return state
 
 
