@@ -348,9 +348,24 @@ def test_audit_record_last_cycle_run_reversible_and_prune(db_pool, user_id):
         reversible_until=None,
     )
 
-    # last_cycle_run resolves per-cycle.
+    # last_cycle_run counts only completion markers — an action row (e.g. from a
+    # partial run) must not advance the cadence.
+    assert store.last_cycle_run(user_id=user_id, cycle="forgetting") is None
+    store.record(
+        user_id=user_id, cycle="forgetting", action="cycle_run",
+        target_kind="cycle", target_id="forgetting",
+    )
     assert store.last_cycle_run(user_id=user_id, cycle="forgetting") is not None
     assert store.last_cycle_run(user_id=user_id, cycle="drift") is None
+
+    # Resume point: a partial run's progress row, then a full run without a watermark.
+    mark = now - timedelta(hours=3)
+    store.record(
+        user_id=user_id, cycle="drift", action="cycle_progress",
+        target_kind="cycle", target_id="drift", after_state={"watermark": mark.isoformat()},
+    )
+    assert store.last_cycle_run(user_id=user_id, cycle="drift") is None  # still due
+    assert store.last_cycle_watermark(user_id=user_id, cycle="drift") == mark
 
     # Only the row still inside its undo window is reversible.
     reversible = store.list_reversible(user_id=user_id, now=now)

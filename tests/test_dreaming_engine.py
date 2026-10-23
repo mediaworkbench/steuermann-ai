@@ -931,3 +931,30 @@ def test_drift_adjudicator_ignores_json_inside_reasoning_block(monkeypatch):
     verdict = asyncio.run(adjudicate("User is vegetarian.", "User likes tofu."))
 
     assert verdict["contradicts"] is False
+
+
+@pytest.mark.asyncio
+async def test_partial_drift_records_progress_so_retry_skips_applied_candidates():
+    items = [_episodic(f"e{i}", age_days=0.5 - i * 0.1, text=f"fact {i}") for i in range(3)]
+    nearest = {
+        f"fact {i}": {"memory_id": f"s{i}", "text": f"belief {i}", "confidence": 0.9} for i in range(3)
+    }
+    reader = _FakeReader(items=items, nearest=nearest)
+    audit = _FakeAudit()
+    calls = []
+
+    async def _adj(semantic, episodic):
+        calls.append(episodic)
+        if len(calls) == 2:
+            raise RuntimeError("provider died mid-cycle")
+        return {"contradicts": True, "tokens": 1}
+
+    task = _make_task(reader, audit=audit, adjudicator=_adj)
+    res = await task.tick(TickContext(user_id="u1"))
+
+    assert res["status"] == "partial"
+    assert not any(r["cycle"] == "drift" and r["action"] == "cycle_run" for r in audit.records)
+    progress = [r for r in audit.records if r["cycle"] == "drift" and r["action"] == "cycle_progress"]
+    # Only the oldest candidate (e0) was adjudicated + applied before the failure.
+    assert progress and progress[0]["after_state"] == {"watermark": (NOW - timedelta(days=0.5)).isoformat()}
+    assert reader.confidence_set == [("s0", pytest.approx(0.75))]

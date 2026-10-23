@@ -971,8 +971,11 @@ class Mem0MemoryBackend(MemoryBackend):
         except Exception:  # noqa: BLE001 — can't tell → let the verbatim fallback store it
             return False
         for item in self._extract_results(response):
+            # The raw score, not _normalize_item's: that defaults a missing score to 1.0,
+            # which would make every unscored hit look like an exact duplicate.
+            raw = item.get("score") if isinstance(item, dict) else None
             try:
-                if float(self._normalize_item(item).get("score") or 0.0) >= self._VERBATIM_DEDUP_SCORE:
+                if raw is not None and float(raw) >= self._VERBATIM_DEDUP_SCORE:
                     return True
             except (TypeError, ValueError):
                 continue

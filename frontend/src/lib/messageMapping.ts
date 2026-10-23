@@ -15,9 +15,11 @@ export function toUiMessage(
 ): Message {
   return {
     role: pm.role === "system" ? "assistant" : pm.role,
-    // A turn that ended without [DONE] (Stop / upstream error) is persisted as a
-    // partial answer flagged `stopped`; keep the same marker the live view showed.
-    content: pm.metadata?.stopped ? `${pm.content}\n\n*(generation stopped)*` : pm.content,
+    // A turn that ended without [DONE] is persisted as a partial answer flagged
+    // `stopped`; keep the same marker the live view showed (Stop vs. stream error).
+    content: pm.metadata?.stopped
+      ? `${pm.content}\n\n${pm.metadata.stop_reason === "error" ? "*(response interrupted)*" : "*(generation stopped)*"}`
+      : pm.content,
     thinking: (pm.metadata?.thinking_content as string | undefined) ?? undefined,
     timestamp: pm.created_at ? formatTime(pm.created_at) : undefined,
     persistedId: pm.id,

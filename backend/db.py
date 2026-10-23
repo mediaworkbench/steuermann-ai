@@ -2138,12 +2138,13 @@ class MemoryAuditLogStore:
         return row.get("last_run") if row else None
 
     def last_cycle_watermark(self, *, user_id: str, cycle: str) -> Optional[datetime]:
-        """Resume point recorded by the latest completed run that hit its batch cap
-        (``after_state.watermark``); None when that run covered everything."""
+        """Resume point for candidate selection, from the latest ``cycle_run`` (a full
+        run that hit its batch cap) or ``cycle_progress`` (a partial run) row's
+        ``after_state.watermark``; None when the latest run covered everything."""
         statement = """
             SELECT after_state
             FROM memory_audit_log
-            WHERE user_id = %s AND cycle = %s AND action = 'cycle_run'
+            WHERE user_id = %s AND cycle = %s AND action IN ('cycle_run', 'cycle_progress')
             ORDER BY created_at DESC
             LIMIT 1;
         """
@@ -2530,6 +2531,20 @@ class ConversationStore:
         # Touch conversation updated_at
         self._touch_conversation(conversation_id, conn=None)
         return _normalize_message_row(row)
+
+    def count_user_messages_from(self, conversation_id: str, message_id: int) -> int:
+        """How many USER messages ``delete_messages_from`` would remove (0 when the
+        message id isn't in this conversation)."""
+        statement = """
+            SELECT COUNT(*) FROM messages
+            WHERE conversation_id = %s AND id >= %s AND role = 'user'
+              AND EXISTS (SELECT 1 FROM messages WHERE id = %s AND conversation_id = %s);
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (conversation_id, message_id, message_id, conversation_id))
+                row = cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
 
     def delete_messages_from(self, conversation_id: str, message_id: int) -> int:
         """Delete ``message_id`` and every later message of the conversation (ids are

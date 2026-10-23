@@ -2121,14 +2121,19 @@ def node_summarize(state: GraphState) -> GraphState:
 _NO_FACTS_SENTINEL = "no user facts"
 
 
+_NO_FACTS_EXCEPTION_WORDS = re.compile(r"\b(except|but|however|besides|other than|apart from|although)\b")
+
+
 def _is_no_facts_summary(text: Optional[str]) -> bool:
     """Whether the summarize step answered with its 'No user facts' sentinel
-    (tolerating quotes, trailing punctuation and short trailing remarks)."""
+    (tolerating quotes, punctuation and a filler tail like "are present in this
+    conversation") — but not "No user facts except that they live in Berlin"."""
     normalized = re.sub(r"[^a-z ]+", " ", (text or "").lower()).strip()
     normalized = re.sub(r"\s+", " ", normalized)
-    return normalized == _NO_FACTS_SENTINEL or (
-        normalized.startswith(_NO_FACTS_SENTINEL) and len(normalized) <= len(_NO_FACTS_SENTINEL) + 20
-    )
+    if not normalized.startswith(_NO_FACTS_SENTINEL):
+        return False
+    tail = normalized[len(_NO_FACTS_SENTINEL):]
+    return len(tail) <= 60 and not _NO_FACTS_EXCEPTION_WORDS.search(tail)
 
 
 def node_update_memory(state: GraphState) -> GraphState:

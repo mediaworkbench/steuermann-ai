@@ -1470,18 +1470,44 @@ def _require_conversation_ownership(request: Request, conversation_id: Optional[
         raise HTTPException(status_code=404, detail="Conversation not found")
 
 
-def _rewind_conversation(request: Request, request_body: "ChatRequest") -> int:
-    """Apply ``replace_from_message_id``: delete that message and everything after it
-    (the caller already verified conversation ownership). Returns how many user turns
-    were removed, which LangGraph uses to rewind the checkpointed history in step."""
+def _rewind_target(request: Request, request_body: "ChatRequest") -> tuple[Any, str, int] | None:
     message_id = request_body.replace_from_message_id
     conversation_id = (request_body.conversation_id or "").strip()
     if not message_id or not conversation_id:
-        return 0
+        return None
     store = getattr(request.app.state, "conversation_store", None)
     if store is None or not hasattr(store, "delete_messages_from"):
+        return None
+    return store, conversation_id, int(message_id)
+
+
+def _plan_rewind(request: Request, request_body: "ChatRequest") -> int:
+    """``replace_from_message_id``: how many user turns the replacement removes — sent
+    to LangGraph (``rewind_user_turns``) so the checkpointed history rewinds in step.
+    Read-only; the caller already verified conversation ownership."""
+    target = _rewind_target(request, request_body)
+    if target is None:
         return 0
-    return int(store.delete_messages_from(conversation_id, message_id) or 0)
+    store, conversation_id, message_id = target
+    if hasattr(store, "count_user_messages_from"):
+        return int(store.count_user_messages_from(conversation_id, message_id) or 0)
+    rows = store.get_messages(conversation_id, limit=500, latest=True)
+    if not any(r.get("id") == message_id for r in rows):
+        return 0
+    return sum(1 for r in rows if r.get("role") == "user" and int(r.get("id") or 0) >= message_id)
+
+
+def _apply_rewind(request: Request, request_body: "ChatRequest") -> None:
+    """Delete the replaced message and everything after it. Called only once LangGraph
+    has accepted the turn, so a request that fails up front leaves history intact."""
+    target = _rewind_target(request, request_body)
+    if target is None:
+        return
+    store, conversation_id, message_id = target
+    try:
+        store.delete_messages_from(conversation_id, message_id)
+    except Exception as exc:  # noqa: BLE001 — the new turn still runs; old rows stay visible
+        logger.warning("Failed to delete replaced messages in %s: %s", conversation_id, exc)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -1558,7 +1584,7 @@ async def chat(
     # A writeback can only target exactly one text document.
     workspace_writeback_eligible = workspace_writeback_requested and len(eligible_writeback_docs) == 1
     llm_capability_probes = _get_latest_llm_capability_probes(request)
-    rewind_user_turns = _rewind_conversation(request, request_body)
+    rewind_user_turns = _plan_rewind(request, request_body)
     state = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
@@ -1629,6 +1655,8 @@ async def chat(
                 return response.json()
 
         result = await LANGGRAPH_CIRCUIT_BREAKER.call(_invoke_langgraph)
+        if rewind_user_turns:
+            await asyncio.to_thread(_apply_rewind, request, request_body)
     except CircuitBreakerOpenError as exc:
         logger.error("LangGraph circuit breaker open: %s", exc)
         raise HTTPException(
@@ -1939,7 +1967,7 @@ async def chat_stream(
     # follow-up/queued turn inserting a newer assistant row during the ~43 s drain.
     turn_id = str(uuid.uuid4())
 
-    rewind_user_turns = _rewind_conversation(request, request_body)
+    rewind_user_turns = _plan_rewind(request, request_body)
 
     state: Dict[str, Any] = {
         "messages": [{"role": "user", "content": request_body.message}],
@@ -2013,6 +2041,13 @@ async def chat_stream(
         _done_emitted = False
         _persisted = False
         _aborted = False
+        # LangGraph accepted the turn (200). Only then does a turn that ends without
+        # [DONE] get persisted as "stopped": a request rejected up front (breaker open,
+        # upstream error) never reached the model's history, so saving its question
+        # would leave an orphan row on every retry.
+        _upstream_started = False
+        # [DONE] persistence was dispatched to a thread; the finally must not persist again.
+        _done_persist_dispatched = False
         _writeback_result: dict | None = None
 
         def _do_writeback() -> dict | None:
@@ -2050,6 +2085,7 @@ async def chat_stream(
             persisted_content: str | None = None,
             *,
             stopped: bool = False,
+            stop_reason: str = "cancelled",
         ) -> None:
             """Persist user + assistant messages. Called as soon as [DONE] arrives.
 
@@ -2108,7 +2144,7 @@ async def chat_stream(
                         # Keyed so the LangGraph post-response drain can target this exact
                         # row when it writes the full node trace back (see server.py).
                         "turn_id": turn_id,
-                        **({"stopped": True} if stopped else {}),
+                        **({"stopped": True, "stop_reason": stop_reason} if stopped else {}),
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),
@@ -2200,6 +2236,9 @@ async def chat_stream(
                         yield f"event: error\ndata: {json.dumps({'message': f'LangGraph error {upstream.status_code}: {msg}'})}\n\n"
                         return
                     LANGGRAPH_CIRCUIT_BREAKER.record_success()
+                    _upstream_started = True
+                    if rewind_user_turns:
+                        await asyncio.to_thread(_apply_rewind, request, request_body)
 
                     async for raw_chunk in upstream.aiter_text():
                         if not raw_chunk:
@@ -2227,6 +2266,7 @@ async def chat_stream(
                                     _persisted_content = _build_writeback_chat_message(
                                         _writeback_result, "".join(_accumulated_tokens)
                                     )
+                                _done_persist_dispatched = True
                                 await asyncio.to_thread(
                                     _run_persistence,
                                     writeback=_writeback_result,
@@ -2302,7 +2342,10 @@ async def chat_stream(
             yield f"event: error\ndata: {json.dumps({'message': 'Internal server error during streaming'})}\n\n"
         finally:
             if not _done_emitted:
-                _run_persistence(stopped=True)
+                if _upstream_started and not _done_persist_dispatched:
+                    # Client abort (Stop / closed tab) vs. the upstream ending or failing
+                    # without [DONE] — the UI shows a different marker for each.
+                    _run_persistence(stopped=True, stop_reason="cancelled" if _aborted else "error")
                 if not _aborted:
                     yield "data: [DONE]\n\n"
 

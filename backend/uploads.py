@@ -6,7 +6,7 @@ soon as it crosses the limit.
 """
 from __future__ import annotations
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, UploadFile
 
 _CHUNK_BYTES = 1024 * 1024
 
@@ -22,7 +22,7 @@ async def read_upload_capped(file: UploadFile, max_bytes: int) -> bytes:
         total += len(chunk)
         if total > max_bytes:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=413,  # Content Too Large
                 detail=f"File too large (max {max_bytes:,} bytes).",
             )
         chunks.append(chunk)

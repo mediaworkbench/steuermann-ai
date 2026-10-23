@@ -329,14 +329,15 @@ export function useStreamingChat(): UseStreamingChatReturn {
         }
       } finally {
         // Same guard: never clear the refs / isStreaming of the stream that replaced us.
-        if (abortControllerRef.current !== controller) return;
-        if (cancelledRef.current) setWasCancelled(true);
-        setIsStreaming(false);
-        setNodeStatus(null);
-        setToolCallStatus(null);
-        setIsThinking(false);
-        readerRef.current = null;
-        abortControllerRef.current = null;
+        if (abortControllerRef.current === controller) {
+          if (cancelledRef.current) setWasCancelled(true);
+          setIsStreaming(false);
+          setNodeStatus(null);
+          setToolCallStatus(null);
+          setIsThinking(false);
+          readerRef.current = null;
+          abortControllerRef.current = null;
+        }
       }
     },
     [],

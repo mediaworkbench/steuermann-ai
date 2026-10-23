@@ -663,3 +663,13 @@ def test_normalize_item_keeps_real_last_accessed():
     assert backend._normalize_item(item)["metadata"]["last_accessed"] == "2026-06-01T00:00:00+00:00"
     bare = {"id": "m2", "memory": "fact", "updated_at": "2026-10-01T00:00:00+00:00", "metadata": {}}
     assert backend._normalize_item(bare)["metadata"]["last_accessed"] == "2026-10-01T00:00:00+00:00"
+
+
+def test_already_known_ignores_hits_without_a_score():
+    class _UnscoredMemory(_NothingNewFakeMemory):
+        def search(self, query, **kwargs):
+            return {"results": [{"id": "x", "memory": "something else", "user_id": "u1"}]}
+
+    backend = Mem0MemoryBackend(**{**_COMMON_KWARGS, "client": _UnscoredMemory()})
+    backend.upsert("u1", "user lives in Hamburg")
+    assert [v["memory"] for v in backend._memory._store.values()] == ["user lives in Hamburg"]

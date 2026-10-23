@@ -732,9 +732,10 @@ def test_chat_stream_truncated_upstream_persists_partial_turn(stream_client, mon
     assistant = conversation_store.messages[1]
     assert assistant["content"] == "Partial"
     assert assistant["metadata"]["stopped"] is True
+    assert assistant["metadata"]["stop_reason"] == "error"  # upstream ended without [DONE]
 
 
-def test_chat_stream_upstream_error_keeps_user_message_and_counts_failure(
+def test_chat_stream_upstream_rejection_persists_nothing_and_counts_failure(
     stream_client, monkeypatch
 ) -> None:
     test_client, conversation_store, fake_client, _ = stream_client
@@ -763,7 +764,8 @@ def test_chat_stream_upstream_error_keeps_user_message_and_counts_failure(
     )
 
     assert "LangGraph error 503" in response.text
-    assert [m["role"] for m in conversation_store.messages] == ["user"]
+    # The model never saw this turn, so no orphan question is saved (retries would pile up).
+    assert conversation_store.messages == []
     assert breaker._failure_count == 1
 
 
@@ -775,6 +777,7 @@ def test_chat_stream_replace_from_message_rewinds_db_and_graph(stream_client) ->
         deleted["args"] = (conversation_id, message_id)
         return 2
 
+    conversation_store.count_user_messages_from = lambda conversation_id, message_id: 2
     conversation_store.delete_messages_from = _delete_messages_from
 
     test_client.post(
@@ -785,3 +788,34 @@ def test_chat_stream_replace_from_message_rewinds_db_and_graph(stream_client) ->
 
     assert deleted["args"] == ("conv-1", 42)
     assert fake_client.last_request_json["rewind_user_turns"] == 2
+
+
+def test_chat_stream_rejected_regenerate_keeps_old_turn(stream_client, monkeypatch) -> None:
+    test_client, conversation_store, fake_client, _ = stream_client
+    breaker = chat_module.LANGGRAPH_CIRCUIT_BREAKER
+    monkeypatch.setattr(breaker, "_failure_count", 0)
+    monkeypatch.setattr(breaker, "_state", CircuitState.CLOSED)
+    deleted = []
+    conversation_store.count_user_messages_from = lambda conversation_id, message_id: 1
+    conversation_store.delete_messages_from = lambda conversation_id, message_id: deleted.append(message_id)
+
+    class _ErrorContext:
+        status_code = 503
+        headers: Dict[str, str] = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def aread(self) -> bytes:
+            return b"down"
+
+    monkeypatch.setattr(fake_client, "stream", lambda self, method, url, json: _ErrorContext())
+    test_client.post(
+        "/api/chat/stream",
+        json={"message": "again", "user_id": "u1", "conversation_id": "conv-1", "replace_from_message_id": 7},
+    )
+
+    assert deleted == []  # the turn being replaced survives a request that never ran

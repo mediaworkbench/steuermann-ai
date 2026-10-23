@@ -286,6 +286,10 @@ class DreamPlan:
     tier3_suggestions: List[Tier3Suggestion] = field(default_factory=list)
     completed_cycles: set[str] = field(default_factory=set)
     watermarks: Dict[str, datetime] = field(default_factory=dict)
+    # Partial (provider broke mid-cycle) runs: the newest candidate actually processed.
+    # Recorded as a ``cycle_progress`` row so the retry resumes after it — without it the
+    # retry re-adjudicated already-applied candidates and lowered confidence twice.
+    progress: Dict[str, datetime] = field(default_factory=dict)
     deferred: List[str] = field(default_factory=list)
     tokens: int = 0
     status: str = "ok"  # "ok" | "partial"
@@ -645,11 +649,13 @@ class DreamingEngineTask(HeartbeatTask):
             if not reachable:
                 self._defer(plan, "drift")
             else:
-                drift_actions, tokens, broke = await self._plan_drift(ctx, snapshot)
+                drift_actions, tokens, broke, last_done = await self._plan_drift(ctx, snapshot)
                 plan.drift = drift_actions
                 plan.tokens += tokens
                 if broke:
                     self._defer(plan, "drift", reason="drift_partial")
+                    if last_done is not None:
+                        plan.progress["drift"] = last_done
                 else:
                     plan.completed_cycles.add("drift")
         elif "drift" in snapshot.due_cycles:
@@ -693,7 +699,7 @@ class DreamingEngineTask(HeartbeatTask):
             if not reachable:
                 self._defer(plan, "preference")
             else:
-                anchors, conflicts, tokens, broke = await self._plan_preference_consolidation(
+                anchors, conflicts, tokens, broke, last_done = await self._plan_preference_consolidation(
                     ctx, snapshot
                 )
                 plan.anchors = anchors
@@ -701,6 +707,8 @@ class DreamingEngineTask(HeartbeatTask):
                 plan.tokens += tokens
                 if broke:
                     self._defer(plan, "preference", reason="preference_partial")
+                    if last_done is not None:
+                        plan.progress["preference"] = last_done
                 else:
                     plan.completed_cycles.add("preference")
         elif "preference" in snapshot.due_cycles:
@@ -755,10 +763,11 @@ class DreamingEngineTask(HeartbeatTask):
 
     async def _plan_drift(
         self, ctx: TickContext, snapshot: DreamSnapshot
-    ) -> tuple[List[DriftAction], int, bool]:
+    ) -> tuple[List[DriftAction], int, bool, Optional[datetime]]:
         actions: List[DriftAction] = []
         tokens = 0
         broke = False
+        last_done: Optional[datetime] = None
         breaker = self._breaker_for(ctx.user_id)
         floor = float(self._s.drift_confidence_floor)
         decrement = float(self._s.drift_decrement)
@@ -773,6 +782,7 @@ class DreamingEngineTask(HeartbeatTask):
             except Exception:  # noqa: BLE001 — provider failure → defer the rest
                 broke = True
                 break
+            last_done = cand.episodic.created_at
             tokens += int((verdict or {}).get("tokens", 0) or 0)
             # Reject garbage: only act on an explicit True (None/ambiguous → no action).
             if not (verdict and verdict.get("contradicts") is True):
@@ -792,11 +802,11 @@ class DreamingEngineTask(HeartbeatTask):
                     episodic_text=cand.episodic.text,
                 )
             )
-        return actions, tokens, broke
+        return actions, tokens, broke, last_done
 
     async def _plan_preference_consolidation(
         self, ctx: TickContext, snapshot: DreamSnapshot
-    ) -> tuple[List[AnchorAction], List[DriftAction], int, bool]:
+    ) -> tuple[List[AnchorAction], List[DriftAction], int, bool, Optional[datetime]]:
         """Cycle E: bootstrap a semantic *belief* from the first statement on a topic;
         for each later preference, LLM-adjudicate against the nearest belief (persisted
         or just-anchored this run) and open a conflict on contradiction. No embedding
@@ -812,6 +822,7 @@ class DreamingEngineTask(HeartbeatTask):
         # Beliefs available to compare against this run: (text, memory_id, confidence).
         # Seeded lazily from each candidate's persisted nearest; grows with in-run anchors.
         in_run_beliefs: List[tuple[str, str, float]] = []
+        last_done: Optional[datetime] = None
 
         for cand in snapshot.preference_candidates:
             ep = cand.episodic
@@ -828,6 +839,7 @@ class DreamingEngineTask(HeartbeatTask):
                 # First statement on this topic → bootstrap it as a belief.
                 anchors.append(_anchor_action(ep, start_conf))
                 in_run_beliefs.append((ep.text, ep.memory_id, start_conf))
+                last_done = ep.created_at
                 continue
 
             belief = None
@@ -846,6 +858,7 @@ class DreamingEngineTask(HeartbeatTask):
                     break
             if broke:
                 break
+            last_done = ep.created_at
 
             if belief is not None:
                 prior = belief[2]
@@ -867,7 +880,7 @@ class DreamingEngineTask(HeartbeatTask):
                 anchors.append(_anchor_action(ep, start_conf))
                 in_run_beliefs.append((ep.text, ep.memory_id, start_conf))
 
-        return anchors, conflicts, tokens, broke
+        return anchors, conflicts, tokens, broke, last_done
 
     async def _plan_promotions(
         self, ctx: TickContext, snapshot: DreamSnapshot
@@ -1132,6 +1145,21 @@ class DreamingEngineTask(HeartbeatTask):
 
         # Advance last_cycle_run ONLY for fully-completed cycles (a marker row).
         # A partial run skips its cycle here, so due-ness keeps it for next beat.
+        # A partial cycle doesn't advance its cadence (it stays due, so the next beat
+        # retries), but records how far it got so the retry skips what was applied.
+        for cycle, done_until in sorted(plan.progress.items()):
+            if cycle in plan.completed_cycles:
+                continue
+            await asyncio.to_thread(
+                self._audit.record,
+                user_id=user_id,
+                cycle=cycle,
+                action="cycle_progress",
+                target_kind="cycle",
+                target_id=cycle,
+                after_state={"watermark": done_until.isoformat()},
+            )
+
         for cycle in sorted(plan.completed_cycles):
             mark = plan.watermarks.get(cycle)
             await asyncio.to_thread(
