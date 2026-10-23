@@ -76,40 +76,53 @@ class RedisCacheBackend(CacheBackend):
         Args:
             redis_url: Redis connection URL
         """
-        import redis.asyncio as redis
-        self.redis = None
+        import threading
+
+        self.redis = None  # client of the most recently used loop (introspection only)
         self.redis_url = redis_url
-        self._initialized = False
-        self._loop = None  # Track the event loop the connection belongs to
-    
-    async def _ensure_connected(self):
-        """Ensure Redis connection is established in the current event loop."""
+        # One client per event loop. redis.asyncio clients are bound to the loop they
+        # were created on, and crew nodes run cache calls on short-lived loops in
+        # worker threads — swapping a single shared client back and forth broke the
+        # main loop's in-flight calls and leaked the replaced connection pools.
+        self._clients: Dict[Any, Any] = {}
+        self._clients_lock = threading.Lock()
+
+    async def _client(self):
+        """Return the Redis client for the running event loop (created on first use)."""
         import asyncio
         current_loop = asyncio.get_running_loop()
-        # If initialized but in a different event loop, reset the connection
-        if self._initialized and self._loop is not current_loop:
-            self._initialized = False
-            self.redis = None
-        if not self._initialized:
-            try:
-                try:
-                    import redis.asyncio as redis
-                except ImportError:
-                    import redis
-                self.redis = await redis.from_url(self.redis_url, decode_responses=True)
-                await self.redis.ping()
-                self._initialized = True
-                self._loop = current_loop
-                logger.info(f"Connected to Redis at {self.redis_url}")
-            except Exception as e:
-                logger.error(f"Failed to connect to Redis: {e}")
-                raise
+        with self._clients_lock:
+            # Forget clients whose loop has finished (a worker thread's asyncio.run).
+            for loop in [lp for lp in self._clients if lp.is_closed()]:
+                self._clients.pop(loop, None)
+            client = self._clients.get(current_loop)
+        if client is not None:
+            return client
+        try:
+            import redis.asyncio as redis
+        except ImportError:  # pragma: no cover - redis<4.2
+            import redis
+        try:
+            client = await redis.from_url(self.redis_url, decode_responses=True)
+            await client.ping()
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            raise
+        with self._clients_lock:
+            self._clients[current_loop] = client
+        self.redis = client
+        logger.info(f"Connected to Redis at {self.redis_url}")
+        return client
+
+    async def _ensure_connected(self):
+        """Back-compat shim: ensure a client exists for the running loop."""
+        await self._client()
     
     async def get(self, key: str) -> Optional[Any]:
         """Get value from Redis."""
         try:
-            await self._ensure_connected()
-            value = await self.redis.get(key)
+            client = await self._client()
+            value = await client.get(key)
             if value:
                 return json.loads(value)
         except Exception as e:
@@ -119,9 +132,9 @@ class RedisCacheBackend(CacheBackend):
     async def set(self, key: str, value: Any, ttl_seconds: int = 3600) -> bool:
         """Set value in Redis with TTL."""
         try:
-            await self._ensure_connected()
+            client = await self._client()
             serialized = json.dumps(value)
-            await self.redis.setex(key, ttl_seconds, serialized)
+            await client.setex(key, ttl_seconds, serialized)
             return True
         except Exception as e:
             logger.warning(f"Cache set error for key {key}: {e}")
@@ -130,8 +143,8 @@ class RedisCacheBackend(CacheBackend):
     async def delete(self, key: str) -> bool:
         """Delete from Redis."""
         try:
-            await self._ensure_connected()
-            result = await self.redis.delete(key)
+            client = await self._client()
+            result = await client.delete(key)
             return result > 0
         except Exception as e:
             logger.warning(f"Cache delete error for key {key}: {e}")
@@ -140,8 +153,8 @@ class RedisCacheBackend(CacheBackend):
     async def clear(self) -> bool:
         """Clear Redis database."""
         try:
-            await self._ensure_connected()
-            await self.redis.flushdb()
+            client = await self._client()
+            await client.flushdb()
             return True
         except Exception as e:
             logger.warning(f"Cache clear error: {e}")
@@ -417,6 +430,10 @@ class CacheManager:
         # Update embedding cache size metric
         update_embedding_cache_size(profile_name, 0)
     
+    @staticmethod
+    def _crew_scope(crew_name: str, user_id: str, language: Optional[str]) -> str:
+        return f"{crew_name}:{user_id}:{language or ''}"
+
     def _make_key(self, prefix: str, *args) -> str:
         """Generate cache key from prefix and arguments."""
         content = f"{prefix}:" + ":".join(str(a) for a in args)
@@ -515,7 +532,7 @@ class CacheManager:
         max_tokens: int = 2048
     ) -> Optional[str]:
         """Get cached LLM response."""
-        key = self._make_key("llm", model, prompt[:100], max_tokens)
+        key = self._make_key("llm", model, prompt, max_tokens)
         try:
             result = await self.backend.get(key)
             if result:
@@ -542,7 +559,7 @@ class CacheManager:
         ttl_seconds: int = 86400  # 24 hours
     ) -> bool:
         """Cache LLM response."""
-        key = self._make_key("llm", model, prompt[:100], max_tokens)
+        key = self._make_key("llm", model, prompt, max_tokens)
         try:
             # Compress if compressor enabled
             data_to_store = response
@@ -562,7 +579,7 @@ class CacheManager:
         top_k: int = 5
     ) -> Optional[List[Dict]]:
         """Get cached memory query results."""
-        key = self._make_key("memory", user_id, query[:100], top_k)
+        key = self._make_key("memory", user_id, query, top_k)
         try:
             result = await self.backend.get(key)
             if result:
@@ -585,7 +602,7 @@ class CacheManager:
         ttl_seconds: int = 3600  # 1 hour
     ) -> bool:
         """Cache memory query results."""
-        key = self._make_key("memory", user_id, query[:100], top_k)
+        key = self._make_key("memory", user_id, query, top_k)
         try:
             return await self.backend.set(key, results, ttl_seconds)
         except Exception as e:
@@ -666,7 +683,7 @@ class CacheManager:
                             crew_name,
                             user_id,
                             language or "",
-                            original_query[:100],
+                            original_query,
                         )
                         cached_value = await self.backend.get(match_key)
                         if cached_value:
@@ -686,17 +703,20 @@ class CacheManager:
                 from universal_agentic_framework.monitoring import metrics
                 metrics.track_vector_db_fallback(self.profile_name, reason="error")
         
-        # Fallback: In-memory O(n) iteration
-        prefix = f"crew:{crew_name}:{user_id}:{language or ''}:"
-        
+        # Fallback: In-memory O(n) iteration. Keys are md5 digests, so entries are
+        # matched on the explicit ``_scope`` stored with each crew value (crew + user +
+        # language) — never across users.
+        scope = self._crew_scope(crew_name, user_id, language)
+
         if isinstance(self.backend, MemoryCacheBackend):
             cache_dict = getattr(self.backend, "cache", {})
-            for key, cached_data in cache_dict.items():
-                if not key.startswith(prefix):
+            now = time.time()
+            for cached_data in list(cache_dict.values()):
+                if getattr(cached_data, "expiry", None) is not None and now >= cached_data.expiry:
                     continue
-                
-                # Extract cached value
-                value, _ = cached_data if isinstance(cached_data, tuple) else (cached_data, None)
+                value = getattr(cached_data, "value", cached_data)
+                if not isinstance(value, dict) or value.get("_scope") != scope:
+                    continue
                 
                 # Extract stored embedding if available
                 if isinstance(value, dict) and "_embedding" in value:
@@ -736,7 +756,7 @@ class CacheManager:
             crew_name,
             user_id,
             language or "",
-            query[:100],
+            query,
         )
         try:
             # Tier 1: Exact match
@@ -793,7 +813,7 @@ class CacheManager:
             crew_name,
             user_id,
             language or "",
-            query[:100],
+            query,
         )
         try:
             # Get query embedding for semantic matching
@@ -823,6 +843,7 @@ class CacheManager:
                     "_embedding": embedding,
                     "_query": query,
                     "_result_hash": result_hash,
+                    "_scope": self._crew_scope(crew_name, user_id, language),
                 }
             else:
                 # Store as-is if no embedding capability

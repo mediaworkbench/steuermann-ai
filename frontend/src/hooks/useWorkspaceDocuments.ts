@@ -26,7 +26,6 @@ export function useWorkspaceDocuments(): UseWorkspaceDocumentsResult {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "",
         },
       });
 

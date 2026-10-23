@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,7 +99,20 @@ CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
 GRAPH: Any = None  # populated in _lifespan before first request is served
 HEARTBEAT: Any = None  # HeartbeatScheduler, started in _lifespan when enabled
-ACTIVE_SESSIONS: set[str] = set()
+# user_id → monotonic time of the user's last request. A user counts as active for
+# ACTIVE_SESSION_WINDOW_SECONDS after their last request (a plain set only ever grew,
+# so the active-sessions gauge reported every user since process start).
+ACTIVE_SESSIONS: Dict[str, float] = {}
+ACTIVE_SESSION_WINDOW_SECONDS = 30 * 60
+
+
+def _touch_active_session(user_id: str) -> None:
+    now = time.monotonic()
+    ACTIVE_SESSIONS[user_id] = now
+    cutoff = now - ACTIVE_SESSION_WINDOW_SECONDS
+    for uid in [u for u, seen in ACTIVE_SESSIONS.items() if seen < cutoff]:
+        ACTIVE_SESSIONS.pop(uid, None)
+    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
 _invocation_count: int = 0
 
 
@@ -120,6 +133,7 @@ def _per_turn_reset() -> Dict[str, Any]:
     UntrackedValue channels — never checkpointed, so they cannot go stale.
     """
     return {
+        "turn_tokens_used": 0,  # per-invocation budget counter (cumulative total is tokens_used)
         "query_embedding": [],
         "prefilter_intents": {},
         "tool_results": {},
@@ -235,6 +249,30 @@ async def health_ready() -> Dict[str, Any]:
     }
 
 
+def _rewind_history(messages: List[Any], user_turns: Any) -> List[Any]:
+    """Drop the last ``user_turns`` user turns (each user message and everything after
+    it) from checkpointed history — Regenerate / Edit-and-resend replace those turns,
+    so the model must not keep seeing the superseded question and answer. Summary
+    digests before the cut are kept; a rewind reaching past them stops there."""
+    try:
+        turns = int(user_turns or 0)
+    except (TypeError, ValueError):
+        turns = 0
+    if turns <= 0 or not messages:
+        return messages
+    cut = len(messages)
+    seen = 0
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
+        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "type", None)
+        if role in ("user", "human"):
+            seen += 1
+            cut = idx
+            if seen >= turns:
+                break
+    return list(messages[:cut])
+
+
 def _request_driven_state(request: Dict[str, Any]) -> Dict[str, Any]:
     """The explicit allowlist of request-driven GraphState keys (NOT a passthrough).
 
@@ -292,8 +330,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         bind_context(user_id=user_id)
         
         # Track session
-        ACTIVE_SESSIONS.add(user_id)
-        update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+        _touch_active_session(user_id)
         
         profile_name = CONFIG.profile.name
         profile_id = ACTIVE_PROFILE_ID
@@ -318,6 +355,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
             if ct:
                 existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+            existing_messages = _rewind_history(existing_messages, request.get("rewind_user_turns"))
 
         # Prepare graph state. Per-turn channels are reset first so stale checkpointed
         # values from the previous turn cannot leak into this one.
@@ -560,8 +598,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     user_id = request.get("user_id", "anonymous")
     language = request.get("language", "en")
     bind_context(user_id=user_id)
-    ACTIVE_SESSIONS.add(user_id)
-    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+    _touch_active_session(user_id)
     profile_name = CONFIG.profile.name
     profile_id = ACTIVE_PROFILE_ID
 
@@ -579,6 +616,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
         if ct:
             existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+        existing_messages = _rewind_history(existing_messages, request.get("rewind_user_turns"))
 
     state: GraphState = {
         **_per_turn_reset(),

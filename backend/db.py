@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterable, Iterator, Optional
 
 import psycopg2
 from psycopg2 import extras, pool
@@ -21,6 +22,7 @@ class DatabaseConfig:
     dsn: str
     minconn: int
     maxconn: int
+    acquire_timeout_seconds: float = 30.0
 
 
 class DatabasePool:
@@ -30,6 +32,10 @@ class DatabasePool:
             maxconn=config.maxconn,
             dsn=config.dsn,
         )
+        # psycopg2's pool raises PoolError the instant maxconn is reached; gate checkouts
+        # so a burst of concurrent requests waits briefly for a free connection instead.
+        self._slots = threading.BoundedSemaphore(config.maxconn)
+        self._acquire_timeout = config.acquire_timeout_seconds
         # Keep schema compatible when DatabasePool is instantiated directly in tests/tools.
         try:
             _ensure_core_tables(self)
@@ -39,13 +45,22 @@ class DatabasePool:
 
     @contextmanager
     def connection(self) -> Iterator[psycopg2.extensions.connection]:
-        conn = self._pool.getconn()
+        if not self._slots.acquire(timeout=self._acquire_timeout):
+            raise pool.PoolError(
+                f"connection pool exhausted (no free connection within {self._acquire_timeout:g}s)"
+            )
+        try:
+            conn = self._pool.getconn()
+        except Exception:
+            self._slots.release()
+            raise
         try:
             extras.register_default_json(conn, loads=json.loads)
             extras.register_default_jsonb(conn, loads=json.loads)
             yield conn
         finally:
             self._pool.putconn(conn)
+            self._slots.release()
 
     def close(self) -> None:
         self._pool.closeall()
@@ -59,17 +74,23 @@ def init_db_pool() -> DatabasePool:
         f"postgresql://{os.getenv('POSTGRES_USER', 'framework')}:{os.getenv('POSTGRES_PASSWORD', 'framework')}@{os.getenv('POSTGRES_HOST', 'postgres')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'framework')}",
     )
     
-    # Pool size from environment with sensible default
-    pool_size_str = os.getenv("DB_POOL_SIZE", "5")
+    # Pool size from environment with sensible default. Sync handlers run on a thread
+    # pool of up to 40 workers, so 5 connections starved under modest concurrency.
+    pool_size_str = os.getenv("DB_POOL_SIZE", "20")
     try:
         pool_size = max(1, int(pool_size_str))
     except (ValueError, TypeError):
-        pool_size = 5
-    
+        pool_size = 20
+    try:
+        acquire_timeout = max(0.1, float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30")))
+    except (ValueError, TypeError):
+        acquire_timeout = 30.0
+
     db_config = DatabaseConfig(
         dsn=db_url,
         minconn=1,
         maxconn=pool_size,
+        acquire_timeout_seconds=acquire_timeout,
     )
     db_pool = DatabasePool(db_config)
     _ensure_core_tables(db_pool)
@@ -1486,19 +1507,29 @@ class HeartbeatRunStore:
             conn.commit()
 
     def recent_runs(
-        self, task_name: str, limit: int = 5, *, user_id: Optional[str] = None
+        self,
+        task_name: str,
+        limit: int = 5,
+        *,
+        user_id: Optional[str] = None,
+        statuses: Optional[Iterable[str]] = None,
     ) -> list[Dict[str, Any]]:
         """Return the most recent runs for a task, newest first.
 
         ``user_id`` is keyword-only (and after ``limit``) so existing positional
         callers — ``recent_runs(name, 1)`` — keep treating the second arg as the
         limit. When given, results are scoped to that user (per-user cooldown).
+        ``statuses`` restricts to those run statuses (the cooldown looks up the last
+        ``ok`` run, skipping the ``skipped`` rows it writes itself).
         """
         clauses = ["task_name = %s"]
         params: list[Any] = [task_name]
         if user_id is not None:
             clauses.append("user_id = %s")
             params.append(user_id)
+        if statuses is not None:
+            clauses.append("status = ANY(%s)")
+            params.append(list(statuses))
         params.append(int(limit))
         statement = f"""
             SELECT task_name, user_id, fired_at, status, duration_ms, detail
@@ -1948,11 +1979,15 @@ class MemoryConflictStore:
         resolution: Optional[Dict[str, Any]] = None,
         status: str = "resolved",
     ) -> Optional[Dict[str, Any]]:
-        """Resolve a conflict (user_id-scoped so cross-user resolution is impossible)."""
+        """Resolve an OPEN conflict (user_id-scoped so cross-user resolution is impossible).
+
+        Guarded on ``status = 'open'`` so the claim is atomic: a second (or concurrent)
+        resolve of the same conflict gets None instead of re-applying its action.
+        """
         statement = """
             UPDATE memory_conflicts
             SET status = %s, resolution = %s, updated_at = NOW()
-            WHERE conflict_id = %s AND user_id = %s
+            WHERE conflict_id = %s AND user_id = %s AND status = 'open'
             RETURNING *;
         """
         with self._db_pool.connection() as conn:
@@ -1964,6 +1999,21 @@ class MemoryConflictStore:
                 row = cur.fetchone()
             conn.commit()
         return dict(row) if row else None
+
+    def reopen(self, *, conflict_id: str, user_id: str) -> bool:
+        """Undo a claim made by ``resolve`` when its memory action failed."""
+        statement = """
+            UPDATE memory_conflicts
+            SET status = 'open', resolution = %s, updated_at = NOW()
+            WHERE conflict_id = %s AND user_id = %s
+            RETURNING conflict_id;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (extras.Json({}), conflict_id, user_id))
+                row = cur.fetchone()
+            conn.commit()
+        return row is not None
 
     def aggregate_metrics(self) -> Dict[str, Any]:
         """Admin-safe rollup — counts by status only (no text/ids)."""
@@ -2070,18 +2120,46 @@ class MemoryAuditLogStore:
         return audit_id
 
     def last_cycle_run(self, *, user_id: str, cycle: str) -> Optional[datetime]:
-        """Latest audit timestamp for a (user, cycle) — drives cost-tiered
-        sub-cycle scheduling (a cycle is due when now − last_cycle_run ≥ cadence)."""
+        """Latest COMPLETED run of a (user, cycle) — drives cost-tiered sub-cycle
+        scheduling (a cycle is due when now − last_cycle_run ≥ cadence).
+
+        Only ``cycle_run`` marker rows count: the action rows a partial run writes, or
+        an undo / conflict resolution tagged with the cycle, must not advance it.
+        """
         statement = """
             SELECT MAX(created_at) AS last_run
             FROM memory_audit_log
-            WHERE user_id = %s AND cycle = %s;
+            WHERE user_id = %s AND cycle = %s AND action = 'cycle_run';
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, (user_id, cycle))
                 row = cur.fetchone()
         return row.get("last_run") if row else None
+
+    def last_cycle_watermark(self, *, user_id: str, cycle: str) -> Optional[datetime]:
+        """Resume point recorded by the latest completed run that hit its batch cap
+        (``after_state.watermark``); None when that run covered everything."""
+        statement = """
+            SELECT after_state
+            FROM memory_audit_log
+            WHERE user_id = %s AND cycle = %s AND action = 'cycle_run'
+            ORDER BY created_at DESC
+            LIMIT 1;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(statement, (user_id, cycle))
+                row = cur.fetchone()
+        state = (row or {}).get("after_state") or {}
+        raw = state.get("watermark") if isinstance(state, dict) else None
+        if not raw:
+            return None
+        try:
+            mark = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+        return mark if mark.tzinfo else mark.replace(tzinfo=timezone.utc)
 
     def get(self, *, audit_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Read one audit row, user-scoped (for the HITL undo handler)."""
@@ -2104,6 +2182,23 @@ class MemoryAuditLogStore:
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, (audit_id, user_id))
+                row = cur.fetchone()
+            conn.commit()
+        return row is not None
+
+    def restore_reversible(
+        self, *, audit_id: str, user_id: str, reversible_until: datetime
+    ) -> bool:
+        """Re-open the undo window after a failed undo (reverses ``mark_undone``)."""
+        statement = """
+            UPDATE memory_audit_log
+            SET reversible_until = %s
+            WHERE audit_id = %s AND user_id = %s AND reversible_until IS NULL
+            RETURNING audit_id;
+        """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (reversible_until, audit_id, user_id))
                 row = cur.fetchone()
             conn.commit()
         return row is not None
@@ -2163,6 +2258,37 @@ def _escape_like(value: str) -> str:
     is treated as a substring rather than a wildcard pattern.
     """
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# LangGraph PostgresSaver tables, keyed by thread_id (= conversation id). They live in
+# this database when CHECKPOINTER_POSTGRES_DSN points at it (the compose default);
+# otherwise they are absent here and the delete is a no-op. ``checkpoint_migrations``
+# is schema bookkeeping and is never touched.
+CHECKPOINT_TABLES = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
+
+
+def existing_tables(cur: Any, tables: Iterable[str]) -> list[str]:
+    """Return the subset of ``tables`` that exist (keeps a TRUNCATE/DELETE batch from
+    aborting the whole transaction on one missing table)."""
+    present: list[str] = []
+    for table in tables:
+        cur.execute("SELECT to_regclass(%s);", (table,))
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            present.append(table)
+    return present
+
+
+def delete_checkpoint_threads(cur: Any, thread_ids: Iterable[str]) -> int:
+    """Delete every checkpoint row for the given LangGraph thread ids. Returns rows removed."""
+    ids = [str(t) for t in thread_ids if t]
+    if not ids:
+        return 0
+    removed = 0
+    for table in existing_tables(cur, CHECKPOINT_TABLES):
+        cur.execute(f"DELETE FROM {table} WHERE thread_id = ANY(%s);", (ids,))  # noqa: S608
+        removed += max(cur.rowcount, 0)
+    return removed
 
 
 class ConversationStore:
@@ -2346,12 +2472,18 @@ class ConversationStore:
         return _normalize_conversation_row(row) if row else None
 
     def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
-        """Hard-delete a conversation and its messages (CASCADE), scoped to its owner."""
+        """Hard-delete a conversation and its messages (CASCADE), scoped to its owner.
+
+        Also drops the conversation's LangGraph checkpoint thread (it holds the full
+        chat history the model reads), so a deleted chat leaves no text behind.
+        """
         statement = "DELETE FROM conversations WHERE id = %s AND user_id = %s;"
         with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(statement, (conversation_id, user_id))
                 deleted = cur.rowcount > 0
+                if deleted:
+                    delete_checkpoint_threads(cur, [conversation_id])
             conn.commit()
         return deleted
 
@@ -2399,17 +2531,57 @@ class ConversationStore:
         self._touch_conversation(conversation_id, conn=None)
         return _normalize_message_row(row)
 
-    def get_messages(
-        self, conversation_id: str, limit: int = 500, offset: int = 0
-    ) -> list[Dict[str, Any]]:
+    def delete_messages_from(self, conversation_id: str, message_id: int) -> int:
+        """Delete ``message_id`` and every later message of the conversation (ids are
+        serial, so "later" is ``id >= message_id``). A message id that isn't in this
+        conversation deletes nothing. Returns the number of USER messages removed."""
         statement = """
-            SELECT id, conversation_id, role, content, tokens_used, model_name,
-                   response_time_ms, tools_used, feedback, metadata, created_at
-            FROM messages
-            WHERE conversation_id = %s
-            ORDER BY created_at ASC
-            LIMIT %s OFFSET %s;
+            WITH doomed AS (
+                DELETE FROM messages
+                WHERE conversation_id = %s
+                  AND id >= %s
+                  AND EXISTS (SELECT 1 FROM messages WHERE id = %s AND conversation_id = %s)
+                RETURNING role
+            )
+            SELECT COUNT(*) FILTER (WHERE role = 'user') FROM doomed;
         """
+        with self._db_pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement, (conversation_id, message_id, message_id, conversation_id))
+                row = cur.fetchone()
+            conn.commit()
+        return int(row[0]) if row and row[0] is not None else 0
+
+    def get_messages(
+        self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False
+    ) -> list[Dict[str, Any]]:
+        """Messages in chronological order.
+
+        ``latest=False`` pages from the start of the conversation; ``latest=True`` takes
+        the newest ``limit`` messages (``offset`` counted back from the end) — what the
+        chat view and every "most recent …" lookup wants once a chat outgrows ``limit``.
+        """
+        columns = """id, conversation_id, role, content, tokens_used, model_name,
+                   response_time_ms, tools_used, feedback, metadata, created_at"""
+        if latest:
+            statement = f"""
+                SELECT * FROM (
+                    SELECT {columns}
+                    FROM messages
+                    WHERE conversation_id = %s
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT %s OFFSET %s
+                ) newest
+                ORDER BY created_at ASC, id ASC;
+            """
+        else:
+            statement = f"""
+                SELECT {columns}
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC, id ASC
+                LIMIT %s OFFSET %s;
+            """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(statement, (conversation_id, limit, offset))
@@ -2530,29 +2702,48 @@ class ConversationAttachmentStore:
         extracted_text: str,
         expires_at: Optional[datetime] = None,
     ) -> Dict[str, Any]:
+        # Idempotent per (conversation, document): re-attaching the same document
+        # returns the existing reference instead of adding a duplicate row (which
+        # showed the document twice and made one delete remove both).
         statement = """
-            WITH inserted AS (
+            WITH existing AS (
+                SELECT conversation_id, document_id, user_id, attached_at
+                FROM chat_document_refs
+                WHERE conversation_id = %s AND document_id = %s AND message_id IS NULL
+                ORDER BY attached_at
+                LIMIT 1
+            ),
+            inserted AS (
                 INSERT INTO chat_document_refs (
                     conversation_id, message_id, document_id, user_id
                 )
-                VALUES (%s, NULL, %s, %s)
+                SELECT %s, NULL, %s, %s
+                WHERE NOT EXISTS (SELECT 1 FROM existing)
                 RETURNING conversation_id, document_id, user_id, attached_at
+            ),
+            ref AS (
+                SELECT * FROM inserted
+                UNION ALL
+                SELECT * FROM existing
             )
-            SELECT d.id, inserted.conversation_id, inserted.user_id,
+            SELECT d.id, ref.conversation_id, ref.user_id,
                    d.filename AS original_name, d.stored_path,
                    d.mime_type, d.size_bytes, d.sha256,
                    d.content_text AS extracted_text,
                    'active' AS status,
-                   inserted.attached_at AS created_at,
+                   ref.attached_at AS created_at,
                    NULL::TIMESTAMPTZ AS expires_at
-            FROM inserted
-            JOIN workspace_documents d ON d.id = inserted.document_id;
+            FROM ref
+            JOIN workspace_documents d ON d.id = ref.document_id
+            LIMIT 1;
         """
         with self._db_pool.connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
                     statement,
                     (
+                        conversation_id,
+                        attachment_id,
                         conversation_id,
                         attachment_id,
                         user_id,
@@ -2768,19 +2959,6 @@ class ConversationWorkspaceStore:
             conn.commit()
         return _normalize_workspace_row(row) if row else None
 
-    def mark_workspace_deleted(self, conversation_id: str) -> bool:
-        statement = """
-            UPDATE conversation_workspaces
-            SET status = 'deleted', updated_at = NOW()
-            WHERE conversation_id = %s AND status != 'deleted';
-        """
-        with self._db_pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(statement, (conversation_id,))
-                updated = cur.rowcount > 0
-            conn.commit()
-        return updated
-
     def list_expired_workspaces(
         self,
         reference_time: Optional[datetime] = None,
@@ -2853,27 +3031,6 @@ class ConversationWorkspaceStore:
                 row = cur.fetchone()
             conn.commit()
         return _normalize_workspace_operation_row(row)
-
-    def list_workspace_operations(
-        self,
-        conversation_id: str,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> list[Dict[str, Any]]:
-        statement = """
-            SELECT id, conversation_id, user_id, attachment_id, operation, result,
-                   reason, source_path, target_path, created_at
-            FROM conversation_workspace_operations
-            WHERE conversation_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s OFFSET %s;
-        """
-        with self._db_pool.connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (conversation_id, limit, offset))
-                rows = cur.fetchall()
-        return [_normalize_workspace_operation_row(row) for row in rows]
-
 
 class WorkspaceVersionConflictError(Exception):
     """Raised when expected_version does not match the current document version.
@@ -3065,30 +3222,6 @@ class WorkspaceDocumentStore:
                 row = cur.fetchone()
         return int(row["n"]) if row else 0
 
-    def save_document_version_snapshot(
-        self,
-        *,
-        document_id: str,
-        user_id: str,
-        version: int,
-        content_text: str,
-        size_bytes: int,
-        sha256: str,
-        source: str = "user",
-    ) -> None:
-        import uuid as _uuid
-
-        statement = """
-            INSERT INTO workspace_document_versions
-                (id, document_id, user_id, version, content_text, size_bytes, sha256, source, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            ON CONFLICT (document_id, version) DO NOTHING;
-        """
-        with self._db_pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(statement, (str(_uuid.uuid4()), document_id, user_id, version, content_text, size_bytes, sha256, source))
-            conn.commit()
-
     def list_document_versions(self, *, document_id: str, user_id: str, limit: int = 50) -> list[Dict[str, Any]]:
         statement = """
             SELECT v.id, v.document_id, v.version, v.size_bytes, v.sha256, v.source, v.created_at
@@ -3152,35 +3285,6 @@ class WorkspaceDocumentStore:
                 count = cur.rowcount
             conn.commit()
         return count
-
-    def attach_document_reference(
-        self,
-        conversation_id: str,
-        message_id: Optional[int],
-        document_id: str,
-        user_id: str,
-    ) -> Dict[str, Any]:
-        statement = """
-            INSERT INTO chat_document_refs (
-                conversation_id, message_id, document_id, user_id
-            )
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, conversation_id, message_id, document_id, user_id, attached_at;
-        """
-        with self._db_pool.connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(statement, (conversation_id, message_id, document_id, user_id))
-                row = cur.fetchone()
-            conn.commit()
-        return {
-            "id": row.get("id"),
-            "conversation_id": row.get("conversation_id"),
-            "message_id": row.get("message_id"),
-            "document_id": row.get("document_id"),
-            "user_id": row.get("user_id"),
-            "attached_at": row.get("attached_at").isoformat() if row.get("attached_at") else None,
-        }
-
 
 def _normalize_conversation_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if row is None:

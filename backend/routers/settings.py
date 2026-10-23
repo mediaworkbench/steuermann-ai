@@ -23,6 +23,9 @@ from backend.db import (
     HeartbeatRunStore,
     HEARTBEAT_RATE_SETTING_KEY,
     HEARTBEAT_COOLDOWNS_SETTING_KEY,
+    CHECKPOINT_TABLES,
+    delete_checkpoint_threads,
+    existing_tables,
 )
 from backend.llm_capability_probe import LLMCapabilityProbeRunner
 from backend.auth import (
@@ -45,6 +48,7 @@ from universal_agentic_framework.config import (
     load_tools_config,
 )
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
+from universal_agentic_framework.orchestration.procedural_node import invalidate_procedural_cache
 
 logger = logging.getLogger(__name__)
 
@@ -564,11 +568,11 @@ def _heartbeat_config() -> Tuple[int, bool, Optional[str]]:
 def _heartbeat_last_run(request: Request, task_name: Optional[str]) -> Optional[Dict[str, Any]]:
     if not task_name:
         return None
-    db_pool = getattr(request.app.state, "db_pool", None)
-    if db_pool is None:
+    store = _get_heartbeat_run_store(request)
+    if store is None:
         return None
     try:
-        rows = HeartbeatRunStore(db_pool).recent_runs(task_name, 1)
+        rows = store.recent_runs(task_name, 1)
     except Exception:  # pragma: no cover - best-effort observability
         return None
     if not rows:
@@ -673,13 +677,20 @@ class HeartbeatRunsResponse(BaseModel):
 
 
 def _get_heartbeat_run_store(request: Request) -> Optional[HeartbeatRunStore]:
+    # The app-wide store is built once at startup; constructing one per request re-ran
+    # the schema DDL (incl. an ALTER TABLE lock) on every admin poll.
+    store = getattr(request.app.state, "heartbeat_run_store", None)
+    if store is not None:
+        return store
     db_pool = getattr(request.app.state, "db_pool", None)
     if db_pool is None:
         return None
     try:
-        return HeartbeatRunStore(db_pool)
+        store = HeartbeatRunStore(db_pool)
     except Exception:  # pragma: no cover - best-effort observability
         return None
+    request.app.state.heartbeat_run_store = store
+    return store
 
 
 def _serialize_run(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1206,7 +1217,9 @@ async def provider_health() -> Dict[str, Any]:
 
 
 @router.post("/ingestion/reingest-all", response_model=ReingestAllResponse)
-def trigger_reingest_all_documents() -> Dict[str, Any]:
+def trigger_reingest_all_documents(
+    _admin: CurrentUser = Depends(require_admin),
+) -> Dict[str, Any]:
     """Clear and re-index all documents from the configured ingestion source path."""
     try:
         defaults = resolve_runtime_ingestion_defaults()
@@ -1308,6 +1321,7 @@ _CONVERSATION_TABLES = [
     "conversation_attachments",
     "messages",
     "conversations",
+    *CHECKPOINT_TABLES,  # LangGraph thread history the model reads
 ]
 
 _WORKSPACE_TABLES = [
@@ -1320,11 +1334,25 @@ _WORKSPACE_TABLES = [
 
 _MEMORY_TABLES = [
     "co_occurrence_edges",
+    # Dreaming Engine state — the audit log's before_state holds deleted memory text.
+    "memory_audit_log",
+    "memory_conflicts",
+    "procedural_overrides",
+]
+
+# Per-user rows deleted by reset-my-data when memories are selected.
+_USER_MEMORY_TABLES = [
+    "co_occurrence_edges",
+    "memory_audit_log",
+    "memory_conflicts",
+    "procedural_overrides",
+    "heartbeat_runs",
 ]
 
 _ANALYTICS_TABLES = [
     "analytics_events",
     "daily_analytics_stats",
+    "heartbeat_runs",
 ]
 
 _LLM_PROBE_TABLES = [
@@ -1379,7 +1407,7 @@ def reset_all_databases(
             try:
                 with db_pool.connection() as conn:
                     with conn.cursor() as cur:
-                        for table in tables_to_truncate:
+                        for table in existing_tables(cur, tables_to_truncate):
                             cur.execute(f"TRUNCATE TABLE {table} CASCADE;")  # noqa: S608
                             results["postgres"]["tables_truncated"].append(table)
                     conn.commit()
@@ -1478,6 +1506,9 @@ def reset_my_data(
                             (user_id,),
                         )
                         results["postgres"]["deleted"]["conversations"] = cur.rowcount
+                        results["postgres"]["deleted"]["checkpoint_rows"] = delete_checkpoint_threads(
+                            cur, conversation_ids
+                        )
                     if options.workspace:
                         cur.execute(
                             "DELETE FROM workspace_documents WHERE user_id = %s;",  # noqa: S608
@@ -1491,18 +1522,21 @@ def reset_my_data(
 
     # ── 2. Memories: Qdrant vectors + co_occurrence_edges for this user ──────
     if options.memories:
-        # Co-occurrence edges are stored in Postgres and scoped by user_id.
+        # Co-occurrence edges + Dreaming Engine state are stored in Postgres, scoped by user_id.
         if db_pool is not None:
             try:
                 with db_pool.connection() as conn:
                     with conn.cursor() as cur:
-                        cur.execute(
-                            "DELETE FROM co_occurrence_edges WHERE user_id = %s;",  # noqa: S608
-                            (user_id,),
-                        )
+                        for table in existing_tables(cur, _USER_MEMORY_TABLES):
+                            cur.execute(
+                                f"DELETE FROM {table} WHERE user_id = %s;",  # noqa: S608
+                                (user_id,),
+                            )
+                            results["postgres"]["deleted"][table] = cur.rowcount
                     conn.commit()
             except Exception as exc:
-                errors.append(f"postgres co_occurrence_edges: {exc}")
+                errors.append(f"postgres memory tables: {exc}")
+            invalidate_procedural_cache(user_id)
 
         try:
             from universal_agentic_framework.memory.factory import build_memory_backend as _build_mb

@@ -18,7 +18,6 @@ from backend.circuit_breaker import (
     AsyncCircuitBreaker,
     CircuitBreakerConfig,
     CircuitBreakerOpenError,
-    CircuitState,
     config_from_env,
 )
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
@@ -50,6 +49,18 @@ _settings_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
 _SETTINGS_CACHE_TTL = 300  # seconds
 
 router = APIRouter(prefix="/api", tags=["chat"], dependencies=[Depends(require_api_access)])
+
+# Strong refs for fire-and-forget tasks — the event loop keeps only weak references,
+# so an unreferenced task can be garbage-collected before it finishes.
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(coro: Any) -> asyncio.Task[Any]:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 
 LANGGRAPH_CIRCUIT_BREAKER = AsyncCircuitBreaker(
     name="langgraph_invoke",
@@ -171,6 +182,9 @@ class ChatRequest(BaseModel):
     # inference only (never persisted to the user's saved settings).
     disabled_tools: List[str] = Field(default_factory=list, max_length=100)
     workspace_action: Optional["WorkspaceActionRequest"] = None
+    # Regenerate / Edit-and-resend: the persisted user message this turn replaces. It
+    # and every later message are deleted, and the model's history is rewound to match.
+    replace_from_message_id: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("user_id")
     @classmethod
@@ -301,7 +315,10 @@ def _resolve_workspace_documents(
                 if matched_id and matched_id not in inferred_document_ids:
                     inferred_document_ids.append(matched_id)
 
-    if not inferred_document_ids:
+    # History is only a fallback for "edit it again"-style turns that name nothing; a
+    # document the user explicitly attached this turn must not pull in an older one
+    # (that would add unrequested content and make writeback ambiguous).
+    if not inferred_document_ids and not explicit_document_ids:
         inferred_document_ids = _infer_workspace_document_ids_from_recent_conversation_context(
             request=request,
             request_body=request_body,
@@ -343,7 +360,7 @@ def _infer_workspace_document_ids_from_recent_conversation_context(
         return []
 
     try:
-        messages = conversation_store.get_messages(conversation_id, limit=50, offset=0)
+        messages = conversation_store.get_messages(conversation_id, limit=50, offset=0, latest=True)
     except Exception:
         return []
 
@@ -664,14 +681,6 @@ async def maybe_generate_conversation_title(
         )
         convo = [m for m in msgs if m.get("role") in ("user", "assistant")]
         turns = sum(1 for m in convo if m.get("role") == "user")
-
-        # Safety net for pre-provenance (legacy) conversations: no recorded stage
-        # yet already past the upgrade window means the existing title predates this
-        # feature (possibly a manual rename made before provenance tracking) — leave
-        # it untouched. New conversations always have a stage by this point because
-        # the task runs every turn, so this only ever guards legacy data (no migration).
-        if current_stage == 0 and turns > TITLE_UPGRADE_TURNS:
-            return
 
         if current_stage < 1 and turns >= 1:
             target_stage = 1
@@ -1461,6 +1470,20 @@ def _require_conversation_ownership(request: Request, conversation_id: Optional[
         raise HTTPException(status_code=404, detail="Conversation not found")
 
 
+def _rewind_conversation(request: Request, request_body: "ChatRequest") -> int:
+    """Apply ``replace_from_message_id``: delete that message and everything after it
+    (the caller already verified conversation ownership). Returns how many user turns
+    were removed, which LangGraph uses to rewind the checkpointed history in step."""
+    message_id = request_body.replace_from_message_id
+    conversation_id = (request_body.conversation_id or "").strip()
+    if not message_id or not conversation_id:
+        return 0
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None or not hasattr(store, "delete_messages_from"):
+        return 0
+    return int(store.delete_messages_from(conversation_id, message_id) or 0)
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat(
@@ -1535,6 +1558,7 @@ async def chat(
     # A writeback can only target exactly one text document.
     workspace_writeback_eligible = workspace_writeback_requested and len(eligible_writeback_docs) == 1
     llm_capability_probes = _get_latest_llm_capability_probes(request)
+    rewind_user_turns = _rewind_conversation(request, request_body)
     state = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
@@ -1543,6 +1567,7 @@ async def chat(
         "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": request_body.conversation_id} if request_body.conversation_id else {}),
+        "rewind_user_turns": rewind_user_turns,
         "attachments": [
             {
                 "id": attachment["id"],
@@ -1914,6 +1939,8 @@ async def chat_stream(
     # follow-up/queued turn inserting a newer assistant row during the ~43 s drain.
     turn_id = str(uuid.uuid4())
 
+    rewind_user_turns = _rewind_conversation(request, request_body)
+
     state: Dict[str, Any] = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
@@ -1922,6 +1949,7 @@ async def chat_stream(
         "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": conversation_id} if conversation_id else {}),
+        "rewind_user_turns": rewind_user_turns,
         "turn_id": turn_id,
         "attachments": [
             {
@@ -1983,6 +2011,8 @@ async def chat_stream(
         _accumulated_tokens: list[str] = []
         _incomplete_chunk = ""
         _done_emitted = False
+        _persisted = False
+        _aborted = False
         _writeback_result: dict | None = None
 
         def _do_writeback() -> dict | None:
@@ -2015,15 +2045,25 @@ async def chat_stream(
                 logger.warning("chat_stream: workspace writeback unexpected error: %s", exc)
             return None
 
-        def _run_persistence(writeback: dict | None = None, persisted_content: str | None = None) -> None:
+        def _run_persistence(
+            writeback: dict | None = None,
+            persisted_content: str | None = None,
+            *,
+            stopped: bool = False,
+        ) -> None:
             """Persist user + assistant messages. Called as soon as [DONE] arrives.
 
             `persisted_content` is the exact text to store as the assistant message
             (the clean writeback confirmation when a save succeeded); when omitted it
-            defaults to the raw accumulated tokens.
+            defaults to the raw accumulated tokens. ``stopped`` marks a turn that ended
+            without [DONE] (user Stop, upstream error): the user message is still kept,
+            plus whatever partial answer streamed (flagged ``stopped``), so the UI log
+            doesn't silently lose the turn the model may already have checkpointed.
             """
-            if not conversation_id:
+            nonlocal _persisted
+            if not conversation_id or _persisted:
                 return
+            _persisted = True
             assistant_content = "".join(_accumulated_tokens)
             memories_used = _serialize_loaded_memories(_metadata.get("loaded_memory", []))
             tools_executed = list((_metadata.get("tool_results") or {}).keys())
@@ -2044,6 +2084,8 @@ async def chat_stream(
                         "document_ids": request_body.document_ids,
                     },
                 )
+                if stopped and not persisted_content.strip():
+                    return  # nothing streamed yet — keep the question, no empty answer row
                 conv_store.add_message(
                     conversation_id=conversation_id,
                     role="assistant",
@@ -2066,6 +2108,7 @@ async def chat_stream(
                         # Keyed so the LangGraph post-response drain can target this exact
                         # row when it writes the full node trace back (see server.py).
                         "turn_id": turn_id,
+                        **({"stopped": True} if stopped else {}),
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),
@@ -2121,7 +2164,7 @@ async def chat_stream(
                 logger.warning("Failed to log stream analytics event: %s", exc)
 
         try:
-            if LANGGRAPH_CIRCUIT_BREAKER.state == CircuitState.OPEN:
+            if not LANGGRAPH_CIRCUIT_BREAKER.allow_request():
                 yield f"event: error\ndata: {json.dumps({'message': 'Service temporarily unavailable (circuit breaker open)'})}\n\n"
                 return
 
@@ -2150,10 +2193,13 @@ async def chat_stream(
                     json=state,
                 ) as upstream:
                     if upstream.status_code != 200:
+                        if upstream.status_code >= 500:
+                            LANGGRAPH_CIRCUIT_BREAKER.record_failure()
                         err_body = await upstream.aread()
                         msg = err_body.decode("utf-8", errors="replace")[:500]
                         yield f"event: error\ndata: {json.dumps({'message': f'LangGraph error {upstream.status_code}: {msg}'})}\n\n"
                         return
+                    LANGGRAPH_CIRCUIT_BREAKER.record_success()
 
                     async for raw_chunk in upstream.aiter_text():
                         if not raw_chunk:
@@ -2171,7 +2217,9 @@ async def chat_stream(
                             # [DONE] received — do writeback (if requested), persist,
                             # emit optional writeback event, then forward [DONE].
                             if stripped == "data: [DONE]":
-                                _writeback_result = _do_writeback()
+                                # Sync DB/file work runs off the event loop so one slow
+                                # write can't stall every other open stream.
+                                _writeback_result = await asyncio.to_thread(_do_writeback)
                                 # The visible/persisted bubble is the clean confirmation
                                 # when a save succeeded — never the raw SUMMARY:/DOCUMENT: blob.
                                 _persisted_content = None
@@ -2179,7 +2227,8 @@ async def chat_stream(
                                     _persisted_content = _build_writeback_chat_message(
                                         _writeback_result, "".join(_accumulated_tokens)
                                     )
-                                _run_persistence(
+                                await asyncio.to_thread(
+                                    _run_persistence,
                                     writeback=_writeback_result,
                                     persisted_content=_persisted_content,
                                 )
@@ -2187,7 +2236,7 @@ async def chat_stream(
                                 # once at TITLE_UPGRADE_TURNS turns (the task self-gates).
                                 if conversation_id:
                                     try:
-                                        asyncio.create_task(
+                                        _spawn_background(
                                             maybe_generate_conversation_title(
                                                 conversation_id=conversation_id,
                                                 user_id=effective_user_id,
@@ -2239,7 +2288,13 @@ async def chat_stream(
 
                             yield block + "\n\n"
 
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client went away (Stop / closed tab). Never yield after this.
+            _aborted = True
+            raise
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            if isinstance(exc, httpx.RequestError):
+                LANGGRAPH_CIRCUIT_BREAKER.record_failure()
             logger.error("LangGraph stream HTTP error: %s", exc)
             yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
         except Exception as exc:
@@ -2247,7 +2302,9 @@ async def chat_stream(
             yield f"event: error\ndata: {json.dumps({'message': 'Internal server error during streaming'})}\n\n"
         finally:
             if not _done_emitted:
-                yield "data: [DONE]\n\n"
+                _run_persistence(stopped=True)
+                if not _aborted:
+                    yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _proxy_stream(),

@@ -107,6 +107,17 @@ class AsyncCircuitBreaker:
             if self._failure_count >= self.config.failure_threshold:
                 self._state = CircuitState.OPEN
 
+    # Public hooks for call sites that can't wrap a single awaitable (e.g. a streamed
+    # response whose success is known only once the upstream answers).
+    def allow_request(self) -> bool:
+        return self._allow_request()
+
+    def record_success(self) -> None:
+        self._record_success()
+
+    def record_failure(self) -> None:
+        self._record_failure()
+
     async def call(self, func: Callable[..., Awaitable[T]], *args, **kwargs) -> T:
         if not self._allow_request():
             raise CircuitBreakerOpenError(

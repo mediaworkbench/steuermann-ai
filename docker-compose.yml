@@ -10,7 +10,7 @@ services:
         - APP_UID=${APP_UID:-1000}
         - APP_GID=${APP_GID:-1000}
     environment:
-      - PROFILE_ID=${PROFILE_ID:-base}
+      - PROFILE_ID=${PROFILE_ID:?Set PROFILE_ID in .env (e.g. starter)}
       - LLM_PROVIDERS_LMSTUDIO_API_BASE=${LLM_PROVIDERS_LMSTUDIO_API_BASE:-http://host.docker.internal:1234/v1}
       - LLM_PROVIDERS_OLLAMA_API_BASE=${LLM_PROVIDERS_OLLAMA_API_BASE:-http://host.docker.internal:11434/v1}
       - LLM_PROVIDERS_OPENROUTER_API_BASE=${LLM_PROVIDERS_OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
@@ -24,7 +24,7 @@ services:
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-postgresql://framework:framework@postgres:5432/framework}
+      - CHECKPOINTER_POSTGRES_DSN=${CHECKPOINTER_POSTGRES_DSN:-postgresql://framework:${POSTGRES_PASSWORD}@postgres:5432/framework}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-lm-studio}
       - WEB_SEARCH_MCP_URL=${WEB_SEARCH_MCP_URL:-http://duckduckgo-mcp:8000/mcp}
       - PROMPT_SYSTEM_EN=${PROMPT_SYSTEM_EN:-}
@@ -64,7 +64,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - PROFILE_ID=${PROFILE_ID:-base}
+      - PROFILE_ID=${PROFILE_ID:?Set PROFILE_ID in .env (e.g. starter)}
       # Auth: identity/role resolution + bootstrap-admin seed (argon2id hash).
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
       - AUTH_USERNAME=${AUTH_USERNAME:-anonymous}
@@ -125,7 +125,7 @@ services:
     environment:
       - FASTAPI_URL=http://fastapi:8001
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
-      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_USERNAME=${AUTH_USERNAME:-anonymous}
       - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:-}
       - CHAT_ACCESS_TOKEN=${CHAT_ACCESS_TOKEN:-}
       - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE:-/api/proxy}
@@ -146,7 +146,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.ingestion
     environment:
-      - PROFILE_ID=${PROFILE_ID:-base}
+      - PROFILE_ID=${PROFILE_ID:?Set PROFILE_ID in .env (e.g. starter)}
       - LLM_PROVIDERS_LMSTUDIO_API_BASE=${LLM_PROVIDERS_LMSTUDIO_API_BASE:-http://host.docker.internal:1234/v1}
       - LLM_PROVIDERS_OLLAMA_API_BASE=${LLM_PROVIDERS_OLLAMA_API_BASE:-http://host.docker.internal:11434/v1}
       - LLM_PROVIDERS_OPENROUTER_API_BASE=${LLM_PROVIDERS_OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
@@ -172,8 +172,9 @@ services:
       POSTGRES_USER: framework
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or the shell environment}
       POSTGRES_DB: framework
-    ports:
-      - "5432:5432"
+    # Internal-only; expose via docker-compose.override.yml for local debugging.
+    expose:
+      - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -185,8 +186,9 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    ports:
-      - "6379:6379"
+    # Internal-only (no auth); expose via docker-compose.override.yml for local debugging.
+    expose:
+      - "6379"
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data

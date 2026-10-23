@@ -42,21 +42,18 @@ export function usePanelAnswer(
     return -1;
   }, [messages]);
 
-  const latestAnswerMetrics = useMemo<MessageMetrics | null>(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "assistant" && m.metrics) return m.metrics;
-    }
-    return null;
-  }, [messages]);
+  // Strictly the latest answer's own data: falling back to an older answer (when the
+  // latest was stopped before metadata arrived) showed that answer's sources and
+  // trace as if they belonged to the latest one.
+  const latestAnswerMetrics = useMemo<MessageMetrics | null>(
+    () => (lastAssistantIndex >= 0 ? (messages[lastAssistantIndex].metrics ?? null) : null),
+    [messages, lastAssistantIndex],
+  );
 
-  const committedNodeTrace = useMemo<NodeTraceEntry[]>(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "assistant" && m.nodeTrace && m.nodeTrace.length > 0) return m.nodeTrace;
-    }
-    return [];
-  }, [messages]);
+  const committedNodeTrace = useMemo<NodeTraceEntry[]>(
+    () => (lastAssistantIndex >= 0 ? (messages[lastAssistantIndex].nodeTrace ?? []) : []),
+    [messages, lastAssistantIndex],
+  );
 
   const inspectorNodeTrace = isStreaming
     ? nodeTrace

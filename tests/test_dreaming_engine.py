@@ -71,7 +71,7 @@ class _FakeRunStore:
     def record_run(self, *, task_name, status, duration_ms=0, detail=None, user_id=None) -> None:
         self.runs.append({"task": task_name, "status": status, "detail": detail or {}, "user_id": user_id})
 
-    def recent_runs(self, task_name, limit=5, *, user_id=None):
+    def recent_runs(self, task_name, limit=5, *, user_id=None, statuses=None):
         return []  # never in cooldown
 
 
@@ -823,3 +823,111 @@ async def test_drift_opens_conflict_on_anchored_belief_above_floor():
 
     assert reader.confidence_set == [("sem1", pytest.approx(0.75))]  # 0.9 − 0.15, above floor
     assert len(conflicts.opened) == 1  # but anchored → conflict opens anyway
+
+
+# --------------------------------------------------------------------------- #
+# Sweep regressions: read failures, batch watermarks, in-run beliefs
+# --------------------------------------------------------------------------- #
+class _FailingNeighbourReader(_FakeReader):
+    def nearest_semantic(self, user_id, text):
+        raise RuntimeError("embedding provider unreachable")
+
+
+def _pref(mid, text, *, age_days):
+    item = _episodic(mid, age_days=age_days, text=text)
+    return item
+
+
+@pytest.mark.asyncio
+async def test_neighbour_read_failure_defers_preference_instead_of_anchoring_everything():
+    reader = _FailingNeighbourReader(items=[
+        _pref("p1", "The user is a strict vegetarian.", age_days=0.1),
+        _pref("p2", "The user loves jazz.", age_days=0.05),
+        _episodic("f1", age_days=0.05, text="Moved to Hamburg last week."),  # drift-owned
+    ])
+    audit = _FakeAudit()
+    task = _make_task(reader, audit=audit)
+
+    res = await task.tick(TickContext(user_id="u1"))
+
+    assert reader.promoted == []  # nothing bootstrapped on an unknown neighbourhood
+    assert res["status"] == "partial"
+    markers = {r["cycle"] for r in audit.records if r["action"] == "cycle_run"}
+    assert "preference" not in markers and "drift" not in markers
+    assert "forgetting" in markers  # cheap cycle still completes
+
+
+@pytest.mark.asyncio
+async def test_capped_drift_batch_records_resume_watermark():
+    settings = CognitiveMemorySettings(max_drift_checks_per_user=2)
+    items = [_episodic(f"e{i}", age_days=0.5 - i * 0.1, text=f"fact {i}") for i in range(4)]
+    reader = _FakeReader(items=items)
+    audit = _FakeAudit()
+    task = _make_task(reader, audit=audit, settings=settings)
+
+    await task.tick(TickContext(user_id="u1"))
+
+    marker = next(r for r in audit.records if r["cycle"] == "drift" and r["action"] == "cycle_run")
+    # Oldest two processed → the watermark is the 2nd-oldest created_at, so the next
+    # run resumes with e2/e3 instead of skipping them.
+    assert marker["after_state"] == {"watermark": (NOW - timedelta(days=0.4)).isoformat()}
+
+
+@pytest.mark.asyncio
+async def test_preference_contradiction_found_against_older_in_run_belief():
+    reader = _FakeReader(items=[
+        _pref("p1", "The user is a strict vegetarian.", age_days=0.3),
+        _pref("p2", "The user loves jazz.", age_days=0.2),
+        _pref("p3", "The user loves steak and avoids vegetables.", age_days=0.1),
+    ])
+
+    async def _adj(belief, statement):
+        contradicts = "vegetarian" in belief and "steak" in statement
+        return {"contradicts": contradicts, "tokens": 1}
+
+    conflicts = _FakeConflicts()
+    task = _make_task(reader, adjudicator=_adj, conflicts=conflicts)
+
+    await task.tick(TickContext(user_id="u1"))
+
+    assert [m for m, _c in reader.promoted] == ["p1", "p2"]  # p3 contradicts → not anchored
+    assert len(conflicts.opened) == 1
+
+
+def test_drift_adjudicator_ignores_json_inside_reasoning_block(monkeypatch):
+    from types import SimpleNamespace
+
+    import universal_agentic_framework.heartbeat.tasks.dreaming as dreaming_mod
+
+    content = '<think>The format is {"contradicts": true} ... they are compatible.</think>{"contradicts": false}'
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": content}}], "usage": {"total_tokens": 9}}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(dreaming_mod.httpx, "AsyncClient", _Client)
+    config = SimpleNamespace(llm=SimpleNamespace(
+        get_role_provider=lambda role: SimpleNamespace(api_base="http://x/v1", api_key=None),
+        get_role_model_name=lambda role, lang: "openai/m",
+    ))
+    adjudicate = dreaming_mod.build_auxiliary_drift_adjudicator(config)
+
+    verdict = asyncio.run(adjudicate("User is vegetarian.", "User likes tofu."))
+
+    assert verdict["contradicts"] is False

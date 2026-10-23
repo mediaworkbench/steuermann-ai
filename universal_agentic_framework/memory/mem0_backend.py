@@ -290,7 +290,9 @@ class Mem0MemoryBackend(MemoryBackend):
             metadata["user_id"] = item.get("user_id")
         if item.get("created_at") and "created_at" not in metadata:
             metadata["created_at"] = item.get("created_at")
-        if item.get("updated_at") and "updated_at" not in metadata:
+        # Mem0's updated_at is a fallback only: any metadata write (e.g. a drift
+        # confidence change) bumps it, so it must never overwrite a real access time.
+        if item.get("updated_at") and "last_accessed" not in metadata:
             metadata["last_accessed"] = item.get("updated_at")
 
         # Canonical contract ID is the provider ID returned by Mem0.
@@ -566,7 +568,7 @@ class Mem0MemoryBackend(MemoryBackend):
             return None
 
     def find_nearest_semantic(
-        self, user_id: str, query: str, top_k: int = 1
+        self, user_id: str, query: str, top_k: int = 1, *, raise_on_error: bool = False
     ) -> List[Dict[str, Any]]:
         """Vector-nearest semantic-tier memories for a query (drift Cycle B).
 
@@ -577,9 +579,18 @@ class Mem0MemoryBackend(MemoryBackend):
         """
         if not query:
             return []
-        response = self._safe_dreaming_read(
-            user_id, self._search_memories, query, user_id, max(top_k * 4, self.search_limit)
-        )
+        limit = max(top_k * 4, self.search_limit)
+        if raise_on_error:
+            # Callers that must tell "no neighbour" from "couldn't search" (the Dreaming
+            # Engine). A missing collection is still a genuine empty result.
+            try:
+                response = self._search_memories(query, user_id, limit)
+            except Exception as exc:
+                if self._is_missing_collection_error(exc):
+                    return []
+                raise
+        else:
+            response = self._safe_dreaming_read(user_id, self._search_memories, query, user_id, limit)
         if response is None:
             return []
         out: List[Dict[str, Any]] = []
@@ -917,6 +928,14 @@ class Mem0MemoryBackend(MemoryBackend):
                     return True
             return False
 
+        if _is_empty_response(add_response) and self.infer_enabled and self._already_known(text, user_id):
+            # An empty result is ALSO what Mem0 returns when inference ran fine and found
+            # nothing new (all facts already stored). Storing verbatim then would write a
+            # duplicate every time the user restates a known fact.
+            logger.info("mem0_infer_nothing_new", user_id=user_id)
+            payload["memory_id"] = ""
+            return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
         if _is_empty_response(add_response):
             # Graceful degradation: store summary text verbatim without inference.
             if self.infer_enabled:
@@ -941,6 +960,23 @@ class Mem0MemoryBackend(MemoryBackend):
         payload["memory_id"] = self._extract_added_id(add_response)
 
         return MemoryRecord(user_id=user_id, text=text, metadata=payload)
+
+    # Raw vector similarity at which an existing memory counts as "the same fact".
+    _VERBATIM_DEDUP_SCORE = 0.9
+
+    def _already_known(self, text: str, user_id: str) -> bool:
+        """True when a near-identical memory already exists for this user."""
+        try:
+            response = self._search_memories(text, user_id, 1)
+        except Exception:  # noqa: BLE001 — can't tell → let the verbatim fallback store it
+            return False
+        for item in self._extract_results(response):
+            try:
+                if float(self._normalize_item(item).get("score") or 0.0) >= self._VERBATIM_DEDUP_SCORE:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
 
     @staticmethod
     def _extract_added_id(add_response: Any) -> str:

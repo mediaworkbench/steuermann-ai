@@ -53,8 +53,11 @@ class _FakeRunStore:
             }
         )
 
-    def recent_runs(self, task_name, limit=5, *, user_id=None):
-        return list(self._recent)[:limit]
+    def recent_runs(self, task_name, limit=5, *, user_id=None, statuses=None):
+        rows = list(self._recent)
+        if statuses is not None:
+            rows = [r for r in rows if r.get("status") in statuses]
+        return rows[:limit]
 
     def prune_runs(self, *, cutoff):
         self.pruned_cutoffs.append(cutoff)
@@ -157,6 +160,22 @@ async def test_cooldown_skips_recent_ok_run():
 
 
 @pytest.mark.asyncio
+async def test_cooldown_holds_across_its_own_skipped_rows():
+    """The skip row a cooldown writes must not end the cooldown on the next beat."""
+    now = datetime.now(timezone.utc)
+    store = _FakeRunStore(
+        recent=[
+            {"status": "skipped", "fired_at": now},
+            {"status": "skipped", "fired_at": now - timedelta(seconds=30)},
+            {"status": "ok", "fired_at": now - timedelta(seconds=60)},
+        ]
+    )
+    task = HeartbeatTask(name="t", cooldown_seconds=300, run_store=store)
+    for _ in range(3):
+        assert (await task.tick())["status"] == "skipped"
+
+
+@pytest.mark.asyncio
 async def test_cooldown_elapsed_runs_again():
     store = _FakeRunStore(
         recent=[{"status": "ok", "fired_at": datetime.now(timezone.utc) - timedelta(seconds=600)}]
@@ -184,7 +203,7 @@ async def test_per_user_cooldown_isolation():
     """A recent ok run for one user must not put a different user on cooldown."""
 
     class _PerUserStore(_FakeRunStore):
-        def recent_runs(self, task_name, limit=5, *, user_id=None):
+        def recent_runs(self, task_name, limit=5, *, user_id=None, statuses=None):
             if user_id == "busy":
                 return [{"status": "ok", "fired_at": datetime.now(timezone.utc)}]
             return []

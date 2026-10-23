@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.auth import CurrentUser, hash_password, resolve_current_user, verify_password
 from backend.db import UserStore
-from backend.rate_limit import limiter
+from backend.rate_limit import limiter, login_ip_key, login_username_key
 from backend.single_user import require_api_access
 
 logger = logging.getLogger(__name__)
@@ -64,12 +64,13 @@ def _get_user_store(request: Request) -> UserStore:
 
 
 @router.post("/login", response_model=LoginResponse)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=login_ip_key)
+@limiter.limit("10/minute", key_func=login_username_key)
 def login(body: LoginRequest, request: Request) -> LoginResponse:
     """Verify credentials against the DB and return the resolved identity + role.
 
-    Rate-limited (IP-keyed for unauthenticated callers) to blunt password brute-forcing,
-    since FastAPI is reachable directly as well as through the proxy.
+    Rate-limited per client IP (forwarded by the proxy) and per username to blunt
+    password brute-forcing, since FastAPI is reachable directly as well as through the proxy.
     """
     store = _get_user_store(request)
     record = store.get_user_by_username_with_hash(body.username.strip())

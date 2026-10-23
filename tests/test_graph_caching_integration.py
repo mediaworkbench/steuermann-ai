@@ -100,8 +100,8 @@ def test_conversation_compression_triggered(initialize_cache):
     assert should_compress is False
 
 
-def test_memory_query_cache_integration(initialize_cache, mock_backends):
-    """Test memory query caching in full graph execution."""
+def test_graph_executes_with_cache_initialized(initialize_cache, mock_backends):
+    """The graph runs end-to-end with the cache manager initialized."""
     cache = initialize_cache
     graph = build_graph()
     
@@ -141,16 +141,12 @@ def test_performance_nodes_handle_missing_data_gracefully():
     them directly with asyncio.run from a no-loop context.
     """
     from universal_agentic_framework.orchestration.performance_nodes import (
-        memory_query_cache_node,
         conversation_compression_node,
         cache_stats_node,
     )
 
     initialize_performance_nodes()
     empty_state = {}
-
-    result1 = asyncio.run(memory_query_cache_node(empty_state))
-    assert result1 == empty_state
 
     result2 = asyncio.run(conversation_compression_node(empty_state))
     assert result2 == empty_state
@@ -190,3 +186,11 @@ def test_summarizer_token_estimation():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_llm_cache_keys_use_the_full_prompt(initialize_cache):
+    """Prompts sharing their first 100 characters must not collide."""
+    cache = initialize_cache
+    prefix = "x" * 150
+    asyncio.run(cache.set_llm_response("m", prefix + " question A", "answer A"))
+    assert asyncio.run(cache.get_llm_response("m", prefix + " question B")) is None

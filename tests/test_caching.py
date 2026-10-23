@@ -182,7 +182,7 @@ class TestRedisCacheBackend:
 
         # Should initialize without error
         await backend._ensure_connected()
-        assert backend._initialized is True
+        assert backend.redis is not None
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -233,3 +233,42 @@ class TestCacheDecorator:
         result2 = await mock_llm(model="gpt-4", prompt="Hello")
         assert result2 == "Response to: Hello"
         assert call_count == 1  # Function not called again
+
+
+def test_redis_backend_keeps_one_client_per_event_loop(monkeypatch):
+    """A cache call on a worker thread's loop must not replace the main loop's client."""
+    import asyncio
+    import threading
+
+    import redis.asyncio as redis_asyncio
+
+    created = []
+
+    class _FakeClient:
+        def __init__(self):
+            self.loop = asyncio.get_running_loop()
+            self.store = {}
+            created.append(self)
+
+        async def ping(self):
+            return True
+
+        async def get(self, key):
+            assert asyncio.get_running_loop() is self.loop, "client used on a foreign loop"
+            return self.store.get(key)
+
+    async def _from_url(*_a, **_k):
+        return _FakeClient()
+
+    monkeypatch.setattr(redis_asyncio, "from_url", _from_url)
+    backend = RedisCacheBackend()
+
+    async def _main():
+        await backend.get("k")  # main-loop client
+        t = threading.Thread(target=lambda: asyncio.run(backend.get("k")))
+        t.start()
+        t.join()
+        await backend.get("k")  # still the main-loop client, not the worker's
+
+    asyncio.run(_main())
+    assert len(created) == 2

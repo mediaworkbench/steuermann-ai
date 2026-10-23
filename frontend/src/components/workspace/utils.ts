@@ -17,7 +17,11 @@ export function mimeTypeForFilename(name: string): string {
   return "text/plain";
 }
 
-/** Auth headers for the proxied workspace API, merged with any extras. */
+/**
+ * Headers for the proxied workspace API, merged with any extras. Auth is added
+ * server-side by the proxy (session cookie → identity headers + shared token);
+ * the client must never carry the shared token itself.
+ */
 export function workspaceAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  return { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "", ...(extra ?? {}) };
+  return { ...(extra ?? {}) };
 }

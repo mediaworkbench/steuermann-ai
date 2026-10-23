@@ -238,3 +238,15 @@ class TestCsvAnalysisIntentDetection:
     def test_mentions_csv_analysis_in_returned_dict(self):
         result = self._intents("hello")
         assert "mentions_csv_analysis" in result
+
+
+def test_latest_user_message_skips_trailing_crew_output():
+    from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
+
+    messages = [
+        {"role": "user", "content": "compare solar vs wind"},
+        {"role": "assistant", "content": "Research findings: ..."},  # crew node output
+    ]
+    assert latest_user_message(messages) == "compare solar vs wind"
+    assert latest_user_message([]) == ""
+    assert latest_user_message(None) == ""

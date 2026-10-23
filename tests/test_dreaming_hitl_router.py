@@ -35,11 +35,22 @@ class _FakeConflict:
 
     def resolve(self, *, conflict_id, user_id, resolution, status="resolved"):
         for r in self.rows:
-            if r["conflict_id"] == conflict_id and r["user_id"] == user_id:
+            if (
+                r["conflict_id"] == conflict_id
+                and r["user_id"] == user_id
+                and r.get("status", "open") == "open"
+            ):
                 r["status"] = status
                 r["resolution"] = resolution
                 return dict(r)
         return None
+
+    def reopen(self, *, conflict_id, user_id):
+        for r in self.rows:
+            if r["conflict_id"] == conflict_id and r["user_id"] == user_id:
+                r["status"] = "open"
+                return True
+        return False
 
     def aggregate_metrics(self):
         opens = sum(1 for r in self.rows if r.get("status", "open") == "open")
@@ -89,6 +100,13 @@ class _FakeAudit:
         r = self.rows.get(audit_id)
         if r and r["user_id"] == user_id and r.get("reversible_until"):
             r["reversible_until"] = None
+            return True
+        return False
+
+    def restore_reversible(self, *, audit_id, user_id, reversible_until):
+        r = self.rows.get(audit_id)
+        if r and r["user_id"] == user_id and r.get("reversible_until") is None:
+            r["reversible_until"] = reversible_until
             return True
         return False
 
@@ -294,3 +312,70 @@ def test_admin_metrics_are_aggregate_only(monkeypatch):
     assert "SENSITIVE TEXT" not in blob
     assert "SECRET RULE" not in blob
     assert "userA" not in blob and "format.x" not in blob
+
+
+class _FailingBackend(_FakeBackend):
+    def update_metadata(self, mid, patch):
+        self.calls.append(("update", mid, patch))
+        return False  # Mem0 reports a failed write as False
+
+    def restore_memory(self, user_id, *, text, metadata):
+        raise RuntimeError("qdrant down")
+
+
+def test_resolve_twice_is_rejected(monkeypatch):
+    conflict = _FakeConflict([
+        {"conflict_id": "c1", "user_id": "userA", "semantic_memory_id": "sem1",
+         "prior_confidence": 0.7, "choices": []},
+    ])
+    client = _client(monkeypatch, user_id="userA", conflict=conflict)
+    assert client.post("/api/memory/dreaming/conflicts/c1/resolve", json={"choice": "keep_old"}).status_code == 200
+    resp = client.post("/api/memory/dreaming/conflicts/c1/resolve", json={"choice": "accept_new"})
+    assert resp.status_code == 404
+    assert not any(c[0] == "delete" for c in client._fake_backend.calls)
+
+
+def test_resolve_backend_failure_reopens_conflict(monkeypatch):
+    conflict = _FakeConflict([
+        {"conflict_id": "c1", "user_id": "userA", "semantic_memory_id": "sem1",
+         "prior_confidence": 0.7, "choices": []},
+    ])
+    client = _client(monkeypatch, user_id="userA", conflict=conflict)
+    monkeypatch.setattr(dreaming, "_get_backend", lambda: _FailingBackend())
+    resp = client.post("/api/memory/dreaming/conflicts/c1/resolve", json={"choice": "keep_old"})
+    assert resp.status_code == 502
+    assert conflict.rows[0]["status"] == "open"
+
+
+def test_undo_twice_is_409_and_restores_once(monkeypatch):
+    audit = _audit_rows()
+    client = _client(monkeypatch, user_id="userA", audit=audit)
+    assert client.post("/api/memory/dreaming/audit/future/undo").status_code == 200
+    # Simulate the race: the second request read the row before the first claimed it.
+    monkeypatch.setattr(audit, "get", lambda **kw: {**audit.rows["future"], "reversible_until": NOW + timedelta(days=5)})
+    assert client.post("/api/memory/dreaming/audit/future/undo").status_code == 409
+    assert [c for c in client._fake_backend.calls if c[0] == "restore"] == [("restore", "userA", "old memory")]
+
+
+def test_undo_backend_failure_keeps_window_open(monkeypatch):
+    audit = _audit_rows()
+    client = _client(monkeypatch, user_id="userA", audit=audit)
+    monkeypatch.setattr(dreaming, "_get_backend", lambda: _FailingBackend())
+    assert client.post("/api/memory/dreaming/audit/future/undo").status_code == 502
+    assert audit.rows["future"]["reversible_until"] is not None
+    assert audit.recorded == []
+
+
+def test_undo_anchor_reverts_to_episodic(monkeypatch):
+    audit = _FakeAudit([
+        {"audit_id": "anc", "user_id": "userA", "cycle": "preference", "action": "anchor",
+         "target_id": "m9", "before_state": {"cognitive_tier": "episodic", "confidence": 0.9},
+         "reversible_until": NOW + timedelta(days=5)},
+    ])
+    client = _client(monkeypatch, user_id="userA", audit=audit)
+    assert client.post("/api/memory/dreaming/audit/anc/undo").status_code == 200
+    update = [c for c in client._fake_backend.calls if c[0] == "update"]
+    assert update == [("update", "m9", {
+        "cognitive_tier": "episodic", "anchored_preference": False,
+        "source_episodic_ids": [], "epiphany_at": None, "confidence": 0.9,
+    })]

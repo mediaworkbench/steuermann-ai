@@ -518,14 +518,6 @@ class IngestionService:
             if file_state == "changed":
                 logger.info("File changed; replacing existing chunks", file=str(file_path))
 
-        # Delete any existing chunks before ingesting (runs for new, changed,
-        # and incremental-off paths). This is a no-op for new files and
-        # guarantees no orphan points remain when a file shrinks in chunk count.
-        # Placed before parse/embed so the wait=True delete always lands before
-        # the upsert that follows.
-        if not validate_only:
-            self.delete_file_from_collection(file_path)
-
         # Parse document
         parse_start = self._now()
         try:
@@ -611,6 +603,12 @@ class IngestionService:
         upsert_start = self._now()
         upsert_calls = self._upsert_points_batched(points)
         timings_ms["upsert"] = self._elapsed_ms(upsert_start)
+
+        # Only now drop what the new version no longer has (a shrunk tail, or points
+        # from an older content hash). Deterministic ids mean the upsert above already
+        # replaced chunks 0..n-1 in place, so the document is never absent from RAG —
+        # deleting first lost it whenever parse/embed failed (e.g. an embedding outage).
+        self._delete_stale_chunks(source_key, keep_count=len(chunks), file_hash=file_hash)
         
         logger.info(
             "File ingested successfully",
@@ -671,6 +669,32 @@ class IngestionService:
         
         return files
     
+    def _delete_stale_chunks(self, source_key: str, *, keep_count: int, file_hash: str) -> None:
+        """Delete a file's points that the just-upserted version did not overwrite:
+        ``chunk_index >= keep_count``, or (with incremental hashing) a different hash."""
+        stale_conditions: List[Any] = [
+            models.FieldCondition(key="chunk_index", range=models.Range(gte=keep_count)),
+        ]
+        if file_hash:
+            stale_conditions.append(
+                models.Filter(
+                    must_not=[models.FieldCondition(key="file_hash", match=models.MatchValue(value=file_hash))]
+                )
+            )
+        try:
+            self.qdrant.delete(
+                collection_name=self.config.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key="file_path", match=models.MatchValue(value=source_key))],
+                        should=stale_conditions,
+                    )
+                ),
+                wait=True,
+            )
+        except Exception as e:  # noqa: BLE001 — the new version is in; a stale tail is cosmetic
+            logger.warning("Failed to delete stale chunks", file=source_key, error=str(e))
+
     def delete_file_from_collection(self, file_path: Path) -> Dict[str, Any]:
         """Delete all chunks for a file from the collection.
 

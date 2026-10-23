@@ -237,7 +237,8 @@ class GraphState(TypedDict, total=False):
 - `CHECKPOINTER_POSTGRES_DSN` environment variable (or `checkpointing.postgres_dsn` in `config/core.yaml`) required at startup; raises `ValueError` if missing
 - Load-at-edge pattern: both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge them with each new user message before graph invocation
 - Per-session continuity via `configurable.thread_id = session_id`; ephemeral requests (no `conversation_id`) omit `thread_id` so no checkpoint rows are written
-- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint table flat
+- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint tables flat: keep-latest checkpoint per thread, plus deletion of superseded `checkpoint_blobs` channel versions (each turn writes a new full-history `messages` blob)
+- Deleting a conversation or "reset my data" also deletes its checkpoint thread; Regenerate / Edit-and-resend rewind it (`rewind_user_turns`, applied when history is loaded)
 - `GraphState.loaded_tools` and `candidate_tools` use `Annotated[..., UntrackedValue(list)]` to exclude non-serializable `BaseTool` instances from checkpoint writes
 
 ### **4.4 Graph Execution Flow (Three-Tier Tool Selection)**
@@ -276,23 +277,17 @@ User Request (Next.js)
   │    │    └──> no_tools              (0 candidates → skip Layer 2)
   │    │    Each Layer 2 node includes LAYER 3 — schema validation + retry
   │    │
-  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here)
+  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here;
+  │    │    crew nodes dispatched at START also rejoin the flow at load_memory)
   │    │
-  │    ├──> [route_to_crew] (conditional edge)
-  │    │    ├──> research_crew / analytics_crew / code_generation_crew / planning_crew
-  │    │    ├──> crew_chain / crew_parallel
-  │    │    └──> memory_query_cache (no crew → continue normal flow)
-  │    │
-  │    ├──> memory_query_cache  (Redis cache probe for memory)
   │    ├──> load_memory
+  │    ├──> load_procedural   (active learned rules; no-op unless procedural_overrides_enabled)
   │    ├──> retrieve_knowledge  (RAG, pill_score_threshold: 0.72)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
   │    │      3. Intent: skip_rag heuristic (greeting/math/datetime/tool-meta)
   │    │    rag_attempted=True / rag_doc_count=N set only when Qdrant is queried
-  │    │
-  │    ├──> memory_cache_store
   │    │
   │    ├──> respond
   │    │    ├──> Inject tool_results into context

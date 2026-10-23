@@ -46,6 +46,8 @@ export interface SendMessageOptions {
 export interface QueuedMessage {
   text: string;
   opts: SendMessageOptions;
+  /** Conversation it was typed in — it only shows / auto-fires there. */
+  convId: string | null;
 }
 
 interface ChatSessionValue {
@@ -67,6 +69,9 @@ interface ChatSessionValue {
   setContextTokens: React.Dispatch<React.SetStateAction<number>>;
   contextBreakdown: ChatResponse["metadata"]["context_breakdown"] | null;
   loading: boolean;
+  /** True while ANY stream runs (incl. one backgrounded in another chat). Sends must
+   *  queue rather than start a second stream — the runtime is single-slot. */
+  streamBusy: boolean;
   queuedMessage: QueuedMessage | null;
   sendMessage: (userMessage: string, opts?: SendMessageOptions) => Promise<void>;
   enqueueMessage: (text: string, opts?: SendMessageOptions) => void;
@@ -162,8 +167,11 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // setMessages(prev => …) updater form, not on this closure being fresh).
   const sendMessageRef = useRef<((text: string, opts?: SendMessageOptions) => Promise<void>) | undefined>(undefined);
 
+  // Synchronous "a send is in flight" flag (state updates land a render later).
+  const sendBusyRef = useRef(false);
+
   const enqueueMessage = useCallback((text: string, opts: SendMessageOptions = {}) => {
-    const q: QueuedMessage = { text, opts };
+    const q: QueuedMessage = { text, opts, convId: activeIdRef.current };
     queuedMessageRef.current = q;
     setQueuedMessage(q);
   }, []);
@@ -235,7 +243,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       setContextTokens(0);
       // Navigation never aborts an in-flight stream (only an explicit user Stop
       // does); keep a queued follow-up while its stream is still running.
-      if (!isStreamingRef.current) clearQueue();
+      if (!isStreamingRef.current && queuedMessageRef.current?.convId !== null) clearQueue();
       return;
     }
     // When a conversation was just created the DB has no messages yet.
@@ -254,7 +262,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     // Switching to a different conversation: show its messages. Any in-flight
     // stream keeps running in the background bound to its own conversation (its
     // UI is gated off here); only drop a queued follow-up when no stream owns it.
-    if (!isStreamingRef.current) clearQueue();
+    if (!isStreamingRef.current && queuedMessageRef.current?.convId !== activeId) clearQueue();
     // Drop the previous conversation's messages before the (async) fetch so the
     // view never renders one conversation's history under another's id. The
     // scroll anchoring in ChatInterface keys off the first non-empty render, so
@@ -292,22 +300,30 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     wasStreamingRef.current = isStreaming;
     if (was && !isStreaming) {
       const belongsToActive = streamConversationRef.current === activeId;
-      if (belongsToActive && (streamingContent || wasCancelled)) {
+      // manualStopRef is set synchronously on Stop; the hook's wasCancelled lands too
+      // late for this transition (see manualStopRef), so it is only a fallback.
+      const stopped = manualStopRef.current || wasCancelled;
+      const interrupted = !stopped && streamError != null;
+      if (belongsToActive && (streamingContent || stopped)) {
         // On a successful writeback, commit the clean confirmation the backend
         // persisted (not the raw SUMMARY:/DOCUMENT: blob) so the bubble survives
         // a reload unchanged. A cancelled stream never wrote back.
         const wb = finalMetadata?.workspace_document_writeback;
         const committedContent =
-          !wasCancelled && wb?.status === "saved" && wb.persisted_content
+          !stopped && wb?.status === "saved" && wb.persisted_content
             ? wb.persisted_content
             : streamingContent;
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant" as const,
-            content: wasCancelled
+            // A stopped or errored stream is a partial answer — mark it as such
+            // instead of presenting the truncated text as a finished reply.
+            content: stopped
               ? streamingContent + (streamingContent ? "\n\n*(generation stopped)*" : "*(generation stopped)*")
-              : committedContent,
+              : interrupted
+                ? committedContent + "\n\n*(response interrupted)*"
+                : committedContent,
             thinking: thinkingContent || undefined,
             timestamp: formatTime(new Date()),
             metrics: finalMetadata
@@ -378,7 +394,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       if (
         completedNormally &&
         queuedMessageRef.current &&
-        streamConversationRef.current === activeId
+        queuedMessageRef.current.convId === activeId
       ) {
         const q = queuedMessageRef.current;
         const convAtSchedule = activeId;
@@ -431,11 +447,26 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   const sendMessage = useCallback(
     async (userMessage: string, opts: SendMessageOptions = {}) => {
       const { attachmentIds = [], documentIds = [], ragEnabled = true, memoryEnabled = true, disabledTools = [], replaceFromIndex } = opts;
+      // Single-slot runtime: starting a stream while another runs (e.g. one left
+      // running in a different chat) would abort it. Queue plain sends instead; a
+      // regenerate/edit can't be queued meaningfully, so it is ignored while busy.
+      if (sendBusyRef.current || isStreamingRef.current) {
+        if (replaceFromIndex == null) enqueueMessage(userMessage, opts);
+        return;
+      }
+      sendBusyRef.current = true;
+      // The persisted user message being replaced — the server deletes it and
+      // everything after it, and rewinds the model's history to match.
+      const replaceFromMessageId =
+        replaceFromIndex != null ? (messages[replaceFromIndex]?.persistedId ?? null) : null;
       let convId = activeId;
       const isFirstMessage = messages.length === 0 || replaceFromIndex === 0;
       if (!convId) {
         convId = await ensureConversation(userMessage);
-        if (!convId) return;
+        if (!convId) {
+          sendBusyRef.current = false;
+          return;
+        }
       }
       streamConversationRef.current = convId;
       setStreamConvId(convId);
@@ -485,15 +516,20 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       );
       setContextTokens((prev) => Math.max(prev, _estTokens));
 
-      await startStream({
-        message: userMessage,
-        conversationId: convId,
-        attachmentIds,
-        documentIds,
-        ragEnabled,
-        memoryEnabled,
-        disabledTools,
-      });
+      try {
+        await startStream({
+          message: userMessage,
+          conversationId: convId,
+          attachmentIds,
+          documentIds,
+          ragEnabled,
+          memoryEnabled,
+          disabledTools,
+          replaceFromMessageId,
+        });
+      } finally {
+        sendBusyRef.current = false;
+      }
 
       setLoading(false);
       refresh();
@@ -508,6 +544,7 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
       startStream,
       t,
       formatTime,
+      enqueueMessage,
     ],
   );
 
@@ -540,7 +577,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
     setContextTokens,
     contextBreakdown,
     loading: streamOnActive && loading,
-    queuedMessage: streamOnActive ? queuedMessage : null,
+    streamBusy: isStreaming || loading,
+    // The queue is bound to the conversation it was typed in, not to the stream.
+    queuedMessage: queuedMessage && queuedMessage.convId === activeId ? queuedMessage : null,
     sendMessage,
     enqueueMessage,
     clearQueue,

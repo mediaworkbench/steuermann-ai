@@ -67,8 +67,6 @@ from universal_agentic_framework.monitoring.metrics import (
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.performance_nodes import (
     initialize_performance_nodes,
-    memory_query_cache_node,
-    memory_cache_store_node,
     conversation_compression_node,
     cache_stats_node,
     get_summarizer,
@@ -113,6 +111,8 @@ except ImportError:
     _LiteLLMRateLimitError = None  # type: ignore[assignment,misc]
     _LiteLLMAuthenticationError = None  # type: ignore[assignment,misc]
     _LiteLLMServiceUnavailableError = None  # type: ignore[assignment,misc]
+
+from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
 
 # Import extracted helpers
 from universal_agentic_framework.orchestration.helpers import (
@@ -222,11 +222,7 @@ _TRIVIAL_MEMORY_PATTERNS = frozenset({
 })
 
 
-def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
-    for msg in reversed(messages or []):
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            return msg.get("content", "") or ""
-    return ""
+_latest_user_message = latest_user_message  # shared helper (crew output can be messages[-1])
 
 
 # Recent-turn window passed to the tool-calling nodes so they can resolve referential
@@ -271,13 +267,16 @@ def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any
 def _should_write_memory(state: GraphState, features_config: Any) -> bool:
     """True when this turn's exchange is worth a long-term memory write.
 
-    False when long-term memory is disabled or the latest user turn is trivial (a
-    greeting/acknowledgement, or under 5 characters). Shared by node_summarize (to skip
+    False when long-term memory is disabled (globally or by the per-session toggle) or
+    the latest user turn is trivial (a greeting/acknowledgement, or under 5
+    characters). Shared by node_summarize (to skip
     the auxiliary-model fact-extraction call) and node_update_memory (to skip the upsert),
     so the expensive summary is never produced for a turn that won't be persisted.
     """
     if not getattr(features_config, "long_term_memory", False):
         return False
+    if not state.get("memory_enabled", True):
+        return False  # per-session toggle off: don't spend an auxiliary call on a summary
     stripped = _latest_user_message(state.get("messages", [])).strip().lower().rstrip("!.,?")
     if len(stripped) < 5:
         return False
@@ -1358,6 +1357,15 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     return state
 
 
+def _clear_memory_outputs(state: GraphState) -> None:
+    """Reset every memory-load output for a turn that skips retrieval, so the previous
+    turn's checkpointed analytics/digests aren't reported (or injected) again."""
+    state["loaded_memory"] = []
+    state["semantic_memory"] = []
+    state["digest_context"] = []
+    state["memory_analytics"] = {}
+
+
 def node_load_memory(state: GraphState) -> GraphState:
     config = load_core_config()
     profile_name = getattr(config.profile, "name", "default-profile")
@@ -1367,14 +1375,12 @@ def node_load_memory(state: GraphState) -> GraphState:
 
     if not getattr(features_config, "long_term_memory", False):
         logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
-        state["loaded_memory"] = []
-        state["semantic_memory"] = []
+        _clear_memory_outputs(state)
         return state
 
     if not state.get("memory_enabled", True):
         logger.info("Memory disabled by per-session toggle", user_id=state.get("user_id"))
-        state["loaded_memory"] = []
-        state["semantic_memory"] = []
+        _clear_memory_outputs(state)
         return state
 
     # Get memory feature flags
@@ -2112,6 +2118,19 @@ def node_summarize(state: GraphState) -> GraphState:
         return state
 
 
+_NO_FACTS_SENTINEL = "no user facts"
+
+
+def _is_no_facts_summary(text: Optional[str]) -> bool:
+    """Whether the summarize step answered with its 'No user facts' sentinel
+    (tolerating quotes, trailing punctuation and short trailing remarks)."""
+    normalized = re.sub(r"[^a-z ]+", " ", (text or "").lower()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized == _NO_FACTS_SENTINEL or (
+        normalized.startswith(_NO_FACTS_SENTINEL) and len(normalized) <= len(_NO_FACTS_SENTINEL) + 20
+    )
+
+
 def node_update_memory(state: GraphState) -> GraphState:
     config = load_core_config()
     profile_name = getattr(config.profile, "name", "default-profile")
@@ -2159,6 +2178,11 @@ def node_update_memory(state: GraphState) -> GraphState:
                 _asst_fallback = _m.get("content", "")
                 break
         summary_text = f"Summary: {_current_user_msg} -> {_asst_fallback}"
+
+    if _is_no_facts_summary(summary_text):
+        # The extraction prompt's explicit "nothing to remember" answer — never a memory.
+        logger.info("Summary reported no user facts, skipping memory update", user_id=user_id)
+        return state
 
     logger.info("Summary text prepared", summary_length=len(summary_text), user_id=user_id)
 
@@ -2247,8 +2271,6 @@ def build_graph() -> StateGraph:
     # Add performance optimization nodes. Registered as native async coroutines so
     # langgraph awaits them on the event loop under ainvoke — no per-call worker thread
     # or nested asyncio.run (the old *_sync wrappers existed only to bridge sync invoke).
-    graph.add_node("memory_query_cache", memory_query_cache_node)
-    graph.add_node("memory_cache_store", memory_cache_store_node)
     graph.add_node("compress_conversation", conversation_compression_node)
     graph.add_node("cache_stats", cache_stats_node)
 
@@ -2339,21 +2361,22 @@ def build_graph() -> StateGraph:
     # START (bypassing tools entirely), so a query only reaches after_tool_call when no crew
     # matched there; tool nodes don't change messages[-1], so re-running the crew routers here
     # would always return "no crew" (W1.7: removed that dead conditional re-check).
-    graph.add_edge("after_tool_call", "memory_query_cache")
+    # (The former memory_query_cache / memory_cache_store nodes were removed: a hit
+    # was always overwritten by load_memory, and honouring it would have served
+    # memories up to an hour stale and skipped cognitive access tracking.)
+    graph.add_edge("after_tool_call", "load_memory")
 
-    # All crews flow to memory cache for further processing
-    graph.add_edge("research_crew", "memory_query_cache")
-    graph.add_edge("analytics_crew", "memory_query_cache")
-    graph.add_edge("code_generation_crew", "memory_query_cache")
-    graph.add_edge("planning_crew", "memory_query_cache")
-    graph.add_edge("crew_chain", "memory_query_cache")
-    graph.add_edge("crew_parallel", "memory_query_cache")
-    
-    graph.add_edge("memory_query_cache", "load_memory")
+    # All crews flow to memory for further processing
+    graph.add_edge("research_crew", "load_memory")
+    graph.add_edge("analytics_crew", "load_memory")
+    graph.add_edge("code_generation_crew", "load_memory")
+    graph.add_edge("planning_crew", "load_memory")
+    graph.add_edge("crew_chain", "load_memory")
+    graph.add_edge("crew_parallel", "load_memory")
+
     graph.add_edge("load_memory", "load_procedural")
     graph.add_edge("load_procedural", "retrieve_knowledge")
-    graph.add_edge("retrieve_knowledge", "memory_cache_store")
-    graph.add_edge("memory_cache_store", "respond")
+    graph.add_edge("retrieve_knowledge", "respond")
     graph.add_edge("respond", "compress_conversation")
     graph.add_edge("compress_conversation", "summarize")
     graph.add_edge("summarize", "update_memory")

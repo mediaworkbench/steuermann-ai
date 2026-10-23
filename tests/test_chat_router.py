@@ -47,8 +47,13 @@ class FakeConversationStore:
         self.messages.append(kwargs)
         return kwargs
 
-    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0) -> list[Dict[str, Any]]:
+    def get_messages(
+        self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False
+    ) -> list[Dict[str, Any]]:
         rows = [row for row in self.messages if row.get("conversation_id") == conversation_id]
+        if latest:
+            end = len(rows) - offset
+            return rows[max(0, end - limit) : max(0, end)]
         return rows[offset : offset + limit]
 
 
@@ -1234,3 +1239,63 @@ def test_workspace_read_rejects_path_escape(client, monkeypatch: pytest.MonkeyPa
 
     assert response.status_code == 400
     assert "escapes" in response.json()["detail"].lower()
+
+def _doc_resolution_request(conv_store, doc_store):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(conversation_store=conv_store, workspace_document_store=doc_store)
+        )
+    )
+
+
+def _doc(doc_id: str, filename: str) -> Dict[str, Any]:
+    return {"id": doc_id, "user_id": "u1", "filename": filename, "content_text": "x", "version": 1,
+            "mime_type": "text/plain"}
+
+
+def test_explicit_document_does_not_pull_in_history_document() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-a"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-a", "a.md"), _doc("doc-b", "b.md")])
+    body = ChatRequest(message="improve this and save", conversation_id="c1", document_ids=["doc-b"])
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-b"]
+
+
+def test_history_document_used_when_nothing_named() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-a"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-a", "a.md")])
+    body = ChatRequest(message="improve it again and save", conversation_id="c1")
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-a"]
+
+
+def test_history_inference_uses_newest_messages() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-old"}]}})
+    for _ in range(60):
+        conv.messages.append({"conversation_id": "c1", "role": "user", "metadata": {}})
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-new"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-old", "old.md"), _doc("doc-new", "new.md")])
+    body = ChatRequest(message="improve it again and save", conversation_id="c1")
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-new"]

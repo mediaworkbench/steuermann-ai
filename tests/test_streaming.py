@@ -63,8 +63,11 @@ class FakeConversationStore:
         self.messages.append(kwargs)
         return kwargs
 
-    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0):
+    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False):
         rows = [r for r in self.messages if r.get("conversation_id") == conversation_id]
+        if latest:
+            end = len(rows) - offset
+            return rows[max(0, end - limit) : max(0, end)]
         return rows[offset : offset + limit]
 
 
@@ -710,3 +713,75 @@ def test_chat_stream_writeback_conflict_emits_warning_no_saved_writeback(
         if json.loads(e["data"]).get("status") == "saved"
     ]
     assert not saved_writebacks, "No successful writeback event expected on conflict"
+
+
+def test_chat_stream_truncated_upstream_persists_partial_turn(stream_client, monkeypatch) -> None:
+    test_client, conversation_store, fake_client, _ = stream_client
+    monkeypatch.setattr(
+        fake_client, "_response_body", "event: token\ndata: {\"delta\": \"Partial\"}\n\n"
+    )
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={"message": "Hello", "user_id": "u1", "conversation_id": "conv-1"},
+    )
+
+    assert "data: [DONE]" in response.text
+    roles = [m["role"] for m in conversation_store.messages]
+    assert roles == ["user", "assistant"]
+    assistant = conversation_store.messages[1]
+    assert assistant["content"] == "Partial"
+    assert assistant["metadata"]["stopped"] is True
+
+
+def test_chat_stream_upstream_error_keeps_user_message_and_counts_failure(
+    stream_client, monkeypatch
+) -> None:
+    test_client, conversation_store, fake_client, _ = stream_client
+    breaker = chat_module.LANGGRAPH_CIRCUIT_BREAKER
+    monkeypatch.setattr(breaker, "_failure_count", 0)
+    monkeypatch.setattr(breaker, "_state", CircuitState.CLOSED)
+
+    class _ErrorContext:
+        status_code = 503
+        headers: Dict[str, str] = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def aread(self) -> bytes:
+            return b"overloaded"
+
+    monkeypatch.setattr(fake_client, "stream", lambda self, method, url, json: _ErrorContext())
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={"message": "Hello", "user_id": "u1", "conversation_id": "conv-1"},
+    )
+
+    assert "LangGraph error 503" in response.text
+    assert [m["role"] for m in conversation_store.messages] == ["user"]
+    assert breaker._failure_count == 1
+
+
+def test_chat_stream_replace_from_message_rewinds_db_and_graph(stream_client) -> None:
+    test_client, conversation_store, fake_client, _ = stream_client
+    deleted = {}
+
+    def _delete_messages_from(conversation_id, message_id):
+        deleted["args"] = (conversation_id, message_id)
+        return 2
+
+    conversation_store.delete_messages_from = _delete_messages_from
+
+    test_client.post(
+        "/api/chat/stream",
+        json={"message": "edited question", "user_id": "u1", "conversation_id": "conv-1",
+              "replace_from_message_id": 42},
+    )
+
+    assert deleted["args"] == ("conv-1", 42)
+    assert fake_client.last_request_json["rewind_user_turns"] == 2

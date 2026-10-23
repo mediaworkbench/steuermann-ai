@@ -242,18 +242,18 @@ def build_graph(...):
         lambda state: (
             "research_crew" if route_to_research_crew(state) else
             "my_crew" if route_to_my_crew(state) else
-            "memory_query_cache"
+            "load_memory"
         ),
         {
             "research_crew": "research_crew",
             "my_crew": "my_crew",
-            "memory_query_cache": "memory_query_cache",
+            "load_memory": "load_memory",
         }
     )
 
     # Add edges from your crew back to the standard post-tool flow
-    graph.add_edge("research_crew", "memory_query_cache")
-    graph.add_edge("my_crew", "memory_query_cache")
+    graph.add_edge("research_crew", "load_memory")
+    graph.add_edge("my_crew", "load_memory")
 
     return graph
 ```

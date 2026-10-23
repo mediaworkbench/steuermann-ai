@@ -64,11 +64,18 @@ export function ConversationEvidenceDrawer({
     };
   }, [conversationId, reloadNonce, formatTime]);
 
-  // Slide-in on mount; Escape dismisses; focus moves to the close control.
+  // Latest onClose via a ref: callers pass an inline arrow, and depending on it re-ran
+  // the mount effect on every parent render — yanking focus back to the dialog.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Slide-in on mount; Escape dismisses; focus moves to the dialog once.
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true));
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     dialogRef.current?.focus();
@@ -76,7 +83,7 @@ export function ConversationEvidenceDrawer({
       cancelAnimationFrame(id);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <>

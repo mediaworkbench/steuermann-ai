@@ -78,8 +78,12 @@ class _FakeStore:
             return dict(self._conv)
         return None
 
-    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0):
-        return list(self._messages)[offset : offset + limit]
+    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False):
+        rows = list(self._messages)
+        if latest:
+            end = len(rows) - offset
+            return rows[max(0, end - limit) : max(0, end)]
+        return rows[offset : offset + limit]
 
     def set_auto_title(self, conversation_id: str, user_id: str, title: str, *, stage: int):
         self.set_calls.append((title, stage))
@@ -208,12 +212,12 @@ async def test_stage2_already_done_no_call(aux_stub) -> None:
 
 
 @pytest.mark.asyncio
-async def test_legacy_long_conversation_left_untouched(aux_stub) -> None:
-    """No provenance + already past the upgrade window → legacy title is preserved."""
+async def test_untitled_long_conversation_still_gets_titled(aux_stub) -> None:
+    """Provider offline for the first turns (no stage recorded) → titled once it's back."""
     store = _FakeStore(metadata={}, messages=_turns(TITLE_UPGRADE_TURNS + 2))
     await maybe_generate_conversation_title("c1", "u1", store)
-    assert store.set_calls == []
-    assert aux_stub.called is False
+    assert aux_stub.called is True
+    assert [stage for _title, stage in store.set_calls] == [1]
 
 
 @pytest.mark.asyncio

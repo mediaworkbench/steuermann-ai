@@ -369,11 +369,9 @@ class TestConfigSchemas:
             multi_agent_crews=True,
             crew_chaining=True,
             crew_parallel_execution=True,
-            crew_result_validation=True,
         )
         assert features.crew_chaining is True
         assert features.crew_parallel_execution is True
-        assert features.crew_result_validation is True
 
 
 # ===========================================================================

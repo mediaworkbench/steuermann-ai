@@ -624,3 +624,42 @@ def test_multiple_users_isolated():
     assert "bob memory" not in alice_texts
     assert "bob memory" in bob_texts
     assert "alice memory" not in bob_texts
+
+
+class _NothingNewFakeMemory(_FakeMemory):
+    """Mem0 with infer=True returns an empty result when every fact is already stored."""
+
+    def add(self, text: Any, *, user_id: str, metadata: Optional[dict] = None, infer: bool = True) -> dict:
+        if infer:
+            self.last_add_infer = infer
+            return {"results": []}
+        return super().add(text, user_id=user_id, metadata=metadata, infer=infer)
+
+
+def test_upsert_empty_infer_result_for_known_fact_writes_nothing():
+    backend = Mem0MemoryBackend(**{**_COMMON_KWARGS, "client": _NothingNewFakeMemory()})
+    backend._memory.add("user is vegetarian", user_id="u1", infer=False)
+    before = len(backend._memory._store)
+
+    backend.upsert("u1", "user is vegetarian")
+
+    assert len(backend._memory._store) == before  # no verbatim duplicate
+
+
+def test_upsert_empty_infer_result_for_new_fact_falls_back_to_verbatim():
+    backend = Mem0MemoryBackend(**{**_COMMON_KWARGS, "client": _NothingNewFakeMemory()})
+
+    backend.upsert("u1", "user lives in Hamburg")
+
+    assert [v["memory"] for v in backend._memory._store.values()] == ["user lives in Hamburg"]
+
+
+def test_normalize_item_keeps_real_last_accessed():
+    backend = _make_backend()
+    item = {
+        "id": "m1", "memory": "fact", "updated_at": "2026-10-01T00:00:00+00:00",
+        "metadata": {"last_accessed": "2026-06-01T00:00:00+00:00"},
+    }
+    assert backend._normalize_item(item)["metadata"]["last_accessed"] == "2026-06-01T00:00:00+00:00"
+    bare = {"id": "m2", "memory": "fact", "updated_at": "2026-10-01T00:00:00+00:00", "metadata": {}}
+    assert backend._normalize_item(bare)["metadata"]["last_accessed"] == "2026-10-01T00:00:00+00:00"

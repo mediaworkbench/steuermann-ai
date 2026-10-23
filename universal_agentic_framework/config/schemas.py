@@ -603,14 +603,10 @@ class FeaturesConfig(BaseModel):
     rag_retrieval: bool = True
     authentication: bool = False
     monitoring: bool = False
-    ui_tool_visualization: bool = False
-    ui_token_counter: bool = False
-    ui_export_chat: bool = False
     crew_result_caching: bool = False
     crew_cache_ttl_seconds: PositiveInt = 3600
     crew_chaining: bool = False
     crew_parallel_execution: bool = False
-    crew_result_validation: bool = True
     
     # Memory layer emergency rollback switches (Phase 1.3)
     # Set these to false for emergency disable during development/debugging

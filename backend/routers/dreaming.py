@@ -60,6 +60,12 @@ class ResolveConflictRequest(BaseModel):
     choice: Literal["keep_old", "accept_new", "depends"]
 
 
+def _require_persisted(ok: Any) -> None:
+    """``update_metadata`` reports failure as False rather than raising."""
+    if ok is False:
+        raise RuntimeError("memory update was not persisted")
+
+
 # --------------------------------------------------------------------------- #
 # Dissonance conflicts
 # --------------------------------------------------------------------------- #
@@ -91,8 +97,9 @@ def resolve_conflict(
     conflict_store = _store(request, "memory_conflict_store")
     audit_store = _store(request, "memory_audit_store")
 
-    # resolve() is user-scoped (WHERE conflict_id AND user_id) and returns the row,
-    # so a non-owner / unknown id yields None → 404 (no cross-user resolution).
+    # resolve() is user-scoped (WHERE conflict_id AND user_id AND status='open') and
+    # returns the row, so a non-owner / unknown / already-resolved id yields None → 404
+    # (no cross-user resolution, and a double-click can't apply two choices).
     resolved = conflict_store.resolve(
         conflict_id=conflict_id,
         user_id=user_id,
@@ -100,21 +107,26 @@ def resolve_conflict(
         status="resolved",
     )
     if resolved is None:
-        raise HTTPException(status_code=404, detail="Conflict not found")
+        raise HTTPException(status_code=404, detail="Conflict not found or already resolved")
 
     semantic_id = resolved.get("semantic_memory_id")
     prior_conf = resolved.get("prior_confidence")
-    backend = _get_backend()
     try:
+        backend = _get_backend()
         if body.choice == "keep_old" and semantic_id and prior_conf is not None:
             # The established memory wins → restore its pre-drift confidence.
-            backend.update_metadata(str(semantic_id), {"confidence": float(prior_conf)})
+            _require_persisted(
+                backend.update_metadata(str(semantic_id), {"confidence": float(prior_conf)})
+            )
         elif body.choice == "accept_new" and semantic_id:
             # The new info wins → the semantic was wrong; drop it.
             backend.delete_memory(memory_id=str(semantic_id), user_id=user_id)
         # "depends" → leave the semantic as-is; the resolution row records the review.
-    except Exception:  # noqa: BLE001 — the conflict is resolved regardless of Qdrant
-        pass
+    except Exception as exc:  # noqa: BLE001 — release the claim so the user can retry
+        conflict_store.reopen(conflict_id=conflict_id, user_id=user_id)
+        raise HTTPException(
+            status_code=502, detail="Memory store unavailable — the conflict is still open"
+        ) from exc
 
     audit_store.record(
         user_id=user_id,
@@ -218,34 +230,58 @@ def undo_action(
         if ru <= datetime.now(timezone.utc):
             raise HTTPException(status_code=410, detail="Undo window has expired")
 
-    backend = _get_backend()
     before = row.get("before_state") or {}
     after = row.get("after_state") or {}
     action = row.get("action")
     target_id = row.get("target_id")
 
+    # Claim first (atomic: guarded on reversible_until IS NOT NULL) so two concurrent
+    # undos can't both restore; release the claim if the reversal itself fails.
+    if not audit_store.mark_undone(audit_id=audit_id, user_id=user_id):
+        raise HTTPException(status_code=409, detail="Action was already undone")
+
     try:
+        backend = _get_backend()
         if action == "delete":
             # Re-insert the forgotten memory verbatim from its snapshot.
             text = str(before.get("text") or "")
             if text:
                 backend.restore_memory(user_id, text=text, metadata=before.get("metadata") or {})
         elif action == "lower_confidence" and target_id:
-            backend.update_metadata(str(target_id), {"confidence": float(before.get("confidence", 1.0))})
+            _require_persisted(
+                backend.update_metadata(
+                    str(target_id), {"confidence": float(before.get("confidence", 1.0))}
+                )
+            )
         elif action == "promote" and target_id:
             backend.delete_memory(memory_id=str(target_id), user_id=user_id)
             for src in after.get("source_episodic_ids") or []:
                 backend.update_metadata(str(src), {"epiphany_contributor": False})
+        elif action == "anchor" and target_id:
+            # Revert a bootstrapped preference belief (Cycle E) to a plain episodic.
+            patch: Dict[str, Any] = {
+                "cognitive_tier": before.get("cognitive_tier", "episodic"),
+                "anchored_preference": False,
+                "source_episodic_ids": [],
+                "epiphany_at": None,
+            }
+            if before.get("confidence") is not None:
+                patch["confidence"] = float(before["confidence"])
+            _require_persisted(backend.update_metadata(str(target_id), patch))
         elif action == "propose" and target_id:
             # Revert a matured procedural rule.
             procedural = getattr(request.app.state, "procedural_store", None)
             if procedural is not None:
                 procedural.set_status(user_id=user_id, rule_key=str(target_id), status="reverted")
                 invalidate_procedural_cache(user_id)
-    except Exception:  # noqa: BLE001 — best-effort reversal; still mark undone below
-        pass
+    except Exception as exc:  # noqa: BLE001 — keep the undo window open for a retry
+        audit_store.restore_reversible(
+            audit_id=audit_id, user_id=user_id, reversible_until=reversible_until
+        )
+        raise HTTPException(
+            status_code=502, detail="Memory store unavailable — nothing was undone"
+        ) from exc
 
-    audit_store.mark_undone(audit_id=audit_id, user_id=user_id)
     audit_store.record(
         user_id=user_id,
         cycle=str(row.get("cycle") or "drift"),

@@ -428,4 +428,112 @@ describe("useStreamingChat", () => {
 
     expect(result.current.writebackPending).toBeNull();
   });
+
+  it("clears a previous turn's warning when a new message is sent", async () => {
+    mockFetch([`event: warning\ndata: ${JSON.stringify({ message: "doc changed" })}\n\n`, sseDone()]);
+    const { result } = renderHook(() => useStreamingChat());
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+    expect(result.current.streamWarning).toBe("doc changed");
+
+    mockFetch([sseToken("ok"), sseDone()]);
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+    expect(result.current.streamWarning).toBeNull();
+  });
+
+  it("sends replace_from_message_id when replacing a persisted turn", async () => {
+    mockFetch([sseDone()]);
+    const { result } = renderHook(() => useStreamingChat());
+    await act(async () => {
+      await result.current.sendMessage({ ...defaultParams, replaceFromMessageId: 42 });
+    });
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body.replace_from_message_id).toBe(42);
+  });
+
+  it("a superseded stream's teardown does not clobber the stream that replaced it", async () => {
+    const encoder = new TextEncoder();
+    let releaseSecond: (() => void) | null = null;
+    const first = new ReadableStream<Uint8Array>({ start() {} }); // never ends on its own
+    const second = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(sseToken("second")));
+        releaseSecond = () => {
+          controller.enqueue(encoder.encode(sseDone()));
+          controller.close();
+        };
+      },
+    });
+    global.fetch = jest
+      .fn()
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        // Reject the first read loop once its signal is aborted by the second send.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          body: new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal?.addEventListener("abort", () =>
+                controller.error(new DOMException("Aborted", "AbortError")),
+              );
+            },
+          }),
+        } as unknown as Response);
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: second } as unknown as Response);
+    void first;
+
+    const { result } = renderHook(() => useStreamingChat());
+    let firstRun: Promise<void> = Promise.resolve();
+    let secondRun: Promise<void> = Promise.resolve();
+    await act(async () => {
+      firstRun = result.current.sendMessage(defaultParams);
+      await new Promise((r) => setTimeout(r, 0));
+      secondRun = result.current.sendMessage(defaultParams);
+      await firstRun; // stale run's catch/finally executes here
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // The live (second) stream is still streaming and not marked cancelled.
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.wasCancelled).toBe(false);
+
+    await act(async () => {
+      releaseSecond?.();
+      await secondRun;
+    });
+    expect(result.current.streamingContent).toBe("second");
+    expect(result.current.isStreaming).toBe(false);
+  });
+});
+
+describe("parseSseBlock", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { parseSseBlock } = require("@/hooks/useStreamingChat");
+
+  it("joins multi-line data and tolerates a missing space after the colon", () => {
+    expect(parseSseBlock('event:token\ndata:{"delta":\ndata: "hi"}')).toEqual({
+      eventType: "token",
+      dataLine: '{"delta":\n"hi"}',
+    });
+  });
+
+  it("ignores comment lines", () => {
+    expect(parseSseBlock(": keepalive\ndata: [DONE]")).toEqual({ eventType: "message", dataLine: "[DONE]" });
+  });
+});
+
+describe("useStreamingChat SSE framing", () => {
+  it("handles CRLF delimiters and a final event without a trailing blank line", async () => {
+    mockFetch(['event: token\r\ndata: {"delta": "Hi"}\r\n\r\n', 'event: token\r\ndata: {"delta": "!"}']);
+    const { result } = renderHook(() => useStreamingChat());
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+    expect(result.current.streamingContent).toBe("Hi!");
+    expect(result.current.isStreaming).toBe(false);
+  });
 });

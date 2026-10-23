@@ -183,7 +183,7 @@ export function ChatComposer({
                         onClick={() => onAttachmentDelete(attachment.id)}
                         variant="ghost"
                         size="sm"
-                        className="rounded-full p-0.5 hover:bg-black/5 cursor-pointer"
+                        className="rounded-full p-0.5 hover:bg-surface-muted cursor-pointer"
                         aria-label={`${t("chat.deleteAttachment")} ${attachment.original_name}`}
                       >
                         <X size={14} className="text-muted-foreground" />

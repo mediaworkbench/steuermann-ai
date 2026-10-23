@@ -380,6 +380,23 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
     assert response.status_code == 400
 
 
+def test_reingest_all_documents_requires_admin(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("NEXT_PUBLIC_AUTH_USER_ROLE", "user")
+
+    def _fail_run(*args, **kwargs):
+        raise AssertionError("reindex must not run for a non-admin")
+
+    monkeypatch.setattr("backend.routers.settings.subprocess.run", _fail_run)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    assert client.post("/api/ingestion/reingest-all").status_code == 403
+
+
 def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     monkeypatch.setenv("AUTH_USERNAME", "u1")
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)

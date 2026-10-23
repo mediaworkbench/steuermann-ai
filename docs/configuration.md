@@ -620,19 +620,12 @@ ingestion_service: true  # Enable document ingestion service
 rag_retrieval: true      # Enable RAG retrieval in the graph
 
 # Memory retrieval tuning
-memory_importance_scoring: true  # Enable importance-based reranking
 memory_include_related: true     # Fetch related memories via co-occurrence
 memory_top_k: 5                  # Number of primary memories to retrieve
-
-# UI features
-ui_tool_visualization: true # Show tool calls in UI
-ui_token_counter: true      # Show token usage
-ui_export_chat: true        # Allow chat export
 
 # Crew features (only relevant when multi_agent_crews: true)
 crew_result_caching: true
 crew_cache_ttl_seconds: 3600
-crew_result_validation: true
 crew_chaining: false
 crew_parallel_execution: false
 

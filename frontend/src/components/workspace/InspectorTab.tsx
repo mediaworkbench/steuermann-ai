@@ -22,10 +22,9 @@ const PRE_RESPONSE_NODES = [
   "call_tools_structured",
   "call_tools_react",
   "after_tool_call",
-  "memory_query_cache",
   "load_memory",
+  "load_procedural",
   "retrieve_knowledge",
-  "memory_cache_store",
   "respond",
 ];
 

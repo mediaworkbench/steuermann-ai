@@ -79,6 +79,9 @@ export function ProviderHealthProvider({ children }: { children: React.ReactNode
   const schedule = useCallback(
     (delayMs: number) => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      // A check that was in flight at unmount resolves later and would otherwise
+      // re-arm the loop forever (the cleanup only cleared the pending timer).
+      if (!mountedRef.current) return;
       const token = ++pollTokenRef.current;
       timerRef.current = setTimeout(async () => {
         if (token !== pollTokenRef.current) return;
@@ -121,7 +124,7 @@ export function ProviderHealthProvider({ children }: { children: React.ReactNode
     window.addEventListener("online", onOnline);
 
     return () => {
-      mountedRef.current = false; // stop any in-flight check from updating state
+      mountedRef.current = false; // stop any in-flight check from updating state / re-arming
       if (timerRef.current) clearTimeout(timerRef.current); // cancel the pending tick
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);

@@ -208,3 +208,22 @@ async def test_prune_runs_uuid4_repair_before_keep_latest():
         i for i, s in enumerate(sql_statements) if "max(checkpoint_id)" in s
     )
     assert keep_latest_idx > 0  # after the repair
+
+
+@pytest.mark.asyncio
+async def test_prune_removes_superseded_blob_versions_after_keep_latest():
+    """Old channel-version blobs of a live thread are pruned (storage stays flat)."""
+    from universal_agentic_framework.orchestration.checkpointing import _prune_async
+
+    recorder: list[str] = []
+    await _prune_async(SimpleNamespace(conn=_FakePoolConn(recorder)))
+
+    sql_statements = [s for s in recorder if s != "COMMIT"]
+    keep_latest_idx = next(i for i, s in enumerate(sql_statements) if "max(checkpoint_id)" in s)
+    superseded_idx = next(
+        i for i, s in enumerate(sql_statements) if "bl.version < cv.value" in s
+    )
+    # Must run after keep-latest so it compares against the surviving checkpoint only,
+    # and must only drop OLDER versions (never a newer in-flight blob).
+    assert superseded_idx > keep_latest_idx
+    assert "channel_versions" in sql_statements[superseded_idx]

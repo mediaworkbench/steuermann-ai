@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from backend.uploads import read_upload_capped
 from backend.attachments import AttachmentValidationError, UserWorkspaceFileManager, WorkspaceValidationError
 from backend.db import WorkspaceDocumentStore, WorkspaceVersionConflictError
 from backend.auth import CurrentUser, resolve_current_user
@@ -283,12 +284,7 @@ async def upload_document(
     filename = file.filename or "document.txt"
 
     try:
-        content = await file.read()
-
-        if len(content) > _WORKSPACE_MAX_FILE_BYTES:
-            raise AttachmentValidationError(
-                f"File too large ({len(content):,} bytes, max {_WORKSPACE_MAX_FILE_BYTES:,})."
-            )
+        content = await read_upload_capped(file, _WORKSPACE_MAX_FILE_BYTES)
 
         ext = Path(filename).suffix.lower()
         if ext in _IMAGE_EXTENSIONS:
@@ -318,6 +314,8 @@ async def upload_document(
 
         return {"document": doc}
 
+    except HTTPException:
+        raise
     except AttachmentValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except WorkspaceValidationError as exc:
@@ -328,7 +326,7 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=WorkspaceDocumentListResponse)
-async def list_documents(
+def list_documents(
     request: Request,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -357,7 +355,7 @@ async def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=WorkspaceDocumentWithContentResponse)
-async def get_document(
+def get_document(
     document_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -410,7 +408,7 @@ async def update_document(
             raise HTTPException(status_code=400, detail="Images cannot be edited")
 
         # Read and validate new content
-        content = await file.read()
+        content = await read_upload_capped(file, _WORKSPACE_MAX_FILE_BYTES)
         normalized_mime_type = _validate_text_file(file.filename or existing_doc["filename"], file.content_type)
         content_text = _validate_utf8_text(content)
 
@@ -464,7 +462,7 @@ _SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-. ]{1,255}$")
 
 
 @router.patch("/documents/{document_id}", response_model=WorkspaceDocumentResponse)
-async def patch_document(
+def patch_document(
     document_id: str,
     body: WorkspaceDocumentPatch,
     request: Request,
@@ -513,7 +511,7 @@ async def patch_document(
 
 
 @router.delete("/documents/{document_id}", status_code=204, response_class=Response)
-async def delete_document(
+def delete_document(
     document_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -556,8 +554,15 @@ async def delete_document(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _content_disposition(filename: str) -> str:
+    from urllib.parse import quote
+
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+
+
 @router.get("/documents/{document_id}/download", response_class=FileResponse)
-async def download_document(
+def download_document(
     document_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -576,14 +581,22 @@ async def download_document(
         if not existing_doc:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        # Read file content
-        content = file_manager.read_document_file(
+        # Text documents: the DB row is authoritative (every edit, writeback and restore
+        # is version-checked there first), so serve it rather than a file copy that a
+        # failed disk write could have left behind.
+        if not str(existing_doc.get("mime_type") or "").startswith("image/") and existing_doc.get("content_text") is not None:
+            return Response(
+                content=str(existing_doc["content_text"]).encode("utf-8"),
+                media_type=f'{existing_doc["mime_type"]}; charset=utf-8',
+                headers={"Content-Disposition": _content_disposition(existing_doc["filename"])},
+            )
+
+        # Images: verify the stored file is inside the user's workspace, then stream it.
+        file_manager.read_document_file(
             user_id=effective_user_id,
             document_id=document_id,
             stored_path=existing_doc["stored_path"],
         )
-        
-        # Return as file download with original filename
         return FileResponse(
             path=existing_doc["stored_path"],
             filename=existing_doc["filename"],
@@ -600,7 +613,7 @@ async def download_document(
 
 
 @router.get("/documents/{document_id}/thumbnail", response_class=FileResponse)
-async def get_document_thumbnail(
+def get_document_thumbnail(
     document_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -639,7 +652,7 @@ async def get_document_thumbnail(
 
 
 @router.delete("/documents", status_code=200)
-async def delete_all_documents(
+def delete_all_documents(
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
 ) -> Dict[str, Any]:
@@ -677,7 +690,7 @@ async def delete_all_documents(
     "/documents/{document_id}/versions",
     response_model=List[WorkspaceDocumentVersionResponse],
 )
-async def list_document_versions(
+def list_document_versions(
     document_id: str,
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
@@ -701,7 +714,7 @@ async def list_document_versions(
     "/documents/{document_id}/versions/{version}",
     response_model=WorkspaceDocumentVersionWithContentResponse,
 )
-async def get_document_version(
+def get_document_version(
     document_id: str,
     version: int,
     request: Request,
@@ -723,7 +736,7 @@ async def get_document_version(
     "/documents/{document_id}/versions/{version}/restore",
     response_model=WorkspaceDocumentResponse,
 )
-async def restore_document_version(
+def restore_document_version(
     document_id: str,
     version: int,
     request: Request,
@@ -749,8 +762,28 @@ async def restore_document_version(
         raise HTTPException(status_code=404, detail=f"Version {version} not found")
 
     content_bytes = old_version["content_text"].encode("utf-8")
+    # Same order as update_document: the version-checked DB write first (a concurrent
+    # edit → 409 instead of being silently overwritten), the file only after it lands.
     try:
-        updated_metadata = file_manager.update_document_file(
+        updated = document_store.update_document_content(
+            document_id=document_id,
+            user_id=effective_user_id,
+            content_text=old_version["content_text"],
+            size_bytes=len(content_bytes),
+            sha256=hashlib.sha256(content_bytes).hexdigest(),
+            expected_version=existing.get("version"),
+            source="restore",
+        )
+    except WorkspaceVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document was modified elsewhere (now at version {exc.current_version}). Reload and retry.",
+        ) from exc
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to restore version")
+
+    try:
+        file_manager.update_document_file(
             user_id=effective_user_id,
             document_id=document_id,
             stored_path=existing["stored_path"],
@@ -758,16 +791,5 @@ async def restore_document_version(
         )
     except WorkspaceValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    updated = document_store.update_document_content(
-        document_id=document_id,
-        user_id=effective_user_id,
-        content_text=old_version["content_text"],
-        size_bytes=int(updated_metadata["size_bytes"]),
-        sha256=str(updated_metadata["sha256"]),
-        source="restore",
-    )
-    if not updated:
-        raise HTTPException(status_code=500, detail="Failed to restore version")
 
     return WorkspaceDocumentResponse(**{k: v for k, v in updated.items() if k in WorkspaceDocumentResponse.model_fields})

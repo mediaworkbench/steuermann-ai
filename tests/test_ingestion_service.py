@@ -720,3 +720,50 @@ class TestIngestionConfig:
             chunk_overlap=20,
         )
         assert config.chunk_overlap == 20
+
+
+@patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.parse")
+@patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.get_metadata")
+@patch("universal_agentic_framework.ingestion.validator.detect_langs")
+def test_reingest_embedding_failure_keeps_existing_chunks(
+    mock_detect_langs, mock_get_metadata, mock_parse, sample_config, mock_qdrant, mock_embedder, temp_dir
+):
+    """A failed re-embed must not have deleted the file's current chunks first."""
+    sample_config.enable_incremental = False
+    test_file = temp_dir / "doc.md"
+    test_file.write_text("# Doc\n\nContent")
+    mock_parse.return_value = "Content"
+    mock_get_metadata.return_value = {"title": "Doc"}
+    mock_lang = Mock(lang="en", prob=0.95)
+    mock_detect_langs.return_value = [mock_lang]
+
+    service = IngestionService(sample_config)
+    mock_qdrant.delete.reset_mock()
+    mock_embedder.encode.side_effect = RuntimeError("embedding provider unreachable")
+    with pytest.raises(RuntimeError):
+        service.ingest_file(test_file)
+
+    mock_qdrant.delete.assert_not_called()
+
+
+@patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.parse")
+@patch("universal_agentic_framework.ingestion.parsers.markdown.MarkdownParser.get_metadata")
+@patch("universal_agentic_framework.ingestion.validator.detect_langs")
+def test_stale_chunk_delete_runs_after_upsert(
+    mock_detect_langs, mock_get_metadata, mock_parse, sample_config, mock_qdrant, mock_embedder, temp_dir
+):
+    sample_config.enable_incremental = False
+    test_file = temp_dir / "doc.md"
+    test_file.write_text("# Doc\n\nContent")
+    mock_parse.return_value = "Content"
+    mock_get_metadata.return_value = {"title": "Doc"}
+    mock_detect_langs.return_value = [Mock(lang="en", prob=0.95)]
+
+    service = IngestionService(sample_config)
+    service.ingest_file(test_file)
+
+    names = [c[0] for c in mock_qdrant.method_calls if c[0] in ("upsert", "delete")]
+    assert names.index("upsert") < names.index("delete")
+    selector = mock_qdrant.delete.call_args.kwargs["points_selector"]
+    should = selector.filter.should
+    assert should[0].key == "chunk_index" and should[0].range.gte == 1

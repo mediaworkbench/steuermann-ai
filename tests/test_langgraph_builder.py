@@ -70,3 +70,12 @@ def test_langgraph_pipeline_runs_and_updates_memory():
     assert result.get("summary_text", "").startswith("LLM: ")
 
 
+
+
+def test_no_user_facts_sentinel_detection():
+    from universal_agentic_framework.orchestration.graph_builder import _is_no_facts_summary
+
+    for text in ("No user facts", "'No user facts.'", "no user facts present", "NO USER FACTS!"):
+        assert _is_no_facts_summary(text), text
+    for text in ("", "User has no pets", "User facts: likes tea", "No user facts mentioned except that they live in Berlin"):
+        assert not _is_no_facts_summary(text), text

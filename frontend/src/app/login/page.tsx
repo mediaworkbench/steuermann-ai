@@ -1,14 +1,8 @@
 import { LoginScreen } from "@/components/LoginScreen";
+import { sanitizeNextPath } from "@/lib/auth/safeRedirect";
 
 interface LoginPageProps {
   searchParams?: Promise<{ next?: string }>;
-}
-
-function sanitizeNextPath(path?: string): string {
-  if (!path || !path.startsWith("/") || path.startsWith("//")) {
-    return "/";
-  }
-  return path;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
