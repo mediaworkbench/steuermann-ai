@@ -503,85 +503,6 @@ heartbeat:
 
 ---
 
-## Agents Configuration (`agents.yaml`)
-
-### Crew Definition
-
-```yaml
-crews:
-  research_crew: # Unique crew identifier
-    enabled: true # Enable/disable crew
-    process: "sequential" # Options: sequential, hierarchical, consensus
-
-    agents:
-      researcher: # Agent role identifier
-        role: "Research Specialist"
-        goal: "Find accurate and relevant information"
-        backstory: "Expert researcher with 10 years experience in medical literature"
-        tools: # Tools this agent can use
-          - web_search
-          - pubmed_search
-        llm_override: null # Optional: use different LLM for this agent
-
-      synthesizer:
-        role: "Information Synthesizer"
-        goal: "Combine research into actionable insights"
-        backstory: "Skilled at distilling complex information into clear recommendations"
-        tools: []
-
-    max_iterations: 5 # Max iterations before terminating
-    timeout_seconds: 300 # Timeout for crew execution
-```
-
-**Process types:**
-
-**Sequential:**
-
-```yaml
-process: "sequential"
-# Agents execute tasks in order defined
-# Output of one feeds into next
-# Most predictable and debuggable
-```
-
-**Hierarchical:**
-
-```yaml
-process: "hierarchical"
-# Manager agent delegates to workers
-# Requires capable manager LLM
-# Best for complex workflows
-```
-
-**Consensus:**
-
-```yaml
-process: "consensus"
-# Multiple agents vote on decisions
-# Higher token cost
-# Best for critical decisions
-```
-
-### Agent Best Practices
-
-**Good role definitions:**
-
-```yaml
-role: "Medical Literature Researcher"
-goal: "Find peer-reviewed evidence for treatment options"
-backstory: "Clinical researcher with expertise in evidence-based medicine and systematic reviews"
-```
-
-**Avoid:**
-
-```yaml
-role: "Helper" # Too generic
-goal: "Help user" # Not specific enough
-backstory: "" # Missing context
-```
-
----
-
 ## Tools Configuration (`tools.yaml`)
 
 ### Tool Registration
@@ -614,7 +535,6 @@ tools:
 
 ```yaml
 # Core features
-multi_agent_crews: false # Enable CrewAI crews (globally disabled by default)
 long_term_memory: true   # Enable Mem0/Qdrant memory system
 ingestion_service: true  # Enable document ingestion service
 rag_retrieval: true      # Enable RAG retrieval in the graph
@@ -622,12 +542,6 @@ rag_retrieval: true      # Enable RAG retrieval in the graph
 # Memory retrieval tuning
 memory_include_related: true     # Fetch related memories via co-occurrence
 memory_top_k: 5                  # Number of primary memories to retrieve
-
-# Crew features (only relevant when multi_agent_crews: true)
-crew_result_caching: true
-crew_cache_ttl_seconds: 3600
-crew_chaining: false
-crew_parallel_execution: false
 
 # Memory layer emergency rollback switches
 memory_load_enabled: true           # Enable load_memory_node retrieval path

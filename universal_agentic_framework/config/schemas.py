@@ -540,49 +540,6 @@ class ProfileUIConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# Agents / Crews
-class AgentDefinition(BaseModel):
-    role: Optional[str] = None
-    goal: Optional[str] = None
-    backstory: Optional[str] = None
-    tools: Optional[List[str]] = None
-    llm_override: Optional[str] = None
-    model_config = ConfigDict(extra="allow")
-
-
-class CrewDefinition(BaseModel):
-    enabled: bool = True
-    process: Optional[str] = None
-    agents: Dict[str, AgentDefinition] = Field(default_factory=dict)
-    max_iterations: Optional[PositiveInt] = None
-    timeout_seconds: Optional[PositiveInt] = None
-    max_retries: Optional[PositiveInt] = 2
-    retry_backoff_base: Optional[confloat(ge=1.0)] = 2.0
-    model_config = ConfigDict(extra="allow")
-
-
-class CrewChainStep(BaseModel):
-    """One step in a crew chain pipeline."""
-    crew_name: str
-    input_key: str = "topic"
-    output_key: str = "result"
-    input_from: Optional[str] = None  # key from previous step's output
-    transform: Optional[str] = None   # optional transform function path
-
-
-class CrewChainDefinition(BaseModel):
-    """Declarative crew chain configuration."""
-    name: str
-    enabled: bool = True
-    steps: List[CrewChainStep] = Field(min_length=2)
-    fail_fast: bool = True
-
-
-class AgentsConfig(BaseModel):
-    crews: Dict[str, CrewDefinition] = Field(default_factory=dict)
-    crew_chains: List[CrewChainDefinition] = Field(default_factory=list)
-
-
 # Tools
 class ToolDefinition(BaseModel):
     name: str
@@ -611,16 +568,11 @@ class ToolsConfig(BaseModel):
 
 # Features
 class FeaturesConfig(BaseModel):
-    multi_agent_crews: bool = False
     long_term_memory: bool = False
     ingestion_service: bool = False
     rag_retrieval: bool = True
     authentication: bool = False
     monitoring: bool = False
-    crew_result_caching: bool = False
-    crew_cache_ttl_seconds: PositiveInt = 3600
-    crew_chaining: bool = False
-    crew_parallel_execution: bool = False
     
     # Memory layer emergency rollback switches (Phase 1.3)
     # Set these to false for emergency disable during development/debugging

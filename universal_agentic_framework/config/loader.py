@@ -10,7 +10,6 @@ from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Type,
 import yaml
 
 from .schemas import (
-    AgentsConfig,
     CoreConfig,
     FeaturesConfig,
     ProfileMetadata,
@@ -19,7 +18,7 @@ from .schemas import (
     PROFILE_ID_PATTERN,
 )
 
-T = TypeVar("T", CoreConfig, AgentsConfig, ToolsConfig, FeaturesConfig)
+T = TypeVar("T", CoreConfig, ToolsConfig, FeaturesConfig)
 _PROFILE_ID_RE = re.compile(PROFILE_ID_PATTERN)
 _DEFAULT_PROFILES_DIR = Path("config/profiles")
 _LEGACY_PROFILES_DIR = Path("profiles")
@@ -155,15 +154,6 @@ def _merge_config_data(filename: str, base_data: Dict[str, Any], override_data: 
         merged["tools"] = _merge_named_list(base_data.get("tools", []), override_data.get("tools", []), key="name")
         return merged
 
-    if filename == "agents.yaml":
-        _deep_merge(merged, {k: v for k, v in override_data.items() if k != "crew_chains"})
-        merged["crew_chains"] = _merge_named_list(
-            base_data.get("crew_chains", []),
-            override_data.get("crew_chains", []),
-            key="name",
-        )
-        return merged
-
     _deep_merge(merged, override_data)
     return merged
 
@@ -212,7 +202,7 @@ def _merge_prompt_languages(
 # determine the result. The expensive work (8+ YAML file reads, deep merges, env
 # substitution, prompt-file loading) runs once per key; model_validate still runs on
 # every call so each caller gets a FRESH, independently-mutable model instance — some
-# call sites (and the test suite's crew-disable fixture) mutate the returned config.
+# call sites mutate the returned config.
 # Only the default os.environ path is cached; an explicit `env=` (tests exercising env
 # behavior) always rebuilds. PROFILE_ID and config files are fixed for a process, so a
 # long-lived cache is correct; clear_config_cache() exists for tests and reloads.
@@ -341,15 +331,6 @@ def load_core_config(
     profiles_dir: Path | str = _DEFAULT_PROFILES_DIR,
 ) -> CoreConfig:
     return _load_config(CoreConfig, "core.yaml", Path(config_dir), Path(base_dir) if base_dir else None, env, profiles_dir)
-
-
-def load_agents_config(
-    config_dir: Path | str = Path("config"),
-    base_dir: Optional[Path | str] = None,
-    env: Optional[Mapping[str, str]] = None,
-    profiles_dir: Path | str = _DEFAULT_PROFILES_DIR,
-) -> AgentsConfig:
-    return _load_config(AgentsConfig, "agents.yaml", Path(config_dir), Path(base_dir) if base_dir else None, env, profiles_dir)
 
 
 def load_tools_config(

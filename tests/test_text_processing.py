@@ -240,12 +240,12 @@ class TestCsvAnalysisIntentDetection:
         assert "mentions_csv_analysis" in result
 
 
-def test_latest_user_message_skips_trailing_crew_output():
+def test_latest_user_message_skips_trailing_assistant_output():
     from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
 
     messages = [
         {"role": "user", "content": "compare solar vs wind"},
-        {"role": "assistant", "content": "Research findings: ..."},  # crew node output
+        {"role": "assistant", "content": "Solar is ..."},
     ]
     assert latest_user_message(messages) == "compare solar vs wind"
     assert latest_user_message([]) == ""

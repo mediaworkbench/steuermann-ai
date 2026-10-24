@@ -307,8 +307,8 @@ def build_workspace_tool_paths(workspace_documents: List[Dict[str, Any]]) -> str
 def latest_user_message(messages: Optional[List[Dict[str, Any]]]) -> str:
     """Content of the most recent *user* message.
 
-    Not ``messages[-1]``: crew nodes append their assistant output before RAG,
-    memory and caching run, so the last message is not always the user's query.
+    Not ``messages[-1]``: the post-response nodes (summarize, update_memory) run after
+    the respond node has appended the assistant answer, so scan back for the user turn.
     """
     for msg in reversed(messages or []):
         if isinstance(msg, dict) and msg.get("role") == "user":

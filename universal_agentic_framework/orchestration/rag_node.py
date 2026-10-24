@@ -1,7 +1,7 @@
 """LangGraph node for RAG knowledge retrieval.
 
 Extracts node_retrieve_knowledge from graph_builder.py following the same
-pattern as crew_nodes.py and performance_nodes.py.
+pattern as performance_nodes.py.
 """
 
 from __future__ import annotations

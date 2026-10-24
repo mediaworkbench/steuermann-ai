@@ -16,10 +16,10 @@ One codebase, many deployments. Each domain deployment — medical, financial, o
 
 ## Why Steuermann?
 
-- **One runtime, any domain.** Profile overlays customize LLM providers, prompts, tools, crews, memory configuration, and UI branding per deployment — no forks, no rewrites.
+- **One runtime, any domain.** Profile overlays customize LLM providers, prompts, tools, memory configuration, and UI branding per deployment — no forks, no rewrites.
 - **Your infrastructure, your data.** Designed on-prem-first with profile-owned provider configuration for LM Studio, Ollama, OpenRouter, and other OpenAI-compatible endpoints. No data leaves your network unless you explicitly configure an external provider.
 - **Not just a library — a complete application.** Ships with a frontend (chat, settings, metrics, analytics), a FastAPI backend, and Docker Compose orchestration. `docker compose up` gives you a working AI system.
-- **Graph-owned control flow.** LangGraph is the single source of truth for execution. CrewAI crews are invoked as graph nodes — workers that return structured results, never orchestrators.
+- **Graph-owned control flow.** LangGraph is the single source of truth for execution — every step (tool selection, memory, retrieval, response) is an explicit graph node.
 - **Memory that matters.** Persistent semantic memory with importance scoring, co-occurrence linking, and user feedback — not just a vector store.
 
 ---
@@ -39,7 +39,7 @@ One codebase, many deployments. Each domain deployment — medical, financial, o
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
 │  LangGraph Orchestrator (Port 8000, internal)               │
-│  Graph Execution · Tool Routing · Memory · RAG · Crews      │
+│  Graph Execution · Tool Routing · Memory · RAG              │
 └────┬─────────┬───────────┬───────────┬──────────────────────┘
      │         │           │           │
   Qdrant   PostgreSQL   Redis      External LLM Provider(s)
@@ -64,13 +64,13 @@ By default only the frontend (3000) and FastAPI (8001) are bound to the host. In
 
 ### Deployment Profiles
 
-Profiles are the architectural core of Steuermann — the mechanism that makes one codebase serve unlimited deployment scenarios. Each domain deployment is a self-contained YAML overlay that customizes LLM providers, prompts, tools, memory settings, crews, UI branding, and feature flags without touching the runtime. Activate a profile by setting `PROFILE_ID` in `.env`; no rebuild needed for config-only changes.
+Profiles are the architectural core of Steuermann — the mechanism that makes one codebase serve unlimited deployment scenarios. Each domain deployment is a self-contained YAML overlay that customizes LLM providers, prompts, tools, memory settings, UI branding, and feature flags without touching the runtime. Activate a profile by setting `PROFILE_ID` in `.env`; no rebuild needed for config-only changes.
 
 See [docs/profile_creation.md](docs/profile_creation.md) for a step-by-step guide.
 
 ### Graph-Orchestrated Execution
 
-LangGraph owns the full execution graph — it decides what runs, in what order, and with what state. CrewAI crews (Research, Analytics, Code Generation, Planning) are invoked as graph nodes: workers that return structured results, never orchestrators. Crews are disabled by default and can be enabled per profile.
+LangGraph owns the full execution graph — it decides what runs, in what order, and with what state. Tool selection, memory load/update, knowledge retrieval, and response generation are explicit graph nodes.
 
 See [docs/technical_architecture.md](docs/technical_architecture.md) for the full graph execution flow.
 
@@ -115,7 +115,7 @@ Authentication is DB-backed with three built-in roles: **user** (chat, own data,
 
 ### Performance & Reliability
 
-Multi-layer Redis caching covers LLM responses, memory queries, and crew results — with graceful in-memory fallback. Conversations are automatically summarized as they grow to keep token usage bounded. Circuit breakers and per-user rate limiting protect downstream services.
+Multi-layer Redis caching covers LLM responses, memory queries, and conversation summaries — with graceful in-memory fallback. Conversations are automatically summarized as they grow to keep token usage bounded. Circuit breakers and per-user rate limiting protect downstream services.
 
 See [docs/performance_optimization.md](docs/performance_optimization.md) for tuning guidance.
 
@@ -295,7 +295,6 @@ config/
         ├── profile.yaml   # Profile metadata (top-level `profile:` key)
         ├── core.yaml      # LLM roles, embeddings, memory, RAG, tokens, ingestion
         ├── features.yaml  # Feature flag overrides
-        ├── agents.yaml    # CrewAI crew and agent definitions
         ├── tools.yaml     # Tool registration and routing
         ├── ui.yaml        # Branding and theme
         └── prompts/
@@ -303,7 +302,7 @@ config/
             └── de.yaml    # German system prompts
 ```
 
-Everything except base infra lives in the profile overlay — `agents.yaml`, `tools.yaml`, and per-language `prompts/` exist **only** under `config/profiles/<profile_id>/`, not at the base level.
+Everything except base infra lives in the profile overlay — `tools.yaml` and per-language `prompts/` exist **only** under `config/profiles/<profile_id>/`, not at the base level.
 
 Activate a profile by setting `PROFILE_ID` in `.env`. See [docs/configuration.md](docs/configuration.md) for the full schema reference.
 
@@ -338,7 +337,6 @@ See [docs/cli.md](docs/cli.md) for the full command reference.
 | [docs/tools.md](docs/tools.md) | Built-in tool catalog: 11 tools across utility, vision, and image library categories |
 | [docs/profile_creation.md](docs/profile_creation.md) | Step-by-step guide to creating domain profiles |
 | [docs/tool_development_guide.md](docs/tool_development_guide.md) | Building custom tools and MCP integrations |
-| [docs/crewai_extension_guide.md](docs/crewai_extension_guide.md) | Adding new CrewAI crews |
 | [docs/ingestion.md](docs/ingestion.md) | RAG ingestion pipeline reference |
 | [docs/monitoring.md](docs/monitoring.md) | Prometheus metrics and dashboard guide |
 | [docs/performance_optimization.md](docs/performance_optimization.md) | Caching, token budgets, and conversation compression |
@@ -351,7 +349,6 @@ See [docs/cli.md](docs/cli.md) for the full command reference.
 | Layer | Technology | Purpose |
 | --- | --- | --- |
 | Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
-| Multi-Agent | [CrewAI](https://github.com/joaomdmoura/crewAI) ≥1.14 | Role-based collaborative agent reasoning |
 | LLM Integration | LangChain ≥1.2 + LiteLLM router | Unified LLM interface via LiteLLM router |
 | Backend | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135 | REST API, auth, metrics proxy |
 | Frontend | [Next.js](https://nextjs.org/) ≥16 + React 19 | Production UI with App Router |

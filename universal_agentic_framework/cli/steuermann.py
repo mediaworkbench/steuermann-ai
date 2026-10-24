@@ -27,7 +27,6 @@ from universal_agentic_framework.config.loader import (
 from universal_agentic_framework.config import (
     get_active_profile_id,
     get_profile_dir,
-    load_agents_config,
     load_core_config,
     load_features_config,
     load_profile_metadata,
@@ -39,7 +38,6 @@ PROFILE_REQUIRED_FILES = [
     "profile.yaml",
     "core.yaml",
     "features.yaml",
-    "agents.yaml",
     "tools.yaml",
     "ui.yaml",
 ]
@@ -47,7 +45,6 @@ CONFIG_SECTION_FILES = {
     "core": "core.yaml",
     "features": "features.yaml",
     "tools": "tools.yaml",
-    "agents": "agents.yaml",
 }
 DOCS_CONFORMANCE_FILES = [
     Path("README.md"),
@@ -66,7 +63,6 @@ EXPECTED_SECTION_MUTABILITY = {
     "core": "partial",
     "features": "partial",
     "tools": "full",
-    "agents": "full",
 }
 EXPECTED_SEVERITY_POLICY = {
     "blocking": "error",
@@ -267,7 +263,6 @@ def _load_effective_configs(profile_id: str | None = None) -> dict[str, Any]:
     core = load_core_config(env=env)
     features = load_features_config(env=env)
     tools = load_tools_config(env=env)
-    agents = load_agents_config(env=env)
 
     resolved_profile = get_active_profile_id(env)
     payload: dict[str, Any] = {
@@ -275,7 +270,6 @@ def _load_effective_configs(profile_id: str | None = None) -> dict[str, Any]:
         "core": _model_to_dict(core),
         "features": _model_to_dict(features),
         "tools": _model_to_dict(tools),
-        "agents": _model_to_dict(agents),
     }
 
     if resolved_profile != "base":
@@ -1542,7 +1536,7 @@ def create_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--profile", help="Override PROFILE_ID for this command")
     show_parser.add_argument(
         "--section",
-        choices=["core", "features", "tools", "agents", "ui", "profile_metadata"],
+        choices=["core", "features", "tools", "ui", "profile_metadata"],
         help="Optional section filter",
     )
     _add_common_format_arg(show_parser)

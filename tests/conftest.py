@@ -224,21 +224,3 @@ def _disable_checkpointer_for_tests(monkeypatch):
         )
     except (ImportError, ModuleNotFoundError):
         pass  # langgraph not available in this environment (e.g. ingestion container)
-
-
-@pytest.fixture(autouse=True)
-def _disable_crews_for_tests(monkeypatch):
-    """Disable multi-agent crews during tests to prevent real LLM initialization."""
-    try:
-        from universal_agentic_framework.orchestration import crew_nodes
-    except (ImportError, ModuleNotFoundError):
-        return  # orchestration deps not available in this environment (e.g. ingestion container)
-    original_load = crew_nodes.load_features_config
-    
-    def mock_load_features(*args, **kwargs):
-        cfg = original_load(*args, **kwargs)
-        # Disable multi_agent_crews in the config
-        cfg.multi_agent_crews = False
-        return cfg
-    
-    monkeypatch.setattr(crew_nodes, "load_features_config", mock_load_features)

@@ -92,7 +92,6 @@ This document defines the technical architecture for the Steuermann - a domain-a
 ### **2.2 Technology Stack Summary**
 
 - Orchestration: LangGraph (`>=1.1.0`) - Workflow engine (containerized)
-- Multi-Agent: CrewAI (`>=1.14.0`) - Collaborative reasoning
 - LLM Integration: LangChain + langchain-litellm (`>=1.2.0 / 0.6.4`) - Unified LLM interface via LiteLLM router
 - Adapter: FastAPI (`>=0.135.0`) - Settings/auth/metrics API
 - Frontend: Next.js + React (`>=16.0 + React 19`) - Modern chat and settings UI
@@ -124,7 +123,6 @@ steuermann-ai/
 ├── pyproject.toml
 ├── config/
 │   ├── core.yaml
-│   ├── agents.yaml
 │   ├── features.yaml
 │   ├── tools.yaml
 │   ├── prompts/
@@ -132,7 +130,6 @@ steuermann-ai/
 │       └── <profile_id>/
 │           ├── profile.yaml
 │           ├── core.yaml
-│           ├── agents.yaml
 │           ├── features.yaml
 │           ├── tools.yaml
 │           ├── ui.yaml
@@ -155,7 +152,7 @@ steuermann-ai/
 
 ## **4. LangGraph Execution Architecture**
 
-**Status note:** This section mixes implemented behavior with advanced or experimental extension paths. LangGraph orchestration, semantic tool routing, RAG retrieval, checkpointing, and frontend-backed operations are active in the current stack. Crew customization remains an advanced area and should not be treated as the default deployment path.
+**Status note:** This section mixes implemented behavior with advanced or experimental extension paths. LangGraph orchestration, semantic tool routing, RAG retrieval, checkpointing, and frontend-backed operations are active in the current stack.
 
 ### **4.1 Deployment Mode**
 
@@ -213,9 +210,6 @@ class GraphState(TypedDict, total=False):
     tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name → structured execution envelope
     routing_metadata: Dict[str, str]            # Tool name → reason for selection
 
-    # Crews
-    crew_results: Dict[str, Any]  # Multi-agent crew execution results
-
     # Tokens / metrics
     tokens_used: int
     turn_tokens_used: int    # Current invocation token usage for per-turn budgeting
@@ -254,10 +248,6 @@ User Request (Next.js)
   ├──> Initialize GraphState
   ├──> Execute graph nodes
   │    │
-  │    ├──> [_route_start] START conditional edge
-  │    │    ├──> crews (direct dispatch — bypass tool nodes entirely)
-  │    │    └──> load_tools (normal path)
-  │    │
   │    ├──> load_tools
   │    │    └──> Load all available tools from registry
   │    │
@@ -277,8 +267,7 @@ User Request (Next.js)
   │    │    └──> no_tools              (0 candidates → skip Layer 2)
   │    │    Each Layer 2 node includes LAYER 3 — schema validation + retry
   │    │
-  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here;
-  │    │    crew nodes dispatched at START also rejoin the flow at load_memory)
+  │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here)
   │    │
   │    ├──> load_memory
   │    ├──> load_procedural   (active learned rules; no-op unless procedural_overrides_enabled)
@@ -461,11 +450,11 @@ The provider also owns the **single-slot follow-up queue** (`queuedMessage` / `e
 
 ### **4.6 Async Execution Reliability**
 
-Runtime helper paths for performance/cache and crew result caching execute async operations even when an event loop is already active.
+Runtime helper paths for performance/cache execute async operations even when an event loop is already active.
 
 - Previous behavior in these helpers could skip operations in loop-active contexts.
 - Current behavior executes coroutines in worker-thread event loops when required.
-- Result: cache/compression and crew-cache paths are no longer silent no-ops under async server execution contexts.
+- Result: cache/compression paths are no longer silent no-ops under async server execution contexts.
 
 ---
 
@@ -517,17 +506,9 @@ shared (collection locked to profile config); the RAG explorer is researcher + a
 
 ---
 
-## **5. Multi-Agent Layer: CrewAI Integration**
+## **5. Multi-Step Workflows**
 
-**Status:** Fully implemented (4 crews: Research, Analytics, Code Gen, Planning). Disabled by default via `multi_agent_crews: false` in `config/features.yaml`.
-
-CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by graph nodes, not orchestrators. Each crew returns structured output merged back into `GraphState["crew_results"]`.
-
-**Process types:** Sequential (default, predictable), Hierarchical (manager delegates), Consensus (multi-agent voting).
-
-**Configuration:** `config/profiles/<id>/agents.yaml` defines crew agents, roles, tools, and process types.
-
-→ **Full guide:** [CrewAI Extension Guide](crewai_extension_guide.md)
+Steuermann runs a single LangGraph orchestrator; there is no separate multi-agent framework. Multi-step or delegated work (for example plan → parallel search → synthesize) belongs in LangGraph itself — as nodes or subgraphs, with the `Send` API for parallel fan-out — so it inherits role-based tool permissions, Inspector `node_state` tracing, streaming, checkpointing, and circuit breakers.
 
 ---
 
@@ -611,7 +592,7 @@ Critical verification expectation:
 
 ### 6.6 Cognitive Memory & Dreaming Engine (optional, flagged off)
 
-An opt-in layer (`plan-memory.md`) that upgrades flat memory into a **4-tier, self-evolving** store — applied to the **chat orchestrator only** (CrewAI crews remain stateless workers). It is gated by three `features.yaml` flags (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled`), all off by default except in the `starter` profile. It extends the existing Mem0 + Qdrant + heartbeat rather than replacing them, going *under* Mem0 to Qdrant directly only where the engine needs raw vectors.
+An opt-in layer (`plan-memory.md`) that upgrades flat memory into a **4-tier, self-evolving** store — applied to the **chat orchestrator**. It is gated by three `features.yaml` flags (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled`), all off by default except in the `starter` profile. It extends the existing Mem0 + Qdrant + heartbeat rather than replacing them, going *under* Mem0 to Qdrant directly only where the engine needs raw vectors.
 
 Tiers map to storage as follows:
 
@@ -842,11 +823,10 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - `ChatLiteLLM` — single model calls; provider detected from model string prefix (`openai/`)
 - `ChatLiteLLMRouter` wrapping `litellm.Router` — primary→fallback routing with `num_retries=3`; `get_router_model()` in `graph_builder.py` uses this path
 - LiteLLM handles provider detection, streaming normalization, retries, and tool format translation
-- The framework retains all orchestration logic (graph, routing, memory, RAG, crews)
+- The framework retains all orchestration logic (graph, routing, memory, RAG)
 - **`api_base` / `api_key` construction rule**: must be passed as top-level `ChatLiteLLM` constructor kwargs. Placing them only in `model_kwargs` causes `AuthenticationError`.
-- **CrewAI tool adapter**: `base.py::_get_tools_for_agent` wraps all `langchain_core.tools.BaseTool` subclasses (including `DateTimeTool`, `MCPServerTool`, etc.) into CrewAI-compatible adapters automatically.
 - **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
-- **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt; Research Crew Searcher task receives `current_date` / `current_year` as kickoff inputs.
+- **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt.
 
 → **Implementation details:** [Tool Development Guide](tool_development_guide.md)
 
@@ -903,7 +883,6 @@ The heartbeat is a *virtual cron* — the foundation for proactive agent behavio
 | Embeddings | OpenAI-compatible endpoint | Keeps runtime and ingestion aligned on a single remote interface |
 | Frontend | Next.js + FastAPI | Modern React stack, production-ready |
 | Monitoring | Prometheus | Simple, proven metrics and alerting |
-| Multi-Agent | CrewAI as advanced extension path | Available, but not the baseline deployment requirement |
 | Tool Discovery | Hybrid | Core auto, profile explicit |
 | Ingestion | Optional built-in module | Complete solution, can be disabled |
 | Language | Primary profile language with optional UI language list | Balances quality with multilingual support |
@@ -982,7 +961,6 @@ This architecture covers:
 | Template | Base universal framework maintained in this repository |
 | Graph | LangGraph workflow definition |
 | Node | Single step in a graph execution |
-| Crew | Multi-agent CrewAI team for collaborative reasoning |
 | Checkpoint | Saved graph state for resumability |
 | Collection | Qdrant vector store namespace |
 | Plugin | Tool or MCP server registered with the framework |

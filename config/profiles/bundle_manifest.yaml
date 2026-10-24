@@ -12,7 +12,6 @@ required_files:
 - profile.yaml
 - core.yaml
 - features.yaml
-- agents.yaml
 - tools.yaml
 - ui.yaml
 - prompts/

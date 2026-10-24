@@ -391,7 +391,6 @@ Configuration uses hierarchical loading: **Base → Profile Overlay → Environm
 
 - `config/core.yaml` — deployment-global defaults (database, memory, checkpointing)
 - `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, router policy, RAG, token budgets, ingestion
-- `config/profiles/<id>/agents.yaml` — CrewAI crew definitions
 - `config/profiles/<id>/tools.yaml` — Tool enable/disable and overrides
 - `config/features.yaml` — Feature flags with dependency validation
 
@@ -610,7 +609,7 @@ Use a repository-first upgrade flow:
 
 Focus on these surfaces after an upgrade:
 
-- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, `config/profiles/<id>/tools.yaml`, and `config/profiles/<id>/agents.yaml`
+- Configuration keys in `config/profiles/<profile_id>/core.yaml`, `config/features.yaml`, and `config/profiles/<id>/tools.yaml`
 - Prompt override file layout under `config/profiles/<id>/prompts/` and `config/profiles/<profile_id>/prompts/`
 - Profile metadata surfaced through the FastAPI and chat metadata contracts
 - Monitoring dashboards and metrics label expectations

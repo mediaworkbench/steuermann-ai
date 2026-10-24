@@ -84,7 +84,6 @@ def sample_state(sample_probe_results) -> GraphState:
         "user_settings": {},
         "tokens_used": 0,
         "loaded_memory": None,
-        "crew_results": {},
         "tool_results": {},
         "tool_execution_results": {},
         "routing_metadata": {},

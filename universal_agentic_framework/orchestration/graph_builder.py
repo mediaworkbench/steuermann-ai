@@ -71,15 +71,6 @@ from universal_agentic_framework.orchestration.performance_nodes import (
     cache_stats_node,
     get_summarizer,
 )
-from universal_agentic_framework.orchestration.crew_nodes import (
-    node_research_crew,
-    node_analytics_crew,
-    node_code_generation_crew,
-    node_planning_crew,
-    node_crew_chain,
-    node_crew_parallel,
-    CREW_SPECS,
-)
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 from universal_agentic_framework.orchestration.respond.text_cleanup import (
@@ -91,7 +82,6 @@ from universal_agentic_framework.orchestration.respond.prompt_builder import (
     build_tool_results_block,
     select_synthesis_instruction,
     build_memory_context_block,
-    build_crew_findings_block,
 )
 from universal_agentic_framework.orchestration.respond.guardrails import (
     retry_synthesis_if_empty,
@@ -148,17 +138,6 @@ from universal_agentic_framework.orchestration.helpers import (
 logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
-
-# Prefixes the crew nodes use when appending their results as assistant messages.
-# node_generate_response filters these out of the LLM message history and injects them as
-# system-level FINDINGS instead — keeping a crew result as a prior assistant turn makes the
-# model treat it as its own answer and only add a short follow-up. Derived from CREW_SPECS so
-# the append-prefix (crew_nodes) and the filter-prefix (here) can never drift apart again
-# (the old W1.1 bug). Matched via str.startswith; "Chain Result (" — produced by
-# node_crew_chain, which has no CrewSpec — is appended manually and covers every chain name.
-_CREW_RESULT_PREFIXES = tuple(
-    spec.message_prefix for spec in CREW_SPECS.values()
-) + ("Chain Result (",)
 
 # Cache of discovered tool lists (ToolRegistry.discover_and_load scans the filesystem and
 # parses every tool manifest, which is wasteful to repeat per turn). Keyed on the inputs
@@ -225,7 +204,7 @@ _TRIVIAL_MEMORY_PATTERNS = frozenset({
 })
 
 
-_latest_user_message = latest_user_message  # shared helper (crew output can be messages[-1])
+_latest_user_message = latest_user_message  # shared helper
 
 
 # Recent-turn window passed to the tool-calling nodes so they can resolve referential
@@ -241,9 +220,9 @@ _TOOL_HISTORY_MAX_CHARS_PER_MSG = 1500
 def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any]:
     """Recent prior user/assistant turns as LangChain messages for tool-arg resolution.
 
-    Excludes the latest message (the current turn — the caller appends it separately),
-    compression summaries, and crew-result assistant turns (already folded into the system
-    prompt by the respond node). Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
+    Excludes the latest message (the current turn — the caller appends it separately)
+    and compression summaries (already folded into the system prompt by the respond node).
+    Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
     """
     from langchain_core.messages import HumanMessage, AIMessage
 
@@ -256,8 +235,6 @@ def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any
         role = msg.get("role", "user")
         content = str(msg.get("content") or "").strip()
         if not content:
-            continue
-        if role == "assistant" and any(content.startswith(p) for p in _CREW_RESULT_PREFIXES):
             continue
         content = content[:_TOOL_HISTORY_MAX_CHARS_PER_MSG]
         if role == "user":
@@ -343,7 +320,6 @@ class GraphState(TypedDict, total=False):
     tool_results: Dict[str, str]  # Tool name -> execution result
     tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name -> structured execution envelope
     routing_metadata: Dict[str, str]  # Tool name -> reason for selection
-    crew_results: Dict[str, Any]  # Multi-agent crew execution results
     tokens_used: int
     turn_tokens_used: int  # Current invocation token usage for per-turn budgeting
     input_tokens: int  # Input tokens count (cumulative across the conversation)
@@ -1471,7 +1447,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
-    # Find the last user-role message so crew-appended assistant messages don't pollute user_msg.
+    # Find the last user-role message.
     user_msg = ""
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, dict) and msg.get("role") == "user":
@@ -1694,22 +1670,6 @@ def node_generate_response(state: GraphState) -> GraphState:
             f"{sources_instruction}"
         )
 
-    # Add crew results as system-level context so the LLM synthesizes a fresh response
-    # (crew results must NOT appear as prior assistant turns — that causes the model to
-    # just add a short follow-up instead of producing a full answer).
-    _crew_result_prefixes = _CREW_RESULT_PREFIXES
-    crew_results = state.get("crew_results", {})
-    _crew_block = build_crew_findings_block(crew_results)
-    if _crew_block:
-        system_prompt += _crew_block
-        logger.info(
-            "Crew results injected into context",
-            crew_count=sum(
-                1 for c in crew_results.values()
-                if isinstance(c, dict) and c.get("success") and c.get("result")
-            ),
-        )
-
     workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
     # Key off the document the adapter actually selected for writeback (exactly one
@@ -1762,17 +1722,11 @@ def node_generate_response(state: GraphState) -> GraphState:
     messages = [SystemMessage(content=system_prompt)]
 
     # Add full conversation history (all previous user and assistant messages).
-    # Skip crew-appended assistant messages — their content is already injected into
-    # the system prompt as FINDINGS context above.  Keeping them as AIMessage turns
-    # causes the model to treat the crew output as its own prior answer and only add
-    # a short follow-up instead of synthesising a full response.
     for msg in all_msgs:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if msg.get("type") == "summary":
             continue  # already folded into the system prompt above
-        if role == "assistant" and any(content.startswith(p) for p in _crew_result_prefixes):
-            continue  # already in system prompt as FINDINGS context
         if role == "user":
             messages.append(HumanMessage(content=content))
         elif role == "assistant":
@@ -2254,7 +2208,7 @@ def build_graph() -> StateGraph:
     Layer 2: Model-driven tool calling (native | structured | react per provider config)
     Layer 3: Output validation + retry (built into Layer 2 nodes)
 
-    Plus: crew routing, memory, RAG retrieval, response generation, summarization.
+    Plus: memory, RAG retrieval, response generation, summarization.
     """
     # Initialize performance infrastructure
     try:
@@ -2277,12 +2231,6 @@ def build_graph() -> StateGraph:
     graph.add_node("call_tools_structured", node_call_tools_structured)  # Layer 2 structured
     graph.add_node("call_tools_react", node_call_tools_react)  # Layer 2 react
     graph.add_node("after_tool_call", _after_tool_call)  # Convergence point
-    graph.add_node("research_crew", node_research_crew)
-    graph.add_node("analytics_crew", node_analytics_crew)
-    graph.add_node("code_generation_crew", node_code_generation_crew)
-    graph.add_node("planning_crew", node_planning_crew)
-    graph.add_node("crew_chain", node_crew_chain)
-    graph.add_node("crew_parallel", node_crew_parallel)
     graph.add_node("load_memory", node_load_memory)
     graph.add_node("load_procedural", node_load_procedural)
     graph.add_node("retrieve_knowledge", node_retrieve_knowledge)
@@ -2297,38 +2245,7 @@ def build_graph() -> StateGraph:
     graph.add_node("cache_stats", cache_stats_node)
 
     # --- Execution flow ---
-    # Crew routing happens first — before tools load — so crew-destined queries skip
-    # the tool pipeline entirely and go directly to the crew node.
-    from universal_agentic_framework.orchestration.crew_nodes import (
-        route_to_research_crew,
-        route_to_analytics_crew,
-        route_to_code_generation_crew,
-        route_to_planning_crew,
-    )
-
-    def _route_start(state):
-        """Route at START: crew queries bypass tool execution."""
-        if route_to_research_crew(state):
-            return "research_crew"
-        elif route_to_analytics_crew(state):
-            return "analytics_crew"
-        elif route_to_code_generation_crew(state):
-            return "code_generation_crew"
-        elif route_to_planning_crew(state):
-            return "planning_crew"
-        return "load_tools"
-
-    graph.add_conditional_edges(
-        START,
-        _route_start,
-        {
-            "research_crew": "research_crew",
-            "analytics_crew": "analytics_crew",
-            "code_generation_crew": "code_generation_crew",
-            "planning_crew": "planning_crew",
-            "load_tools": "load_tools",
-        },
-    )
+    graph.add_edge(START, "load_tools")
     graph.add_edge("load_tools", "prefilter_tools")
 
     # Layer 2: Route to appropriate tool-calling strategy based on prefilter results
@@ -2379,22 +2296,11 @@ def build_graph() -> StateGraph:
     graph.add_edge("call_tools_structured", "after_tool_call")
     graph.add_edge("call_tools_react", "after_tool_call")
 
-    # after_tool_call always proceeds to memory. Crew queries are routed to their crew at
-    # START (bypassing tools entirely), so a query only reaches after_tool_call when no crew
-    # matched there; tool nodes don't change messages[-1], so re-running the crew routers here
-    # would always return "no crew" (W1.7: removed that dead conditional re-check).
+    # after_tool_call always proceeds to memory.
     # (The former memory_query_cache / memory_cache_store nodes were removed: a hit
     # was always overwritten by load_memory, and honouring it would have served
     # memories up to an hour stale and skipped cognitive access tracking.)
     graph.add_edge("after_tool_call", "load_memory")
-
-    # All crews flow to memory for further processing
-    graph.add_edge("research_crew", "load_memory")
-    graph.add_edge("analytics_crew", "load_memory")
-    graph.add_edge("code_generation_crew", "load_memory")
-    graph.add_edge("planning_crew", "load_memory")
-    graph.add_edge("crew_chain", "load_memory")
-    graph.add_edge("crew_parallel", "load_memory")
 
     graph.add_edge("load_memory", "load_procedural")
     graph.add_edge("load_procedural", "retrieve_knowledge")

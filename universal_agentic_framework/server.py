@@ -123,7 +123,7 @@ def _per_turn_reset() -> Dict[str, Any]:
     With the Postgres checkpointer, any GraphState channel NOT present in the input
     retains its previous turn's value. These are all strictly per-turn outputs, so a
     stale value leaks into the next turn (e.g. a cached ``query_embedding`` from the
-    previous question getting reused for RAG, or a prior turn's ``crew_results`` being
+    previous question getting reused for RAG, or a prior turn's ``tool_results`` being
     re-injected into every later prompt). Returning a fresh dict each call avoids
     sharing mutable objects across concurrent requests.
 
@@ -140,7 +140,6 @@ def _per_turn_reset() -> Dict[str, Any]:
         "tool_results": {},
         "tool_execution_results": {},
         "routing_metadata": {},
-        "crew_results": {},
         "knowledge_context": [],
         "rag_attempted": False,
         "rag_doc_count": 0,

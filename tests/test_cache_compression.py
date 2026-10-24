@@ -26,7 +26,6 @@ def cache_manager_with_compression():
     backend = MemoryCacheBackend()
     return CacheManager(
         backend=backend,
-        use_vector_db=False,
         enable_compression=True,
         compression_threshold_kb=1  # 1KB threshold
     )
@@ -249,7 +248,6 @@ async def test_cache_manager_no_compression():
     backend = MemoryCacheBackend()
     manager = CacheManager(
         backend=backend,
-        use_vector_db=False,
         enable_compression=False
     )
     

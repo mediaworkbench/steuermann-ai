@@ -4,7 +4,6 @@ import pytest
 
 from universal_agentic_framework.config import (
     get_active_profile_id,
-    load_agents_config,
     load_core_config,
     load_features_config,
     load_profile_metadata,
