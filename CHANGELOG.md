@@ -2,6 +2,17 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- fix: streamed answers now match what the model's history holds — the error message when the model provider fails mid-chat (previously a blank answer), filtered untrusted links, and retried answers now show up live and after reload.
+- fix: a server-side failure mid-reply no longer saves the partial answer into a workspace document, and the turn is kept marked as interrupted instead of as a finished answer.
+- fix: the chat circuit breaker can no longer get stuck rejecting every message after its recovery probe was stopped or answered with a client error.
+- fix: background work after each reply (memory update, history compression, trace write-back) can no longer be dropped by the server's garbage collector.
+- security: the web proxy no longer forwards client-supplied login rate-limit headers, which let a signed-in user bypass the login brute-force limits.
+- security: vision tools only fetch images from public addresses (each redirect re-checked) and stop downloading at the size limit, so a URL can no longer reach internal services or exhaust memory.
+- security: tools that open local files only accept files attached to the current conversation, so they can no longer read another user's uploads.
+- security: removed the model-facing `file_ops_tool` — it was meant to be disabled, but came back when tools stopped having an on/off flag; it could read and overwrite the app's own source and config, shared by all users. Workspace documents cover the use case.
+- improvement: preferred-model validation caches the provider's model list for a minute instead of querying it on every message.
+- fix: a reasoning model's inline thinking is no longer kept in the chat history sent back to the model (or fed into memory), and a reply that comes back empty or as thinking only now gets the retry/fallback instead of a blank answer.
+- fix: a tool entry that still carries the removed `enabled` flag is now rejected with a clear error instead of silently loading the tool.
 - improvement: removed the memory-cache graph steps, which never took effect (memory was always re-queried); cache keys now use the full prompt/query, so long prompts sharing a prefix no longer collide.
 - fix: the Redis cache keeps a separate connection per event loop, so crew cache calls no longer break or leak the main connection; a user can no longer be "dreamed" twice back to back.
 - fix: restoring a document version now detects concurrent edits like a normal save, text downloads always match the saved version, re-attaching a document no longer duplicates it, and deleting a conversation removes its workspace files.

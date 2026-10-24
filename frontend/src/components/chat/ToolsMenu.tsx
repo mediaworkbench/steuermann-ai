@@ -19,7 +19,6 @@ const FALLBACK_TOOLS = [
   { id: "map_tool", label: "Map" },
   { id: "weather_tool", label: "Weather" },
   { id: "csv_analyze_tool", label: "CSV Analyze" },
-  { id: "file_ops_tool", label: "File Ops" },
 ] as const;
 
 interface ToolsMenuProps {

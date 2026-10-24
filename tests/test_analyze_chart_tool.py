@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tests.vision_mocks import as_astream, as_stream
 from universal_agentic_framework.tools.analyze_chart.tool import (
     AnalyzeChartInput,
     AnalyzeChartTool,
@@ -78,7 +79,7 @@ class TestAnalyzeChartToolSync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = fetch_resp
+        mock_client.stream.return_value = as_stream(fetch_resp)
         mock_client.post.return_value = api_resp
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
@@ -101,7 +102,7 @@ class TestAnalyzeChartToolSync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = fetch_resp
+        mock_client.stream.return_value = as_stream(fetch_resp)
         mock_client.post.return_value = api_resp
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
@@ -143,7 +144,7 @@ class TestAnalyzeChartToolAsync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get = AsyncMock(return_value=fetch_resp)
+        mock_client.stream = Mock(return_value=as_astream(fetch_resp))
         mock_client.post = AsyncMock(return_value=api_resp)
         mock_client_cls.return_value.__aenter__.return_value = mock_client
 

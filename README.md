@@ -153,7 +153,6 @@ Steuermann ships a curated set of tools that route automatically — no explicit
 | `datetime_tool` | Current date/time, timezone conversion | "What time is it in Tokyo?" |
 | `map_tool` | Geocode cities/regions/continents, measure distances, interactive map widget | "Where is Kyoto?", "How far is London from Madrid?" |
 | `weather_tool` | Current conditions, compare two places, multi-day forecast (Open-Meteo) — inline weather widget | "How's the weather in Barcelona?", "How much warmer is Barcelona than Berlin?" |
-| `file_ops_tool` | Read and write files in a sandboxed workspace | "Save this summary to notes.md" |
 | `web_search_mcp` | DuckDuckGo web search + webpage content extraction (MCP server) | "Search for the latest LangGraph release" |
 | `analyze_image_tool` | Describe and analyze images via a vision LLM | "What's in this photo?" |
 | `ocr_tool` | Extract text from screenshots and document images | "Read the text in this screenshot" |

@@ -84,6 +84,7 @@ from universal_agentic_framework.orchestration.rag_node import node_retrieve_kno
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 from universal_agentic_framework.orchestration.respond.text_cleanup import (
     strip_control_tokens,
+    strip_reasoning_blocks,
     filter_untrusted_urls,
 )
 from universal_agentic_framework.orchestration.respond.prompt_builder import (
@@ -132,6 +133,8 @@ from universal_agentic_framework.orchestration.helpers import (
     apply_web_search_max_results,
     infer_extract_webpage_url,
     coerce_tool_args,
+    check_local_path_args,
+    turn_local_paths,
     get_routing_embedding_provider,
     get_auxiliary_model,
     get_model,
@@ -736,6 +739,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -878,6 +883,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         continue
 
                     try:
+                        check_local_path_args(tool_args, _allowed_paths)
                         result = tool_obj._run(**tool_args)
 
                         if (
@@ -950,6 +956,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -1162,6 +1170,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                     break
 
                 try:
+                    check_local_path_args(tool_args, _allowed_paths)
                     result = tool_obj._run(**tool_args)
                     record_tool_success(
                         tool_name=tool_name,
@@ -1209,6 +1218,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -1321,6 +1332,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_args, _ = coerce_tool_args(tool_obj, tool_args)
 
                 try:
+                    check_local_path_args(tool_args, _allowed_paths)
                     result = tool_obj._run(**tool_args)
                     record_tool_success(
                         tool_name=tool_name,
@@ -1903,8 +1915,11 @@ def node_generate_response(state: GraphState) -> GraphState:
             logger.error("LLM call failed", error=str(e), exc_info=True, provider=provider, model_name=model_name)
             response_text = f"LLM Error: {str(e)[:100]}"
 
-        # Remove leaked tool-call/control tokens from model output
+        # Sanitize model output. Inline reasoning (<think>…) is shown via the stream's
+        # thinking events; it must not enter the checkpointed history (re-sent to the model
+        # every turn) or feed memory extraction. Leaked tool-call/control tokens go too.
         if response_text:
+            response_text = strip_reasoning_blocks(response_text)
             original_text = response_text
             response_text = strip_control_tokens(response_text)
 
@@ -1917,36 +1932,38 @@ def node_generate_response(state: GraphState) -> GraphState:
                 else:
                     logger.info("Sanitized control tokens from LLM response")
 
-            # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
-            # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
-            response_text = retry_synthesis_if_empty(
-                response_text,
-                model=model,
-                lang=lang,
-                user_msg=user_msg,
-                knowledge_context=knowledge_context,
-                context_text=context_text,
-                tool_results=tool_results,
-                collected_sources=collected_sources,
-            )
-            response_text = retry_on_attachment_refusal(
-                response_text,
-                model=model,
-                state=state,
-                system_prompt=system_prompt,
-                all_msgs=all_msgs,
-            )
-            response_text = retry_on_web_extract_contradiction(
-                response_text,
-                model=model,
-                tool_results=tool_results,
-                user_msg=user_msg,
-            )
-            response_text = format_tool_based_fallback(
-                response_text,
-                tool_results=tool_results,
-                lang=lang,
-            )
+        # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
+        # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
+        # Run unconditionally: a reply that was empty from the start, or only reasoning /
+        # control tokens, is exactly what the synthesis retry and fallback exist for.
+        response_text = retry_synthesis_if_empty(
+            response_text,
+            model=model,
+            lang=lang,
+            user_msg=user_msg,
+            knowledge_context=knowledge_context,
+            context_text=context_text,
+            tool_results=tool_results,
+            collected_sources=collected_sources,
+        )
+        response_text = retry_on_attachment_refusal(
+            response_text,
+            model=model,
+            state=state,
+            system_prompt=system_prompt,
+            all_msgs=all_msgs,
+        )
+        response_text = retry_on_web_extract_contradiction(
+            response_text,
+            model=model,
+            tool_results=tool_results,
+            user_msg=user_msg,
+        )
+        response_text = format_tool_based_fallback(
+            response_text,
+            tool_results=tool_results,
+            lang=lang,
+        )
 
         # Remove any URLs that were not present in tool results / RAG / the user message.
         if response_text:

@@ -819,3 +819,122 @@ def test_chat_stream_rejected_regenerate_keeps_old_turn(stream_client, monkeypat
     )
 
     assert deleted == []  # the turn being replaced survives a request that never ran
+
+
+# ── Tests: graph final_content + upstream error ───────────────────────────────
+
+
+def test_chat_stream_persists_final_content_over_streamed_tokens(stream_client, monkeypatch) -> None:
+    """The respond node post-processes its answer (URL filter, retries) after the tokens
+    streamed — the persisted row must hold the graph's final text."""
+    test_client, conversation_store, fake_client, _ = stream_client
+    body = (
+        'event: token\ndata: {"delta": "See https://evil.example"}\n\n'
+        'event: metadata\ndata: {"tokens_used": 3, "final_content": "See source omitted"}\n\n'
+        "data: [DONE]\n\n"
+    )
+    monkeypatch.setattr(fake_client, "_response_body", body)
+
+    test_client.post(
+        "/api/chat/stream",
+        json={"message": "Hello", "user_id": "u1", "conversation_id": "conv-1"},
+    )
+
+    assistant = [m for m in conversation_store.messages if m["role"] == "assistant"]
+    assert [m["content"] for m in assistant] == ["See source omitted"]
+
+
+def test_chat_stream_llm_failure_without_tokens_persists_final_content(stream_client, monkeypatch) -> None:
+    """A failed model call streams no tokens; the respond node's error text is the answer
+    (not an empty row)."""
+    test_client, conversation_store, fake_client, _ = stream_client
+    body = (
+        'event: metadata\ndata: {"tokens_used": 0, '
+        '"final_content": "The AI model is currently unavailable. Please try again shortly."}\n\n'
+        "data: [DONE]\n\n"
+    )
+    monkeypatch.setattr(fake_client, "_response_body", body)
+
+    test_client.post(
+        "/api/chat/stream",
+        json={"message": "Hello", "user_id": "u1", "conversation_id": "conv-1"},
+    )
+
+    assistant = [m for m in conversation_store.messages if m["role"] == "assistant"]
+    assert assistant[0]["content"].startswith("The AI model is currently unavailable")
+    assert "stopped" not in assistant[0]["metadata"]
+
+
+def test_chat_stream_upstream_error_event_skips_writeback_and_marks_stopped(
+    stream_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LangGraph reports a mid-turn failure as ``error`` + ``[DONE]``: the partial answer
+    must never be saved into the document, and the turn is persisted as errored."""
+    test_client, conversation_store, fake_client, workspace_document_store = stream_client
+    workspace_document_store.add(_make_text_doc("doc-2"))
+    monkeypatch.setattr(chat_module, "_should_check_workspace_intent", lambda docs, atts: True)
+
+    async def _fake_classify(message: str, language: str = "en") -> Dict[str, Any]:
+        return {"edit": True, "save": True, "new_version": False}
+
+    monkeypatch.setattr(chat_module, "_classify_workspace_intent_llm", _fake_classify)
+    writebacks: list = []
+    monkeypatch.setattr(
+        chat_module,
+        "_write_response_back_to_workspace_document",
+        lambda *args, **kwargs: writebacks.append(kwargs) or {"status": "saved"},
+    )
+    body = (
+        'event: token\ndata: {"delta": "SUMMARY:\\nhalf"}\n\n'
+        'event: error\ndata: {"message": "node exploded"}\n\n'
+        "data: [DONE]\n\n"
+    )
+    monkeypatch.setattr(fake_client, "_response_body", body)
+
+    response = test_client.post(
+        "/api/chat/stream",
+        json={
+            "message": "improve and save this document",
+            "user_id": "u1",
+            "conversation_id": "conv-1",
+            "document_ids": ["doc-2"],
+        },
+    )
+
+    events = parse_sse_stream(response.text)
+    assert any(e["event"] == "error" for e in events)
+    assert not any(e["event"] == "writeback" for e in events)
+    assert writebacks == []
+    assert response.text.count("data: [DONE]") == 1
+    assistant = [m for m in conversation_store.messages if m["role"] == "assistant"]
+    assert assistant[0]["metadata"]["stopped"] is True
+    assert assistant[0]["metadata"]["stop_reason"] == "error"
+
+
+def test_chat_stream_4xx_upstream_releases_half_open_probe(stream_client, monkeypatch) -> None:
+    """A 4xx is no verdict on LangGraph's health: the half-open probe slot must be given
+    back, or the breaker stays wedged rejecting every chat until restart."""
+    test_client, _, fake_client, _ = stream_client
+    breaker = chat_module.LANGGRAPH_CIRCUIT_BREAKER
+    monkeypatch.setattr(breaker, "_state", CircuitState.HALF_OPEN)
+    monkeypatch.setattr(breaker, "_half_open_calls", 0)
+    monkeypatch.setattr(breaker, "_last_failure_at", None)
+
+    class _BadRequestContext:
+        status_code = 400
+        headers: Dict[str, str] = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def aread(self) -> bytes:
+            return b"bad request"
+
+    monkeypatch.setattr(fake_client, "stream", lambda self, method, url, json: _BadRequestContext())
+    test_client.post("/api/chat/stream", json={"message": "Hello", "user_id": "u1"})
+
+    assert breaker.state == CircuitState.HALF_OPEN
+    assert breaker._half_open_calls == 0

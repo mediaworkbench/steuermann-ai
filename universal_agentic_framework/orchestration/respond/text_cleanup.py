@@ -14,6 +14,24 @@ _CONTROL_TAG_RE = re.compile(r"<\|[^|>]+\|>")
 _TOOL_RESULT_PLACEHOLDER_RE = re.compile(r"^\s*\[Tool Result\]\s*$", re.MULTILINE)
 _URL_RE = re.compile(r"https?://[^\s)]+")
 _URL_TRAILING_PUNCT = ".,;:!?"
+# Inline reasoning blocks some local models put into the answer content (the native
+# ``reasoning_content`` field never reaches the content). An unterminated block (output
+# truncated mid-reasoning) runs to the end of the text. Same tag set the LangGraph stream
+# parser routes to ``thinking`` events.
+_REASONING_BLOCK_RE = re.compile(
+    r"<(thinking|reflection|think)>.*?(?:</\1>|\Z)", re.DOTALL | re.IGNORECASE
+)
+
+
+def strip_reasoning_blocks(text: str) -> str:
+    """Remove inline ``<think>``/``<thinking>``/``<reflection>`` blocks and strip whitespace.
+
+    A truncated block (no closing tag) removes everything after its opening tag, so a reply
+    that is only reasoning collapses to ``""``. Safe on any text (no-op without tags).
+    """
+    if not text:
+        return text
+    return _REASONING_BLOCK_RE.sub("", text).strip()
 
 
 def strip_control_tokens(text: str) -> str:

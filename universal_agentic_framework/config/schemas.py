@@ -589,6 +589,20 @@ class ToolDefinition(BaseModel):
     path: str
     model_config = ConfigDict(extra="allow")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_enabled_flag(cls, data: Any) -> Any:
+        # The per-tool ``enabled`` flag was removed: every listed tool loads. Silently
+        # ignoring a leftover ``enabled: false`` re-activates a tool its author meant to
+        # keep off (that is how the unsafe file_ops_tool came back), so fail loudly.
+        if isinstance(data, dict) and "enabled" in data:
+            raise ValueError(
+                f"tool '{data.get('name', '?')}': the 'enabled' key is no longer supported — "
+                "every listed tool is loaded. Remove the entry to stop loading the tool, or "
+                "restrict it per role on the admin page."
+            )
+        return data
+
 
 class ToolsConfig(BaseModel):
     loading_mode: Literal["explicit", "auto_discover"] = "explicit"

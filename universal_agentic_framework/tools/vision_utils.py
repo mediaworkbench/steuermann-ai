@@ -1,10 +1,109 @@
 """Shared helpers for vision model tools."""
 
+import asyncio
 import base64
+import ipaddress
 import mimetypes
 import os
+import socket
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit
+
+# Redirect hops followed (each one re-validated) when fetching a remote image.
+_MAX_IMAGE_REDIRECTS = 3
+
+
+class ImageTooLargeError(ValueError):
+    """A remote image exceeded the tool's byte limit (raised before buffering it all)."""
+
+
+def _resolve_host_ips(host: str, port: int) -> list[str]:
+    """Every address ``host`` resolves to (separate function so tests can stub DNS)."""
+    return [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
+
+
+def _assert_public_url(url: str) -> None:
+    """Reject anything but http(s) to a publicly routable host.
+
+    The model chooses the URL (from the user's message or from fetched web content), and
+    the tool runs inside the compose network — without this, ``http://qdrant:6333`` or
+    ``http://langgraph:8000`` are one prompt away. Every resolved address must be global
+    (no private, loopback, link-local, CGNAT or reserved ranges). Residual risk: DNS can
+    rebind between this check and the connect.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"Only public http(s) image URLs are allowed: {url!r}")
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        addresses = _resolve_host_ips(parts.hostname, port)
+    except OSError as exc:
+        raise ValueError(f"Cannot resolve image host {parts.hostname!r}: {exc}") from exc
+    if not addresses:
+        raise ValueError(f"Cannot resolve image host {parts.hostname!r}")
+    for address in addresses:
+        if not ipaddress.ip_address(address.split("%", 1)[0]).is_global:
+            raise ValueError(f"Refusing to fetch image from non-public address {parts.hostname!r}")
+
+
+def _image_too_large(size: int, max_bytes: int) -> ImageTooLargeError:
+    return ImageTooLargeError(f"Image is too large ({size:,}+ bytes; limit is {max_bytes:,} bytes).")
+
+
+def _declared_length(response: Any) -> Optional[int]:
+    try:
+        return int(response.headers.get("content-length"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _mime_from(response: Any) -> str:
+    return (response.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+
+
+def fetch_image_url(client: Any, url: str, max_bytes: int) -> tuple[bytes, str]:
+    """GET a remote image through ``client`` (an ``httpx.Client``): SSRF-guarded on
+    every redirect hop, and streamed so an oversized body is cut off at ``max_bytes``
+    instead of being buffered whole. Returns ``(bytes, mime_type)``."""
+    for _ in range(_MAX_IMAGE_REDIRECTS + 1):
+        _assert_public_url(url)
+        with client.stream("GET", url, follow_redirects=False) as response:
+            if response.is_redirect:
+                url = urljoin(url, response.headers.get("location", ""))
+                continue
+            response.raise_for_status()
+            declared = _declared_length(response)
+            if declared is not None and declared > max_bytes:
+                raise _image_too_large(declared, max_bytes)
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                body.extend(chunk)
+                if len(body) > max_bytes:
+                    raise _image_too_large(len(body), max_bytes)
+            return bytes(body), _mime_from(response)
+    raise ValueError(f"Too many redirects fetching image (max {_MAX_IMAGE_REDIRECTS})")
+
+
+async def afetch_image_url(client: Any, url: str, max_bytes: int) -> tuple[bytes, str]:
+    """Async twin of :func:`fetch_image_url` for an ``httpx.AsyncClient``."""
+    for _ in range(_MAX_IMAGE_REDIRECTS + 1):
+        await asyncio.to_thread(_assert_public_url, url)  # DNS lookup off the event loop
+        async with client.stream("GET", url, follow_redirects=False) as response:
+            if response.is_redirect:
+                url = urljoin(url, response.headers.get("location", ""))
+                continue
+            response.raise_for_status()
+            declared = _declared_length(response)
+            if declared is not None and declared > max_bytes:
+                raise _image_too_large(declared, max_bytes)
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk)
+                if len(body) > max_bytes:
+                    raise _image_too_large(len(body), max_bytes)
+            return bytes(body), _mime_from(response)
+    raise ValueError(f"Too many redirects fetching image (max {_MAX_IMAGE_REDIRECTS})")
 
 
 def _resolve_local_file(file_path: str, base_dir: str) -> Path:
@@ -13,9 +112,10 @@ def _resolve_local_file(file_path: str, base_dir: str) -> Path:
     Unlike _resolve_local_image this does not assert an image MIME type, making
     it suitable for arbitrary file types (e.g. CSV workspace documents).
 
-    Security assumption: confinement is per workspace root, not per user — the
-    app uses a single effective user and the model only ever sees its own user's
-    stored_path.
+    Confinement here is per workspace root, which holds every user's files. Per-user
+    isolation is enforced before the tool runs: the tool-calling nodes only accept a
+    local path that is one of this turn's own attachment / document ``stored_path``s
+    (``check_local_path_args`` in orchestration/helpers/tool_call_args.py).
     """
     path = Path(file_path).resolve()
     base = Path(base_dir).resolve()

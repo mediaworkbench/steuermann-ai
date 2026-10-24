@@ -26,6 +26,7 @@ from universal_agentic_framework.orchestration.graph_builder import build_graph,
 from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
 from universal_agentic_framework.orchestration.helpers.tool_payload import build_tool_results_detail
 from universal_agentic_framework.orchestration.performance_nodes import compress_state
+from universal_agentic_framework.orchestration.respond.text_cleanup import strip_reasoning_blocks
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
     track_graph_request,
@@ -393,7 +394,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                 global _invocation_count
                 _invocation_count += 1
                 if _invocation_count % 100 == 0:
-                    asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
+                    _spawn_background(prune_checkpoints(GRAPH.checkpointer))
                 logger.info(
                     "Graph execution completed successfully",
                     tokens_used=result.get("tokens_used", 0),
@@ -483,9 +484,6 @@ _TOOL_LABELS: dict[str, str] = {
     "calculator_tool": "Calculating...",
     "datetime_tool": "Checking date & time...",
     "memory_search_tool": "Searching memories...",
-    "file_read_tool": "Reading file...",
-    "file_write_tool": "Writing file...",
-    "workspace_file_ops_tool": "Editing workspace document...",
     "csv_analyze_tool": "Analyzing spreadsheet...",
     "analyze_image_tool": "Analyzing image...",
     "ocr_tool": "Reading text from image...",
@@ -560,6 +558,39 @@ async def _drain_and_capture(
                 })
     except Exception:
         pass
+
+
+def _final_assistant_content(output: Dict[str, Any]) -> Optional[str]:
+    """The respond node's final answer text (the last assistant message it appended).
+
+    Authoritative over the streamed tokens: the respond node post-processes its answer
+    after the model call (LLM-failure message, control-token strip, retries, untrusted-URL
+    filter, exact-reply directive), and none of that reaches the token stream. Inline
+    reasoning blocks are removed the same way the stream parser routes them to
+    ``thinking`` events. ``None`` when the output carries no assistant message.
+    """
+    for msg in reversed(output.get("messages") or []):
+        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "type", None)
+        if role in ("assistant", "ai"):
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+            if not isinstance(content, str):
+                return None
+            # The respond node already strips these; kept for any other answer path.
+            return strip_reasoning_blocks(content).strip()
+    return None
+
+
+# Strong references to fire-and-forget tasks: the event loop only keeps weak ones, so an
+# unreferenced task (the post-response drain, checkpoint pruning) can be garbage-collected
+# mid-run — losing the memory write and leaking ephemeral checkpoint rows.
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(coro: Any) -> asyncio.Task[Any]:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
 
 
 _conversation_store = None  # lazy ConversationStore for post-response trace write-back
@@ -875,6 +906,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "node_trace": _node_trace_list,
                                         "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                                         "context_breakdown": _final_output.get("context_breakdown", {}),
+                                        "final_content": _final_assistant_content(_final_output),
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -882,7 +914,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     global _invocation_count
                                     _invocation_count += 1
                                     if _invocation_count % 100 == 0:
-                                        asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
+                                        _spawn_background(prune_checkpoints(GRAPH.checkpointer))
                                     # Drain post-processing nodes (summarize, update_memory)
                                     # in the background so they complete without blocking.
                                     # While draining, capture their node trace and write the
@@ -921,7 +953,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                                 await _cleanup_ephemeral_thread(thread_id)
 
                                     _drain_owns_cleanup = True
-                                    asyncio.create_task(_drain_then_cleanup())
+                                    _spawn_background(_drain_then_cleanup())
                                     break
                             # Emit specific tool label once we know which tool ran.
                             if name in _TOOL_CALL_NODES:
@@ -987,6 +1019,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "node_trace": _node_trace_list,
                     "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                     "context_breakdown": _final_output.get("context_breakdown", {}),
+                    "final_content": _final_assistant_content(_final_output),
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

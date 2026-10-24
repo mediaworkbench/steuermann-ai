@@ -109,6 +109,50 @@ describe("useStreamingChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("final_content from metadata replaces the streamed tokens", async () => {
+    // e.g. the respond node filtered an untrusted URL after the tokens streamed
+    mockFetch([
+      sseToken("See https://evil.example"),
+      sseMetadata({ final_content: "See source omitted" }),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.streamingContent).toBe("See source omitted");
+  });
+
+  it("final_content fills the answer when no tokens streamed (LLM failure)", async () => {
+    mockFetch([
+      sseMetadata({ final_content: "The AI model is currently unavailable." }),
+      sseDone(),
+    ]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.streamingContent).toBe("The AI model is currently unavailable.");
+  });
+
+  it("final_content wins over tokens batched in the same network chunk", async () => {
+    mockFetch([sseToken("raw") + sseMetadata({ final_content: "clean" }) + sseDone()]);
+
+    const { result } = renderHook(() => useStreamingChat());
+
+    await act(async () => {
+      await result.current.sendMessage(defaultParams);
+    });
+
+    expect(result.current.streamingContent).toBe("clean");
+  });
+
   it("sets nodeStatus on node events and clears on metadata", async () => {
     mockFetch([
       sseNode("retrieve_knowledge", "Searching knowledge base..."),

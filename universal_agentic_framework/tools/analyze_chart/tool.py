@@ -8,6 +8,8 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from universal_agentic_framework.tools.vision_utils import (
+    afetch_image_url,
+    fetch_image_url,
     _build_data_url,
     _build_request_payload,
     _load_vision_api_config,
@@ -67,10 +69,7 @@ class AnalyzeChartTool(BaseTool):
 
             if image_source.startswith(("http://", "https://")):
                 with httpx.Client(timeout=30.0) as client:
-                    fetch_resp = client.get(image_source, follow_redirects=True)
-                    fetch_resp.raise_for_status()
-                    image_bytes = fetch_resp.content
-                    mime_type = fetch_resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                    image_bytes, mime_type = fetch_image_url(client, image_source, self.max_image_bytes)
             else:
                 image_bytes, mime_type = _resolve_local_image(image_source, self.attachments_base_dir)
 
@@ -106,10 +105,7 @@ class AnalyzeChartTool(BaseTool):
 
             if image_source.startswith(("http://", "https://")):
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    fetch_resp = await client.get(image_source, follow_redirects=True)
-                    fetch_resp.raise_for_status()
-                    image_bytes = fetch_resp.content
-                    mime_type = fetch_resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                    image_bytes, mime_type = await afetch_image_url(client, image_source, self.max_image_bytes)
             else:
                 image_bytes, mime_type = _resolve_local_image(image_source, self.attachments_base_dir)
 

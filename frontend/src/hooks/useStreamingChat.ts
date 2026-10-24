@@ -266,6 +266,13 @@ export function useStreamingChat(): UseStreamingChatReturn {
               case "metadata":
                 setFinalMetadata(buildMetadataFromSSE(parsed));
                 setNodeStatus(null);
+                // The graph's post-processed answer (LLM-error message, URL filter,
+                // retries) is authoritative over the raw streamed tokens — including
+                // any still batched in this chunk.
+                if (typeof parsed.final_content === "string") {
+                  tokenDelta = "";
+                  setStreamingContent(parsed.final_content);
+                }
                 break;
 
               case "writeback_pending":

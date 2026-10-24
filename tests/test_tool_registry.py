@@ -21,7 +21,6 @@ def test_loads_datetime_tool() -> None:
                 {
                     "name": "datetime_tool",
                     "path": "universal_agentic_framework/tools/datetime",
-                    "enabled": True,
                 }
             ]
         },
@@ -110,7 +109,6 @@ def test_explicit_loading_mode_does_not_auto_discover() -> None:
                 {
                     "name": "datetime_tool",
                     "path": "universal_agentic_framework/tools/datetime",
-                    "enabled": True,
                 }
             ]
         },
@@ -133,7 +131,6 @@ def test_auto_discover_loading_mode_includes_builtins() -> None:
                 {
                     "name": "datetime_tool",
                     "path": "universal_agentic_framework/tools/datetime",
-                    "enabled": True,
                 }
             ],
         },

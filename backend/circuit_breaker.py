@@ -118,6 +118,14 @@ class AsyncCircuitBreaker:
     def record_failure(self) -> None:
         self._record_failure()
 
+    def release(self) -> None:
+        """Give back a half-open probe slot whose call ended with no verdict (client
+        cancelled, upstream answered 4xx). Without this the slot stays taken and the
+        breaker rejects every request from HALF_OPEN until the process restarts."""
+        with self._lock:
+            if self._state == CircuitState.HALF_OPEN and self._half_open_calls > 0:
+                self._half_open_calls -= 1
+
     async def call(self, func: Callable[..., Awaitable[T]], *args, **kwargs) -> T:
         if not self._allow_request():
             raise CircuitBreakerOpenError(
@@ -129,4 +137,7 @@ class AsyncCircuitBreaker:
             return result
         except Exception:
             self._record_failure()
+            raise
+        except BaseException:  # cancellation: no verdict on the dependency's health
+            self.release()
             raise

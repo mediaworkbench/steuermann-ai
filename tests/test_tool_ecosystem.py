@@ -1,4 +1,4 @@
-"""Tests for the tool ecosystem: calculator, file_ops, routing heuristics, and registry."""
+"""Tests for the tool ecosystem: calculator, routing heuristics, and registry."""
 
 import os
 import tempfile
@@ -7,7 +7,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from universal_agentic_framework.tools.calculator.tool import CalculatorTool
-from universal_agentic_framework.tools.file_ops.tool import FileOpsTool
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -189,143 +188,6 @@ class TestCalculatorPercentage:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# File Operations Tool Tests
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestFileOpsRead:
-    """Test the read operation."""
-
-    def test_read_existing_file(self, tmp_path):
-        (tmp_path / "hello.txt").write_text("Hello World")
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="read", path="hello.txt")
-        assert "Hello World" in result
-
-    def test_read_nonexistent(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="read", path="nope.txt")
-        assert "Error" in result
-
-    def test_read_too_large(self, tmp_path):
-        big = tmp_path / "big.txt"
-        big.write_text("x" * 2_000_000)
-        tool = FileOpsTool(sandbox_dir=str(tmp_path), max_read_size_bytes=1_000_000)
-        result = tool._run(operation="read", path="big.txt")
-        assert "too large" in result.lower()
-
-    def test_read_disallowed_extension(self, tmp_path):
-        (tmp_path / "secret.bin").write_bytes(b"\x00" * 10)
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="read", path="secret.bin")
-        assert "not allowed" in result.lower()
-
-
-class TestFileOpsWrite:
-    """Test the write operation."""
-
-    def test_write_creates_file(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="write", path="output.txt", content="Hello!")
-        assert "Written" in result
-        assert (tmp_path / "output.txt").read_text() == "Hello!"
-
-    def test_write_creates_subdirs(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="write", path="sub/dir/file.txt", content="nested")
-        assert "Written" in result
-        assert (tmp_path / "sub" / "dir" / "file.txt").read_text() == "nested"
-
-    def test_write_no_content(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="write", path="x.txt")
-        assert "Error" in result
-
-    def test_write_too_large(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path), max_write_size_bytes=100)
-        result = tool._run(operation="write", path="big.txt", content="x" * 200)
-        assert "too large" in result.lower()
-
-
-class TestFileOpsList:
-    """Test the list operation."""
-
-    def test_list_directory(self, tmp_path):
-        (tmp_path / "a.txt").touch()
-        (tmp_path / "b.md").touch()
-        (tmp_path / "subdir").mkdir()
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="list", path=".")
-        assert "a.txt" in result
-        assert "b.md" in result
-        assert "subdir/" in result
-
-    def test_list_empty_dir(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="list", path=".")
-        assert "empty" in result.lower()
-
-    def test_list_nonexistent(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="list", path="nonexistent")
-        assert "Error" in result
-
-
-class TestFileOpsInfoAndExists:
-    """Test info and exists operations."""
-
-    def test_info_file(self, tmp_path):
-        f = tmp_path / "sample.txt"
-        f.write_text("hello")
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="info", path="sample.txt")
-        assert "File:" in result
-        assert "Size:" in result
-        assert "Modified:" in result
-
-    def test_exists_true(self, tmp_path):
-        (tmp_path / "there.txt").touch()
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="exists", path="there.txt")
-        assert "Yes" in result
-
-    def test_exists_false(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="exists", path="nope.txt")
-        assert "No" in result
-
-
-class TestFileOpsSecurity:
-    """Test sandbox security features."""
-
-    def test_path_traversal_blocked(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="read", path="../../etc/passwd")
-        assert "Error" in result
-
-    def test_path_traversal_blocked_on_write(self, tmp_path):
-        tool = FileOpsTool(sandbox_dir=str(tmp_path))
-        result = tool._run(operation="write", path="../escape.txt", content="pwned")
-        assert "Error" in result
-
-    def test_symlink_traversal_blocked(self, tmp_path):
-        """Symlinks resolving outside sandbox must be blocked."""
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "secret.txt").write_text("confidential")
-        
-        sandbox = tmp_path / "sandbox"
-        sandbox.mkdir()
-        # Create symlink inside sandbox pointing outside
-        link = sandbox / "link.txt"
-        link.symlink_to(outside / "secret.txt")
-        
-        tool = FileOpsTool(sandbox_dir=str(sandbox))
-        result = tool._run(operation="read", path="link.txt")
-        assert "Error" in result
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # Semantic Routing Heuristic Tests
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -364,27 +226,12 @@ class TestRoutingHeuristics:
         query = "Convert 100 km to miles"
         assert re.search(r"\b(convert|umrechnen|convertir)\b.*\b(to|in|nach|en)\b", query.lower())
 
-    def test_file_ops_heuristic_read(self):
-        assert "read file" in "Can you read file config.yaml?".lower()
-
-    def test_file_ops_heuristic_list(self):
-        assert "list directory" in "List directory contents".lower()
-
-    def test_file_ops_heuristic_de(self):
-        assert "datei lesen" in "Bitte die Datei lesen".lower()
-
     def test_no_false_positive_calculator(self):
         """Regular text should not trigger calculator heuristic."""
         import re
         query = "Tell me about the weather today"
         assert not re.search(r"\b\d+\s*[\+\-\*/\^]\s*\d+", query)
         assert not any(k in query.lower() for k in ["berechne", "calculate", "compute"])
-
-    def test_no_false_positive_file_ops(self):
-        """Regular text should not trigger file ops heuristic."""
-        query = "What is the capital of France?"
-        keywords = ["read file", "write file", "list files", "list directory", "datei"]
-        assert not any(k in query.lower() for k in keywords)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -410,17 +257,6 @@ class TestToolRegistryNewTools:
         tool_names = [t.name for t in tools]
         assert "calculator_tool" in tool_names
 
-    def test_file_ops_tool_discovered(self):
-        """Registry should discover and load the file_ops tool."""
-        from universal_agentic_framework.tools.registry import ToolRegistry
-        from universal_agentic_framework.config import load_tools_config
-
-        config = load_tools_config()
-        registry = ToolRegistry(config=config, profile_language="en")
-        tools = registry.discover_and_load()
-        tool_names = [t.name for t in tools]
-        assert "file_ops_tool" in tool_names
-
     def test_calculator_tool_is_functional(self):
         """Calculator tool loaded by registry should be callable."""
         from universal_agentic_framework.tools.registry import ToolRegistry
@@ -434,12 +270,22 @@ class TestToolRegistryNewTools:
         assert "= 2" in result
 
     def test_total_enabled_tools_count(self):
-        """Should have at least 5 enabled tools (datetime, calculator, file_ops, web_search, extract)."""
+        """Should have at least 4 tools loaded (datetime, calculator, web_search, extract)."""
         from universal_agentic_framework.tools.registry import ToolRegistry
         from universal_agentic_framework.config import load_tools_config
 
         config = load_tools_config()
         registry = ToolRegistry(config=config, profile_language="en")
         tools = registry.discover_and_load()
-        # datetime + calculator + file_ops + web_search_mcp + extract_webpage_mcp = 5
-        assert len(tools) >= 5
+        # datetime + calculator + web_search_mcp + extract_webpage_mcp
+        assert len(tools) >= 4
+
+
+def test_file_ops_tool_is_not_in_the_catalog():
+    """file_ops_tool was removed: its sandbox defaulted to the app's own source tree and
+    was shared by every user (workspace documents cover the use case)."""
+    from universal_agentic_framework.tools.registry import ToolRegistry
+    from universal_agentic_framework.config import load_tools_config
+
+    registry = ToolRegistry(config=load_tools_config(), profile_language="en")
+    assert "file_ops_tool" not in [t.name for t in registry.discover_and_load()]

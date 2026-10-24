@@ -16,6 +16,32 @@ def _hermetic_auth_env(monkeypatch):
     monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _clear_model_list_cache():
+    """Preferred-model validation caches provider model lists for 60s; tests stub the
+    endpoint differently, so each starts from an empty cache."""
+    try:
+        from backend.routers import chat as chat_module
+    except (ImportError, ModuleNotFoundError):
+        yield  # backend deps not available in this environment (e.g. ingestion container)
+        return
+    chat_module._MODEL_LIST_CACHE.clear()
+    yield
+    chat_module._MODEL_LIST_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _public_dns_for_vision_fetch(monkeypatch):
+    """Vision tools resolve a URL's host before fetching it (SSRF guard). Keep tests
+    network-free: every host resolves to a public documentation address. SSRF tests
+    override ``_resolve_host_ips`` themselves."""
+    try:
+        from universal_agentic_framework.tools import vision_utils
+    except (ImportError, ModuleNotFoundError):
+        return
+    monkeypatch.setattr(vision_utils, "_resolve_host_ips", lambda host, port: ["93.184.216.34"])
+
+
 # Ensure config placeholder substitution succeeds in tests that call load_core_config() directly.
 os.environ.setdefault("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
 os.environ.setdefault("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/v1")

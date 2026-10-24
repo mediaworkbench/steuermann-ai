@@ -47,6 +47,8 @@ from .tool_call_args import (
     apply_web_search_max_results,
     infer_extract_webpage_url,
     coerce_tool_args,
+    check_local_path_args,
+    turn_local_paths,
 )
 
 # Embedding provider
@@ -110,6 +112,8 @@ __all__ = [
     "apply_web_search_max_results",
     "infer_extract_webpage_url",
     "coerce_tool_args",
+    "check_local_path_args",
+    "turn_local_paths",
     # Embedding provider
     "get_routing_embedding_provider",
     "clear_embedding_cache",

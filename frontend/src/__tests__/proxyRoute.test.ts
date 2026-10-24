@@ -77,3 +77,22 @@ test("ignores a client-supplied x-chat-token, using the env value", async () => 
 
   expect(capturedHeaders().get("x-chat-token")).toBe("proxy-secret");
 });
+
+test("strips client-supplied login rate-limit keys", async () => {
+  const { POST } = await loadRoute();
+  const request = new NextRequest("http://localhost:3000/api/proxy/api/auth/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-login-username": "random-1", // would rotate the per-username bucket
+      "x-login-client-ip": "203.0.113.9", // would rotate the per-IP bucket
+    },
+    body: JSON.stringify({ username: "victim", password: "guess" }),
+  });
+
+  await POST(request, ctx(["api", "auth", "login"]));
+
+  const headers = capturedHeaders();
+  expect(headers.get("x-login-username")).toBeNull();
+  expect(headers.get("x-login-client-ip")).toBeNull();
+});

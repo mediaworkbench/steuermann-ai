@@ -26,7 +26,6 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `datetime_tool` | Utility | No | Yes — date/time patterns, `heute`, `time`, `date` |
 | `map_tool` | Utility | No | Yes — "where is", "map of", "how far", "distance between", "locate" |
 | `weather_tool` | Utility | No | Yes — "weather", "wetter", "temperature", "forecast", "how warm", "warmer than" |
-| `file_ops_tool` | Utility | No | No |
 | `web_search_mcp` | Network (MCP) | No | No direct boost — URL detection boosts content extraction routing |
 | `analyze_image_tool` | Vision | **Yes** | Yes — image URL (`.jpg/.png/.gif/.webp`) in message or image attachment in state |
 | `ocr_tool` | Vision | **Yes** | Yes — "read text", "OCR", "Text erkennen" |
@@ -128,31 +127,6 @@ Fetches weather from [Open-Meteo](https://open-meteo.com/) — free, no API key 
 | `temperature_unit` | `celsius` | `celsius`, `fahrenheit` |
 | `wind_speed_unit` | `kmh` | `kmh`, `mph`, `ms`, `kn` |
 | `precipitation_unit` | `mm` | `mm`, `inch` |
-
----
-
-### `file_ops_tool`
-
-Reads and writes files within a sandboxed workspace directory.
-
-**Capabilities:**
-
-- Read file contents by filename or relative path
-- Write or overwrite a file
-- List files in the workspace
-- Operations are sandboxed to the configured workspace root — paths outside are rejected
-
-**Returns:** File content (for reads), success confirmation (for writes), or directory listing.
-
-**Intent boost triggers:** None — selected via LLM judgment when file-related intent is present in the message.
-
-**Configuration keys** in `config/profiles/<profile_id>/core.yaml`:
-
-| Key | Default | Description |
-| --- | --- | --- |
-| `sandbox_dir` | `/tmp/steuermann-ai` | Absolute path of the sandboxed workspace |
-| `max_read_size_bytes` | `1048576` (1 MB) | Maximum file size for read operations |
-| `allowed_extensions` | `[.txt, .md, .json, .yaml, .csv]` | File extensions the tool will read/write |
 
 ---
 

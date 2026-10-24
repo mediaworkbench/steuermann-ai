@@ -95,7 +95,7 @@ def test_catalog_groups_resolve_from_manifest_category(monkeypatch):
     assert by_id["ocr_tool"]["group"] == "vision"
     assert by_id["web_search_mcp"]["group"] == "text"
     assert by_id["extract_webpage_mcp"]["group"] == "text"
-    assert by_id["file_ops_tool"]["group"] == "text"
+    assert "file_ops_tool" not in by_id  # removed tool
     assert by_id["csv_analyze_tool"]["group"] == "text"
     assert all(item["group"] in {"text", "vision", "auxiliary"} for item in catalog)
 

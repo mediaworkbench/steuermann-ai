@@ -768,6 +768,36 @@ async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatc
     assert validated == "openai/liquid/lfm2-24b-a2b"
 
 
+@pytest.mark.asyncio
+async def test_validate_preferred_model_caches_model_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Back-to-back chat turns must not each pay a /models round-trip."""
+    calls: list[int] = []
+
+    async def _fake_cb_call(func):
+        calls.append(1)
+        return ["liquid/lfm2-24b-a2b"]
+
+    monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
+
+    for _ in range(3):
+        validated, warning = await chat_module._validate_preferred_model("liquid/lfm2-24b-a2b")
+        assert (validated, warning) == ("openai/liquid/lfm2-24b-a2b", None)
+    assert len(calls) == 1
+
+
+def test_cached_settings_are_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-request edits (validated model, overlays) must not leak into the cache."""
+    monkeypatch.setattr(chat_module, "_settings_cache", {})
+
+    class _Store:
+        def get_user_settings(self, user_id: str):
+            return {"preferred_model": "openai/stale", "tool_toggles": {}}
+
+    first = chat_module._get_cached_settings("u1", _Store())
+    first["preferred_model"] = None
+    assert chat_module._get_cached_settings("u1", _Store())["preferred_model"] == "openai/stale"
+
+
 def test_chat_clears_invalid_persisted_chat_model_override(client, monkeypatch: pytest.MonkeyPatch) -> None:
     test_client, _, fake_async_client = client
 

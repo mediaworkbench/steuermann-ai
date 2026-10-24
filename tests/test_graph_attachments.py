@@ -352,3 +352,51 @@ def test_node_generate_response_keeps_user_pasted_url(monkeypatch) -> None:
     # The user's own URL survives (trailing-period variant matches the pasted form).
     assert "https://example.com/docs/page" in reply
     assert "source omitted" not in reply
+
+class _ScriptedModel:
+    """Returns the scripted contents in order (last one repeats)."""
+
+    def __init__(self, *contents: str) -> None:
+        self.contents = list(contents)
+        self.calls = 0
+
+    def invoke(self, messages):
+        content = self.contents[min(self.calls, len(self.contents) - 1)]
+        self.calls += 1
+        return SimpleNamespace(content=content)
+
+
+def _respond_with(monkeypatch, model) -> dict:
+    monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
+    monkeypatch.setattr(graph_builder, "get_model", lambda config, language, preferred_model=None: model)
+    monkeypatch.setattr(graph_builder, "track_node_execution", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(graph_builder, "track_tokens", lambda *args, **kwargs: None)
+    monkeypatch.setattr(graph_builder, "track_llm_call", lambda *args, **kwargs: None)
+    state = {
+        "messages": [{"role": "user", "content": "What is the capital of France?"}],
+        "language": "en",
+        "user_settings": {},
+        "tool_results": {},
+        "knowledge_context": [],
+        "loaded_memory": [],
+    }
+    return graph_builder.node_generate_response(state)
+
+
+def test_respond_strips_inline_reasoning_from_checkpointed_answer(monkeypatch) -> None:
+    result = _respond_with(monkeypatch, _ScriptedModel("<think>Paris, obviously.</think>Paris."))
+    assert result["messages"][-1]["content"] == "Paris."
+
+
+def test_respond_reasoning_only_reply_gets_synthesis_retry(monkeypatch) -> None:
+    # A reply truncated mid-<think> is empty once stripped; the synthesis retry must run
+    # (it used to be skipped for any reply that was empty before sanitization).
+    model = _ScriptedModel("<think>still thinking", "Paris is the capital of France.")
+    result = _respond_with(monkeypatch, model)
+    assert result["messages"][-1]["content"] == "Paris is the capital of France."
+    assert model.calls == 2
+
+
+def test_respond_empty_reply_never_ends_blank(monkeypatch) -> None:
+    result = _respond_with(monkeypatch, _ScriptedModel(""))
+    assert result["messages"][-1]["content"].strip()

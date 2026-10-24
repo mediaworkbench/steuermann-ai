@@ -24,13 +24,6 @@ tools:
       wind_speed_unit: kmh        # kmh | mph | ms | kn
       precipitation_unit: mm      # mm | inch
 
-  - name: file_ops_tool
-    path: universal_agentic_framework/tools/file_ops
-    config:
-      sandbox_dir: ""
-      max_read_size_bytes: 1048576
-      max_write_size_bytes: 1048576
-
   - name: web_search_mcp
     path: universal_agentic_framework/tools/web_search
     config:

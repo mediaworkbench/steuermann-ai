@@ -250,3 +250,29 @@ def test_latest_user_message_skips_trailing_crew_output():
     assert latest_user_message(messages) == "compare solar vs wind"
     assert latest_user_message([]) == ""
     assert latest_user_message(None) == ""
+
+
+# ── Layer 3: local-path tool args are confined to this turn's own files ───────
+
+
+def test_local_path_arg_must_be_a_turn_file():
+    import pytest as _pytest
+
+    from universal_agentic_framework.orchestration.helpers import (
+        check_local_path_args,
+        turn_local_paths,
+    )
+
+    allowed = turn_local_paths(
+        [{"stored_path": "/ws/conv-a/attachments/cat.png"}],
+        [{"stored_path": "/ws/u1/docs/sales.csv"}, {"stored_path": None}],
+    )
+    check_local_path_args({"image_source": "/ws/conv-a/attachments/cat.png"}, allowed)
+    check_local_path_args({"file_path": "/ws/u1/docs/./sales.csv"}, allowed)  # normalized
+    check_local_path_args({"image_source": "https://cdn.example.com/x.png"}, allowed)
+    check_local_path_args({"query": "unrelated"}, allowed)
+
+    with _pytest.raises(ValueError, match="attached to this conversation"):
+        check_local_path_args({"image_source": "/ws/conv-other-user/attachments/id.png"}, allowed)
+    with _pytest.raises(ValueError):
+        check_local_path_args({"file_path": "/ws/u1/docs/../../u2/docs/payroll.csv"}, allowed)

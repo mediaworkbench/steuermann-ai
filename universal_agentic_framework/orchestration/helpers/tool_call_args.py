@@ -8,8 +8,9 @@ so they extract cleanly without touching the test suite's ``graph_builder.get_mo
 
 from __future__ import annotations
 
+import os
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Set, Tuple
 
 _URL_PREFIX_RE = re.compile(r"^(https?://|www\.)")
 
@@ -63,3 +64,40 @@ def coerce_tool_args(tool_obj: Any, tool_args: Any) -> Tuple[Any, Optional[str]]
         return schema(**tool_args).model_dump(), None
     except Exception as val_err:  # noqa: BLE001 - surfaced to the caller as a string
         return tool_args, str(val_err)
+
+
+# Tool arguments that name a local file the tool opens (vision tools, csv_analyze_tool).
+_LOCAL_PATH_ARGS = ("image_source", "file_path")
+
+
+def turn_local_paths(attachments: Iterable[Any], workspace_documents: Iterable[Any]) -> Set[str]:
+    """The ``stored_path`` of every attachment / workspace document resolved for this turn
+    (the adapter resolves them against the caller's ownership), normalized."""
+    paths: Set[str] = set()
+    for item in list(attachments or []) + list(workspace_documents or []):
+        stored = str((item or {}).get("stored_path") or "").strip() if isinstance(item, dict) else ""
+        if stored:
+            paths.add(os.path.normpath(stored))
+    return paths
+
+
+def check_local_path_args(tool_args: Any, allowed_paths: Set[str]) -> None:
+    """Raise ``ValueError`` when a local-path argument isn't one of this turn's own files.
+
+    The tools only confine paths to the shared workspace root, which holds every user's
+    files; the model (or a prompt injection) could otherwise name another user's stored
+    file. URLs pass through (the tools' fetch path has its own SSRF guard).
+    """
+    if not isinstance(tool_args, dict):
+        return
+    for key in _LOCAL_PATH_ARGS:
+        value = tool_args.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        value = value.strip()
+        if value.startswith(("http://", "https://")):
+            continue
+        if os.path.normpath(value) not in allowed_paths:
+            raise ValueError(
+                f"'{key}' must be a URL or the path of a file attached to this conversation."
+            )

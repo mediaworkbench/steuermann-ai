@@ -105,7 +105,6 @@ ingestion:
 tools:
   - name: datetime_tool
     path: universal_agentic_framework/tools/datetime
-    enabled: true
         """,
         encoding="utf-8",
     )
@@ -210,7 +209,7 @@ ingestion:
         encoding="utf-8",
     )
     config_dir.joinpath("tools.yaml").write_text(
-        "tools:\n  - name: datetime_tool\n    path: universal_agentic_framework/tools/datetime\n    enabled: true\n",
+        "tools:\n  - name: datetime_tool\n    path: universal_agentic_framework/tools/datetime\n",
         encoding="utf-8",
     )
     profiles_dir.joinpath("profile.yaml").write_text(
@@ -261,7 +260,7 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
 
     monkeypatch.setattr(
         "backend.routers.settings.load_tools_config",
-        lambda: SimpleNamespace(tools=[SimpleNamespace(enabled=True, name="datetime_tool")]),
+        lambda: SimpleNamespace(tools=[SimpleNamespace(name="datetime_tool")]),
     )
     monkeypatch.setattr("backend.routers.settings.load_profile_metadata", _profile_metadata)
     monkeypatch.setattr("backend.routers.settings.load_profile_ui_config", _profile_ui)

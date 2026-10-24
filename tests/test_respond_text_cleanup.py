@@ -2,6 +2,7 @@
 
 from universal_agentic_framework.orchestration.respond.text_cleanup import (
     strip_control_tokens,
+    strip_reasoning_blocks,
     filter_untrusted_urls,
 )
 
@@ -38,3 +39,19 @@ def test_filter_untrusted_urls_no_urls():
     out, removed = filter_untrusted_urls("no links here", set())
     assert out == "no links here"
     assert removed == 0
+
+
+def test_strip_reasoning_blocks_removes_all_tag_variants():
+    raw = "<think>plan</think>Answer <THINKING>x</THINKING>more<reflection>y</reflection>."
+    assert strip_reasoning_blocks(raw) == "Answer more."
+
+
+def test_strip_reasoning_blocks_truncated_block_runs_to_end():
+    assert strip_reasoning_blocks("Partial answer <think>never closed") == "Partial answer"
+    assert strip_reasoning_blocks("<think>only reasoning") == ""
+
+
+def test_strip_reasoning_blocks_noop_on_clean_text():
+    assert strip_reasoning_blocks("a <b>bold</b> answer") == "a <b>bold</b> answer"
+    assert strip_reasoning_blocks("") == ""
+    assert strip_reasoning_blocks(None) is None

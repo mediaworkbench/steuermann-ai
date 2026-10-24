@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from universal_agentic_framework.tools.ocr.tool import OcrInput, OcrTool
+from tests.vision_mocks import as_astream, as_stream
 
 _VISION_CONFIG_PATCH = "universal_agentic_framework.tools.ocr.tool._load_vision_api_config"
 _FAKE_CONFIG = ("http://localhost:1234/v1", "google/gemma-4-e4b", "0.2", "no-key")
@@ -49,7 +50,7 @@ class TestOcrToolSync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = fetch_resp
+        mock_client.stream.return_value = as_stream(fetch_resp)
         mock_client.post.return_value = api_resp
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
@@ -70,7 +71,7 @@ class TestOcrToolSync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = fetch_resp
+        mock_client.stream.return_value = as_stream(fetch_resp)
         mock_client.post.return_value = api_resp
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
@@ -99,7 +100,7 @@ class TestOcrToolSync:
         fetch_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = fetch_resp
+        mock_client.stream.return_value = as_stream(fetch_resp)
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
         tool = OcrTool(attachments_base_dir=str(tmp_path), max_image_bytes=5 * 1024 * 1024)
@@ -128,7 +129,7 @@ class TestOcrToolAsync:
         api_resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get = AsyncMock(return_value=fetch_resp)
+        mock_client.stream = Mock(return_value=as_astream(fetch_resp))
         mock_client.post = AsyncMock(return_value=api_resp)
         mock_client_cls.return_value.__aenter__.return_value = mock_client
 

@@ -42,6 +42,7 @@ import numpy as np
 from backend.circuit_breaker import CircuitBreakerOpenError
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.helpers.text_processing import extract_json_object
+from universal_agentic_framework.orchestration.respond.text_cleanup import strip_reasoning_blocks
 
 from ..task import HeartbeatTask, TickContext
 
@@ -77,9 +78,7 @@ def _strip_reasoning(text: str) -> str:
     content (and an unterminated/truncated one), so only the final answer remains.
     Mirrors the conversation-title sanitizer — reasoning models need a generous
     token budget AND defensive stripping or the answer is lost."""
-    cleaned = re.sub(r"(?is)<think>.*?</think>", "", text)
-    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
-    return cleaned.strip()
+    return strip_reasoning_blocks(text or "")
 
 
 # Conservative cues for a durable, belief-worthy preference. Matches the THIRD-person
