@@ -2,6 +2,7 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- security: the web search server (DuckDuckGo MCP 0.7) no longer fetches internal or private addresses, so a model-chosen URL can't reach the app's own services; search results keep full URLs.
 - chore: upgraded the MCP client (mcp 2); web search and page fetching keep working with existing MCP servers.
 - chore: upgraded the Redis client (redis-py 8) and the image library (Pillow 13).
 - security: upgraded the map library (MapLibre 6) and math rendering (KaTeX 0.19), clearing all known frontend dependency vulnerabilities.

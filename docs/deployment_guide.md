@@ -418,7 +418,7 @@ The stack runs 9 services on the `steuermann-network` Docker network:
 | `redis` | `redis:8.10-alpine` | `6379` (internal) | LLM response cache, memory cache, summary cache |
 | `qdrant` | `qdrant/qdrant:v1.20.0` | `6333` (internal) | Vector store for RAG and Mem0 memory |
 | `prometheus` | `prom/prometheus:v3.15.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
-| `duckduckgo-mcp` | `mcp/duckduckgo` | `8000` (internal) | DuckDuckGo web-search MCP server |
+| `duckduckgo-mcp` | `ghcr.io/nickclyde/duckduckgo-mcp-server:0.7.0` | `8000` (internal) | DuckDuckGo web search + page fetch MCP server (blocks private/internal URLs) |
 
 **Key wiring details:**
 

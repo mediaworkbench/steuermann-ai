@@ -232,13 +232,16 @@ services:
       retries: 3
 
   duckduckgo-mcp:
-    image: mcp/duckduckgo@sha256:d7141ebf002fd36928e006b7f33de8be0088b337b668edd6564c640e1ce768d8
-    command: ["python", "-c", "from duckduckgo_mcp_server.server import mcp; from mcp.server.fastmcp.server import TransportSecuritySettings; mcp.settings.host='0.0.0.0'; mcp.settings.transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False); mcp.run(transport='streamable-http')"]
+    # Upstream image (github.com/nickclyde/duckduckgo-mcp-server) 0.7.0, pinned by digest.
+    image: ghcr.io/nickclyde/duckduckgo-mcp-server:0.7.0@sha256:c3710a7e6252609851690430350761183e22739dedb7956bca157209f37a6721
+    # DNS-rebinding protection stays on: only the in-network service name is accepted.
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000", "--allowed-hosts", "duckduckgo-mcp:8000", "duckduckgo-mcp:*"]
     environment:
       - DDG_SAFE_SEARCH=MODERATE
       - DDG_REGION=${SEARCH_REGION:-de-de}
-    volumes:
-      - ${RAG_DATA_PATH:-./data/rag-data}/web:/data/rag-web
+      # Keep full URLs in search results (0.7 otherwise shortens long ones to ref://
+      # tokens, which would break citations and the untrusted-URL filter).
+      - DDG_REF_URL_THRESHOLD=0
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost', 8000)); s.close()"]
       interval: 30s
