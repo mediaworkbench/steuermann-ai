@@ -414,10 +414,10 @@ The stack runs 9 services on the `steuermann-network` Docker network:
 | `fastapi` | `docker/Dockerfile.fastapi` | `8001:8001` (host) | FastAPI adapter — auth, metrics proxy, chat proxy |
 | `nextjs` | `docker/Dockerfile.nextjs` | `3000:3000` (host) | Next.js frontend (chat, settings, metrics) |
 | `ingestion` | `docker/Dockerfile.ingestion` | — | Qdrant document ingestion watcher |
-| `postgres` | `postgres:15.5-alpine` | `5432:5432` | Conversation storage + LangGraph checkpoints |
-| `redis` | `redis:7.2-alpine` | `6379:6379` | LLM response cache, memory cache, summary cache |
-| `qdrant` | `qdrant/qdrant:latest` | `6333` (internal) | Vector store for RAG and Mem0 memory |
-| `prometheus` | `prom/prometheus:v2.48.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
+| `postgres` | `postgres:18-alpine` | `5432` (internal) | Conversation storage + LangGraph checkpoints |
+| `redis` | `redis:8.10-alpine` | `6379` (internal) | LLM response cache, memory cache, summary cache |
+| `qdrant` | `qdrant/qdrant:v1.20.0` | `6333` (internal) | Vector store for RAG and Mem0 memory |
+| `prometheus` | `prom/prometheus:v3.15.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
 | `duckduckgo-mcp` | `mcp/duckduckgo` | `8000` (internal) | DuckDuckGo web-search MCP server |
 
 **Key wiring details:**
@@ -614,6 +614,12 @@ Focus on these surfaces after an upgrade:
 - Profile metadata surfaced through the FastAPI and chat metadata contracts
 - Monitoring dashboards and metrics label expectations
 - Ingestion and retrieval alignment for `rag.collection_name`, embeddings, and chunking settings
+
+**Infrastructure image upgrades** (existing volumes):
+
+- **PostgreSQL major version** (e.g. 17 → 18): the data directory is not compatible across majors. Dump first (`docker compose exec -T postgres pg_dumpall -U framework > dump.sql`), stop and remove the `postgres` container and the `postgres-data` volume, start the new image, then restore (`docker compose exec -T postgres psql -U framework -d postgres < dump.sql`; "role/database already exists" errors are expected). Since 18 the official image mounts the volume at `/var/lib/postgresql` (not `/var/lib/postgresql/data`).
+- **Qdrant**: upgrade one minor version at a time on existing storage (e.g. 1.18 → 1.19 → 1.20), and keep `qdrant-client` within one minor version of the server — the client warns about incompatibility beyond that.
+- **Redis**: a cache only; newer majors load the existing AOF. Flushing it is always safe.
 
 ### **10.3 Breaking-Change Discipline**
 
