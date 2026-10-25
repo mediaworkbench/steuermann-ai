@@ -17,6 +17,7 @@ class _Model:
 
     def invoke(self, messages):
         self.calls += 1
+        self.messages = messages
         return SimpleNamespace(content=self.output)
 
 
@@ -58,14 +59,20 @@ def test_synthesis_retry_returns_empty_on_model_failure():
 # ── attachment-refusal retry ──────────────────────────────────────────
 
 def test_attachment_refusal_retry_fires_on_refusal():
+    from langchain_core.messages import HumanMessage, SystemMessage
+
     model = _Model("Based on the attachment, the answer is 42.")
     state = {"attachment_context": [{"text": "doc"}], "profile_name": "p"}
+    payload = [SystemMessage(content="SYS"), HumanMessage(content="[Attachment: a.md]\ndoc"), HumanMessage(content="q")]
     out = retry_on_attachment_refusal(
         "I cannot access the attached document.", model=model, state=state,
-        system_prompt="SYS", all_msgs=[{"role": "user", "content": "q"}],
+        system_prompt="SYS", payload=payload,
     )
     assert out == "Based on the attachment, the answer is 42."
     assert model.calls == 1
+    # Only the system message is swapped — the file turn carrying the content is resent.
+    assert "ATTACHMENT HANDLING" in model.messages[0].content
+    assert model.messages[1:] == payload[1:]
 
 
 def test_attachment_refusal_retry_skipped_without_refusal():
@@ -73,9 +80,23 @@ def test_attachment_refusal_retry_skipped_without_refusal():
     state = {"attachment_context": [{"text": "doc"}], "profile_name": "p"}
     out = retry_on_attachment_refusal(
         "Here is the summary of your file.", model=model, state=state,
-        system_prompt="SYS", all_msgs=[],
+        system_prompt="SYS", payload=[],
     )
     assert out == "Here is the summary of your file."
+    assert model.calls == 0
+
+
+def test_attachment_refusal_retry_skipped_when_pointing_at_excerpt_gap():
+    model = _Model()
+    state = {
+        "workspace_document_context": [{"text": "doc", "excerpt": "items 30–600 of 676 omitted"}],
+        "profile_name": "p",
+    }
+    out = retry_on_attachment_refusal(
+        "March is not available in the document — it falls in the omitted part of the excerpt.",
+        model=model, state=state, system_prompt="SYS", payload=[],
+    )
+    assert out.startswith("March is not available")
     assert model.calls == 0
 
 
@@ -83,7 +104,7 @@ def test_attachment_refusal_retry_skipped_without_attachments():
     model = _Model()
     out = retry_on_attachment_refusal(
         "I cannot access the attached document.", model=model,
-        state={"attachment_context": []}, system_prompt="SYS", all_msgs=[],
+        state={"attachment_context": []}, system_prompt="SYS", payload=[],
     )
     assert model.calls == 0
 

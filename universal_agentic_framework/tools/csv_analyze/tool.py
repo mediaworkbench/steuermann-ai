@@ -1,6 +1,8 @@
-"""CSV analysis tool — exact aggregates over workspace spreadsheet files using stdlib csv."""
+"""CSV analysis tool — exact aggregates over workspace spreadsheet files (CSV, or JSON
+lists of records) using the stdlib."""
 
 import csv
+import json
 import os
 import re
 import statistics
@@ -61,6 +63,61 @@ def _read_rows(path: Path, delimiter: str) -> tuple[list[str], list[dict[str, st
     return list(headers), rows
 
 
+def _json_records(data: object) -> tuple[Optional[list], Optional[str]]:
+    """The list of records in a JSON document: a top-level array of objects, or the longest
+    array-of-objects value of a top-level object (``{"data": [...], "meta": {...}}``)."""
+    def is_records(value: object) -> bool:
+        return isinstance(value, list) and any(isinstance(item, dict) for item in value)
+
+    if is_records(data):
+        return data, None  # type: ignore[return-value]
+    if isinstance(data, dict):
+        candidates = [(k, v) for k, v in data.items() if is_records(v)]
+        if candidates:
+            key, records = max(candidates, key=lambda kv: len(kv[1]))
+            return records, str(key)
+    return None, None
+
+
+def _cell(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _flatten_record(record: dict, prefix: str = "") -> dict[str, str]:
+    """One row per record; nested objects become dotted columns (``address.city``)."""
+    row: dict[str, str] = {}
+    for key, value in record.items():
+        name = f"{prefix}{key}"
+        if isinstance(value, dict):
+            row.update(_flatten_record(value, f"{name}."))
+        else:
+            row[name] = _cell(value)
+    return row
+
+
+def _read_json_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """Return (headers, rows) for a JSON list of records, in the same shape as _read_rows."""
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    records, _key = _json_records(data)
+    if records is None:
+        raise ValueError("JSON file has no list of records (objects) to analyze.")
+    rows = [_flatten_record(r) for r in records if isinstance(r, dict)]
+    headers: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for h in row:
+            if h not in seen:
+                seen.add(h)
+                headers.append(h)
+    return headers, rows
+
+
 def _find_column(headers: list[str], column: str) -> Optional[str]:
     """Case-insensitive column lookup; returns canonical header name or None."""
     for h in headers:
@@ -109,7 +166,7 @@ def _format_rows(headers: list[str], rows: list[dict[str, str]]) -> str:
 
 
 class CsvAnalyzeInput(BaseModel):
-    file_path: str = Field(description="Absolute path to the CSV workspace document.")
+    file_path: str = Field(description="Absolute path to the CSV or JSON workspace document.")
     operation: str = Field(
         description=(
             "Operation to perform: summary | aggregate | filter | head | tail | unique | value_counts. "
@@ -127,11 +184,12 @@ class CsvAnalyzeInput(BaseModel):
 
 
 class CsvAnalyzeTool(BaseTool):
-    """Analyze a CSV workspace document — compute exact aggregates over all rows using stdlib csv."""
+    """Analyze a CSV (or JSON list-of-records) workspace document — exact aggregates over all rows."""
 
     name: str = "csv_analyze_tool"
     description: str = (
-        "Analyze a CSV spreadsheet file from the workspace. "
+        "Analyze a CSV spreadsheet or a JSON data file (a list of records) from the workspace. "
+        "JSON records become rows and their fields columns (nested fields as a.b). "
         "Supported operations: summary (row count, columns, types), "
         "aggregate (sum / total / average / mean / min / max / count) over a column, "
         "with optional group by; filter rows by column value; "
@@ -164,20 +222,28 @@ class CsvAnalyzeTool(BaseTool):
         except (ValueError, FileNotFoundError) as exc:
             return f"Error: {exc}"
 
-        try:
-            sample = path.read_text(encoding="utf-8-sig", errors="replace")[:4096]
-        except OSError as exc:
-            return f"Error reading file: {exc}"
+        if path.suffix.lower() == ".json":
+            try:
+                headers, rows = _read_json_rows(path)
+            except Exception as exc:
+                return f"Error parsing JSON: {exc}"
+            if not headers:
+                return "Error: JSON records have no fields."
+        else:
+            try:
+                sample = path.read_text(encoding="utf-8-sig", errors="replace")[:4096]
+            except OSError as exc:
+                return f"Error reading file: {exc}"
 
-        delimiter = _sniff_delimiter(sample)
+            delimiter = _sniff_delimiter(sample)
 
-        try:
-            headers, rows = _read_rows(path, delimiter)
-        except Exception as exc:
-            return f"Error parsing CSV: {exc}"
+            try:
+                headers, rows = _read_rows(path, delimiter)
+            except Exception as exc:
+                return f"Error parsing CSV: {exc}"
 
-        if not headers:
-            return "Error: CSV has no headers."
+            if not headers:
+                return "Error: CSV has no headers."
 
         op = operation.strip().lower()
 

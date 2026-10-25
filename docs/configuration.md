@@ -397,12 +397,16 @@ tokens:
   per_node_budgets:
     summarization_node: 2000
     update_memory: 2000
+  context_documents_ratio: 0.5       # share of the chat context window for attachments + workspace docs
+  context_documents_max_tokens: null # optional absolute cap on top of the ratio
 ```
+
+**User file budget (enforced):** `context_documents_ratio` (0 < r ≤ 0.8, default 0.5) and the optional `context_documents_max_tokens` size how much of the respond prompt this turn's attachments and workspace documents may fill. The budget is further limited to the room left after the system prompt, history, tool results and `response_reserve_ratio`, with a 3000-token floor. When the context window is unknown (no `llm.roles.chat.context_window_tokens`, no probe result), 8192 is assumed for this budget. Files that don't fit are excerpted head + tail (CSV by rows, JSON by array items) and labelled `EXCERPT`, so the model knows a part is missing; `csv_analyze_tool` still computes over the whole CSV/JSON file.
 
 **Token tracking (no enforcement):**
 
 - `tokens_used`, `input_tokens`, and `output_tokens` are accumulated in `GraphState` each turn and exposed via Prometheus metrics and the SSE `metadata` event.
-- Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The `tokens.*` configuration keys are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
+- Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The other `tokens.*` configuration keys (everything except `context_documents_*` and `response_reserve_ratio`, which the user file budget uses) are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
 - Conversation length is controlled by the compression threshold (`0.75 × context_window`, resolved from `llm.roles.chat.context_window_tokens` → capability-probe snapshot → 32768 fallback — **not** `max_tokens`, the output cap), not by token budget caps. Fill is measured from the provider-reported prompt size of the last response (`state["last_input_tokens"]`, the same number the context-ring shows). Compression is skipped when `len(messages) ≤ keep_recent_count` (5). The summarization defaults live in code (`memory/summarization.py`, `orchestration/performance_nodes.py`), not in environment variables.
 
 ### Checkpointing Configuration

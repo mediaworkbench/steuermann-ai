@@ -214,7 +214,7 @@ def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
             return
 
         for result in results:
-            probe_store.upsert_probe_result(result)
+            probe_store.upsert_probe_result(result.model_dump())
 
         logger.info(
             "Curated reprobe completed on preferred model change",
@@ -1015,7 +1015,7 @@ def trigger_llm_reprobe(request: Request) -> Dict[str, Any]:
         
         # Persist all reprobe results
         for result in results:
-            probe_store.upsert_probe_result(result)
+            probe_store.upsert_probe_result(result.model_dump())
         
         logger.info(
             "Manual LLM reprobe triggered",

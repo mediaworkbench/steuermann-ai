@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Dict
 
 
@@ -19,6 +20,34 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return int(math.ceil(len(text) / 4.0))
+
+
+_DIGIT_RE = re.compile(r"\d")
+_LETTER_RE = re.compile(r"[^\W\d_]")
+_WHITESPACE_RE = re.compile(r"\s")
+_SPACE_RUN_RE = re.compile(r"[^\S\n]+")
+
+
+def estimate_content_tokens(text: str) -> int:
+    """Content-aware token estimate for budgeting injected documents.
+
+    chars/4 holds for prose but badly undercounts data: SentencePiece-style tokenizers
+    (Gemma, Llama) emit one token per digit and roughly one per punctuation mark, so a
+    numeric JSON export runs at ~1.75 chars/token and a CSV at ~1.2 — chars/4 estimated
+    a 13.5k-token JSON file as 5.9k. Weights (calibrated against Gemma prompt counts):
+    digit 1, punctuation 0.9, letter 1/4.5, newline 1, run of other whitespace 0.2. This
+    lands at 0.96–1.33x the real count across JSON, CSV, YAML, code and EN/DE prose, and
+    over-counts on tokenizers that group digits — the safe direction for a budget.
+    """
+    if not text:
+        return 0
+    digits = len(_DIGIT_RE.findall(text))
+    letters = len(_LETTER_RE.findall(text))
+    whitespace = len(_WHITESPACE_RE.findall(text))
+    punctuation = len(text) - digits - letters - whitespace
+    newlines = text.count("\n")
+    space_runs = len(_SPACE_RUN_RE.findall(text))
+    return int(math.ceil(digits + punctuation * 0.9 + letters / 4.5 + newlines + space_runs * 0.2))
 
 
 def count_tokens_for_model(model_name: str, text: str) -> int:

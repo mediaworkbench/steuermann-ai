@@ -2,6 +2,10 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- fix: large attachments and workspace documents are no longer cut to their first ~2,400 characters — the budget now scales with the model's context window, and oversized files keep their beginning and end (so the newest entries of logs and exports stay visible), clearly marked as an excerpt.
+- fix: document size is now estimated per content type, so number-heavy JSON and CSV files no longer overflow the model's context; file content is also sent once instead of twice.
+- improvement: the spreadsheet tool now also computes over JSON data files (lists of records), so totals and counts work over the whole file even when only an excerpt fits the prompt.
+- fix: the "Retry" model reprobe and the reprobe after switching models failed with a server error, so the model's real context window was never refreshed.
 - chore: removed CrewAI and its never-enabled crews, together with the `agents.yaml` profile file, the crew feature flags and the crew-only result cache; multi-step workflows belong in LangGraph.
 - fix: streamed answers now match what the model's history holds — the error message when the model provider fails mid-chat (previously a blank answer), filtered untrusted links, and retried answers now show up live and after reload.
 - fix: a server-side failure mid-reply no longer saves the partial answer into a workspace document, and the turn is kept marked as interrupted instead of as a finished answer.

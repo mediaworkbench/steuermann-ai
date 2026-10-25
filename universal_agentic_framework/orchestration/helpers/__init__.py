@@ -25,6 +25,10 @@ from .text_processing import (
     build_attachment_context_block,
     build_workspace_document_context_block,
     build_workspace_tool_paths,
+    build_context_manifest,
+    allocate_token_budgets,
+    context_item_need,
+    is_data_file_doc,
     extract_json_object,
 )
 
@@ -98,6 +102,10 @@ __all__ = [
     "build_attachment_context_block",
     "build_workspace_document_context_block",
     "build_workspace_tool_paths",
+    "build_context_manifest",
+    "allocate_token_budgets",
+    "context_item_need",
+    "is_data_file_doc",
     "extract_json_object",
     # Intent detection
     "detect_tool_routing_intents",

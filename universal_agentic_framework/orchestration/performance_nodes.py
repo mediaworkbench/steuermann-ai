@@ -81,23 +81,30 @@ def get_summarizer() -> ConversationSummarizer:
 _KEEP_RECENT_COUNT = 5
 
 
-def _resolve_context_window(state: dict) -> int:
-    """Resolve the chat model's real context window for the compression threshold.
+# Used when neither the profile nor a capability probe knows the chat model's window.
+DEFAULT_CONTEXT_WINDOW = 32768
+
+
+def resolve_context_window_info(state: dict, config: Any = None) -> tuple[int, bool]:
+    """Resolve the chat model's real context window → ``(tokens, known)``.
 
     Precedence (highest first):
       1. Profile override ``llm.roles.chat.context_window_tokens``.
       2. Capability-probe snapshot forwarded into graph state, matched to the model
          that produced the last response (``state["model_used"]``).
-      3. Conservative 32768 fallback.
+      3. ``DEFAULT_CONTEXT_WINDOW`` fallback — ``known`` is False, so callers that
+         would overflow a smaller real window (the document budget) can stay cautious.
 
     Never uses ``max_tokens`` — that is the output cap, not the context window.
+    ``config`` is an already-loaded core config; loaded lazily when omitted.
     """
     try:
-        from universal_agentic_framework.config import load_core_config as _load_cfg
-        _cfg = _load_cfg()
-        config_ctx = getattr(_cfg.llm.roles.chat, "context_window_tokens", None)
+        if config is None:
+            from universal_agentic_framework.config import load_core_config as _load_cfg
+            config = _load_cfg()
+        config_ctx = getattr(config.llm.roles.chat, "context_window_tokens", None)
         if config_ctx:
-            return int(config_ctx)
+            return int(config_ctx), True
     except Exception:
         pass
 
@@ -117,13 +124,18 @@ def _resolve_context_window(state: dict) -> int:
         except Exception:
             continue
         if model_used and str(row.get("model_name") or "") == model_used:
-            return ctx
+            return ctx, True
         if fallback_probe_ctx is None:
             fallback_probe_ctx = ctx
     if fallback_probe_ctx is not None:
-        return fallback_probe_ctx
+        return fallback_probe_ctx, True
 
-    return 32768
+    return DEFAULT_CONTEXT_WINDOW, False
+
+
+def _resolve_context_window(state: dict, config: Any = None) -> int:
+    """Context window for the compression threshold (see ``resolve_context_window_info``)."""
+    return resolve_context_window_info(state, config)[0]
 
 
 async def compress_state(state: dict, force: bool = False) -> dict:

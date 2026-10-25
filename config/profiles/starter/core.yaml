@@ -143,6 +143,8 @@ tokens:
   response_reserve_ratio: 0.15
   enforce_per_node_hard_limit: true
   per_node_budgets: {}
+  context_documents_ratio: 0.5       # share of the chat context window for attachments + workspace docs
+  context_documents_max_tokens: null # optional absolute cap on top of the ratio
 
 # Prompt templates loaded from config/profiles/starter/prompts/{lang}.yaml.
 

@@ -393,6 +393,13 @@ class TokensSettings(BaseModel):
     response_reserve_ratio: confloat(ge=0.0, le=0.5) = 0.15
     enforce_per_node_hard_limit: bool = True
     per_node_budgets: Dict[str, PositiveInt] = Field(default_factory=dict)
+    # Share of the chat model's context window that attachments + workspace documents
+    # may fill in the respond prompt (further capped by the room left after the system
+    # prompt, history and the response reserve). Oversized documents are excerpted
+    # head + tail, so the newest entries of logs / time series stay visible.
+    context_documents_ratio: confloat(gt=0.0, le=0.8) = 0.5
+    # Optional absolute ceiling (tokens) on top of the ratio.
+    context_documents_max_tokens: Optional[PositiveInt] = None
 
 
 class CheckpointingSettings(BaseModel):

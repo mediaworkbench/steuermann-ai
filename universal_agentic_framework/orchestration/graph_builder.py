@@ -49,6 +49,7 @@ from langgraph.graph import START, StateGraph
 
 from universal_agentic_framework.llm.budget import (
     count_tokens_for_model,
+    estimate_content_tokens,
     estimate_tokens,
 )
 from universal_agentic_framework.llm.factory import LLMFactory
@@ -70,6 +71,7 @@ from universal_agentic_framework.orchestration.performance_nodes import (
     conversation_compression_node,
     cache_stats_node,
     get_summarizer,
+    resolve_context_window_info,
 )
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
@@ -114,6 +116,10 @@ from universal_agentic_framework.orchestration.helpers import (
     build_attachment_context_block,
     build_workspace_document_context_block,
     build_workspace_tool_paths,
+    build_context_manifest,
+    allocate_token_budgets,
+    context_item_need,
+    is_data_file_doc,
     detect_tool_routing_intents,
     score_tool_similarity,
     intent_boost_applies,
@@ -207,6 +213,38 @@ _TRIVIAL_MEMORY_PATTERNS = frozenset({
 _latest_user_message = latest_user_message  # shared helper
 
 
+# Never budget user files below the old fixed total (1200 attachments + 1800 workspace
+# docs): a crowded context window must not starve them below what they had.
+_MIN_CONTEXT_DOCUMENT_BUDGET = 3000
+# Window assumed for the file budget when neither profile nor probe knows the real one.
+# The resolver's 32768 fallback is fine for the compression trigger but would let files
+# overflow a smaller loaded window (LM Studio commonly loads models at 8k-16k).
+_UNKNOWN_WINDOW_FOR_FILES = 8192
+
+
+def _context_document_budget(config: Any, state: Dict[str, Any], used_tokens: int) -> int:
+    """Token budget for this turn's attachments + workspace documents in the respond prompt.
+
+    ``tokens.context_documents_ratio`` of the chat model's resolved context window
+    (optionally capped by ``tokens.context_documents_max_tokens``), never more than the
+    room left after ``used_tokens`` (system prompt, history, tool results) and the
+    ``response_reserve_ratio`` share kept for the answer. An unknown window is treated
+    as ``_UNKNOWN_WINDOW_FOR_FILES``.
+    """
+    window, known = resolve_context_window_info(state, config)
+    if not known:
+        window = _UNKNOWN_WINDOW_FOR_FILES
+    tokens_cfg = getattr(config, "tokens", None)
+    ratio = float(getattr(tokens_cfg, "context_documents_ratio", 0.5) or 0.5)
+    reserve_ratio = float(getattr(tokens_cfg, "response_reserve_ratio", 0.15) or 0.0)
+    cap = getattr(tokens_cfg, "context_documents_max_tokens", None)
+    budget = int(window * ratio)
+    if cap:
+        budget = min(budget, int(cap))
+    headroom = window - int(window * reserve_ratio) - used_tokens
+    return max(min(budget, headroom), _MIN_CONTEXT_DOCUMENT_BUDGET)
+
+
 # Recent-turn window passed to the tool-calling nodes so they can resolve referential
 # arguments. Tool-calling otherwise sees only the latest user message, so a tool whose
 # argument was named an earlier turn (e.g. the city for weather_tool: "what's the weather
@@ -293,7 +331,7 @@ class GraphState(TypedDict, total=False):
     workspace_documents: List[Dict[str, Any]]  # User workspace documents resolved by adapter
     workspace_document_context: List[Dict[str, Any]]  # Prompt-ready normalized workspace snippets
     workspace_writeback_requested: bool
-    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (bypasses 600-token truncation)
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (never excerpted)
     user_id: str
     session_id: str  # Session identifier for co-occurrence tracking
     language: str
@@ -559,8 +597,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 for a in (state.get("attachments") or [])
             )
             csv_workspace_doc_present = any(
-                str(d.get("mime_type", "")) == "text/csv" or str(d.get("filename", "")).endswith(".csv")
-                for d in (state.get("workspace_documents") or [])
+                is_data_file_doc(d) for d in (state.get("workspace_documents") or [])
             )
 
             if intents["asks_about_tools"]:
@@ -1577,11 +1614,45 @@ def node_generate_response(state: GraphState) -> GraphState:
             low_priority=web_tools_used,
         )
 
-    # Add user-provided uploaded attachments as explicitly labeled reference context.
+    # User files (attachments + workspace documents) share one budget derived from the
+    # chat model's real context window; oversized files are excerpted format-aware and
+    # labelled EXCERPT. Their content travels once, in a human turn placed right before
+    # the user's question (see turn_context_blocks below) — the system prompt only gets
+    # a manifest naming each file and whether it is complete.
     attachments = state.get("attachments") or []
-    attachment_block, normalized_attachment_context = build_attachment_context_block(attachments)
+    workspace_documents = state.get("workspace_documents") or []
+    writeback_doc = (
+        state.get("workspace_writeback_document") if state.get("workspace_writeback_requested") else None
+    )
+    if writeback_doc:
+        # The writeback target is injected whole further down; don't also excerpt it here.
+        workspace_documents = [d for d in workspace_documents if d.get("id") != writeback_doc.get("id")]
+
+    used_tokens = estimate_content_tokens(system_prompt) + estimate_content_tokens(
+        str(writeback_doc.get("content_text") or "") if writeback_doc else ""
+    )
+    for _m in state.get("messages") or []:
+        if isinstance(_m.get("content"), str):
+            used_tokens += estimate_content_tokens(_m["content"])
+    for _result in (tool_results or {}).values():
+        used_tokens += estimate_content_tokens(str(_result))
+    files_budget = _context_document_budget(config, state, used_tokens)
+    attachment_need = sum(
+        context_item_need(str(a.get("extracted_text") or ""))
+        for a in attachments
+        if not str(a.get("mime_type", "")).startswith("image/") and str(a.get("extracted_text") or "").strip()
+    )
+    workspace_need = sum(context_item_need(str(d.get("content_text") or "")) for d in workspace_documents)
+    attachment_budget, workspace_budget = allocate_token_budgets(
+        [attachment_need, workspace_need], files_budget
+    )
+
+    turn_context_blocks: List[str] = []
+    attachment_block, normalized_attachment_context = build_attachment_context_block(
+        attachments, total_budget_tokens=attachment_budget
+    )
     if attachment_block:
-        system_prompt += f"\n\n{attachment_block}"
+        turn_context_blocks.append(attachment_block)
         state["attachment_context"] = normalized_attachment_context
         logger.info(
             "Attachment context injected into prompt",
@@ -1598,11 +1669,11 @@ def node_generate_response(state: GraphState) -> GraphState:
         profile_name = state.get("profile_name", "unknown")
         ATTACHMENTS_NONE_TOTAL.labels(profile_name=profile_name).inc()
 
-    # Add resolved workspace documents as explicitly labeled reference context.
-    workspace_documents = state.get("workspace_documents") or []
-    workspace_block, normalized_workspace_context = build_workspace_document_context_block(workspace_documents)
+    workspace_block, normalized_workspace_context = build_workspace_document_context_block(
+        workspace_documents, total_budget_tokens=workspace_budget
+    )
     if workspace_block:
-        system_prompt += f"\n\n{workspace_block}"
+        turn_context_blocks.append(workspace_block)
         state["workspace_document_context"] = normalized_workspace_context
         logger.info(
             "Workspace document context injected into prompt",
@@ -1610,6 +1681,22 @@ def node_generate_response(state: GraphState) -> GraphState:
         )
     else:
         state["workspace_document_context"] = []
+
+    system_prompt += build_context_manifest(
+        state.get("attachment_context") or [], state.get("workspace_document_context") or []
+    )
+    if turn_context_blocks:
+        logger.info(
+            "User file budget",
+            files_budget_tokens=files_budget,
+            attachment_budget_tokens=attachment_budget,
+            workspace_budget_tokens=workspace_budget,
+            excerpted=[
+                item.get("filename") or item.get("original_name")
+                for item in [*(state.get("attachment_context") or []), *(state.get("workspace_document_context") or [])]
+                if item.get("excerpt")
+            ],
+        )
 
     # Add tool results if available (semantic routing)
     if tool_results:
@@ -1722,61 +1809,34 @@ def node_generate_response(state: GraphState) -> GraphState:
     messages = [SystemMessage(content=system_prompt)]
 
     # Add full conversation history (all previous user and assistant messages).
+    latest_user_idx: Optional[int] = None
     for msg in all_msgs:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if msg.get("type") == "summary":
             continue  # already folded into the system prompt above
         if role == "user":
+            latest_user_idx = len(messages)
             messages.append(HumanMessage(content=content))
         elif role == "assistant":
             messages.append(AIMessage(content=content))
 
-    # Some models underweight system-side attachment blocks and claim they cannot
-    # access attachments. Mirror attachment context as an explicit turn-scoped
-    # human context message to improve reliability.
-    attachment_context = state.get("attachment_context") or []
-    if attachment_context:
-        attachment_lines = [
-            "The following attachment content is available for this turn. Use it directly when answering.",
-        ]
-        for item in attachment_context:
-            name = item.get("original_name") or "attachment.txt"
-            text = item.get("text") or ""
-            if text:
-                attachment_lines.append(f"[Attachment: {name}]\n{text}")
-        if len(attachment_lines) > 1:
-            messages.append(HumanMessage(content="\n\n".join(attachment_lines)))
-
-    if workspace_document_context:
-        workspace_lines = [
-            "The following workspace documents are available for this turn. Use them directly when answering.",
-        ]
-        for item in workspace_document_context:
-            filename = item.get("filename") or "document.txt"
-            version = item.get("version")
-            text = item.get("text") or ""
-            if not text:
-                continue
-            label = f"[Workspace Document: {filename}"
-            if version is not None:
-                label += f" | v{version}"
-            label += "]"
-            workspace_lines.append(f"{label}\n{text}")
-        if len(workspace_lines) > 1:
-            messages.append(HumanMessage(content="\n\n".join(workspace_lines)))
-
-    # In writeback mode inject the FULL document content (bypasses the 600-token context truncation)
-    writeback_doc = state.get("workspace_writeback_document")
-    if writeback_doc and state.get("workspace_writeback_requested"):
+    # In writeback mode the target document goes in whole (it is excluded from the
+    # excerpted workspace context above, so it appears exactly once).
+    if writeback_doc:
         full_text = str(writeback_doc.get("content_text") or "").strip()
         fname = writeback_doc.get("filename") or "document"
         ver = writeback_doc.get("version")
         if full_text:
             ver_label = f" | v{ver}" if ver is not None else ""
-            messages.append(HumanMessage(
-                content=f"[Document to revise: {fname}{ver_label}]\n\n{full_text}"
-            ))
+            turn_context_blocks.append(f"[Document to revise: {fname}{ver_label}]\n\n{full_text}")
+
+    # The user's files go in as one human turn right before their question: some models
+    # underweight system-side document blocks, and a question that comes after the
+    # material it asks about is answered more reliably than one buried above it.
+    if turn_context_blocks:
+        insert_at = latest_user_idx if latest_user_idx is not None else len(messages)
+        messages.insert(insert_at, HumanMessage(content="\n\n".join(turn_context_blocks)))
 
     tool_results = state.get("tool_results", {})
 
@@ -1784,16 +1844,10 @@ def node_generate_response(state: GraphState) -> GraphState:
     # still uses the provider-reported total; these are cheap chars/4 estimates so the
     # user can see *where* their context is going (instructions+RAG+memory+tools vs.
     # prior turns vs. this message vs. attached files). Estimates only — never summed
-    # against the authoritative total.
+    # against the authoritative total. The files slot uses the content-aware estimate:
+    # chars/4 undercounts data files (JSON/CSV) by 2-3x.
     def _ctx_attachment_tokens() -> int:
-        total = 0
-        for item in attachment_context or []:
-            total += estimate_tokens(str(item.get("text") or ""))
-        for item in workspace_document_context or []:
-            total += estimate_tokens(str(item.get("text") or ""))
-        if writeback_doc and state.get("workspace_writeback_requested"):
-            total += estimate_tokens(str(writeback_doc.get("content_text") or ""))
-        return total
+        return sum(estimate_content_tokens(block) for block in turn_context_blocks)
 
     _history_tokens = 0
     for _m in all_msgs:
@@ -1905,7 +1959,7 @@ def node_generate_response(state: GraphState) -> GraphState:
             model=model,
             state=state,
             system_prompt=system_prompt,
-            all_msgs=all_msgs,
+            payload=messages,
         )
         response_text = retry_on_web_extract_contradiction(
             response_text,

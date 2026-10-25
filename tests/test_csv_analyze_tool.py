@@ -256,3 +256,48 @@ class TestMalformedInput:
         path = _write_csv(csv_dir, "x.csv", "a\n1\n")
         result = tool._run(file_path=path, operation="filter", column="a")
         assert result.startswith("Error:")
+
+
+# ── JSON list-of-records files ─────────────────────────────────────────────────
+
+
+class TestJsonRecords:
+    def _write_json(self, directory: Path, name: str, data) -> str:
+        import json
+
+        p = directory / name
+        p.write_text(json.dumps(data), encoding="utf-8")
+        return str(p)
+
+    def test_records_under_a_key_with_sibling_meta(self, tool, csv_dir):
+        data = {
+            "data": [{"date": f"2026-10-{d:02d}", "grams": d * 10} for d in range(1, 18)],
+            "meta": {"exported_at": "2026-10-18T15:03:39Z"},
+        }
+        path = self._write_json(csv_dir, "export.json", data)
+        assert "Rows: 17" in tool._run(file_path=path, operation="summary")
+        tail = tool._run(file_path=path, operation="tail", limit=1)
+        assert "2026-10-17" in tail and "170" in tail
+        assert tool._run(file_path=path, operation="aggregate", column="grams", aggregation="sum") == "sum(grams): 1530"
+
+    def test_top_level_array_with_nested_fields(self, tool, csv_dir):
+        data = [
+            {"name": "a", "address": {"city": "Berlin"}, "amount": 1.5},
+            {"name": "b", "address": {"city": "Hamburg"}, "amount": 2.5},
+            {"name": "c", "address": {"city": "Berlin"}, "amount": 4},
+        ]
+        path = self._write_json(csv_dir, "people.json", data)
+        out = tool._run(
+            file_path=path, operation="aggregate", column="amount", aggregation="sum", group_by="address.city"
+        )
+        assert "Berlin: 5.5" in out
+        assert "Hamburg: 2.5" in out
+
+    def test_json_without_records_is_a_clear_error(self, tool, csv_dir):
+        path = self._write_json(csv_dir, "config.json", {"debug": True, "level": 3})
+        assert tool._run(file_path=path, operation="summary").startswith("Error parsing JSON")
+
+    def test_malformed_json_is_a_clear_error(self, tool, csv_dir):
+        p = csv_dir / "broken.json"
+        p.write_text('{"data": [{"a": 1}', encoding="utf-8")
+        assert tool._run(file_path=str(p), operation="summary").startswith("Error parsing JSON")

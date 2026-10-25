@@ -33,7 +33,7 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `analyze_chart_tool` | Vision | **Yes** | Yes — "analyze chart", "Diagramm", "chart" |
 | `image_metadata_tool` | Image Library | No | No |
 | `read_barcodes_tool` | Image Library | No | Yes — "scan barcode", "QR-Code", "barcode" |
-| `csv_analyze_tool` | Spreadsheet | No | Yes — "sum/total/average/count/group by/filter" on a CSV workspace doc |
+| `csv_analyze_tool` | Spreadsheet | No | Yes — "sum/total/average/count/group by/filter" on a CSV or JSON workspace doc |
 
 ---
 
@@ -134,7 +134,9 @@ Fetches weather from [Open-Meteo](https://open-meteo.com/) — free, no API key 
 
 ### `csv_analyze_tool`
 
-Computes exact aggregates over workspace CSV/spreadsheet files using Python's stdlib `csv` module — no pandas required. Operates over the **full file** on disk, bypassing the LLM context window limit.
+Computes exact aggregates over workspace CSV/spreadsheet files and **JSON lists of records** using the Python stdlib — no pandas required. Operates over the **full file** on disk, bypassing the LLM context window limit (large files only reach the answering model as an excerpt).
+
+**JSON files:** the records are a top-level array of objects, or the longest array-of-objects value of a top-level object (`{"data": [...], "meta": {...}}` → `data`). Each record is a row; nested objects become dotted columns (`address.city`). A JSON file without such an array returns `Error parsing JSON: …`.
 
 **Operations:**
 
@@ -151,9 +153,9 @@ Computes exact aggregates over workspace CSV/spreadsheet files using Python's st
 
 **Numeric coercion:** Tolerant of `1.234,56` (DE) and `1,234.56` (EN) formats, plus leading currency symbols (`€`, `$`, `£`).
 
-**File access:** The tool receives the CSV's absolute `stored_path` via the structured tool-calling node's system prompt (C0 injection). It validates the path is inside the workspace root (`CHAT_WORKSPACE_ROOT`) before reading — paths outside are rejected. **Structured mode only** in v1 (native/react don't inject the path; known limitation).
+**File access:** The tool receives the file's absolute `stored_path` via the structured tool-calling node's system prompt (C0 injection). It validates the path is inside the workspace root (`CHAT_WORKSPACE_ROOT`) before reading — paths outside are rejected. **Structured mode only** in v1 (native/react don't inject the path; known limitation).
 
-**Intent boost triggers (gated on a `text/csv` workspace doc being present):** "sum", "total", "average", "mean", "count", "group by", "filter", "how many rows", "how many entries", "value counts", "head", "tail", "unique", "Summe", "Durchschnitt", "Mittelwert", "wie viele Zeilen", "Spalte auswerten", "CSV auswerten", "Tabelle auswerten", "gruppieren", "filtern".
+**Intent boost triggers (gated on a CSV or JSON workspace doc being present):** "sum", "total", "average", "mean", "count", "group by", "filter", "how many rows", "how many entries", "value counts", "head", "tail", "unique", "Summe", "Durchschnitt", "Mittelwert", "wie viele Zeilen", "Spalte auswerten", "CSV auswerten", "Tabelle auswerten", "gruppieren", "filtern".
 
 **Returns:** Compact human-readable text (not JSON). Errors start with `"Error: …"`.
 
