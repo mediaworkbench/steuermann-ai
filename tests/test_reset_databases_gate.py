@@ -64,3 +64,96 @@ def test_reset_all_databases_admin_passes_gate(monkeypatch):
     # Admin clears the require_admin gate (it would 401/403 otherwise). The body may error
     # because no DB/Qdrant is wired in this unit app — we only assert authorization passed.
     assert resp.status_code not in (401, 403)
+
+
+class _RecordingCursor:
+    def __init__(self, log, missing=()):
+        self.log = log
+        self.missing = set(missing)
+        self.rowcount = 0
+        self._row = None
+
+    def execute(self, sql, params=None):
+        self.log.append((sql, params))
+        self.rowcount = 1
+        if sql.startswith("SELECT to_regclass"):
+            self._row = (None if params[0] in self.missing else params[0],)
+        elif sql.startswith("SELECT id FROM conversations"):
+            self._rows = [("conv-1",), ("conv-2",)]
+
+    def fetchone(self):
+        return self._row
+
+    def fetchall(self):
+        return getattr(self, "_rows", [])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _RecordingPool:
+    def __init__(self, missing=()):
+        self.log = []
+        self.missing = missing
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def connection(self):
+        pool = self
+
+        class _Conn:
+            def cursor(self_inner):
+                return _RecordingCursor(pool.log, pool.missing)
+
+            def commit(self_inner):
+                pass
+
+        yield _Conn()
+
+
+def test_delete_checkpoint_threads_skips_missing_tables():
+    from backend.db import delete_checkpoint_threads
+
+    log = []
+    cur = _RecordingCursor(log, missing={"checkpoint_writes"})
+    delete_checkpoint_threads(cur, ["c1", "c2"])
+    deletes = [sql for sql, _ in log if sql.startswith("DELETE")]
+    assert deletes == [
+        "DELETE FROM checkpoint_blobs WHERE thread_id = ANY(%s);",
+        "DELETE FROM checkpoints WHERE thread_id = ANY(%s);",
+    ]
+    assert delete_checkpoint_threads(cur, []) == 0
+
+
+def test_reset_my_data_purges_dreaming_state_and_checkpoints(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("AUTH_USERNAME", "u-1")
+    monkeypatch.setenv("CHAT_ATTACHMENTS_ROOT", str(tmp_path / "att"))
+    monkeypatch.setenv("CHAT_WORKSPACE_ROOT", str(tmp_path / "ws"))
+    invalidated = []
+    monkeypatch.setattr(
+        "backend.routers.settings.invalidate_procedural_cache", lambda uid: invalidated.append(uid)
+    )
+    pool = _RecordingPool()
+    app = FastAPI()
+    app.state.db_pool = pool
+    app.include_router(settings_router)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    client.post("/api/user/reset-my-data")
+
+    statements = [(sql, params) for sql, params in pool.log if sql.startswith("DELETE")]
+    tables = {sql.split()[2] for sql, _ in statements}
+    for table in (
+        "memory_audit_log", "memory_conflicts", "procedural_overrides", "heartbeat_runs",
+        "co_occurrence_edges", "checkpoints", "checkpoint_blobs", "checkpoint_writes",
+    ):
+        assert table in tables, table
+    checkpoint_params = [p for sql, p in statements if "FROM checkpoints " in sql]
+    assert checkpoint_params == [(["conv-1", "conv-2"],)]
+    assert invalidated == ["u-1"]

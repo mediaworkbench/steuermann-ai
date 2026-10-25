@@ -122,7 +122,7 @@ steuermann config show [--profile <id>] [--section <section>] [--format json]
 ```
 
 - `--profile` — override `PROFILE_ID`
-- `--section` — filter output to a single section: `core`, `features`, `tools`, `agents`, `ui`, `profile_metadata`
+- `--section` — filter output to a single section: `core`, `features`, `tools`, `ui`, `profile_metadata`
 
 **Example:**
 

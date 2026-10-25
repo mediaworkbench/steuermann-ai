@@ -11,6 +11,12 @@ export const runtime = "nodejs";
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://fastapi:8001";
 const CHAT_ACCESS_TOKEN = process.env.CHAT_ACCESS_TOKEN || "";
 
+function clientIpFrom(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for") || "";
+  const first = forwarded.split(",")[0]?.trim();
+  return first || request.headers.get("x-real-ip")?.trim() || "";
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthEnabled()) {
     return NextResponse.json({ detail: "Authentication is disabled" }, { status: 400 });
@@ -38,7 +44,16 @@ export async function POST(request: NextRequest) {
   // Verify credentials against the backend (argon2id, DB-backed users).
   let upstream: Response;
   try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      // FastAPI only sees this server as the peer, so forward the browser's identity
+      // for the per-IP / per-username login rate limits.
+      "x-login-username": username,
+    };
+    const clientIp = clientIpFrom(request);
+    if (clientIp) {
+      headers["x-login-client-ip"] = clientIp;
+    }
     if (CHAT_ACCESS_TOKEN.trim()) {
       headers["x-chat-token"] = CHAT_ACCESS_TOKEN.trim();
     }
@@ -50,6 +65,13 @@ export async function POST(request: NextRequest) {
     });
   } catch {
     return NextResponse.json({ detail: "Authentication service unavailable" }, { status: 503 });
+  }
+
+  if (upstream.status === 429) {
+    return NextResponse.json(
+      { detail: "Too many login attempts. Please wait a minute and try again." },
+      { status: 429 }
+    );
   }
 
   if (!upstream.ok) {

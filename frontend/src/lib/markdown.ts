@@ -46,12 +46,22 @@ export function linkFootnotes(text: string, sources?: Source[]): string {
       const parts = numbers.map((n) => {
         const src = indexMap.get(n);
         if (!src) return `[${n}]`;
-        if (src.url) return `[${toSup(n)}](${src.url})`;
+        if (src.url) return `[${toSup(n)}](${markdownLinkDestination(src.url)})`;
         return `**[${toSup(n)}]**`;
       });
       return parts.join(" ");
     }),
   );
+}
+
+/**
+ * A URL as a markdown link destination. Bare form for ordinary URLs; the CommonMark
+ * `<…>` form when it has spaces or parentheses (a raw `)` would end the link early),
+ * with `<`, `>` and line breaks percent-encoded so they can't break out of it.
+ */
+function markdownLinkDestination(url: string): string {
+  const safe = url.replace(/[<>\r\n]/g, (c) => encodeURIComponent(c));
+  return /[\s()]/.test(safe) ? `<${safe}>` : safe;
 }
 
 /**

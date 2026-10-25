@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from tests.vision_mocks import as_astream, as_stream
 from universal_agentic_framework.tools.read_barcodes.tool import (
     ReadBarcodesInput,
     ReadBarcodesTool,
@@ -109,7 +110,7 @@ class TestReadBarcodesToolSync:
         resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = resp
+        mock_client.stream.return_value = as_stream(resp)
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
         tool = self._make_tool(tmp_path)
@@ -133,7 +134,7 @@ class TestReadBarcodesToolSync:
         resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get.return_value = resp
+        mock_client.stream.return_value = as_stream(resp)
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
         tool = ReadBarcodesTool(attachments_base_dir=str(tmp_path), max_image_bytes=5 * 1024 * 1024)
@@ -143,7 +144,7 @@ class TestReadBarcodesToolSync:
     @patch("httpx.Client")
     def test_fetch_error_returns_error_string(self, mock_client_cls, tmp_path):
         mock_client = Mock()
-        mock_client.get.side_effect = Exception("connection refused")
+        mock_client.stream.side_effect = Exception("connection refused")
         mock_client_cls.return_value.__enter__.return_value = mock_client
 
         tool = self._make_tool(tmp_path)
@@ -169,7 +170,7 @@ class TestReadBarcodesToolAsync:
         resp.raise_for_status.return_value = None
 
         mock_client = Mock()
-        mock_client.get = AsyncMock(return_value=resp)
+        mock_client.stream = Mock(return_value=as_astream(resp))
         mock_client_cls.return_value.__aenter__.return_value = mock_client
 
         tool = self._make_tool(tmp_path)
@@ -182,7 +183,7 @@ class TestReadBarcodesToolAsync:
     @patch("httpx.AsyncClient")
     async def test_api_error_returns_error_string(self, mock_client_cls, tmp_path):
         mock_client = Mock()
-        mock_client.get = AsyncMock(side_effect=Exception("network error"))
+        mock_client.stream = Mock(side_effect=Exception("network error"))
         mock_client_cls.return_value.__aenter__.return_value = mock_client
 
         tool = self._make_tool(tmp_path)

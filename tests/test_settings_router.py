@@ -105,7 +105,6 @@ ingestion:
 tools:
   - name: datetime_tool
     path: universal_agentic_framework/tools/datetime
-    enabled: true
         """,
         encoding="utf-8",
     )
@@ -210,7 +209,7 @@ ingestion:
         encoding="utf-8",
     )
     config_dir.joinpath("tools.yaml").write_text(
-        "tools:\n  - name: datetime_tool\n    path: universal_agentic_framework/tools/datetime\n    enabled: true\n",
+        "tools:\n  - name: datetime_tool\n    path: universal_agentic_framework/tools/datetime\n",
         encoding="utf-8",
     )
     profiles_dir.joinpath("profile.yaml").write_text(
@@ -261,7 +260,7 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
 
     monkeypatch.setattr(
         "backend.routers.settings.load_tools_config",
-        lambda: SimpleNamespace(tools=[SimpleNamespace(enabled=True, name="datetime_tool")]),
+        lambda: SimpleNamespace(tools=[SimpleNamespace(name="datetime_tool")]),
     )
     monkeypatch.setattr("backend.routers.settings.load_profile_metadata", _profile_metadata)
     monkeypatch.setattr("backend.routers.settings.load_profile_ui_config", _profile_ui)
@@ -378,6 +377,23 @@ def test_reingest_all_documents_missing_source(monkeypatch, tmp_path):
 
     response = client.post("/api/ingestion/reingest-all")
     assert response.status_code == 400
+
+
+def test_reingest_all_documents_requires_admin(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTH_USERNAME", "u1")
+    monkeypatch.delenv("CHAT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("NEXT_PUBLIC_AUTH_USER_ROLE", "user")
+
+    def _fail_run(*args, **kwargs):
+        raise AssertionError("reindex must not run for a non-admin")
+
+    monkeypatch.setattr("backend.routers.settings.subprocess.run", _fail_run)
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    assert client.post("/api/ingestion/reingest-all").status_code == 403
 
 
 def test_partial_settings_update_preserves_preferred_model(monkeypatch):

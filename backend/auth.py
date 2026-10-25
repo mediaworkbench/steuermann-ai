@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, Request, status
 
-from backend.single_user import get_single_user_id
+from backend.single_user import auth_enabled, get_single_user_id
 
 try:  # argon2-cffi is a hard runtime dependency; guard only to keep imports robust.
     from argon2 import PasswordHasher
@@ -38,11 +38,6 @@ class CurrentUser:
     user_id: str
     username: str
     role: str
-
-
-def auth_enabled() -> bool:
-    """Whether authentication enforcement is active (the security boundary)."""
-    return os.getenv("AUTH_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
 
 
 def dev_bypass_role() -> str:

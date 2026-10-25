@@ -322,3 +322,17 @@ class TestConversationSummarizer:
         # The conversation slice fed into the prompt is bounded by the budget.
         assert len(captured["prompt"]) < 50000
         assert "x" * 100 in captured["prompt"]  # recent content survives
+
+
+def test_summary_input_keeps_previous_digest_when_over_budget():
+    """Front-truncation used to drop the earlier [SUMMARY] digest first — keep it."""
+    summarizer = ConversationSummarizer()
+    digest = summarizer.create_summary_message("User is planning a trip to Kyoto.", 12)
+    old = [digest] + [{"role": "user", "content": "y" * 5000} for _ in range(10)]
+
+    text = summarizer._build_summary_input(old)
+
+    assert "planning a trip to Kyoto" in text
+    assert len(text) <= summarizer.SUMMARY_INPUT_CHAR_BUDGET + 200
+    assert "older messages omitted" in text
+    assert text.rstrip().endswith("y" * 50)  # newest plain content survives

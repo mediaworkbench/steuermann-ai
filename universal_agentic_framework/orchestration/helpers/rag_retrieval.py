@@ -65,11 +65,15 @@ def filter_and_deduplicate(
     top_k: int,
 ) -> list[dict]:
     """Client-side floor: drops results below min_relevance_score,
-    deduplicates by document ID, then limits to top_k by score.
+    deduplicates by document ID, then limits to top_k — always best score first.
+
+    Results arrive concatenated per query variant / keyword pass, so they are sorted
+    up front: dedup then keeps each chunk's best score, and the order the respond node
+    injects (it takes the first few) is by relevance even when nothing is truncated.
     """
     seen: set = set()
     docs = []
-    for result in search_results:
+    for result in sorted(search_results, key=lambda r: r.get("score", 0.0), reverse=True):
         if result.get("score", 0.0) < min_relevance_score:
             continue
         payload = result.get("payload", {})
@@ -86,9 +90,7 @@ def filter_and_deduplicate(
             "file_path": file_path,
             "score": result["score"],
         })
-    if len(docs) > top_k:
-        docs = sorted(docs, key=lambda d: d["score"], reverse=True)[:top_k]
-    return docs
+    return docs[:top_k]
 
 
 def resolve_rag_config(

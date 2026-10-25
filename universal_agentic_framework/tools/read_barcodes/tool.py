@@ -10,7 +10,11 @@ import structlog
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from universal_agentic_framework.tools.vision_utils import _resolve_local_image
+from universal_agentic_framework.tools.vision_utils import (
+    _resolve_local_image,
+    afetch_image_url,
+    fetch_image_url,
+)
 
 logger = structlog.get_logger()
 
@@ -80,9 +84,7 @@ class ReadBarcodesTool(BaseTool):
         try:
             if image_source.startswith(("http://", "https://")):
                 with httpx.Client(timeout=30.0) as client:
-                    resp = client.get(image_source, follow_redirects=True)
-                    resp.raise_for_status()
-                    image_bytes = resp.content
+                    image_bytes, _ = fetch_image_url(client, image_source, self.max_image_bytes)
             else:
                 image_bytes, _ = _resolve_local_image(image_source, self.attachments_base_dir)
 
@@ -101,9 +103,7 @@ class ReadBarcodesTool(BaseTool):
         try:
             if image_source.startswith(("http://", "https://")):
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(image_source, follow_redirects=True)
-                    resp.raise_for_status()
-                    image_bytes = resp.content
+                    image_bytes, _ = await afetch_image_url(client, image_source, self.max_image_bytes)
             else:
                 image_bytes, _ = _resolve_local_image(image_source, self.attachments_base_dir)
 

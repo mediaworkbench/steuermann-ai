@@ -24,7 +24,6 @@ mkdir -p config/profiles/medical-ai-de
 cp config/profiles/starter/profile.yaml config/profiles/medical-ai-de/
 cp config/profiles/starter/core.yaml config/profiles/medical-ai-de/
 cp config/profiles/starter/features.yaml config/profiles/medical-ai-de/
-cp config/profiles/starter/agents.yaml config/profiles/medical-ai-de/
 cp config/profiles/starter/tools.yaml config/profiles/medical-ai-de/
 cp config/profiles/starter/ui.yaml config/profiles/medical-ai-de/
 cp -R config/profiles/starter/prompts config/profiles/medical-ai-de/
@@ -49,7 +48,6 @@ Keep these files in every profile overlay:
 - `config/profiles/<profile_id>/profile.yaml`
 - `config/profiles/<profile_id>/core.yaml`
 - `config/profiles/<profile_id>/features.yaml`
-- `config/profiles/<profile_id>/agents.yaml`
 - `config/profiles/<profile_id>/tools.yaml`
 - `config/profiles/<profile_id>/ui.yaml`
 
@@ -60,8 +58,7 @@ Add `config/profiles/<profile_id>/prompts/<language>.yaml` when the profile need
 ## Common Customizations
 
 - `core.yaml`: profile id, language defaults, model providers, RAG settings, token budgets
-- `features.yaml`: feature flags such as crews, auth, analytics, or attachments
-- `agents.yaml`: crew definitions and per-agent tool access
+- `features.yaml`: feature flags such as memory, RAG, or the Dreaming Engine
 - `tools.yaml`: enable, disable, or tune tools for the profile
 - `ui.yaml`: profile branding and frontend labels
 - New tools → `universal_agentic_framework/tools/<name>/` + entry in `config/profiles/<id>/tools.yaml`

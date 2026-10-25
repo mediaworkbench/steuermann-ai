@@ -393,6 +393,13 @@ class TokensSettings(BaseModel):
     response_reserve_ratio: confloat(ge=0.0, le=0.5) = 0.15
     enforce_per_node_hard_limit: bool = True
     per_node_budgets: Dict[str, PositiveInt] = Field(default_factory=dict)
+    # Share of the chat model's context window that attachments + workspace documents
+    # may fill in the respond prompt (further capped by the room left after the system
+    # prompt, history and the response reserve). Oversized documents are excerpted
+    # head + tail, so the newest entries of logs / time series stay visible.
+    context_documents_ratio: confloat(gt=0.0, le=0.8) = 0.5
+    # Optional absolute ceiling (tokens) on top of the ratio.
+    context_documents_max_tokens: Optional[PositiveInt] = None
 
 
 class CheckpointingSettings(BaseModel):
@@ -540,54 +547,25 @@ class ProfileUIConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# Agents / Crews
-class AgentDefinition(BaseModel):
-    role: Optional[str] = None
-    goal: Optional[str] = None
-    backstory: Optional[str] = None
-    tools: Optional[List[str]] = None
-    llm_override: Optional[str] = None
-    model_config = ConfigDict(extra="allow")
-
-
-class CrewDefinition(BaseModel):
-    enabled: bool = True
-    process: Optional[str] = None
-    agents: Dict[str, AgentDefinition] = Field(default_factory=dict)
-    max_iterations: Optional[PositiveInt] = None
-    timeout_seconds: Optional[PositiveInt] = None
-    max_retries: Optional[PositiveInt] = 2
-    retry_backoff_base: Optional[confloat(ge=1.0)] = 2.0
-    model_config = ConfigDict(extra="allow")
-
-
-class CrewChainStep(BaseModel):
-    """One step in a crew chain pipeline."""
-    crew_name: str
-    input_key: str = "topic"
-    output_key: str = "result"
-    input_from: Optional[str] = None  # key from previous step's output
-    transform: Optional[str] = None   # optional transform function path
-
-
-class CrewChainDefinition(BaseModel):
-    """Declarative crew chain configuration."""
-    name: str
-    enabled: bool = True
-    steps: List[CrewChainStep] = Field(min_length=2)
-    fail_fast: bool = True
-
-
-class AgentsConfig(BaseModel):
-    crews: Dict[str, CrewDefinition] = Field(default_factory=dict)
-    crew_chains: List[CrewChainDefinition] = Field(default_factory=list)
-
-
 # Tools
 class ToolDefinition(BaseModel):
     name: str
     path: str
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_enabled_flag(cls, data: Any) -> Any:
+        # The per-tool ``enabled`` flag was removed: every listed tool loads. Silently
+        # ignoring a leftover ``enabled: false`` re-activates a tool its author meant to
+        # keep off (that is how the unsafe file_ops_tool came back), so fail loudly.
+        if isinstance(data, dict) and "enabled" in data:
+            raise ValueError(
+                f"tool '{data.get('name', '?')}': the 'enabled' key is no longer supported — "
+                "every listed tool is loaded. Remove the entry to stop loading the tool, or "
+                "restrict it per role on the admin page."
+            )
+        return data
 
 
 class ToolsConfig(BaseModel):
@@ -597,20 +575,11 @@ class ToolsConfig(BaseModel):
 
 # Features
 class FeaturesConfig(BaseModel):
-    multi_agent_crews: bool = False
     long_term_memory: bool = False
     ingestion_service: bool = False
     rag_retrieval: bool = True
     authentication: bool = False
     monitoring: bool = False
-    ui_tool_visualization: bool = False
-    ui_token_counter: bool = False
-    ui_export_chat: bool = False
-    crew_result_caching: bool = False
-    crew_cache_ttl_seconds: PositiveInt = 3600
-    crew_chaining: bool = False
-    crew_parallel_execution: bool = False
-    crew_result_validation: bool = True
     
     # Memory layer emergency rollback switches (Phase 1.3)
     # Set these to false for emergency disable during development/debugging

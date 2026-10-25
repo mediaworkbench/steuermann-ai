@@ -18,7 +18,6 @@ from backend.circuit_breaker import (
     AsyncCircuitBreaker,
     CircuitBreakerConfig,
     CircuitBreakerOpenError,
-    CircuitState,
     config_from_env,
 )
 from backend.attachments import UserWorkspaceFileManager, WorkspaceValidationError
@@ -26,6 +25,7 @@ from backend.db import SettingsStore, WorkspaceVersionConflictError
 from backend.rate_limit import limiter
 from backend.auth import ADMIN_ROLE, CurrentUser, resolve_current_user
 from backend.single_user import require_api_access
+from backend.workspace_file_ops import WorkspaceFileOps
 from universal_agentic_framework.config import load_core_config
 from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
 from universal_agentic_framework.monitoring.metrics import (
@@ -38,7 +38,7 @@ from universal_agentic_framework.monitoring.metrics import (
     track_memory_retrieval_signal,
 )
 from universal_agentic_framework.orchestration.helpers.text_processing import extract_json_object
-from universal_agentic_framework.tools.file_ops.tool import WorkspaceFileOpsTool
+from universal_agentic_framework.orchestration.respond.text_cleanup import strip_reasoning_blocks
 
 logger = logging.getLogger(__name__)
 LANGGRAPH_URL = os.getenv("LANGGRAPH_URL", "http://langgraph:8000")
@@ -48,8 +48,25 @@ ACTIVE_PROFILE_ID = os.getenv("ACTIVE_PROFILE_ID", PROFILE_ID)
 # Simple in-memory cache for user settings (TTL: 5 minutes)
 _settings_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
 _SETTINGS_CACHE_TTL = 300  # seconds
+# Provider model lists for preferred-model validation, keyed by provider prefix (the
+# endpoint is fixed by the profile config for the process lifetime). Without
+# it every chat turn paid a /models round-trip (3 s timeout) before reaching LangGraph.
+_MODEL_LIST_CACHE: Dict[str, tuple[float, list[str]]] = {}
+_MODEL_LIST_CACHE_TTL = 60.0  # seconds
 
 router = APIRouter(prefix="/api", tags=["chat"], dependencies=[Depends(require_api_access)])
+
+# Strong refs for fire-and-forget tasks — the event loop keeps only weak references,
+# so an unreferenced task can be garbage-collected before it finishes.
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(coro: Any) -> asyncio.Task[Any]:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 
 LANGGRAPH_CIRCUIT_BREAKER = AsyncCircuitBreaker(
     name="langgraph_invoke",
@@ -171,6 +188,9 @@ class ChatRequest(BaseModel):
     # inference only (never persisted to the user's saved settings).
     disabled_tools: List[str] = Field(default_factory=list, max_length=100)
     workspace_action: Optional["WorkspaceActionRequest"] = None
+    # Regenerate / Edit-and-resend: the persisted user message this turn replaces. It
+    # and every later message are deleted, and the model's history is rewound to match.
+    replace_from_message_id: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("user_id")
     @classmethod
@@ -301,7 +321,10 @@ def _resolve_workspace_documents(
                 if matched_id and matched_id not in inferred_document_ids:
                     inferred_document_ids.append(matched_id)
 
-    if not inferred_document_ids:
+    # History is only a fallback for "edit it again"-style turns that name nothing; a
+    # document the user explicitly attached this turn must not pull in an older one
+    # (that would add unrequested content and make writeback ambiguous).
+    if not inferred_document_ids and not explicit_document_ids:
         inferred_document_ids = _infer_workspace_document_ids_from_recent_conversation_context(
             request=request,
             request_body=request_body,
@@ -343,7 +366,7 @@ def _infer_workspace_document_ids_from_recent_conversation_context(
         return []
 
     try:
-        messages = conversation_store.get_messages(conversation_id, limit=50, offset=0)
+        messages = conversation_store.get_messages(conversation_id, limit=50, offset=0, latest=True)
     except Exception:
         return []
 
@@ -600,10 +623,9 @@ def _sanitize_title(raw: str) -> str:
     if not raw:
         return ""
     # Drop a reasoning block some models inline into the content (<think>…</think>);
-    # an unterminated/truncated <think> means we only got reasoning, so it collapses
+    # an unterminated/truncated block means we only got reasoning, so it collapses
     # to empty and no title is written.
-    cleaned = re.sub(r"(?is)<think>.*?</think>", "", raw)
-    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
+    cleaned = strip_reasoning_blocks(raw)
     # First line only — models sometimes append an explanation on later lines.
     lines = cleaned.strip().splitlines()
     title = lines[0].strip() if lines else ""
@@ -664,14 +686,6 @@ async def maybe_generate_conversation_title(
         )
         convo = [m for m in msgs if m.get("role") in ("user", "assistant")]
         turns = sum(1 for m in convo if m.get("role") == "user")
-
-        # Safety net for pre-provenance (legacy) conversations: no recorded stage
-        # yet already past the upgrade window means the existing title predates this
-        # feature (possibly a manual rename made before provenance tracking) — leave
-        # it untouched. New conversations always have a stage by this point because
-        # the task runs every turn, so this only ever guards legacy data (no migration).
-        if current_stage == 0 and turns > TITLE_UPGRADE_TURNS:
-            return
 
         if current_stage < 1 and turns >= 1:
             target_stage = 1
@@ -982,9 +996,9 @@ def _execute_workspace_action(
             raise HTTPException(status_code=400, detail="read_workspace_file requires path")
 
         workspace_dir = workspace_manager.get_workspace_dir(conversation_id)
-        tool = WorkspaceFileOpsTool(sandbox_dir=str(workspace_dir))
+        file_ops = WorkspaceFileOps(str(workspace_dir))
         try:
-            output = tool._run(operation="read", path=action.path)
+            output = file_ops.run(operation="read", path=action.path)
             if output.startswith("Error:"):
                 raise _workspace_error_to_http(output.replace("Error:", "").strip())
 
@@ -1059,11 +1073,11 @@ def _execute_workspace_action(
             raise HTTPException(status_code=400, detail="write_workspace_file requires content")
 
         workspace_dir = workspace_manager.get_workspace_dir(conversation_id)
-        tool = WorkspaceFileOpsTool(sandbox_dir=str(workspace_dir))
+        file_ops = WorkspaceFileOps(str(workspace_dir))
         try:
             existing_workspace = workspace_store.get_workspace(conversation_id, include_inactive=True)
 
-            output = tool._run(operation="write", path=action.path, content=action.content)
+            output = file_ops.run(operation="write", path=action.path, content=action.content)
             if output.startswith("Error:"):
                 raise _workspace_error_to_http(output.replace("Error:", "").strip())
 
@@ -1143,11 +1157,11 @@ def _execute_workspace_action(
             raise HTTPException(status_code=400, detail="write_revised_copy requires content")
 
         workspace_dir = workspace_manager.get_workspace_dir(conversation_id)
-        tool = WorkspaceFileOpsTool(sandbox_dir=str(workspace_dir))
+        file_ops = WorkspaceFileOps(str(workspace_dir))
         try:
             existing_workspace = workspace_store.get_workspace(conversation_id, include_inactive=True)
 
-            output = tool._run(operation="write_revised", path=action.path, content=action.content)
+            output = file_ops.run(operation="write_revised", path=action.path, content=action.content)
             if output.startswith("Error:"):
                 raise _workspace_error_to_http(output.replace("Error:", "").strip())
 
@@ -1211,14 +1225,18 @@ def _execute_workspace_action(
 
 
 def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[str, Any]:
-    """Load user settings with cache (5min TTL)."""
+    """Load user settings with cache (5min TTL).
+
+    Returns a copy: callers adjust the settings per request (validated preferred model,
+    RAG/tool overlays), which must never leak into the shared cache entry.
+    """
     now = time.time()
     
     # Check cache
     if user_id in _settings_cache:
         settings, timestamp = _settings_cache[user_id]
         if now - timestamp < _SETTINGS_CACHE_TTL:
-            return settings
+            return dict(settings)
     
     # Cache miss or expired - load from DB
     settings = settings_store.get_user_settings(user_id)
@@ -1234,7 +1252,7 @@ def _get_cached_settings(user_id: str, settings_store: SettingsStore) -> Dict[st
     
     # Cache it
     _settings_cache[user_id] = (settings, now)
-    return settings
+    return dict(settings)
 
 
 def _resolve_allowed_tools(request: Request, current_user: CurrentUser) -> Optional[List[str]]:
@@ -1424,7 +1442,12 @@ async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional
                 return [m.get("name") for m in data.get("models", []) if m.get("name")]
 
     try:
-        available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models)
+        cached = _MODEL_LIST_CACHE.get(provider_prefix)
+        if cached is not None and time.monotonic() - cached[0] < _MODEL_LIST_CACHE_TTL:
+            available_models = cached[1]
+        else:
+            available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models)
+            _MODEL_LIST_CACHE[provider_prefix] = (time.monotonic(), available_models)
         alias_map = _canonical_model_aliases(available_models)
         for candidate in _request_aliases(normalized_request):
             if candidate in alias_map:
@@ -1459,6 +1482,46 @@ def _require_conversation_ownership(request: Request, conversation_id: Optional[
         return
     if store.get_conversation(cid, user_id) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+def _rewind_target(request: Request, request_body: "ChatRequest") -> tuple[Any, str, int] | None:
+    message_id = request_body.replace_from_message_id
+    conversation_id = (request_body.conversation_id or "").strip()
+    if not message_id or not conversation_id:
+        return None
+    store = getattr(request.app.state, "conversation_store", None)
+    if store is None or not hasattr(store, "delete_messages_from"):
+        return None
+    return store, conversation_id, int(message_id)
+
+
+def _plan_rewind(request: Request, request_body: "ChatRequest") -> int:
+    """``replace_from_message_id``: how many user turns the replacement removes — sent
+    to LangGraph (``rewind_user_turns``) so the checkpointed history rewinds in step.
+    Read-only; the caller already verified conversation ownership."""
+    target = _rewind_target(request, request_body)
+    if target is None:
+        return 0
+    store, conversation_id, message_id = target
+    if hasattr(store, "count_user_messages_from"):
+        return int(store.count_user_messages_from(conversation_id, message_id) or 0)
+    rows = store.get_messages(conversation_id, limit=500, latest=True)
+    if not any(r.get("id") == message_id for r in rows):
+        return 0
+    return sum(1 for r in rows if r.get("role") == "user" and int(r.get("id") or 0) >= message_id)
+
+
+def _apply_rewind(request: Request, request_body: "ChatRequest") -> None:
+    """Delete the replaced message and everything after it. Called only once LangGraph
+    has accepted the turn, so a request that fails up front leaves history intact."""
+    target = _rewind_target(request, request_body)
+    if target is None:
+        return
+    store, conversation_id, message_id = target
+    try:
+        store.delete_messages_from(conversation_id, message_id)
+    except Exception as exc:  # noqa: BLE001 — the new turn still runs; old rows stay visible
+        logger.warning("Failed to delete replaced messages in %s: %s", conversation_id, exc)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -1535,6 +1598,7 @@ async def chat(
     # A writeback can only target exactly one text document.
     workspace_writeback_eligible = workspace_writeback_requested and len(eligible_writeback_docs) == 1
     llm_capability_probes = _get_latest_llm_capability_probes(request)
+    rewind_user_turns = _plan_rewind(request, request_body)
     state = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
@@ -1543,6 +1607,7 @@ async def chat(
         "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": request_body.conversation_id} if request_body.conversation_id else {}),
+        "rewind_user_turns": rewind_user_turns,
         "attachments": [
             {
                 "id": attachment["id"],
@@ -1604,6 +1669,8 @@ async def chat(
                 return response.json()
 
         result = await LANGGRAPH_CIRCUIT_BREAKER.call(_invoke_langgraph)
+        if rewind_user_turns:
+            await asyncio.to_thread(_apply_rewind, request, request_body)
     except CircuitBreakerOpenError as exc:
         logger.error("LangGraph circuit breaker open: %s", exc)
         raise HTTPException(
@@ -1914,6 +1981,8 @@ async def chat_stream(
     # follow-up/queued turn inserting a newer assistant row during the ~43 s drain.
     turn_id = str(uuid.uuid4())
 
+    rewind_user_turns = _plan_rewind(request, request_body)
+
     state: Dict[str, Any] = {
         "messages": [{"role": "user", "content": request_body.message}],
         "user_id": effective_user_id,
@@ -1922,6 +1991,7 @@ async def chat_stream(
         "allowed_tools": _resolve_allowed_tools(request, current_user),  # role tool gate (None = all)
         "llm_capability_probes": llm_capability_probes,
         **({"session_id": conversation_id} if conversation_id else {}),
+        "rewind_user_turns": rewind_user_turns,
         "turn_id": turn_id,
         "attachments": [
             {
@@ -1983,7 +2053,32 @@ async def chat_stream(
         _accumulated_tokens: list[str] = []
         _incomplete_chunk = ""
         _done_emitted = False
+        _persisted = False
+        _aborted = False
+        # LangGraph accepted the turn (200). Only then does a turn that ends without
+        # [DONE] get persisted as "stopped": a request rejected up front (breaker open,
+        # upstream error) never reached the model's history, so saving its question
+        # would leave an orphan row on every retry.
+        _upstream_started = False
+        # [DONE] persistence was dispatched to a thread; the finally must not persist again.
+        _done_persist_dispatched = False
         _writeback_result: dict | None = None
+        # LangGraph emitted an ``error`` event: it still terminates with [DONE], but the
+        # turn failed — no writeback of the partial answer, and persist it as stopped.
+        _upstream_error = False
+        # Breaker bookkeeping: a request admitted by allow_request() must end in a
+        # verdict (record_success/record_failure) or release() its half-open probe slot.
+        _breaker_admitted = False
+        _breaker_verdict = False
+
+        def _answer_text() -> str:
+            """The assistant answer: the graph's ``final_content`` (post-processed by the
+            respond node — error message, URL filter, retries) when the metadata carried
+            it, else the streamed tokens (stopped/errored turns have no metadata)."""
+            final = _metadata.get("final_content")
+            if isinstance(final, str):
+                return final
+            return "".join(_accumulated_tokens)
 
         def _do_writeback() -> dict | None:
             """Perform workspace writeback after stream completes. Returns result dict or None.
@@ -2000,7 +2095,7 @@ async def chat_stream(
                     request,
                     effective_user_id=effective_user_id,
                     document=target_doc,
-                    content_text="".join(_accumulated_tokens),
+                    content_text=_answer_text(),
                     expected_version=target_doc.get("version"),
                 )
             except HTTPException as exc:
@@ -2015,16 +2110,27 @@ async def chat_stream(
                 logger.warning("chat_stream: workspace writeback unexpected error: %s", exc)
             return None
 
-        def _run_persistence(writeback: dict | None = None, persisted_content: str | None = None) -> None:
+        def _run_persistence(
+            writeback: dict | None = None,
+            persisted_content: str | None = None,
+            *,
+            stopped: bool = False,
+            stop_reason: str = "cancelled",
+        ) -> None:
             """Persist user + assistant messages. Called as soon as [DONE] arrives.
 
             `persisted_content` is the exact text to store as the assistant message
             (the clean writeback confirmation when a save succeeded); when omitted it
-            defaults to the raw accumulated tokens.
+            defaults to the raw accumulated tokens. ``stopped`` marks a turn that ended
+            without [DONE] (user Stop, upstream error): the user message is still kept,
+            plus whatever partial answer streamed (flagged ``stopped``), so the UI log
+            doesn't silently lose the turn the model may already have checkpointed.
             """
-            if not conversation_id:
+            nonlocal _persisted
+            if not conversation_id or _persisted:
                 return
-            assistant_content = "".join(_accumulated_tokens)
+            _persisted = True
+            assistant_content = _answer_text()
             memories_used = _serialize_loaded_memories(_metadata.get("loaded_memory", []))
             tools_executed = list((_metadata.get("tool_results") or {}).keys())
             if _metadata.get("knowledge_context"):
@@ -2044,6 +2150,8 @@ async def chat_stream(
                         "document_ids": request_body.document_ids,
                     },
                 )
+                if stopped and not persisted_content.strip():
+                    return  # nothing streamed yet — keep the question, no empty answer row
                 conv_store.add_message(
                     conversation_id=conversation_id,
                     role="assistant",
@@ -2066,6 +2174,7 @@ async def chat_stream(
                         # Keyed so the LangGraph post-response drain can target this exact
                         # row when it writes the full node trace back (see server.py).
                         "turn_id": turn_id,
+                        **({"stopped": True, "stop_reason": stop_reason} if stopped else {}),
                         **({
                             "thinking_content": _metadata["thinking_content"]
                         } if _metadata.get("thinking_content") else {}),
@@ -2121,9 +2230,10 @@ async def chat_stream(
                 logger.warning("Failed to log stream analytics event: %s", exc)
 
         try:
-            if LANGGRAPH_CIRCUIT_BREAKER.state == CircuitState.OPEN:
+            if not LANGGRAPH_CIRCUIT_BREAKER.allow_request():
                 yield f"event: error\ndata: {json.dumps({'message': 'Service temporarily unavailable (circuit breaker open)'})}\n\n"
                 return
+            _breaker_admitted = True
 
             if model_warning:
                 yield f"event: warning\ndata: {json.dumps({'message': model_warning})}\n\n"
@@ -2150,10 +2260,18 @@ async def chat_stream(
                     json=state,
                 ) as upstream:
                     if upstream.status_code != 200:
+                        if upstream.status_code >= 500:
+                            LANGGRAPH_CIRCUIT_BREAKER.record_failure()
+                            _breaker_verdict = True
                         err_body = await upstream.aread()
                         msg = err_body.decode("utf-8", errors="replace")[:500]
                         yield f"event: error\ndata: {json.dumps({'message': f'LangGraph error {upstream.status_code}: {msg}'})}\n\n"
                         return
+                    LANGGRAPH_CIRCUIT_BREAKER.record_success()
+                    _breaker_verdict = True
+                    _upstream_started = True
+                    if rewind_user_turns:
+                        await asyncio.to_thread(_apply_rewind, request, request_body)
 
                     async for raw_chunk in upstream.aiter_text():
                         if not raw_chunk:
@@ -2170,16 +2288,31 @@ async def chat_stream(
 
                             # [DONE] received — do writeback (if requested), persist,
                             # emit optional writeback event, then forward [DONE].
+                            if stripped == "data: [DONE]" and _upstream_error:
+                                # The graph failed mid-turn: never save its partial answer
+                                # into the document; keep the turn, flagged as errored.
+                                _done_persist_dispatched = True
+                                await asyncio.to_thread(
+                                    _run_persistence, stopped=True, stop_reason="error"
+                                )
+                                yield "data: [DONE]\n\n"
+                                _done_emitted = True
+                                return
+
                             if stripped == "data: [DONE]":
-                                _writeback_result = _do_writeback()
+                                # Sync DB/file work runs off the event loop so one slow
+                                # write can't stall every other open stream.
+                                _writeback_result = await asyncio.to_thread(_do_writeback)
                                 # The visible/persisted bubble is the clean confirmation
                                 # when a save succeeded — never the raw SUMMARY:/DOCUMENT: blob.
                                 _persisted_content = None
                                 if _writeback_result and _writeback_result.get("status") == "saved":
                                     _persisted_content = _build_writeback_chat_message(
-                                        _writeback_result, "".join(_accumulated_tokens)
+                                        _writeback_result, _answer_text()
                                     )
-                                _run_persistence(
+                                _done_persist_dispatched = True
+                                await asyncio.to_thread(
+                                    _run_persistence,
                                     writeback=_writeback_result,
                                     persisted_content=_persisted_content,
                                 )
@@ -2187,7 +2320,7 @@ async def chat_stream(
                                 # once at TITLE_UPGRADE_TURNS turns (the task self-gates).
                                 if conversation_id:
                                     try:
-                                        asyncio.create_task(
+                                        _spawn_background(
                                             maybe_generate_conversation_title(
                                                 conversation_id=conversation_id,
                                                 user_id=effective_user_id,
@@ -2199,7 +2332,7 @@ async def chat_stream(
                                 if _writeback_result and _writeback_result.get("status") == "saved":
                                     _wb_event = {
                                         **_writeback_result,
-                                        "summary": _extract_writeback_summary("".join(_accumulated_tokens)),
+                                        "summary": _extract_writeback_summary(_answer_text()),
                                         "persisted_content": _persisted_content,
                                     }
                                     yield f"event: writeback\ndata: {json.dumps(_wb_event)}\n\n"
@@ -2224,7 +2357,9 @@ async def chat_stream(
                                 elif line.startswith("data: "):
                                     block_data = line[6:].strip()
 
-                            if block_event == "metadata" and block_data:
+                            if block_event == "error":
+                                _upstream_error = True
+                            elif block_event == "metadata" and block_data:
                                 try:
                                     _metadata = json.loads(block_data)
                                 except Exception:
@@ -2239,15 +2374,29 @@ async def chat_stream(
 
                             yield block + "\n\n"
 
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client went away (Stop / closed tab). Never yield after this.
+            _aborted = True
+            raise
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            if isinstance(exc, httpx.RequestError):
+                LANGGRAPH_CIRCUIT_BREAKER.record_failure()
+                _breaker_verdict = True
             logger.error("LangGraph stream HTTP error: %s", exc)
             yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
         except Exception as exc:
             logger.error("Unexpected stream error: %s", exc, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'message': 'Internal server error during streaming'})}\n\n"
         finally:
+            if _breaker_admitted and not _breaker_verdict:
+                LANGGRAPH_CIRCUIT_BREAKER.release()
             if not _done_emitted:
-                yield "data: [DONE]\n\n"
+                if _upstream_started and not _done_persist_dispatched:
+                    # Client abort (Stop / closed tab) vs. the upstream ending or failing
+                    # without [DONE] — the UI shows a different marker for each.
+                    _run_persistence(stopped=True, stop_reason="cancelled" if _aborted else "error")
+                if not _aborted:
+                    yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         _proxy_stream(),

@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,7 @@ from universal_agentic_framework.orchestration.graph_builder import build_graph,
 from universal_agentic_framework.orchestration.checkpointing import prune_checkpoints, setup_checkpointer
 from universal_agentic_framework.orchestration.helpers.tool_payload import build_tool_results_detail
 from universal_agentic_framework.orchestration.performance_nodes import compress_state
+from universal_agentic_framework.orchestration.respond.text_cleanup import strip_reasoning_blocks
 from universal_agentic_framework.monitoring.logging import configure_logging, get_logger, bind_context, clear_context
 from universal_agentic_framework.monitoring.metrics import (
     track_graph_request,
@@ -99,7 +100,20 @@ CONFIG = load_core_config()
 ACTIVE_PROFILE_ID = get_active_profile_id()
 GRAPH: Any = None  # populated in _lifespan before first request is served
 HEARTBEAT: Any = None  # HeartbeatScheduler, started in _lifespan when enabled
-ACTIVE_SESSIONS: set[str] = set()
+# user_id → monotonic time of the user's last request. A user counts as active for
+# ACTIVE_SESSION_WINDOW_SECONDS after their last request (a plain set only ever grew,
+# so the active-sessions gauge reported every user since process start).
+ACTIVE_SESSIONS: Dict[str, float] = {}
+ACTIVE_SESSION_WINDOW_SECONDS = 30 * 60
+
+
+def _touch_active_session(user_id: str) -> None:
+    now = time.monotonic()
+    ACTIVE_SESSIONS[user_id] = now
+    cutoff = now - ACTIVE_SESSION_WINDOW_SECONDS
+    for uid in [u for u, seen in ACTIVE_SESSIONS.items() if seen < cutoff]:
+        ACTIVE_SESSIONS.pop(uid, None)
+    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
 _invocation_count: int = 0
 
 
@@ -109,7 +123,7 @@ def _per_turn_reset() -> Dict[str, Any]:
     With the Postgres checkpointer, any GraphState channel NOT present in the input
     retains its previous turn's value. These are all strictly per-turn outputs, so a
     stale value leaks into the next turn (e.g. a cached ``query_embedding`` from the
-    previous question getting reused for RAG, or a prior turn's ``crew_results`` being
+    previous question getting reused for RAG, or a prior turn's ``tool_results`` being
     re-injected into every later prompt). Returning a fresh dict each call avoids
     sharing mutable objects across concurrent requests.
 
@@ -120,12 +134,12 @@ def _per_turn_reset() -> Dict[str, Any]:
     UntrackedValue channels — never checkpointed, so they cannot go stale.
     """
     return {
+        "turn_tokens_used": 0,  # per-invocation budget counter (cumulative total is tokens_used)
         "query_embedding": [],
         "prefilter_intents": {},
         "tool_results": {},
         "tool_execution_results": {},
         "routing_metadata": {},
-        "crew_results": {},
         "knowledge_context": [],
         "rag_attempted": False,
         "rag_doc_count": 0,
@@ -235,6 +249,30 @@ async def health_ready() -> Dict[str, Any]:
     }
 
 
+def _rewind_history(messages: List[Any], user_turns: Any) -> List[Any]:
+    """Drop the last ``user_turns`` user turns (each user message and everything after
+    it) from checkpointed history — Regenerate / Edit-and-resend replace those turns,
+    so the model must not keep seeing the superseded question and answer. Summary
+    digests before the cut are kept; a rewind reaching past them stops there."""
+    try:
+        turns = int(user_turns or 0)
+    except (TypeError, ValueError):
+        turns = 0
+    if turns <= 0 or not messages:
+        return messages
+    cut = len(messages)
+    seen = 0
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
+        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "type", None)
+        if role in ("user", "human"):
+            seen += 1
+            cut = idx
+            if seen >= turns:
+                break
+    return list(messages[:cut])
+
+
 def _request_driven_state(request: Dict[str, Any]) -> Dict[str, Any]:
     """The explicit allowlist of request-driven GraphState keys (NOT a passthrough).
 
@@ -292,8 +330,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
         bind_context(user_id=user_id)
         
         # Track session
-        ACTIVE_SESSIONS.add(user_id)
-        update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+        _touch_active_session(user_id)
         
         profile_name = CONFIG.profile.name
         profile_id = ACTIVE_PROFILE_ID
@@ -318,6 +355,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
             ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
             if ct:
                 existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+            existing_messages = _rewind_history(existing_messages, request.get("rewind_user_turns"))
 
         # Prepare graph state. Per-turn channels are reset first so stale checkpointed
         # values from the previous turn cannot leak into this one.
@@ -355,7 +393,7 @@ async def invoke_graph(request: Dict[str, Any]) -> Dict[str, Any]:
                 global _invocation_count
                 _invocation_count += 1
                 if _invocation_count % 100 == 0:
-                    asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
+                    _spawn_background(prune_checkpoints(GRAPH.checkpointer))
                 logger.info(
                     "Graph execution completed successfully",
                     tokens_used=result.get("tokens_used", 0),
@@ -445,9 +483,6 @@ _TOOL_LABELS: dict[str, str] = {
     "calculator_tool": "Calculating...",
     "datetime_tool": "Checking date & time...",
     "memory_search_tool": "Searching memories...",
-    "file_read_tool": "Reading file...",
-    "file_write_tool": "Writing file...",
-    "workspace_file_ops_tool": "Editing workspace document...",
     "csv_analyze_tool": "Analyzing spreadsheet...",
     "analyze_image_tool": "Analyzing image...",
     "ocr_tool": "Reading text from image...",
@@ -524,6 +559,39 @@ async def _drain_and_capture(
         pass
 
 
+def _final_assistant_content(output: Dict[str, Any]) -> Optional[str]:
+    """The respond node's final answer text (the last assistant message it appended).
+
+    Authoritative over the streamed tokens: the respond node post-processes its answer
+    after the model call (LLM-failure message, control-token strip, retries, untrusted-URL
+    filter, exact-reply directive), and none of that reaches the token stream. Inline
+    reasoning blocks are removed the same way the stream parser routes them to
+    ``thinking`` events. ``None`` when the output carries no assistant message.
+    """
+    for msg in reversed(output.get("messages") or []):
+        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "type", None)
+        if role in ("assistant", "ai"):
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+            if not isinstance(content, str):
+                return None
+            # The respond node already strips these; kept for any other answer path.
+            return strip_reasoning_blocks(content).strip()
+    return None
+
+
+# Strong references to fire-and-forget tasks: the event loop only keeps weak ones, so an
+# unreferenced task (the post-response drain, checkpoint pruning) can be garbage-collected
+# mid-run — losing the memory write and leaking ephemeral checkpoint rows.
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(coro: Any) -> asyncio.Task[Any]:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
 _conversation_store = None  # lazy ConversationStore for post-response trace write-back
 _conversation_store_lock = threading.Lock()  # guards the lazy init (runs in worker threads)
 
@@ -560,8 +628,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
     user_id = request.get("user_id", "anonymous")
     language = request.get("language", "en")
     bind_context(user_id=user_id)
-    ACTIVE_SESSIONS.add(user_id)
-    update_active_sessions(CONFIG.profile.name, len(ACTIVE_SESSIONS))
+    _touch_active_session(user_id)
     profile_name = CONFIG.profile.name
     profile_id = ACTIVE_PROFILE_ID
 
@@ -579,6 +646,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
         ct = await GRAPH.checkpointer.aget_tuple({"configurable": {"thread_id": session_id}})
         if ct:
             existing_messages = ct.checkpoint.get("channel_values", {}).get("messages", [])
+        existing_messages = _rewind_history(existing_messages, request.get("rewind_user_turns"))
 
     state: GraphState = {
         **_per_turn_reset(),
@@ -837,6 +905,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                         "node_trace": _node_trace_list,
                                         "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                                         "context_breakdown": _final_output.get("context_breakdown", {}),
+                                        "final_content": _final_assistant_content(_final_output),
                                     }
                                     yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
                                     yield "data: [DONE]\n\n"
@@ -844,7 +913,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     global _invocation_count
                                     _invocation_count += 1
                                     if _invocation_count % 100 == 0:
-                                        asyncio.create_task(prune_checkpoints(GRAPH.checkpointer))
+                                        _spawn_background(prune_checkpoints(GRAPH.checkpointer))
                                     # Drain post-processing nodes (summarize, update_memory)
                                     # in the background so they complete without blocking.
                                     # While draining, capture their node trace and write the
@@ -883,7 +952,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                                 await _cleanup_ephemeral_thread(thread_id)
 
                                     _drain_owns_cleanup = True
-                                    asyncio.create_task(_drain_then_cleanup())
+                                    _spawn_background(_drain_then_cleanup())
                                     break
                             # Emit specific tool label once we know which tool ran.
                             if name in _TOOL_CALL_NODES:
@@ -949,6 +1018,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                     "node_trace": _node_trace_list,
                     "tool_results_detail": build_tool_results_detail(_captured_tool_exec),
                     "context_breakdown": _final_output.get("context_breakdown", {}),
+                    "final_content": _final_assistant_content(_final_output),
                 }
                 yield f"event: metadata\ndata: {json.dumps(meta_payload)}\n\n"
 

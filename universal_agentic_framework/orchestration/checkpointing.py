@@ -156,6 +156,24 @@ async def _prune_async(checkpointer: Any) -> None:
                 )
                 """
             )
+            # Superseded channel versions. Every turn writes a new blob version per
+            # changed channel (``messages`` holds the full history), and the
+            # thread-level delete above never touches a live thread — so without this
+            # a thread's storage grows with every turn. Delete only versions OLDER
+            # than the one the surviving checkpoint references: versions are
+            # zero-padded and lexically ordered, and a newer in-flight blob (written
+            # just before its checkpoint row, outside one transaction) is never older.
+            await cur.execute(
+                """
+                DELETE FROM checkpoint_blobs bl
+                USING checkpoints c,
+                      jsonb_each_text(c.checkpoint -> 'channel_versions') cv
+                WHERE c.thread_id = bl.thread_id
+                  AND c.checkpoint_ns = bl.checkpoint_ns
+                  AND cv.key = bl.channel
+                  AND bl.version < cv.value
+                """
+            )
             await cur.execute(
                 """
                 DELETE FROM checkpoint_writes

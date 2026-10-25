@@ -42,7 +42,6 @@ const LANGUAGE_LABELS: Record<string, string> = {
 const FALLBACK_TOOLS: ToolCatalogItem[] = [
   { id: "web_search_mcp", label: "Web Search", group: "text" },
   { id: "extract_webpage_mcp", label: "Extract Webpage", group: "text" },
-  { id: "file_ops_tool", label: "File Ops", group: "text" },
   { id: "csv_analyze_tool", label: "CSV Analyze", group: "text" },
   { id: "analyze_image_tool", label: "Analyze Image", group: "vision" },
   { id: "ocr_tool", label: "OCR", group: "vision" },

@@ -1,7 +1,7 @@
 """LangGraph node for RAG knowledge retrieval.
 
 Extracts node_retrieve_knowledge from graph_builder.py following the same
-pattern as crew_nodes.py and performance_nodes.py.
+pattern as performance_nodes.py.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from universal_agentic_framework.config import load_core_config, load_features_c
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.monitoring.metrics import track_node_execution
 from universal_agentic_framework.orchestration.helpers.embedding_provider import get_routing_embedding_provider
+from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
 from universal_agentic_framework.orchestration.helpers.rag_retrieval import (
     extract_rag_keyword,
     filter_and_deduplicate,
@@ -72,7 +73,7 @@ def node_retrieve_knowledge(state: GraphState) -> GraphState:
     rag_config = getattr(config, "rag", None)
     features_config = load_features_config()
 
-    user_msg = state.get("messages", [])[-1].get("content", "") if state.get("messages") else ""
+    user_msg = latest_user_message(state.get("messages", []))
 
     logger.info("RAG node started", profile_name=profile_name, has_query=bool(user_msg))
 

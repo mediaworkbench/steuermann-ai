@@ -25,6 +25,10 @@ from .text_processing import (
     build_attachment_context_block,
     build_workspace_document_context_block,
     build_workspace_tool_paths,
+    build_context_manifest,
+    allocate_token_budgets,
+    context_item_need,
+    is_data_file_doc,
     extract_json_object,
 )
 
@@ -47,6 +51,8 @@ from .tool_call_args import (
     apply_web_search_max_results,
     infer_extract_webpage_url,
     coerce_tool_args,
+    check_local_path_args,
+    turn_local_paths,
 )
 
 # Embedding provider
@@ -96,6 +102,10 @@ __all__ = [
     "build_attachment_context_block",
     "build_workspace_document_context_block",
     "build_workspace_tool_paths",
+    "build_context_manifest",
+    "allocate_token_budgets",
+    "context_item_need",
+    "is_data_file_doc",
     "extract_json_object",
     # Intent detection
     "detect_tool_routing_intents",
@@ -110,6 +120,8 @@ __all__ = [
     "apply_web_search_max_results",
     "infer_extract_webpage_url",
     "coerce_tool_args",
+    "check_local_path_args",
+    "turn_local_paths",
     # Embedding provider
     "get_routing_embedding_provider",
     "clear_embedding_cache",

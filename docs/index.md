@@ -36,7 +36,6 @@ Steuermann is a domain-agnostic, on-premise agentic AI template built around Lan
 - **[monitoring.md](monitoring.md)** - Metrics dashboard, Prometheus queries, and operational checks
 - **[performance_optimization.md](performance_optimization.md)** - Short tuning guide for caching, token budgets, and conversation compression
 - **[troubleshooting.md](troubleshooting.md)** - Common failure modes, diagnostic commands, and fix guidance
-- **[crewai_extension_guide.md](crewai_extension_guide.md)** - Advanced and experimental CrewAI extension patterns
 - **[tool_development_guide.md](tool_development_guide.md)** - Tool manifests, routing descriptions, and custom tool implementation
 
 ---

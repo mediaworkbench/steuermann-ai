@@ -134,3 +134,39 @@ def test_summarize_failure_yields_empty_not_prompt_echo(monkeypatch) -> None:
     summary = result["summary_text"]
     assert summary == ""
     assert "Extract facts about the user" not in summary  # the prompt text never leaks
+
+
+def test_summarize_skips_llm_when_session_memory_toggle_off(monkeypatch) -> None:
+    model = _RecordingModel()
+    _patch(monkeypatch, model, _features(long_term_memory=True))
+
+    state = {
+        "messages": [
+            {"role": "user", "content": "Tell me about quarterly revenue trends"},
+            {"role": "assistant", "content": "Revenue rose 12%."},
+        ],
+        "language": "en",
+        "memory_enabled": False,
+    }
+    result = graph_builder.node_summarize(state)
+
+    assert model.calls == 0
+    assert result["summary_text"] == ""
+
+
+def test_load_memory_toggle_off_clears_previous_turn_analytics(monkeypatch) -> None:
+    monkeypatch.setattr(graph_builder, "load_core_config", _fake_config)
+    monkeypatch.setattr(graph_builder, "load_features_config", lambda: _features(long_term_memory=True))
+    state = {
+        "messages": [{"role": "user", "content": "hi there, what's new"}],
+        "memory_enabled": False,
+        # Checkpointed from the previous turn:
+        "loaded_memory": [{"text": "old"}],
+        "memory_analytics": {"memories_loaded": 3},
+        "digest_context": [{"digest_id": "d1"}],
+    }
+    result = graph_builder.node_load_memory(state)
+
+    assert result["loaded_memory"] == []
+    assert result["memory_analytics"] == {}
+    assert result["digest_context"] == []

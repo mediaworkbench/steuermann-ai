@@ -397,12 +397,16 @@ tokens:
   per_node_budgets:
     summarization_node: 2000
     update_memory: 2000
+  context_documents_ratio: 0.5       # share of the chat context window for attachments + workspace docs
+  context_documents_max_tokens: null # optional absolute cap on top of the ratio
 ```
+
+**User file budget (enforced):** `context_documents_ratio` (0 < r ≤ 0.8, default 0.5) and the optional `context_documents_max_tokens` size how much of the respond prompt this turn's attachments and workspace documents may fill. The budget is further limited to the room left after the system prompt, history, tool results and `response_reserve_ratio`, with a 3000-token floor. When the context window is unknown (no `llm.roles.chat.context_window_tokens`, no probe result), 8192 is assumed for this budget. Files that don't fit are excerpted head + tail (CSV by rows, JSON by array items) and labelled `EXCERPT`, so the model knows a part is missing; `csv_analyze_tool` still computes over the whole CSV/JSON file.
 
 **Token tracking (no enforcement):**
 
 - `tokens_used`, `input_tokens`, and `output_tokens` are accumulated in `GraphState` each turn and exposed via Prometheus metrics and the SSE `metadata` event.
-- Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The `tokens.*` configuration keys are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
+- Token budget enforcement (`require_tokens`, `TokenBudgetExceeded`, per-node hard limits) has been removed from all graph nodes. The other `tokens.*` configuration keys (everything except `context_documents_*` and `response_reserve_ratio`, which the user file budget uses) are still parsed for future use but have no enforcement effect — no node discards a completed response based on token counts.
 - Conversation length is controlled by the compression threshold (`0.75 × context_window`, resolved from `llm.roles.chat.context_window_tokens` → capability-probe snapshot → 32768 fallback — **not** `max_tokens`, the output cap), not by token budget caps. Fill is measured from the provider-reported prompt size of the last response (`state["last_input_tokens"]`, the same number the context-ring shows). Compression is skipped when `len(messages) ≤ keep_recent_count` (5). The summarization defaults live in code (`memory/summarization.py`, `orchestration/performance_nodes.py`), not in environment variables.
 
 ### Checkpointing Configuration
@@ -503,85 +507,6 @@ heartbeat:
 
 ---
 
-## Agents Configuration (`agents.yaml`)
-
-### Crew Definition
-
-```yaml
-crews:
-  research_crew: # Unique crew identifier
-    enabled: true # Enable/disable crew
-    process: "sequential" # Options: sequential, hierarchical, consensus
-
-    agents:
-      researcher: # Agent role identifier
-        role: "Research Specialist"
-        goal: "Find accurate and relevant information"
-        backstory: "Expert researcher with 10 years experience in medical literature"
-        tools: # Tools this agent can use
-          - web_search
-          - pubmed_search
-        llm_override: null # Optional: use different LLM for this agent
-
-      synthesizer:
-        role: "Information Synthesizer"
-        goal: "Combine research into actionable insights"
-        backstory: "Skilled at distilling complex information into clear recommendations"
-        tools: []
-
-    max_iterations: 5 # Max iterations before terminating
-    timeout_seconds: 300 # Timeout for crew execution
-```
-
-**Process types:**
-
-**Sequential:**
-
-```yaml
-process: "sequential"
-# Agents execute tasks in order defined
-# Output of one feeds into next
-# Most predictable and debuggable
-```
-
-**Hierarchical:**
-
-```yaml
-process: "hierarchical"
-# Manager agent delegates to workers
-# Requires capable manager LLM
-# Best for complex workflows
-```
-
-**Consensus:**
-
-```yaml
-process: "consensus"
-# Multiple agents vote on decisions
-# Higher token cost
-# Best for critical decisions
-```
-
-### Agent Best Practices
-
-**Good role definitions:**
-
-```yaml
-role: "Medical Literature Researcher"
-goal: "Find peer-reviewed evidence for treatment options"
-backstory: "Clinical researcher with expertise in evidence-based medicine and systematic reviews"
-```
-
-**Avoid:**
-
-```yaml
-role: "Helper" # Too generic
-goal: "Help user" # Not specific enough
-backstory: "" # Missing context
-```
-
----
-
 ## Tools Configuration (`tools.yaml`)
 
 ### Tool Registration
@@ -614,27 +539,13 @@ tools:
 
 ```yaml
 # Core features
-multi_agent_crews: false # Enable CrewAI crews (globally disabled by default)
 long_term_memory: true   # Enable Mem0/Qdrant memory system
 ingestion_service: true  # Enable document ingestion service
 rag_retrieval: true      # Enable RAG retrieval in the graph
 
 # Memory retrieval tuning
-memory_importance_scoring: true  # Enable importance-based reranking
 memory_include_related: true     # Fetch related memories via co-occurrence
 memory_top_k: 5                  # Number of primary memories to retrieve
-
-# UI features
-ui_tool_visualization: true # Show tool calls in UI
-ui_token_counter: true      # Show token usage
-ui_export_chat: true        # Allow chat export
-
-# Crew features (only relevant when multi_agent_crews: true)
-crew_result_caching: true
-crew_cache_ttl_seconds: 3600
-crew_result_validation: true
-crew_chaining: false
-crew_parallel_execution: false
 
 # Memory layer emergency rollback switches
 memory_load_enabled: true           # Enable load_memory_node retrieval path

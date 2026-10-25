@@ -4,7 +4,6 @@ Uses APScheduler for periodic cache cleanup operations including:
 - Expired key removal for in-memory caches
 - TTL-based cleanup for Redis
 - Cache statistics collection
-- Cache warming for common queries
 """
 
 import logging

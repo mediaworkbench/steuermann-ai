@@ -17,6 +17,10 @@ const SPOOFABLE_TRUST_HEADERS = new Set([
   "x-authenticated-username",
   "x-authenticated-role",
   "x-authenticated-token-version",
+  // Login rate-limit keys: only the dedicated /api/auth/login route may set them, so a
+  // client can't rotate the per-IP / per-username buckets via /api/proxy/api/auth/login.
+  "x-login-username",
+  "x-login-client-ip",
 ]);
 
 const HOP_BY_HOP_HEADERS = new Set([

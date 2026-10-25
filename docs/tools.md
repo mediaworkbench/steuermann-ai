@@ -26,7 +26,6 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `datetime_tool` | Utility | No | Yes — date/time patterns, `heute`, `time`, `date` |
 | `map_tool` | Utility | No | Yes — "where is", "map of", "how far", "distance between", "locate" |
 | `weather_tool` | Utility | No | Yes — "weather", "wetter", "temperature", "forecast", "how warm", "warmer than" |
-| `file_ops_tool` | Utility | No | No |
 | `web_search_mcp` | Network (MCP) | No | No direct boost — URL detection boosts content extraction routing |
 | `analyze_image_tool` | Vision | **Yes** | Yes — image URL (`.jpg/.png/.gif/.webp`) in message or image attachment in state |
 | `ocr_tool` | Vision | **Yes** | Yes — "read text", "OCR", "Text erkennen" |
@@ -34,7 +33,7 @@ For the full selection architecture, see [tool_development_guide.md](tool_develo
 | `analyze_chart_tool` | Vision | **Yes** | Yes — "analyze chart", "Diagramm", "chart" |
 | `image_metadata_tool` | Image Library | No | No |
 | `read_barcodes_tool` | Image Library | No | Yes — "scan barcode", "QR-Code", "barcode" |
-| `csv_analyze_tool` | Spreadsheet | No | Yes — "sum/total/average/count/group by/filter" on a CSV workspace doc |
+| `csv_analyze_tool` | Spreadsheet | No | Yes — "sum/total/average/count/group by/filter" on a CSV or JSON workspace doc |
 
 ---
 
@@ -131,36 +130,13 @@ Fetches weather from [Open-Meteo](https://open-meteo.com/) — free, no API key 
 
 ---
 
-### `file_ops_tool`
-
-Reads and writes files within a sandboxed workspace directory.
-
-**Capabilities:**
-
-- Read file contents by filename or relative path
-- Write or overwrite a file
-- List files in the workspace
-- Operations are sandboxed to the configured workspace root — paths outside are rejected
-
-**Returns:** File content (for reads), success confirmation (for writes), or directory listing.
-
-**Intent boost triggers:** None — selected via LLM judgment when file-related intent is present in the message.
-
-**Configuration keys** in `config/profiles/<profile_id>/core.yaml`:
-
-| Key | Default | Description |
-| --- | --- | --- |
-| `sandbox_dir` | `/tmp/steuermann-ai` | Absolute path of the sandboxed workspace |
-| `max_read_size_bytes` | `1048576` (1 MB) | Maximum file size for read operations |
-| `allowed_extensions` | `[.txt, .md, .json, .yaml, .csv]` | File extensions the tool will read/write |
-
----
-
 ## Spreadsheet Tools
 
 ### `csv_analyze_tool`
 
-Computes exact aggregates over workspace CSV/spreadsheet files using Python's stdlib `csv` module — no pandas required. Operates over the **full file** on disk, bypassing the LLM context window limit.
+Computes exact aggregates over workspace CSV/spreadsheet files and **JSON lists of records** using the Python stdlib — no pandas required. Operates over the **full file** on disk, bypassing the LLM context window limit (large files only reach the answering model as an excerpt).
+
+**JSON files:** the records are a top-level array of objects, or the longest array-of-objects value of a top-level object (`{"data": [...], "meta": {...}}` → `data`). Each record is a row; nested objects become dotted columns (`address.city`). A JSON file without such an array returns `Error parsing JSON: …`.
 
 **Operations:**
 
@@ -177,9 +153,9 @@ Computes exact aggregates over workspace CSV/spreadsheet files using Python's st
 
 **Numeric coercion:** Tolerant of `1.234,56` (DE) and `1,234.56` (EN) formats, plus leading currency symbols (`€`, `$`, `£`).
 
-**File access:** The tool receives the CSV's absolute `stored_path` via the structured tool-calling node's system prompt (C0 injection). It validates the path is inside the workspace root (`CHAT_WORKSPACE_ROOT`) before reading — paths outside are rejected. **Structured mode only** in v1 (native/react don't inject the path; known limitation).
+**File access:** The tool receives the file's absolute `stored_path` via the structured tool-calling node's system prompt (C0 injection). It validates the path is inside the workspace root (`CHAT_WORKSPACE_ROOT`) before reading — paths outside are rejected. **Structured mode only** in v1 (native/react don't inject the path; known limitation).
 
-**Intent boost triggers (gated on a `text/csv` workspace doc being present):** "sum", "total", "average", "mean", "count", "group by", "filter", "how many rows", "how many entries", "value counts", "head", "tail", "unique", "Summe", "Durchschnitt", "Mittelwert", "wie viele Zeilen", "Spalte auswerten", "CSV auswerten", "Tabelle auswerten", "gruppieren", "filtern".
+**Intent boost triggers (gated on a CSV or JSON workspace doc being present):** "sum", "total", "average", "mean", "count", "group by", "filter", "how many rows", "how many entries", "value counts", "head", "tail", "unique", "Summe", "Durchschnitt", "Mittelwert", "wie viele Zeilen", "Spalte auswerten", "CSV auswerten", "Tabelle auswerten", "gruppieren", "filtern".
 
 **Returns:** Compact human-readable text (not JSON). Errors start with `"Error: …"`.
 

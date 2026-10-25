@@ -443,7 +443,6 @@ Add any new vision-LLM tools to this set. Library-based tools (`image_metadata_t
 | ------ | ------ | ---------- | ----------- |
 | `datetime_tool` | LangChain | Utilities | current_time, convert_timezone (with optional `time` + `from_timezone` for explicit conversion) |
 | `calculator_tool` | LangChain | Utilities | evaluate, convert, statistics, percentage |
-| `file_ops_tool` | LangChain | Utilities | read, write, list, info, exists — **disabled** in default config; use `WorkspaceFileOpsTool` for per-conversation file access |
 | `web_search_mcp` | MCP | Information | search ([DuckDuckGo MCP server](https://github.com/nickclyde/duckduckgo-mcp-server)) |
 | `extract_webpage_mcp` | MCP | Information | fetch_content |
 | `analyze_image_tool` | LangChain | Vision | Describe / analyze an image. Requires `llm.roles.vision`. |

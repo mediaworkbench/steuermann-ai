@@ -1,6 +1,50 @@
 # Changelog
 
-## [Unreleased] — cognitive memory architecture
+## [0.5.0] — security fixes and bugs
+
+- fix: large attachments and workspace documents are no longer cut to their first ~2,400 characters — the budget now scales with the model's context window, and oversized files keep their beginning and end (so the newest entries of logs and exports stay visible), clearly marked as an excerpt.
+- fix: document size is now estimated per content type, so number-heavy JSON and CSV files no longer overflow the model's context; file content is also sent once instead of twice.
+- improvement: the spreadsheet tool now also computes over JSON data files (lists of records), so totals and counts work over the whole file even when only an excerpt fits the prompt.
+- fix: the "Retry" model reprobe and the reprobe after switching models failed with a server error, so the model's real context window was never refreshed.
+- chore: removed CrewAI and its never-enabled crews, together with the `agents.yaml` profile file, the crew feature flags and the crew-only result cache; multi-step workflows belong in LangGraph.
+- fix: streamed answers now match what the model's history holds — the error message when the model provider fails mid-chat (previously a blank answer), filtered untrusted links, and retried answers now show up live and after reload.
+- fix: a server-side failure mid-reply no longer saves the partial answer into a workspace document, and the turn is kept marked as interrupted instead of as a finished answer.
+- fix: the chat circuit breaker can no longer get stuck rejecting every message after its recovery probe was stopped or answered with a client error.
+- fix: background work after each reply (memory update, history compression, trace write-back) can no longer be dropped by the server's garbage collector.
+- security: the web proxy no longer forwards client-supplied login rate-limit headers, which let a signed-in user bypass the login brute-force limits.
+- security: vision tools only fetch images from public addresses (each redirect re-checked) and stop downloading at the size limit, so a URL can no longer reach internal services or exhaust memory.
+- security: tools that open local files only accept files attached to the current conversation, so they can no longer read another user's uploads.
+- security: removed the model-facing `file_ops_tool` — it was meant to be disabled, but came back when tools stopped having an on/off flag; it could read and overwrite the app's own source and config, shared by all users. Workspace documents cover the use case.
+- improvement: preferred-model validation caches the provider's model list for a minute instead of querying it on every message.
+- fix: a reasoning model's inline thinking is no longer kept in the chat history sent back to the model (or fed into memory), and a reply that comes back empty or as thinking only now gets the retry/fallback instead of a blank answer.
+- fix: a tool entry that still carries the removed `enabled` flag is now rejected with a clear error instead of silently loading the tool.
+- improvement: removed the memory-cache graph steps, which never took effect (memory was always re-queried); cache keys now use the full prompt/query, so long prompts sharing a prefix no longer collide.
+- fix: the Redis cache keeps a separate connection per event loop, so cache calls from worker threads no longer break or leak the main connection; a user can no longer be "dreamed" twice back to back.
+- fix: restoring a document version now detects concurrent edits like a normal save, text downloads always match the saved version, re-attaching a document no longer duplicates it, and deleting a conversation removes its workspace files.
+- improvement: most conversation, workspace and memory endpoints no longer block the server's event loop, and the active-sessions metric now counts recently active users instead of everyone since startup.
+- chore: removed unused feature flags (UI toggles, importance scoring) and unused helpers; consolidated the auth-enabled check.
+- fix (UI): the provider-health poll stops after logout, the answer-evidence drawer no longer steals focus, citation links with spaces or parentheses render correctly, the Inspector lists the learned-preferences step, the workspace panel no longer shows an older answer's evidence as the latest, and the stream parser tolerates more SSE formats.
+- fix: long conversations now load their newest messages (the view and the "recent document" lookup used to read the oldest ones), and an explicitly attached document no longer pulls an older one into the turn.
+- fix: conversations whose first turns ran while the model provider was offline now still get an automatic title.
+- fix: stopping a reply or an upstream error no longer loses the turn — the question and any partial answer are saved (marked as stopped); streaming failures now also trip the chat circuit breaker.
+- fix: Regenerate and Edit-and-resend now replace the old turn on the server and in the model's history, instead of only hiding it in the UI.
+- fix: sending in one chat while a reply is still streaming in another no longer kills that reply — the new message queues behind it, and a queued follow-up stays in the chat it was typed in.
+- fix: clearing a document's text can now be saved, unsaved document edits are saved when leaving the chat page, and stale warnings no longer reappear.
+- fix: upload size limits now also apply to document edits and reject oversized files early; the database pool waits briefly for a free connection instead of failing under load.
+- fix: heartbeat task cooldowns now hold for their full duration (a task could previously run every other beat).
+- fix: chat checkpoint storage no longer grows with every turn; conversation compression keeps the earlier summary instead of dropping it.
+- fix: memory no longer stores duplicates when restating a known fact or a "No user facts" placeholder; memory analytics no longer show stale values with memory off, and turning memory off also skips the background fact extraction.
+- fix: the dreaming engine no longer turns every preference into a new belief (or marks a cycle done) when the embedding provider is down, resumes capped batches instead of skipping the rest, catches contradictions of older same-run preferences, and ignores JSON inside a reasoning model's thinking.
+- fix: knowledge-base results are always ordered by relevance, re-ingesting a file no longer removes it from search when embedding fails.
+- security: re-indexing the whole knowledge base (`POST /api/ingestion/reingest-all`) now requires an administrator; any signed-in user could previously wipe and rebuild the shared RAG collection.
+- security: login rate limiting is now per client and per username instead of one bucket shared by everyone behind the web proxy (which let five bad attempts lock every user out); a throttled login now says so instead of "invalid password".
+- security: closed an open redirect after login (`/login?next=/\evil.com` could send users off-site).
+- privacy: "reset my data" / admin reset now also clear the Dreaming Engine state (audit log with deleted-memory text, conflicts, learned rules, run history) and the model-side chat history checkpoints; deleting a conversation now removes its checkpoint history too.
+- fix: memory-review undo and conflict resolution are now atomic and report failures — a double-click no longer applies an action twice, an outage no longer silently "succeeds", and undoing a preference anchor now actually reverts it.
+- security: Postgres and Redis are no longer published on the host by default (use the override file, now bound to localhost), `PROFILE_ID` must be set explicitly instead of defaulting to the unrunnable `base`, and the checkpointer DSN now uses the configured database password.
+- security: constant-time shared-token comparison, stricter workspace path confinement, and the browser no longer sends a (never-configured) shared-token header that could have leaked the secret into the JS bundle.
+
+## [0.4.9] — cognitive memory architecture
 
 - groundwork: cognitive-memory foundation — long-term memories now carry a tier tag (episodic/semantic), a confidence score, and a last-accessed timestamp, with legacy memories normalizing automatically; behaviour is unchanged until the new feature flags are enabled.
 - groundwork: added the per-user data stores for learned preferences, memory-conflict resolution, and a reversible audit log that back the upcoming Dreaming Engine; not yet wired into any user-facing flow.

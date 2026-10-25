@@ -47,6 +47,7 @@ def _memory_was_recently_retrieved(request: Request, memory_id: str, user_id: st
                     conv_id,
                     limit=_RETRIEVAL_LOOKBACK_MESSAGES,
                     offset=0,
+                    latest=True,
                 )
             except Exception:
                 continue
@@ -82,7 +83,7 @@ def _serialize_memory_point(point: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("")
-async def list_memories(
+def list_memories(
     limit: int = Query(default=50, ge=1, le=500),
     query: Optional[str] = Query(default=None),
     include_related: bool = Query(default=False),
@@ -126,7 +127,7 @@ async def list_memories(
 
 
 @router.get("/stats")
-async def memory_stats(
+def memory_stats(
     sample_limit: int = Query(default=500, ge=1, le=5000),
     user_id: str = Depends(current_user_id),
 ):
@@ -184,7 +185,7 @@ async def memory_stats(
 
 
 @router.get("/{memory_id}")
-async def get_memory(
+def get_memory(
     memory_id: str,
     user_id: str = Depends(current_user_id),
 ):
@@ -206,7 +207,7 @@ async def get_memory(
 
 
 @router.post("/{memory_id}/rate")
-async def rate_memory(
+def rate_memory(
     memory_id: str,
     body: MemoryRatingRequest,
     request: Request,
@@ -246,7 +247,7 @@ async def rate_memory(
 
 
 @router.delete("/{memory_id}")
-async def delete_memory(
+def delete_memory(
     memory_id: str,
     user_id: str = Depends(current_user_id),
 ):

@@ -14,7 +14,7 @@ import ast
 import re
 from typing import Any, Dict, List
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.respond.text_cleanup import strip_control_tokens
@@ -121,20 +121,34 @@ _ATTACHMENT_REFUSAL_RE = re.compile(
 )
 
 
+# A reply that points at an EXCERPT's omitted part is correct behaviour, not a refusal —
+# retrying it with "don't claim the content is unavailable" would push the model to guess.
+_EXCERPT_REFERENCE_RE = re.compile(
+    r"excerpt|omitted|not\s+(?:shown|visible|included)|auszug|ausgelassen|nicht\s+(?:sichtbar|enthalten)",
+    flags=re.IGNORECASE,
+)
+
+
 def retry_on_attachment_refusal(
     response_text: str,
     *,
     model: Any,
     state: Dict[str, Any],
     system_prompt: str,
-    all_msgs: List[Dict[str, Any]],
+    payload: List[Any],
 ) -> str:
-    """If attachments were injected but the model claims it can't access them, retry once with
-    an explicit instruction. No-op when the response is empty or has no refusal phrasing."""
-    attachment_context = state.get("attachment_context") or []
-    if not (response_text and attachment_context):
+    """If user files were injected but the model claims it can't access them, retry once with
+    an explicit instruction. No-op when the response is empty or has no refusal phrasing.
+
+    ``payload`` is the message list the respond call sent; the retry swaps only its system
+    message, so the file turn (which carries the content) is resent unchanged.
+    """
+    file_context = [*(state.get("attachment_context") or []), *(state.get("workspace_document_context") or [])]
+    if not (response_text and file_context):
         return response_text
     if not _ATTACHMENT_REFUSAL_RE.search(response_text):
+        return response_text
+    if any(item.get("excerpt") for item in file_context) and _EXCERPT_REFERENCE_RE.search(response_text):
         return response_text
 
     from universal_agentic_framework.monitoring.metrics import (
@@ -145,25 +159,19 @@ def retry_on_attachment_refusal(
     profile_name = state.get("profile_name", "unknown")
     logger.warning(
         "Model claimed attachments were unavailable despite injected attachment context; retrying once",
-        attachment_count=len(attachment_context),
+        attachment_count=len(file_context),
     )
     ATTACHMENT_REFUSAL_RETRIES_TOTAL.labels(profile_name=profile_name).inc()
 
     correction_prompt = (
         system_prompt
         + "\n\n=== ATTACHMENT HANDLING ===\n"
-        + "The USER ATTACHMENTS section is already provided in this prompt and is readable context. "
-        + "Do not state that attachments are unavailable. Use that content directly in your answer.\n"
+        + "The user's files are already provided in the message right before their question and are "
+        + "readable context. Do not state that they are unavailable; use that content directly in your "
+        + "answer. Only for a file labelled EXCERPT is the omitted part named in its label not visible.\n"
         + "=== END ATTACHMENT HANDLING ===\n"
     )
-    correction_messages = [SystemMessage(content=correction_prompt)]
-    for msg in all_msgs:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if role == "user":
-            correction_messages.append(HumanMessage(content=content))
-        elif role == "assistant":
-            correction_messages.append(AIMessage(content=content))
+    correction_messages = [SystemMessage(content=correction_prompt), *payload[1:]]
     try:
         correction_out = model.invoke(correction_messages)
         response_text = strip_control_tokens(_message_text(correction_out))

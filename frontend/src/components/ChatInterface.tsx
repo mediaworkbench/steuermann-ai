@@ -55,6 +55,7 @@ export function ChatInterface() {
     setContextTokens,
     contextBreakdown,
     loading,
+    streamBusy,
     queuedMessage,
     sendMessage,
     enqueueMessage,
@@ -296,12 +297,14 @@ export function ChatInterface() {
     // Block new sends while the chat provider is unreachable (covers Enter-to-send;
     // the composer's send button is already disabled). Queueing during an active
     // stream is still allowed.
-    if (providerStatus === "offline" && !isStreaming && !loading) return;
+    if (providerStatus === "offline" && !streamBusy) return;
     if (!(await flushActiveDocBeforeSend())) return;
     const userMessage = input;
     setInput("");
     setTimeout(() => composerApiRef.current?.resize(), 0);
-    if (isStreaming || loading) {
+    // streamBusy (not the view-gated isStreaming/loading): a reply still streaming
+    // in another chat must not be aborted by sending here — queue behind it.
+    if (streamBusy) {
       enqueueMessage(userMessage, buildSendOptions());
     } else {
       sendMessage(userMessage, buildSendOptions());
@@ -309,6 +312,7 @@ export function ChatInterface() {
   }
 
   const handleRegenerate = useCallback(async () => {
+    if (streamBusy) return;
     if (!(await flushActiveDocBeforeSend())) return;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
@@ -316,14 +320,15 @@ export function ChatInterface() {
         return;
       }
     }
-  }, [messages, sendMessage, buildSendOptions, flushActiveDocBeforeSend]);
+  }, [messages, sendMessage, buildSendOptions, flushActiveDocBeforeSend, streamBusy]);
 
   const handleEditAndResend = useCallback(
     async (index: number, newContent: string) => {
+      if (streamBusy) return;
       if (!(await flushActiveDocBeforeSend())) return;
       sendMessage(newContent, { ...buildSendOptions(), replaceFromIndex: index });
     },
-    [sendMessage, buildSendOptions, flushActiveDocBeforeSend],
+    [sendMessage, buildSendOptions, flushActiveDocBeforeSend, streamBusy],
   );
 
   const handleFeedback = useCallback(
@@ -348,7 +353,6 @@ export function ChatInterface() {
     try {
       const res = await fetch(`/api/proxy/api/conversations/${activeId}/compact`, {
         method: "POST",
-        headers: { "x-chat-token": process.env.NEXT_PUBLIC_API_TOKEN || "" },
       });
       if (res.ok) {
         const data = await res.json() as {
@@ -447,6 +451,7 @@ export function ChatInterface() {
             compactWritebackDoc={compactWritebackDoc}
             writebackSummary={writebackSummary}
             queuedMessage={queuedMessage}
+            streamBusy={streamBusy}
             workspaceSidebarOpen={workspaceSidebarOpen}
             focusedAnswerIndex={focusedAnswerIndex}
             lastAssistantIndex={lastAssistantIndex}

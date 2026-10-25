@@ -47,6 +47,13 @@ class _FakeProbeStore:
     def get_results_for_model(self, model_name: str) -> list:
         return [r for r in self._results if getattr(r, "model_name", None) == model_name]
 
+    def upsert_probe_result(self, result: dict) -> dict:
+        # Mirrors LLMCapabilityProbeStore: takes a plain dict (it calls result.get(...)),
+        # so passing the Pydantic result model fails here exactly as it does in production.
+        row = {key: result.get(key) for key in ("profile_id", "provider_id", "model_name", "status", "metadata")}
+        self._results.append(row)
+        return row
+
 
 @pytest.fixture
 def settings_store():
@@ -360,3 +367,27 @@ class TestReprobeWithMultipleUsers:
         
         # Verify reprobe was called for both users
         assert len(fake_runner.reprobe_calls) > call_count_after_user1
+
+
+class TestReprobePersistence:
+    """Reprobe results must reach the store as dicts (the store calls result.get)."""
+
+    def test_manual_reprobe_persists_results(self, client_with_mocks, probe_store):
+        client, _ = client_with_mocks
+        response = client.post("/api/llm/reprobe")
+        assert response.status_code == 200
+        assert response.json()["reprobe_count"] == 1
+        assert probe_store.get_all_results()[0]["model_name"] == "test-model"
+
+    def test_model_change_reprobe_persists_results(self, client_with_mocks, probe_store):
+        client, _ = client_with_mocks
+        body = {
+            "tool_toggles": {},
+            "rag_config": {"collection": "", "top_k": 5},
+            "analytics_preferences": {},
+            "theme": "auto",
+            "language": "en",
+        }
+        client.post("/api/settings/me", json={**body, "preferred_model": "old-model"})
+        client.post("/api/settings/me", json={**body, "preferred_model": "new-model"})
+        assert "new-model" in [r["model_name"] for r in probe_store.get_all_results()]

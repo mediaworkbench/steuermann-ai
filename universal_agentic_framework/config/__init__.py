@@ -3,7 +3,6 @@ from .loader import (
     clear_config_cache,
     get_active_profile_id,
     get_profile_dir,
-    load_agents_config,
     load_core_config,
     load_features_config,
     load_profile_metadata,
@@ -11,7 +10,6 @@ from .loader import (
     load_tools_config,
 )
 from .schemas import (
-    AgentsConfig,
     CoreConfig,
     FeaturesConfig,
     LanguagePrompts,
@@ -22,7 +20,6 @@ from .schemas import (
 
 __all__ = [
     "load_core_config",
-    "load_agents_config",
     "load_tools_config",
     "load_features_config",
     "clear_config_cache",
@@ -31,7 +28,6 @@ __all__ = [
     "load_profile_metadata",
     "load_profile_ui_config",
     "CoreConfig",
-    "AgentsConfig",
     "ToolsConfig",
     "FeaturesConfig",
     "LanguagePrompts",

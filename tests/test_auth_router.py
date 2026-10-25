@@ -319,3 +319,29 @@ class TestTokenVersionRevocation:
             },
         )
         assert resp.status_code == 200
+
+
+def _req(headers=None, host="10.0.0.5"):
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
+        "client": (host, 1234),
+    }
+    return Request(scope)
+
+
+def test_login_rate_limit_keys_use_forwarded_identity():
+    from backend.rate_limit import login_ip_key, login_username_key
+
+    # Two browsers behind the same Next.js proxy peer get separate IP buckets.
+    a = _req({"x-login-client-ip": "203.0.113.1"})
+    b = _req({"x-login-client-ip": "203.0.113.2"})
+    assert login_ip_key(a) != login_ip_key(b)
+    # Username bucket is case-insensitive and independent of the IP.
+    assert login_username_key(_req({"x-login-username": "Patrick", "x-login-client-ip": "1.1.1.1"})) == \
+        login_username_key(_req({"x-login-username": "patrick", "x-login-client-ip": "2.2.2.2"}))
+    # Direct callers (no forwarded headers) fall back to the socket peer.
+    assert login_ip_key(_req()) == "login-ip:10.0.0.5"
+    assert login_username_key(_req()) == "login-ip:10.0.0.5"

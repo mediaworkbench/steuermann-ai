@@ -24,6 +24,8 @@ interface MessageListProps {
   compactWritebackDoc: string | null;
   writebackSummary: string;
   queuedMessage: QueuedMessage | null;
+  /** Any stream running (also one backgrounded in another chat) — "Send now" waits for it. */
+  streamBusy?: boolean;
   /** Whether the workspace sidebar is currently open — used for the isFocused ring. */
   workspaceSidebarOpen: boolean;
   focusedAnswerIndex: number | null;
@@ -55,6 +57,7 @@ export function MessageList({
   compactWritebackDoc,
   writebackSummary,
   queuedMessage,
+  streamBusy = false,
   workspaceSidebarOpen,
   focusedAnswerIndex,
   lastAssistantIndex,
@@ -138,7 +141,7 @@ export function MessageList({
       {queuedMessage && (
         <QueuedMessageBubble
           text={queuedMessage.text}
-          idle={!isStreaming && !loading}
+          idle={!isStreaming && !loading && !streamBusy}
           onDiscard={onClearQueue}
           onSendNow={onSendQueuedNow}
           onEdit={onEditQueued}

@@ -18,7 +18,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Iterable, Optional, Protocol
 
 from backend.circuit_breaker import (
     AsyncCircuitBreaker,
@@ -51,7 +51,12 @@ class RunStore(Protocol):
     ) -> None: ...
 
     def recent_runs(
-        self, task_name: str, limit: int = 5, *, user_id: Optional[str] = None
+        self,
+        task_name: str,
+        limit: int = 5,
+        *,
+        user_id: Optional[str] = None,
+        statuses: Optional[Iterable[str]] = None,
     ) -> list[Dict[str, Any]]: ...
 
 
@@ -175,8 +180,11 @@ class HeartbeatTask:
         if not self._run_store:
             return False
         try:
+            # Only a completed run starts a cooldown. Filtering to ``ok`` matters: a
+            # cooldown skip records its own ``skipped`` row, which would otherwise be
+            # the newest row next beat and let the task run again immediately.
             rows = await asyncio.to_thread(
-                self._run_store.recent_runs, self.name, 1, user_id=ctx.user_id
+                self._run_store.recent_runs, self.name, 1, user_id=ctx.user_id, statuses=("ok",)
             )
         except Exception as exc:  # noqa: BLE001 — cooldown is best-effort
             logger.warning("heartbeat_cooldown_check_failed", task=self.name, error=str(exc))

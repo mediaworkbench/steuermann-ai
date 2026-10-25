@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
+from backend.uploads import read_upload_capped
 from backend.attachments import AttachmentValidationError, WorkspaceValidationError
 from backend.auth import CurrentUser, resolve_current_user
 from backend.single_user import require_api_access
@@ -189,7 +190,7 @@ def _workspace_enabled() -> bool:
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
-async def create_conversation(
+def create_conversation(
     body: CreateConversationRequest,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -213,7 +214,7 @@ async def create_conversation(
 
 
 @router.get("", response_model=ConversationListResponse)
-async def list_conversations(
+def list_conversations(
     request: Request,
     q: Optional[str] = Query(default=None, description="Substring search over title + message content"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -243,7 +244,7 @@ async def list_conversations(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_conversation(
+def get_conversation(
     conversation_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -253,12 +254,12 @@ async def get_conversation(
     conv = store.get_conversation(conversation_id, current_user.user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    messages = store.get_messages(conversation_id)
+    messages = store.get_messages(conversation_id, latest=True)
     return {"conversation": conv, "messages": messages}
 
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
-async def update_conversation(
+def update_conversation(
     conversation_id: str,
     body: UpdateConversationRequest,
     request: Request,
@@ -289,7 +290,7 @@ async def update_conversation(
 
 
 @router.delete("/{conversation_id}", status_code=204)
-async def delete_conversation(
+def delete_conversation(
     conversation_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -299,6 +300,13 @@ async def delete_conversation(
     deleted = store.delete_conversation(conversation_id, current_user.user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # The DB cascade drops the rows; the conversation's workspace copies live on disk.
+    workspace_manager = getattr(request.app.state, "chat_workspace_manager", None)
+    if workspace_manager is not None:
+        try:
+            workspace_manager.remove_conversation_dir(conversation_id)
+        except Exception as exc:  # noqa: BLE001 — the conversation itself is gone
+            logger.warning("Failed to remove workspace dir for %s: %s", conversation_id, exc)
     return Response(status_code=204)
 
 
@@ -336,7 +344,7 @@ async def upload_attachment(
         raise HTTPException(status_code=500, detail="Workspace document services are unavailable")
 
     try:
-        content = await file.read()
+        content = await read_upload_capped(file, attachment_manager.config.max_file_bytes)
         safe_name, mime_type = attachment_manager.validate_upload(
             file.filename or "attachment.txt",
             content,
@@ -375,6 +383,8 @@ async def upload_attachment(
         )
 
         return {"attachment": attachment}
+    except HTTPException:
+        raise
     except AttachmentValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -383,7 +393,7 @@ async def upload_attachment(
 
 
 @router.get("/{conversation_id}/attachments", response_model=AttachmentListResponse)
-async def list_attachments(
+def list_attachments(
     conversation_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -400,7 +410,7 @@ async def list_attachments(
 
 
 @router.delete("/{conversation_id}/attachments/{attachment_id}", status_code=204)
-async def delete_attachment(
+def delete_attachment(
     conversation_id: str,
     attachment_id: str,
     request: Request,
@@ -433,7 +443,7 @@ async def delete_attachment(
     response_model=AttachmentUploadResponse,
     status_code=201,
 )
-async def attach_from_workspace(
+def attach_from_workspace(
     conversation_id: str,
     body: AttachFromWorkspaceRequest,
     request: Request,
@@ -486,7 +496,7 @@ async def attach_from_workspace(
     "/{conversation_id}/workspace/materialize",
     response_model=WorkspaceMaterializeResponse,
 )
-async def materialize_workspace_file(
+def materialize_workspace_file(
     conversation_id: str,
     body: WorkspaceMaterializeRequest,
     request: Request,
@@ -543,7 +553,7 @@ async def materialize_workspace_file(
 
 
 @router.get("/{conversation_id}/workspace", response_model=WorkspaceResponse)
-async def get_workspace(
+def get_workspace(
     conversation_id: str,
     request: Request,
     current_user: CurrentUser = Depends(resolve_current_user),
@@ -581,7 +591,7 @@ async def get_workspace(
     response_model=MessageResponse,
     status_code=201,
 )
-async def add_message(
+def add_message(
     conversation_id: str,
     body: AddMessageRequest,
     request: Request,
@@ -613,7 +623,7 @@ async def add_message(
     "/{conversation_id}/messages/{message_id}/feedback",
     response_model=MessageResponse,
 )
-async def set_message_feedback(
+def set_message_feedback(
     conversation_id: str,
     message_id: int,
     body: MessageFeedbackRequest,
@@ -682,7 +692,7 @@ async def compact_conversation(
 
 
 @router.get("/{conversation_id}/export")
-async def export_conversation(
+def export_conversation(
     conversation_id: str,
     request: Request,
     fmt: str = Query(default="json", pattern="^(json|markdown)$"),

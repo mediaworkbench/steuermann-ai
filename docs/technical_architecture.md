@@ -92,7 +92,6 @@ This document defines the technical architecture for the Steuermann - a domain-a
 ### **2.2 Technology Stack Summary**
 
 - Orchestration: LangGraph (`>=1.1.0`) - Workflow engine (containerized)
-- Multi-Agent: CrewAI (`>=1.14.0`) - Collaborative reasoning
 - LLM Integration: LangChain + langchain-litellm (`>=1.2.0 / 0.6.4`) - Unified LLM interface via LiteLLM router
 - Adapter: FastAPI (`>=0.135.0`) - Settings/auth/metrics API
 - Frontend: Next.js + React (`>=16.0 + React 19`) - Modern chat and settings UI
@@ -124,7 +123,6 @@ steuermann-ai/
 ├── pyproject.toml
 ├── config/
 │   ├── core.yaml
-│   ├── agents.yaml
 │   ├── features.yaml
 │   ├── tools.yaml
 │   ├── prompts/
@@ -132,7 +130,6 @@ steuermann-ai/
 │       └── <profile_id>/
 │           ├── profile.yaml
 │           ├── core.yaml
-│           ├── agents.yaml
 │           ├── features.yaml
 │           ├── tools.yaml
 │           ├── ui.yaml
@@ -155,7 +152,7 @@ steuermann-ai/
 
 ## **4. LangGraph Execution Architecture**
 
-**Status note:** This section mixes implemented behavior with advanced or experimental extension paths. LangGraph orchestration, semantic tool routing, RAG retrieval, checkpointing, and frontend-backed operations are active in the current stack. Crew customization remains an advanced area and should not be treated as the default deployment path.
+**Status note:** This section mixes implemented behavior with advanced or experimental extension paths. LangGraph orchestration, semantic tool routing, RAG retrieval, checkpointing, and frontend-backed operations are active in the current stack.
 
 ### **4.1 Deployment Mode**
 
@@ -184,7 +181,7 @@ class GraphState(TypedDict, total=False):
     workspace_documents: List[Dict[str, Any]]        # User workspace documents resolved by adapter
     workspace_document_context: List[Dict[str, Any]] # Prompt-ready normalized workspace snippets
     workspace_writeback_requested: bool
-    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document for writeback (bypasses 600-token truncation)
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document for writeback (never excerpted)
 
     # Session identity
     user_id: str
@@ -213,9 +210,6 @@ class GraphState(TypedDict, total=False):
     tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name → structured execution envelope
     routing_metadata: Dict[str, str]            # Tool name → reason for selection
 
-    # Crews
-    crew_results: Dict[str, Any]  # Multi-agent crew execution results
-
     # Tokens / metrics
     tokens_used: int
     turn_tokens_used: int    # Current invocation token usage for per-turn budgeting
@@ -237,7 +231,8 @@ class GraphState(TypedDict, total=False):
 - `CHECKPOINTER_POSTGRES_DSN` environment variable (or `checkpointing.postgres_dsn` in `config/core.yaml`) required at startup; raises `ValueError` if missing
 - Load-at-edge pattern: both `/invoke` and `/stream` pre-fetch accumulated messages from the checkpoint via `aget_tuple()` and merge them with each new user message before graph invocation
 - Per-session continuity via `configurable.thread_id = session_id`; ephemeral requests (no `conversation_id`) omit `thread_id` so no checkpoint rows are written
-- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint table flat
+- Startup pruning + periodic fire-and-forget pruning every 100 invocations keep the checkpoint tables flat: keep-latest checkpoint per thread, plus deletion of superseded `checkpoint_blobs` channel versions (each turn writes a new full-history `messages` blob)
+- Deleting a conversation or "reset my data" also deletes its checkpoint thread; Regenerate / Edit-and-resend rewind it (`rewind_user_turns`, applied when history is loaded)
 - `GraphState.loaded_tools` and `candidate_tools` use `Annotated[..., UntrackedValue(list)]` to exclude non-serializable `BaseTool` instances from checkpoint writes
 
 ### **4.4 Graph Execution Flow (Three-Tier Tool Selection)**
@@ -252,10 +247,6 @@ User Request (Next.js)
   ├──> Load checkpoint (if exists)
   ├──> Initialize GraphState
   ├──> Execute graph nodes
-  │    │
-  │    ├──> [_route_start] START conditional edge
-  │    │    ├──> crews (direct dispatch — bypass tool nodes entirely)
-  │    │    └──> load_tools (normal path)
   │    │
   │    ├──> load_tools
   │    │    └──> Load all available tools from registry
@@ -278,21 +269,14 @@ User Request (Next.js)
   │    │
   │    ├──> after_tool_call (convergence point — all Layer 2 paths merge here)
   │    │
-  │    ├──> [route_to_crew] (conditional edge)
-  │    │    ├──> research_crew / analytics_crew / code_generation_crew / planning_crew
-  │    │    ├──> crew_chain / crew_parallel
-  │    │    └──> memory_query_cache (no crew → continue normal flow)
-  │    │
-  │    ├──> memory_query_cache  (Redis cache probe for memory)
   │    ├──> load_memory
+  │    ├──> load_procedural   (active learned rules; no-op unless procedural_overrides_enabled)
   │    ├──> retrieve_knowledge  (RAG, pill_score_threshold: 0.72)
   │    │    Three skip layers before any Qdrant call:
   │    │      1. System: feature flag + rag.enabled config
   │    │      2. User: rag_config.enabled per-session toggle
   │    │      3. Intent: skip_rag heuristic (greeting/math/datetime/tool-meta)
   │    │    rag_attempted=True / rag_doc_count=N set only when Qdrant is queried
-  │    │
-  │    ├──> memory_cache_store
   │    │
   │    ├──> respond
   │    │    ├──> Inject tool_results into context
@@ -460,17 +444,17 @@ The `useStreamingChat` hook is instantiated inside a persistent `ChatSessionProv
 
 The provider also owns the **single-slot follow-up queue** (`queuedMessage` / `enqueueMessage` / `clearQueue`): the composer stays enabled during streaming and a follow-up typed mid-stream is queued instead of sent. The same commit effect that appends the assistant bubble on the `isStreaming` true→false transition auto-fires the queued message — but **only on a normal completion**. "Normal" is decided by a provider-owned `manualStopRef` (set before the hook's `cancel`, because the hook's `wasCancelled` flips asynchronously in `catch`/`finally` and is not yet true at the commit-effect render) plus `streamError` (which _is_ reliable there); the fire is deferred with `setTimeout(0)` to avoid a `loading` race with the finishing turn, and gated on `streamConversationRef === activeId`. The queue is preserved while its stream is backgrounded (`if (!isStreamingRef.current) clearQueue()`) and cleared only on an idle conversation switch. The pending bubble is rendered by `ChatInterface` outside the `messages` array (like the live streaming indicator) so it can't disturb ordering or the persisted-id backfill.
 
-**Workspace document context budget (tabular files):** `build_workspace_document_context_block` (`orchestration/helpers/text_processing.py`) injects each open workspace document into the `respond` node's system prompt. Plain-text / Markdown documents get a 600-token per-doc budget truncated at a character boundary. CSV / spreadsheet documents (`mime_type == "text/csv"` or `.csv` extension) use a **1 500-token per-doc budget** and are truncated by `truncate_tabular_by_rows`, which always preserves the header row and only cuts on whole-row boundaries, appending `… (showing first N of M rows)` when truncated. The block-wide total budget is raised by 1 000 tokens when any CSV is present. Each CSV entry also includes a one-line hint to `csv_analyze_tool` with the file's `stored_path` for the answering model's transparency (tool selection already ran earlier in the graph). For writeback targets that are CSV files, the `=== WORKSPACE WRITEBACK MODE ===` block appends "Output raw CSV only — preserve the exact delimiter, the header row, and every column; do not convert to a markdown table or add code fences."
+**User file context budget (attachments + workspace documents):** the `respond` node gives this turn's files one shared budget: `tokens.context_documents_ratio` (default 0.5) of the chat model's context window (profile `context_window_tokens` → capability probe; an *unknown* window is treated as 8192 here, since the 32768 compression fallback could overflow a smaller loaded window), optionally capped by `tokens.context_documents_max_tokens`, and never more than the room left after the system prompt, history, tool results and the `response_reserve_ratio` share (floor: 3000, the old fixed total). Sizes use `estimate_content_tokens` (`llm/budget.py`) — digit/punctuation-aware, because chars/4 undercounts numeric JSON/CSV by 2–3× on SentencePiece tokenizers. The budget is split across files by need (`allocate_token_budgets`, water-filling). A file that doesn't fit is excerpted format-aware by `orchestration/helpers/text_processing.py` — CSV by whole rows (header + first + last rows), JSON on element boundaries of its primary array (still valid JSON, sibling keys such as `meta` intact), anything else head + tail — always with an explicit `[… X omitted from the middle — that part is NOT visible to you …]` marker and an `EXCERPT — <range>` label, so logs and time series keep their newest entries. CSV/JSON documents carry a `[Full file at: <stored_path>]` hint for `csv_analyze_tool` (which reads CSV and JSON lists of records). The content is sent **once**, as a human turn placed right before the user's question; the system prompt only gets a `=== FILES IN THIS TURN ===` manifest (name + complete/EXCERPT). In writeback mode the target document is excluded from the excerpted set and injected whole (`[Document to revise: …]`) in that same turn. The attachment-refusal retry resends the original payload with only the system message swapped, and stands down when the reply correctly points at an excerpt's omitted part. For writeback targets that are CSV files, the `=== WORKSPACE WRITEBACK MODE ===` block appends "Output raw CSV only — preserve the exact delimiter, the header row, and every column; do not convert to a markdown table or add code fences."
 
 **Synchronous path (fallback):** `POST /api/chat` blocks until the full LangGraph result is available and returns a single JSON `ChatResponse`. Writeback is no longer routed here — it runs inline on the streaming path (see §4.5).
 
 ### **4.6 Async Execution Reliability**
 
-Runtime helper paths for performance/cache and crew result caching execute async operations even when an event loop is already active.
+Runtime helper paths for performance/cache execute async operations even when an event loop is already active.
 
 - Previous behavior in these helpers could skip operations in loop-active contexts.
 - Current behavior executes coroutines in worker-thread event loops when required.
-- Result: cache/compression and crew-cache paths are no longer silent no-ops under async server execution contexts.
+- Result: cache/compression paths are no longer silent no-ops under async server execution contexts.
 
 ---
 
@@ -522,17 +506,9 @@ shared (collection locked to profile config); the RAG explorer is researcher + a
 
 ---
 
-## **5. Multi-Agent Layer: CrewAI Integration**
+## **5. Multi-Step Workflows**
 
-**Status:** Fully implemented (4 crews: Research, Analytics, Code Gen, Planning). Disabled by default via `multi_agent_crews: false` in `config/features.yaml`.
-
-CrewAI crews are wrapped as LangGraph nodes — crews are workers invoked by graph nodes, not orchestrators. Each crew returns structured output merged back into `GraphState["crew_results"]`.
-
-**Process types:** Sequential (default, predictable), Hierarchical (manager delegates), Consensus (multi-agent voting).
-
-**Configuration:** `config/profiles/<id>/agents.yaml` defines crew agents, roles, tools, and process types.
-
-→ **Full guide:** [CrewAI Extension Guide](crewai_extension_guide.md)
+Steuermann runs a single LangGraph orchestrator; there is no separate multi-agent framework. Multi-step or delegated work (for example plan → parallel search → synthesize) belongs in LangGraph itself — as nodes or subgraphs, with the `Send` API for parallel fan-out — so it inherits role-based tool permissions, Inspector `node_state` tracing, streaming, checkpointing, and circuit breakers.
 
 ---
 
@@ -616,7 +592,7 @@ Critical verification expectation:
 
 ### 6.6 Cognitive Memory & Dreaming Engine (optional, flagged off)
 
-An opt-in layer (`plan-memory.md`) that upgrades flat memory into a **4-tier, self-evolving** store — applied to the **chat orchestrator only** (CrewAI crews remain stateless workers). It is gated by three `features.yaml` flags (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled`), all off by default except in the `starter` profile. It extends the existing Mem0 + Qdrant + heartbeat rather than replacing them, going *under* Mem0 to Qdrant directly only where the engine needs raw vectors.
+An opt-in layer (`plan-memory.md`) that upgrades flat memory into a **4-tier, self-evolving** store — applied to the **chat orchestrator**. It is gated by three `features.yaml` flags (`cognitive_memory_enabled`, `dreaming_engine_enabled`, `procedural_overrides_enabled`), all off by default except in the `starter` profile. It extends the existing Mem0 + Qdrant + heartbeat rather than replacing them, going *under* Mem0 to Qdrant directly only where the engine needs raw vectors.
 
 Tiers map to storage as follows:
 
@@ -847,11 +823,10 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - `ChatLiteLLM` — single model calls; provider detected from model string prefix (`openai/`)
 - `ChatLiteLLMRouter` wrapping `litellm.Router` — primary→fallback routing with `num_retries=3`; `get_router_model()` in `graph_builder.py` uses this path
 - LiteLLM handles provider detection, streaming normalization, retries, and tool format translation
-- The framework retains all orchestration logic (graph, routing, memory, RAG, crews)
+- The framework retains all orchestration logic (graph, routing, memory, RAG)
 - **`api_base` / `api_key` construction rule**: must be passed as top-level `ChatLiteLLM` constructor kwargs. Placing them only in `model_kwargs` causes `AuthenticationError`.
-- **CrewAI tool adapter**: `base.py::_get_tools_for_agent` wraps all `langchain_core.tools.BaseTool` subclasses (including `DateTimeTool`, `MCPServerTool`, etc.) into CrewAI-compatible adapters automatically.
 - **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
-- **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt; Research Crew Searcher task receives `current_date` / `current_year` as kickoff inputs.
+- **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt.
 
 → **Implementation details:** [Tool Development Guide](tool_development_guide.md)
 
@@ -908,7 +883,6 @@ The heartbeat is a *virtual cron* — the foundation for proactive agent behavio
 | Embeddings | OpenAI-compatible endpoint | Keeps runtime and ingestion aligned on a single remote interface |
 | Frontend | Next.js + FastAPI | Modern React stack, production-ready |
 | Monitoring | Prometheus | Simple, proven metrics and alerting |
-| Multi-Agent | CrewAI as advanced extension path | Available, but not the baseline deployment requirement |
 | Tool Discovery | Hybrid | Core auto, profile explicit |
 | Ingestion | Optional built-in module | Complete solution, can be disabled |
 | Language | Primary profile language with optional UI language list | Balances quality with multilingual support |
@@ -987,7 +961,6 @@ This architecture covers:
 | Template | Base universal framework maintained in this repository |
 | Graph | LangGraph workflow definition |
 | Node | Single step in a graph execution |
-| Crew | Multi-agent CrewAI team for collaborative reasoning |
 | Checkpoint | Saved graph state for resumability |
 | Collection | Qdrant vector store namespace |
 | Plugin | Tool or MCP server registered with the framework |

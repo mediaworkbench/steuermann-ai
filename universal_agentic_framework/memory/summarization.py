@@ -101,9 +101,42 @@ class ConversationSummarizer:
         return 0
     
     # Cap how much old-conversation text we feed the summarizer in one call.
-    # Auxiliary models require a 16k+ context window (see CLAUDE.md); ~8000 chars
-    # (~2000 tokens) leaves ample room for the prompt scaffold and the response.
-    SUMMARY_INPUT_CHAR_BUDGET = 8000
+    # Auxiliary models require a 16k+ context window (see CLAUDE.md); ~24000 chars
+    # (~6000 tokens) leaves ample room for the prompt scaffold and the response.
+    SUMMARY_INPUT_CHAR_BUDGET = 24000
+    # Share of the budget reserved for earlier digests, so the rolling summary chain
+    # is never cut off by a long tail of new messages.
+    DIGEST_CHAR_SHARE = 0.25
+
+    def _build_summary_input(self, messages: List[Dict[str, str]]) -> str:
+        """Render old messages for the summarizer within the char budget.
+
+        Earlier digests (``type == "summary"``) are the only record of everything
+        compressed before, so they are always kept (within their own share of the
+        budget) instead of being the first thing a front-truncation drops. The plain
+        messages fill the rest, newest kept when over budget.
+        """
+        budget = self.SUMMARY_INPUT_CHAR_BUDGET
+        digests = [str(m.get("content", "")) for m in messages if m.get("type") == "summary"]
+        lines = [
+            f"{msg.get('role', 'user')}: {msg.get('content', '')}"
+            for msg in messages
+            if msg.get("type") != "summary"
+        ]
+
+        digest_text = "\n".join(digests)
+        digest_cap = int(budget * self.DIGEST_CHAR_SHARE)
+        if len(digest_text) > digest_cap:
+            digest_text = digest_text[-digest_cap:]  # newest digests carry the chain
+
+        body = "\n".join(lines)
+        remaining = max(0, budget - len(digest_text))
+        if len(body) > remaining:
+            body = "[… older messages omitted …]\n" + body[-remaining:]
+
+        if digest_text:
+            return f"Earlier summary:\n{digest_text}\n\nConversation since then:\n{body}"
+        return body
 
     async def generate_summary(
         self,
@@ -123,19 +156,11 @@ class ConversationSummarizer:
             return None
 
         try:
-            # Include the whole window of old messages, oldest-first, but bounded
-            # by a char budget so a long history can't overflow the auxiliary model.
-            # When over budget, drop the oldest lines (the recent context matters most).
-            lines = [
-                f"{msg.get('role', 'user')}: {msg.get('content', '')}"
-                for msg in messages
-            ]
-            messages_text = "\n".join(lines)
-            if len(messages_text) > self.SUMMARY_INPUT_CHAR_BUDGET:
-                messages_text = messages_text[-self.SUMMARY_INPUT_CHAR_BUDGET:]
+            messages_text = self._build_summary_input(messages)
 
             prompt = f"""Summarize the following conversation concisely in 2-3 sentences.
-Focus on key topics, decisions, and action items.
+Focus on key topics, decisions, and action items. If an earlier summary is given,
+carry its essential points forward so nothing from before is lost.
 
 ---
 {messages_text}

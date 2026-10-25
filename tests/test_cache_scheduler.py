@@ -19,7 +19,7 @@ def memory_backend():
 @pytest.fixture
 def cache_manager(memory_backend):
     """Create cache manager with memory backend."""
-    return CacheManager(backend=memory_backend, use_vector_db=False)
+    return CacheManager(backend=memory_backend)
 
 
 @pytest.fixture

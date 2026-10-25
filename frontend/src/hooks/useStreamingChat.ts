@@ -13,6 +13,8 @@ export interface StreamingChatParams {
   ragEnabled: boolean;
   memoryEnabled?: boolean;
   disabledTools: string[]; // tools quick-disabled for this chat (this inference only)
+  /** Regenerate / edit: persisted id of the user message this turn replaces. */
+  replaceFromMessageId?: number | null;
 }
 
 /** Signalled mid-stream when the model is about to write back to a document. */
@@ -68,6 +70,26 @@ function buildMetadataFromSSE(parsed: Record<string, unknown>): ChatResponse["me
   };
 }
 
+/**
+ * Parse one SSE event block per the spec: `field: value` lines where the single
+ * space after the colon is optional, multiple `data:` lines join with "\n", and
+ * lines starting with ":" are comments.
+ */
+export function parseSseBlock(block: string): { eventType: string; dataLine: string } {
+  let eventType = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (!line || line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    const field = colon < 0 ? line : line.slice(0, colon);
+    let fieldValue = colon < 0 ? "" : line.slice(colon + 1);
+    if (fieldValue.startsWith(" ")) fieldValue = fieldValue.slice(1);
+    if (field === "event") eventType = fieldValue.trim();
+    else if (field === "data") data.push(fieldValue);
+  }
+  return { eventType, dataLine: data.join("\n").trim() };
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function useStreamingChat(): UseStreamingChatReturn {
@@ -100,6 +122,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
     cancel();
     setStreamingContent("");
     setStreamError(null);
+    setStreamWarning(null);
     setFinalMetadata(null);
     setWritebackPending(null);
     setWasCancelled(false);
@@ -120,6 +143,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
       setStreamingContent("");
       setIsStreaming(true);
       setStreamError(null);
+      setStreamWarning(null);
       setToolCallStatus(null);
       setNodeStatus(null);
       setNodeTrace([]);
@@ -146,6 +170,9 @@ export function useStreamingChat(): UseStreamingChatReturn {
             rag_enabled: params.ragEnabled,
             memory_enabled: params.memoryEnabled ?? true,
             disabled_tools: params.disabledTools,
+            ...(params.replaceFromMessageId != null
+              ? { replace_from_message_id: params.replaceFromMessageId }
+              : {}),
           }),
           signal: controller.signal,
         });
@@ -166,13 +193,18 @@ export function useStreamingChat(): UseStreamingChatReturn {
         // ── SSE read loop ──────────────────────────────────────────────
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+          // On the final read, flush the decoder and parse whatever is left in the
+          // buffer too (a last event without its trailing blank line).
+          buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          // CRLF → LF. A lone trailing "\r" may be half of a CRLF split across reads,
+          // so it waits for the next chunk (or is normalized on the final one).
+          buffer = buffer.replace(/\r\n/g, "\n");
+          if (done) buffer = buffer.replace(/\r/g, "\n");
 
           // SSE events are delimited by double newline
           const parts = buffer.split("\n\n");
-          buffer = parts.pop() ?? "";
+          buffer = done ? "" : (parts.pop() ?? "");
 
           // Accumulate token/thinking deltas across all events in this chunk so we
           // call setState once per network read rather than once per token event.
@@ -186,16 +218,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
             const trimmed = part.trim();
             if (!trimmed) continue;
 
-            // Parse event type and data from the SSE block
-            let eventType = "message";
-            let dataLine = "";
-            for (const line of trimmed.split("\n")) {
-              if (line.startsWith("event: ")) {
-                eventType = line.slice(7).trim();
-              } else if (line.startsWith("data: ")) {
-                dataLine = line.slice(6).trim();
-              }
-            }
+            const { eventType, dataLine } = parseSseBlock(trimmed);
 
             if (dataLine === "[DONE]") {
               streamEnded = true;
@@ -243,6 +266,13 @@ export function useStreamingChat(): UseStreamingChatReturn {
               case "metadata":
                 setFinalMetadata(buildMetadataFromSSE(parsed));
                 setNodeStatus(null);
+                // The graph's post-processed answer (LLM-error message, URL filter,
+                // retries) is authoritative over the raw streamed tokens — including
+                // any still batched in this chunk.
+                if (typeof parsed.final_content === "string") {
+                  tokenDelta = "";
+                  setStreamingContent(parsed.final_content);
+                }
                 break;
 
               case "writeback_pending":
@@ -292,8 +322,12 @@ export function useStreamingChat(): UseStreamingChatReturn {
             setNodeStatus(null);
             return;
           }
+          if (done) break;
         }
       } catch (err) {
+        // A newer sendMessage superseded (and aborted) this run: its state now
+        // belongs to the new stream, so this stale run must not touch it.
+        if (abortControllerRef.current !== controller) return;
         if (cancelledRef.current || (err instanceof DOMException && err.name === "AbortError")) {
           setWasCancelled(true);
         } else {
@@ -301,13 +335,16 @@ export function useStreamingChat(): UseStreamingChatReturn {
           setThinkingContent(""); // stream errored before any content was committed
         }
       } finally {
-        if (cancelledRef.current) setWasCancelled(true);
-        setIsStreaming(false);
-        setNodeStatus(null);
-        setToolCallStatus(null);
-        setIsThinking(false);
-        readerRef.current = null;
-        abortControllerRef.current = null;
+        // Same guard: never clear the refs / isStreaming of the stream that replaced us.
+        if (abortControllerRef.current === controller) {
+          if (cancelledRef.current) setWasCancelled(true);
+          setIsStreaming(false);
+          setNodeStatus(null);
+          setToolCallStatus(null);
+          setIsThinking(false);
+          readerRef.current = null;
+          abortControllerRef.current = null;
+        }
       }
     },
     [],

@@ -3,12 +3,10 @@
 # in config/features.yaml and cannot be overridden here.
 # All flags listed here are fully owned by this profile.
 
-multi_agent_crews: false
 long_term_memory: true
 rag_retrieval: true
 
 # Memory retrieval behaviour
-memory_importance_scoring: true
 memory_include_related: true
 memory_top_k: 5
 
@@ -22,15 +20,3 @@ memory_digest_chain_enabled: true
 cognitive_memory_enabled: true       # tiered tagging + blended semantic/episodic retrieval (Phase 2)
 dreaming_engine_enabled: true        # per-user background Dreaming heartbeat task (Phase 3+)
 procedural_overrides_enabled: true   # merge learned procedural rules onto the persona (Phase 5)
-
-# UI features
-ui_tool_visualization: true
-ui_token_counter: true
-ui_export_chat: true
-
-# Crew deep integration
-crew_result_caching: true
-crew_cache_ttl_seconds: 3600
-crew_chaining: false
-crew_parallel_execution: false
-crew_result_validation: true

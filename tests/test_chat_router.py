@@ -47,8 +47,13 @@ class FakeConversationStore:
         self.messages.append(kwargs)
         return kwargs
 
-    def get_messages(self, conversation_id: str, limit: int = 500, offset: int = 0) -> list[Dict[str, Any]]:
+    def get_messages(
+        self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False
+    ) -> list[Dict[str, Any]]:
         rows = [row for row in self.messages if row.get("conversation_id") == conversation_id]
+        if latest:
+            end = len(rows) - offset
+            return rows[max(0, end - limit) : max(0, end)]
         return rows[offset : offset + limit]
 
 
@@ -763,6 +768,36 @@ async def test_validate_preferred_model_accepts_raw_and_canonicalizes(monkeypatc
     assert validated == "openai/liquid/lfm2-24b-a2b"
 
 
+@pytest.mark.asyncio
+async def test_validate_preferred_model_caches_model_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Back-to-back chat turns must not each pay a /models round-trip."""
+    calls: list[int] = []
+
+    async def _fake_cb_call(func):
+        calls.append(1)
+        return ["liquid/lfm2-24b-a2b"]
+
+    monkeypatch.setattr(chat_module.MODEL_VALIDATION_CIRCUIT_BREAKER, "call", _fake_cb_call)
+
+    for _ in range(3):
+        validated, warning = await chat_module._validate_preferred_model("liquid/lfm2-24b-a2b")
+        assert (validated, warning) == ("openai/liquid/lfm2-24b-a2b", None)
+    assert len(calls) == 1
+
+
+def test_cached_settings_are_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-request edits (validated model, overlays) must not leak into the cache."""
+    monkeypatch.setattr(chat_module, "_settings_cache", {})
+
+    class _Store:
+        def get_user_settings(self, user_id: str):
+            return {"preferred_model": "openai/stale", "tool_toggles": {}}
+
+    first = chat_module._get_cached_settings("u1", _Store())
+    first["preferred_model"] = None
+    assert chat_module._get_cached_settings("u1", _Store())["preferred_model"] == "openai/stale"
+
+
 def test_chat_clears_invalid_persisted_chat_model_override(client, monkeypatch: pytest.MonkeyPatch) -> None:
     test_client, _, fake_async_client = client
 
@@ -1234,3 +1269,63 @@ def test_workspace_read_rejects_path_escape(client, monkeypatch: pytest.MonkeyPa
 
     assert response.status_code == 400
     assert "escapes" in response.json()["detail"].lower()
+
+def _doc_resolution_request(conv_store, doc_store):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(conversation_store=conv_store, workspace_document_store=doc_store)
+        )
+    )
+
+
+def _doc(doc_id: str, filename: str) -> Dict[str, Any]:
+    return {"id": doc_id, "user_id": "u1", "filename": filename, "content_text": "x", "version": 1,
+            "mime_type": "text/plain"}
+
+
+def test_explicit_document_does_not_pull_in_history_document() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-a"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-a", "a.md"), _doc("doc-b", "b.md")])
+    body = ChatRequest(message="improve this and save", conversation_id="c1", document_ids=["doc-b"])
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-b"]
+
+
+def test_history_document_used_when_nothing_named() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-a"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-a", "a.md")])
+    body = ChatRequest(message="improve it again and save", conversation_id="c1")
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-a"]
+
+
+def test_history_inference_uses_newest_messages() -> None:
+    from backend.routers.chat import ChatRequest, _resolve_workspace_documents
+
+    conv = FakeConversationStore()
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-old"}]}})
+    for _ in range(60):
+        conv.messages.append({"conversation_id": "c1", "role": "user", "metadata": {}})
+    conv.messages.append({"conversation_id": "c1", "role": "assistant",
+                          "metadata": {"documents_used": [{"id": "doc-new"}]}})
+    docs = FakeWorkspaceDocumentStore([_doc("doc-old", "old.md"), _doc("doc-new", "new.md")])
+    body = ChatRequest(message="improve it again and save", conversation_id="c1")
+
+    resolved = _resolve_workspace_documents(_doc_resolution_request(conv, docs), body, "u1")
+
+    assert [d["id"] for d in resolved] == ["doc-new"]

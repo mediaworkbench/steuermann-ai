@@ -121,6 +121,23 @@ export function ActiveDocumentProvider({
     };
   }, [editorApiRef, isDirty, flushSave]);
 
+  // Unsaved edits must survive leaving the chat page (this provider unmounts on
+  // route change) and warn before a reload/tab close discards them.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (editorRef.current.isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      const ed = editorRef.current;
+      if (ed.isDirty && ed.editorDocId) void ed.flushSave();
+    };
+  }, []);
+
   // Keep an open history panel in sync after the model writes back a new version.
   // Only `writebackSavedDocId` matters; `historyRef` is a ref (stable).
   useEffect(() => {

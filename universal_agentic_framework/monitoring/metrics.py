@@ -118,28 +118,10 @@ MESSAGE_FEEDBACK_TOTAL = Counter(
 )
 
 # Cache metrics
-CACHE_HITS_TOTAL = Counter(
-    "cache_hits_total",
-    "Total cache hits across all cache types",
-    ["cache_type", "profile_name"],  # cache_type: llm, memory, crew, semantic
-)
-
-CACHE_MISSES_TOTAL = Counter(
-    "cache_misses_total",
-    "Total cache misses across all cache types",
-    ["cache_type", "profile_name"],
-)
-
-CACHE_ERRORS_TOTAL = Counter(
-    "cache_errors_total",
-    "Total cache operation errors",
-    ["cache_type", "profile_name", "operation"],  # operation: get, set, delete
-)
-
 CACHE_HIT_RATE = Gauge(
     "cache_hit_rate",
     "Cache hit rate as percentage (0-100)",
-    ["cache_type", "profile_name"],
+    ["cache_type", "profile_name"],  # cache_type: all (CacheManager aggregate)
 )
 
 CACHE_OPERATION_DURATION = Histogram(
@@ -149,102 +131,10 @@ CACHE_OPERATION_DURATION = Histogram(
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
 )
 
-EMBEDDING_GENERATION_DURATION = Histogram(
-    "embedding_generation_duration_seconds",
-    "Duration of embedding generation for semantic queries",
-    ["profile_name"],
-    buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5),
-)
-
-EMBEDDING_CACHE_SIZE = Gauge(
-    "embedding_cache_size",
-    "Number of embeddings in local cache",
-    ["profile_name"],
-)
-
-SEMANTIC_SIMILARITY_MATCHES = Counter(
-    "semantic_similarity_matches_total",
-    "Total semantic similarity cache matches",
-    ["profile_name", "crew_name"],
-)
-
-# Vector database metrics
-VECTOR_DB_SEARCH_DURATION = Histogram(
-    "vector_db_search_duration_seconds",
-    "Duration of vector database similarity search",
-    ["profile_name"],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25),
-)
-
-VECTOR_DB_COLLECTION_SIZE = Gauge(
-    "vector_db_collection_size",
-    "Number of embeddings stored in Qdrant collection",
-    ["profile_name", "collection_name"],
-)
-
-VECTOR_DB_CLEANUP_TOTAL = Counter(
-    "vector_db_cleanup_total",
-    "Total number of expired embeddings cleaned up",
-    ["profile_name"],
-)
-
-VECTOR_DB_FALLBACK_TOTAL = Counter(
-    "vector_db_fallback_total",
-    "Total fallbacks to in-memory search when Qdrant unavailable",
-    ["profile_name", "reason"],  # reason: error, unavailable, timeout
-)
-
 CACHE_SIZE_BYTES = Gauge(
     "cache_size_bytes",
     "Approximate cache size in bytes",
     ["cache_type", "profile_name"],
-)
-
-# ── Crew execution metrics ──────────────────────────────────────────────
-
-CREW_EXECUTION_DURATION = Histogram(
-    "crew_execution_duration_seconds",
-    "Duration of individual crew execution (including retries)",
-    ["profile_name", "crew_name", "status"],  # status: success, error, timeout
-    buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
-)
-
-CREW_EXECUTIONS_TOTAL = Counter(
-    "crew_executions_total",
-    "Total crew execution attempts",
-    ["profile_name", "crew_name", "status"],  # status: success, error, timeout
-)
-
-CREW_RETRIES_TOTAL = Counter(
-    "crew_retries_total",
-    "Total crew retry attempts",
-    ["profile_name", "crew_name"],
-)
-
-CREW_TIMEOUTS_TOTAL = Counter(
-    "crew_timeouts_total",
-    "Total crew execution timeouts",
-    ["profile_name", "crew_name"],
-)
-
-CREW_CHAIN_EXECUTION_DURATION = Histogram(
-    "crew_chain_execution_duration_seconds",
-    "Duration of a full crew-chain pipeline",
-    ["profile_name", "chain_name"],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
-)
-
-CREW_PARALLEL_EXECUTION_DURATION = Histogram(
-    "crew_parallel_execution_duration_seconds",
-    "Duration of parallel crew execution batch",
-    ["profile_name"],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
-)
-
-CREW_VALIDATION_FAILURES = Counter(
-    "crew_validation_failures_total",
-    "Total crew result validation failures",
-    ["profile_name", "crew_name"],
 )
 
 # ── Attachment handling metrics ─────────────────────────────────────────
@@ -594,45 +484,6 @@ def track_message_feedback(profile_name: str, value: str) -> None:
 
 # Cache tracking functions
 
-def track_cache_hit(cache_type: str, profile_name: str = "default") -> None:
-    """Track cache hit.
-    
-    Args:
-        cache_type: Type of cache (llm, memory, crew, semantic)
-        profile_name: Name of the profile
-    """
-    CACHE_HITS_TOTAL.labels(cache_type=cache_type, profile_name=profile_name).inc()
-
-
-def track_cache_miss(cache_type: str, profile_name: str = "default") -> None:
-    """Track cache miss.
-    
-    Args:
-        cache_type: Type of cache (llm, memory, crew, semantic)
-        profile_name: Name of the profile
-    """
-    CACHE_MISSES_TOTAL.labels(cache_type=cache_type, profile_name=profile_name).inc()
-
-
-def track_cache_error(
-    cache_type: str,
-    operation: str,
-    profile_name: str = "default"
-) -> None:
-    """Track cache operation error.
-    
-    Args:
-        cache_type: Type of cache (llm, memory, crew, semantic)
-        operation: Operation type (get, set, delete)
-        profile_name: Name of the profile
-    """
-    CACHE_ERRORS_TOTAL.labels(
-        cache_type=cache_type,
-        profile_name=profile_name,
-        operation=operation
-    ).inc()
-
-
 def update_cache_hit_rate(
     cache_type: str,
     hit_rate: float,
@@ -657,8 +508,8 @@ def track_cache_operation(
     """Context manager to track cache operation duration.
     
     Usage:
-        with track_cache_operation("crew", "get", "medical-ai"):
-            result = await cache.get_crew_result(...)
+        with track_cache_operation("llm", "get", "medical-ai"):
+            result = await cache.get_llm_response(...)
     """
     start_time = time.time()
     try:
@@ -670,39 +521,6 @@ def track_cache_operation(
             profile_name=profile_name,
             operation=operation
         ).observe(duration)
-
-
-def track_embedding_generation(profile_name: str, duration: float) -> None:
-    """Track embedding generation duration.
-    
-    Args:
-        profile_name: Name of the profile
-        duration: Duration in seconds
-    """
-    EMBEDDING_GENERATION_DURATION.labels(profile_name=profile_name).observe(duration)
-
-
-def update_embedding_cache_size(profile_name: str, size: int) -> None:
-    """Update embedding cache size gauge.
-    
-    Args:
-        profile_name: Name of the profile
-        size: Number of embeddings in cache
-    """
-    EMBEDDING_CACHE_SIZE.labels(profile_name=profile_name).set(size)
-
-
-def track_semantic_similarity_match(crew_name: str, profile_name: str = "default") -> None:
-    """Track semantic similarity cache match.
-    
-    Args:
-        crew_name: Name of the crew that matched
-        profile_name: Name of the profile
-    """
-    SEMANTIC_SIMILARITY_MATCHES.labels(
-        profile_name=profile_name,
-        crew_name=crew_name
-    ).inc()
 
 
 def update_cache_size(
@@ -746,121 +564,3 @@ def track_cache_cleanup(
         f"size_before={cache_size_before}, size_after={cache_size_after}, "
         f"profile={profile_name}"
     )
-
-
-# Vector database tracking functions
-
-def track_vector_db_search(profile_name: str, duration: float) -> None:
-    """Track vector database search duration.
-    
-    Args:
-        profile_name: Name of the profile
-        duration: Search duration in seconds
-    """
-    VECTOR_DB_SEARCH_DURATION.labels(profile_name=profile_name).observe(duration)
-
-
-def update_vector_db_collection_size(
-    profile_name: str,
-    collection_name: str,
-    size: int
-) -> None:
-    """Update vector database collection size.
-    
-    Args:
-        profile_name: Name of the profile
-        collection_name: Qdrant collection name
-        size: Number of embeddings in collection
-    """
-    VECTOR_DB_COLLECTION_SIZE.labels(
-        profile_name=profile_name,
-        collection_name=collection_name
-    ).set(size)
-
-
-def track_vector_db_cleanup(profile_name: str, deleted_count: int) -> None:
-    """Track vector database cleanup of expired embeddings.
-    
-    Args:
-        profile_name: Name of the profile
-        deleted_count: Number of expired embeddings deleted
-    """
-    VECTOR_DB_CLEANUP_TOTAL.labels(profile_name=profile_name).inc(deleted_count)
-
-
-def track_vector_db_fallback(profile_name: str, reason: str) -> None:
-    """Track fallback to in-memory search when Qdrant unavailable.
-    
-    Args:
-        profile_name: Name of the profile
-        reason: Fallback reason (error, unavailable, timeout)
-    """
-    VECTOR_DB_FALLBACK_TOTAL.labels(profile_name=profile_name, reason=reason).inc()
-
-
-# ── Crew tracking helpers ───────────────────────────────────────────────
-
-def track_crew_execution(
-    profile_name: str,
-    crew_name: str,
-    duration: float,
-    status: str = "success",
-) -> None:
-    """Track a single crew execution.
-
-    Args:
-        profile_name: Name of the profile.
-        crew_name: Crew identifier (e.g. "research").
-        duration: Execution duration in seconds.
-        status: Outcome – "success", "error", or "timeout".
-    """
-    CREW_EXECUTION_DURATION.labels(
-        profile_name=profile_name, crew_name=crew_name, status=status
-    ).observe(duration)
-    CREW_EXECUTIONS_TOTAL.labels(
-        profile_name=profile_name, crew_name=crew_name, status=status
-    ).inc()
-
-
-def track_crew_retry(profile_name: str, crew_name: str) -> None:
-    """Increment crew retry counter."""
-    CREW_RETRIES_TOTAL.labels(profile_name=profile_name, crew_name=crew_name).inc()
-
-
-def track_crew_timeout(profile_name: str, crew_name: str) -> None:
-    """Increment crew timeout counter."""
-    CREW_TIMEOUTS_TOTAL.labels(profile_name=profile_name, crew_name=crew_name).inc()
-
-
-@contextmanager
-def track_crew_chain(profile_name: str, chain_name: str) -> Generator[None, None, None]:
-    """Context manager to track crew-chain execution duration.
-
-    Usage:
-        with track_crew_chain("medical-ai", "research_then_analytics"):
-            result = chain.execute(initial_input)
-    """
-    start_time = time.time()
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-        CREW_CHAIN_EXECUTION_DURATION.labels(
-            profile_name=profile_name, chain_name=chain_name
-        ).observe(duration)
-
-
-@contextmanager
-def track_crew_parallel(profile_name: str) -> Generator[None, None, None]:
-    """Context manager to track parallel crew execution duration."""
-    start_time = time.time()
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-        CREW_PARALLEL_EXECUTION_DURATION.labels(profile_name=profile_name).observe(duration)
-
-
-def track_crew_validation_failure(profile_name: str, crew_name: str) -> None:
-    """Track crew result validation failure."""
-    CREW_VALIDATION_FAILURES.labels(profile_name=profile_name, crew_name=crew_name).inc()

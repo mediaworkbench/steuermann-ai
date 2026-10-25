@@ -16,9 +16,6 @@ sections:
   tools:
     profile_overlay_file: config/profiles/<profile_id>/tools.yaml
     profile_mutability: full
-  agents:
-    profile_overlay_file: config/profiles/<profile_id>/agents.yaml
-    profile_mutability: full
 policies:
   docs_mutation: disabled
   manual_config_editing: supported

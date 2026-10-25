@@ -94,19 +94,3 @@ def build_memory_context_block(loaded_memory: Any, web_tools_used: bool) -> str:
             "=== END PAST CONTEXT (LOW PRIORITY) ===\n"
         )
     return f"\n\n=== PAST CONTEXT ===\n{memory_context}\n=== END PAST CONTEXT ===\n"
-
-
-def build_crew_findings_block(crew_results: Dict[str, Any]) -> str:
-    """Render successful crew results as === <CREW> FINDINGS === sections (empty if none)."""
-    if not crew_results:
-        return ""
-    parts = []
-    for crew_name, crew_result in crew_results.items():
-        if isinstance(crew_result, dict) and crew_result.get("success") and crew_result.get("result"):
-            section = crew_name.upper().replace("_", " ")
-            parts.append(
-                f"\n\n=== {section} FINDINGS ===\n"
-                f"{crew_result['result']}\n"
-                f"=== END {section} FINDINGS ===\n"
-            )
-    return "".join(parts)

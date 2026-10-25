@@ -15,7 +15,7 @@ def _create_profile_dir(root: Path, name: str = "starter") -> Path:
     profile_dir = root / "config" / "profiles" / name
     profile_dir.mkdir(parents=True)
     (profile_dir / "prompts").mkdir()
-    for filename in ["core.yaml", "features.yaml", "agents.yaml", "tools.yaml", "ui.yaml"]:
+    for filename in ["core.yaml", "features.yaml", "tools.yaml", "ui.yaml"]:
         (profile_dir / filename).write_text("{}\n", encoding="utf-8")
     (profile_dir / "profile.yaml").write_text(
         "profile_id: starter\n"
@@ -417,7 +417,6 @@ def test_config_contract_check_detects_prefix_drift(tmp_path: Path, monkeypatch:
             "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
             "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
             "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
-            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
         },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
@@ -449,7 +448,6 @@ def test_config_contract_check_detects_flag_drift(tmp_path: Path, monkeypatch: p
             "core": {"source_file": "config/core.yaml", "profile_overlay_file": "config/profiles/<profile_id>/core.yaml", "profile_mutability": "partial"},
             "features": {"source_file": "config/features.yaml", "profile_overlay_file": "config/profiles/<profile_id>/features.yaml", "profile_mutability": "partial"},
             "tools": {"profile_overlay_file": "config/profiles/<profile_id>/tools.yaml", "profile_mutability": "full"},
-            "agents": {"profile_overlay_file": "config/profiles/<profile_id>/agents.yaml", "profile_mutability": "full"},
         },
         "policies": {"docs_mutation": "disabled", "manual_config_editing": "supported", "ingest_interface": "steuermann_ingest_only", "json_output_stability": "required"},
         "severity_policy": {"blocking": "error", "advisory": "warning"},
@@ -486,7 +484,7 @@ def test_config_contract_check_detects_bundle_compatibility_drift(
                 "profile_overlay_file": f"config/profiles/<profile_id>/{f}",
                 "profile_mutability": "partial",
             }
-            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()
+            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml"}.items()
         },
         "policies": {
             "docs_mutation": "disabled",
@@ -544,7 +542,7 @@ def test_config_contract_check_detects_mutator_surface_drift(
                 "profile_overlay_file": f"config/profiles/<profile_id>/{f}",
                 "profile_mutability": "partial",
             }
-            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml", "agents": "agents.yaml"}.items()
+            for s, f in {"core": "core.yaml", "features": "features.yaml", "tools": "tools.yaml"}.items()
         },
         "policies": {
             "docs_mutation": "disabled",
@@ -838,10 +836,6 @@ def test_docs_check_classifies_bundle_compat_drift_domain(
                     },
                     "tools": {
                         "profile_overlay_file": "config/profiles/<profile_id>/tools.yaml",
-                        "profile_mutability": "full",
-                    },
-                    "agents": {
-                        "profile_overlay_file": "config/profiles/<profile_id>/agents.yaml",
                         "profile_mutability": "full",
                     },
                 },

@@ -4,7 +4,6 @@ from universal_agentic_framework.orchestration.respond.prompt_builder import (
     build_tool_results_block,
     select_synthesis_instruction,
     build_memory_context_block,
-    build_crew_findings_block,
 )
 
 
@@ -53,18 +52,3 @@ def test_build_memory_context_block_priority_variants():
     assert "LOW PRIORITY" in low
 
     assert build_memory_context_block([], web_tools_used=False) == ""
-
-
-def test_build_crew_findings_block():
-    out = build_crew_findings_block(
-        {
-            "research": {"success": True, "result": "found X"},
-            "analytics": {"success": False, "result": "ignored"},
-            "planning": {"success": True, "result": ""},  # empty result skipped
-        }
-    )
-    assert "=== RESEARCH FINDINGS ===" in out
-    assert "found X" in out
-    assert "ignored" not in out  # unsuccessful crew omitted
-    assert "PLANNING" not in out  # empty result omitted
-    assert build_crew_findings_block({}) == ""

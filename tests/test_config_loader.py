@@ -4,7 +4,6 @@ import pytest
 
 from universal_agentic_framework.config import (
     get_active_profile_id,
-    load_agents_config,
     load_core_config,
     load_features_config,
     load_profile_metadata,
@@ -207,7 +206,6 @@ def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:
         "tools:\n"
         "  - name: web_search_mcp\n"
         "    path: base/path\n"
-        "    enabled: true\n"
         "    config:\n"
         "      server_url: http://base\n"
         "      default_tool: search\n",
@@ -220,8 +218,7 @@ def test_load_tools_config_name_aware_merge(tmp_path: Path) -> None:
         "    config:\n"
         "      default_tool: fetch_content\n"
         "  - name: patient_lookup\n"
-        "    path: profiles/medical/tools/patient_lookup\n"
-        "    enabled: true\n",
+        "    path: profiles/medical/tools/patient_lookup\n",
         encoding="utf-8",
     )
 
@@ -289,3 +286,14 @@ def test_token_contract_warns_on_unknown_keys(tmp_path: Path) -> None:
     assert any("font-unknown" in w for w in warnings)
     # custom_css_vars should never produce warnings
     assert not any("anything-goes" in w for w in warnings)
+
+def test_tool_entry_rejects_removed_enabled_flag():
+    """A leftover ``enabled: false`` used to be ignored silently, re-activating the tool."""
+    import pytest
+    from pydantic import ValidationError
+
+    from universal_agentic_framework.config.schemas import ToolDefinition
+
+    with pytest.raises(ValidationError, match="'enabled' key is no longer supported"):
+        ToolDefinition.model_validate({"name": "risky_tool", "path": "x", "enabled": False})
+    assert ToolDefinition.model_validate({"name": "ok_tool", "path": "x", "config": {}}).name == "ok_tool"

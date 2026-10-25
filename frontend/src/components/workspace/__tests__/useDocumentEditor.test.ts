@@ -121,6 +121,29 @@ describe("useDocumentEditor", () => {
   });
 
   describe("flushSave", () => {
+    it("saves an emptied document instead of silently skipping it", async () => {
+      mockGetDoc("Original.");
+      const { result } = renderHook(() => useDocumentEditor(makeHookArgs()));
+      await act(async () => {
+        await result.current.openEditor("doc-1");
+      });
+      act(() => {
+        result.current.setEditorContent("");
+      });
+      expect(result.current.isDirty).toBe(true);
+
+      mockPutDoc(200, { document: { version: 2 } });
+      await act(async () => {
+        expect(await result.current.flushSave()).toBe(true);
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/proxy/api/workspace/documents/doc-1",
+        expect.objectContaining({ method: "PUT" }),
+      );
+      expect(result.current.isDirty).toBe(false);
+    });
+
     it("returns false and toasts conflict on 409 response", async () => {
       mockGetDoc("Original.", 1);
       const { result } = renderHook(() => useDocumentEditor(makeHookArgs()));

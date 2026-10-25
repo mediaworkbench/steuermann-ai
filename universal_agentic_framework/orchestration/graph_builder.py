@@ -49,6 +49,7 @@ from langgraph.graph import START, StateGraph
 
 from universal_agentic_framework.llm.budget import (
     count_tokens_for_model,
+    estimate_content_tokens,
     estimate_tokens,
 )
 from universal_agentic_framework.llm.factory import LLMFactory
@@ -67,32 +68,22 @@ from universal_agentic_framework.monitoring.metrics import (
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.performance_nodes import (
     initialize_performance_nodes,
-    memory_query_cache_node,
-    memory_cache_store_node,
     conversation_compression_node,
     cache_stats_node,
     get_summarizer,
-)
-from universal_agentic_framework.orchestration.crew_nodes import (
-    node_research_crew,
-    node_analytics_crew,
-    node_code_generation_crew,
-    node_planning_crew,
-    node_crew_chain,
-    node_crew_parallel,
-    CREW_SPECS,
+    resolve_context_window_info,
 )
 from universal_agentic_framework.orchestration.rag_node import node_retrieve_knowledge
 from universal_agentic_framework.orchestration.checkpointing import build_checkpointer
 from universal_agentic_framework.orchestration.respond.text_cleanup import (
     strip_control_tokens,
+    strip_reasoning_blocks,
     filter_untrusted_urls,
 )
 from universal_agentic_framework.orchestration.respond.prompt_builder import (
     build_tool_results_block,
     select_synthesis_instruction,
     build_memory_context_block,
-    build_crew_findings_block,
 )
 from universal_agentic_framework.orchestration.respond.guardrails import (
     retry_synthesis_if_empty,
@@ -114,6 +105,8 @@ except ImportError:
     _LiteLLMAuthenticationError = None  # type: ignore[assignment,misc]
     _LiteLLMServiceUnavailableError = None  # type: ignore[assignment,misc]
 
+from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
+
 # Import extracted helpers
 from universal_agentic_framework.orchestration.helpers import (
     extract_exact_reply_directive,
@@ -123,6 +116,10 @@ from universal_agentic_framework.orchestration.helpers import (
     build_attachment_context_block,
     build_workspace_document_context_block,
     build_workspace_tool_paths,
+    build_context_manifest,
+    allocate_token_budgets,
+    context_item_need,
+    is_data_file_doc,
     detect_tool_routing_intents,
     score_tool_similarity,
     intent_boost_applies,
@@ -132,6 +129,8 @@ from universal_agentic_framework.orchestration.helpers import (
     apply_web_search_max_results,
     infer_extract_webpage_url,
     coerce_tool_args,
+    check_local_path_args,
+    turn_local_paths,
     get_routing_embedding_provider,
     get_auxiliary_model,
     get_model,
@@ -145,17 +144,6 @@ from universal_agentic_framework.orchestration.helpers import (
 logger = get_logger(__name__)
 
 _DIGEST_CHAIN_MAX_ITEMS = 5
-
-# Prefixes the crew nodes use when appending their results as assistant messages.
-# node_generate_response filters these out of the LLM message history and injects them as
-# system-level FINDINGS instead — keeping a crew result as a prior assistant turn makes the
-# model treat it as its own answer and only add a short follow-up. Derived from CREW_SPECS so
-# the append-prefix (crew_nodes) and the filter-prefix (here) can never drift apart again
-# (the old W1.1 bug). Matched via str.startswith; "Chain Result (" — produced by
-# node_crew_chain, which has no CrewSpec — is appended manually and covers every chain name.
-_CREW_RESULT_PREFIXES = tuple(
-    spec.message_prefix for spec in CREW_SPECS.values()
-) + ("Chain Result (",)
 
 # Cache of discovered tool lists (ToolRegistry.discover_and_load scans the filesystem and
 # parses every tool manifest, which is wasteful to repeat per turn). Keyed on the inputs
@@ -222,11 +210,39 @@ _TRIVIAL_MEMORY_PATTERNS = frozenset({
 })
 
 
-def _latest_user_message(messages: List[Dict[str, Any]]) -> str:
-    for msg in reversed(messages or []):
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            return msg.get("content", "") or ""
-    return ""
+_latest_user_message = latest_user_message  # shared helper
+
+
+# Never budget user files below the old fixed total (1200 attachments + 1800 workspace
+# docs): a crowded context window must not starve them below what they had.
+_MIN_CONTEXT_DOCUMENT_BUDGET = 3000
+# Window assumed for the file budget when neither profile nor probe knows the real one.
+# The resolver's 32768 fallback is fine for the compression trigger but would let files
+# overflow a smaller loaded window (LM Studio commonly loads models at 8k-16k).
+_UNKNOWN_WINDOW_FOR_FILES = 8192
+
+
+def _context_document_budget(config: Any, state: Dict[str, Any], used_tokens: int) -> int:
+    """Token budget for this turn's attachments + workspace documents in the respond prompt.
+
+    ``tokens.context_documents_ratio`` of the chat model's resolved context window
+    (optionally capped by ``tokens.context_documents_max_tokens``), never more than the
+    room left after ``used_tokens`` (system prompt, history, tool results) and the
+    ``response_reserve_ratio`` share kept for the answer. An unknown window is treated
+    as ``_UNKNOWN_WINDOW_FOR_FILES``.
+    """
+    window, known = resolve_context_window_info(state, config)
+    if not known:
+        window = _UNKNOWN_WINDOW_FOR_FILES
+    tokens_cfg = getattr(config, "tokens", None)
+    ratio = float(getattr(tokens_cfg, "context_documents_ratio", 0.5) or 0.5)
+    reserve_ratio = float(getattr(tokens_cfg, "response_reserve_ratio", 0.15) or 0.0)
+    cap = getattr(tokens_cfg, "context_documents_max_tokens", None)
+    budget = int(window * ratio)
+    if cap:
+        budget = min(budget, int(cap))
+    headroom = window - int(window * reserve_ratio) - used_tokens
+    return max(min(budget, headroom), _MIN_CONTEXT_DOCUMENT_BUDGET)
 
 
 # Recent-turn window passed to the tool-calling nodes so they can resolve referential
@@ -242,9 +258,9 @@ _TOOL_HISTORY_MAX_CHARS_PER_MSG = 1500
 def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any]:
     """Recent prior user/assistant turns as LangChain messages for tool-arg resolution.
 
-    Excludes the latest message (the current turn — the caller appends it separately),
-    compression summaries, and crew-result assistant turns (already folded into the system
-    prompt by the respond node). Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
+    Excludes the latest message (the current turn — the caller appends it separately)
+    and compression summaries (already folded into the system prompt by the respond node).
+    Returns at most ``_TOOL_HISTORY_MAX_MESSAGES`` messages.
     """
     from langchain_core.messages import HumanMessage, AIMessage
 
@@ -258,8 +274,6 @@ def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any
         content = str(msg.get("content") or "").strip()
         if not content:
             continue
-        if role == "assistant" and any(content.startswith(p) for p in _CREW_RESULT_PREFIXES):
-            continue
         content = content[:_TOOL_HISTORY_MAX_CHARS_PER_MSG]
         if role == "user":
             out.append(HumanMessage(content=content))
@@ -271,13 +285,16 @@ def _recent_history_for_tool_calling(messages: List[Dict[str, Any]]) -> List[Any
 def _should_write_memory(state: GraphState, features_config: Any) -> bool:
     """True when this turn's exchange is worth a long-term memory write.
 
-    False when long-term memory is disabled or the latest user turn is trivial (a
-    greeting/acknowledgement, or under 5 characters). Shared by node_summarize (to skip
+    False when long-term memory is disabled (globally or by the per-session toggle) or
+    the latest user turn is trivial (a greeting/acknowledgement, or under 5
+    characters). Shared by node_summarize (to skip
     the auxiliary-model fact-extraction call) and node_update_memory (to skip the upsert),
     so the expensive summary is never produced for a turn that won't be persisted.
     """
     if not getattr(features_config, "long_term_memory", False):
         return False
+    if not state.get("memory_enabled", True):
+        return False  # per-session toggle off: don't spend an auxiliary call on a summary
     stripped = _latest_user_message(state.get("messages", [])).strip().lower().rstrip("!.,?")
     if len(stripped) < 5:
         return False
@@ -314,7 +331,7 @@ class GraphState(TypedDict, total=False):
     workspace_documents: List[Dict[str, Any]]  # User workspace documents resolved by adapter
     workspace_document_context: List[Dict[str, Any]]  # Prompt-ready normalized workspace snippets
     workspace_writeback_requested: bool
-    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (bypasses 600-token truncation)
+    workspace_writeback_document: Optional[Dict[str, Any]]  # Full document content for writeback (never excerpted)
     user_id: str
     session_id: str  # Session identifier for co-occurrence tracking
     language: str
@@ -341,7 +358,6 @@ class GraphState(TypedDict, total=False):
     tool_results: Dict[str, str]  # Tool name -> execution result
     tool_execution_results: Dict[str, Dict[str, Any]]  # Tool name -> structured execution envelope
     routing_metadata: Dict[str, str]  # Tool name -> reason for selection
-    crew_results: Dict[str, Any]  # Multi-agent crew execution results
     tokens_used: int
     turn_tokens_used: int  # Current invocation token usage for per-turn budgeting
     input_tokens: int  # Input tokens count (cumulative across the conversation)
@@ -581,8 +597,7 @@ def node_prefilter_tools(state: GraphState) -> GraphState:
                 for a in (state.get("attachments") or [])
             )
             csv_workspace_doc_present = any(
-                str(d.get("mime_type", "")) == "text/csv" or str(d.get("filename", "")).endswith(".csv")
-                for d in (state.get("workspace_documents") or [])
+                is_data_file_doc(d) for d in (state.get("workspace_documents") or [])
             )
 
             if intents["asks_about_tools"]:
@@ -737,6 +752,8 @@ def node_call_tools_native(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -879,6 +896,7 @@ def node_call_tools_native(state: GraphState) -> GraphState:
                         continue
 
                     try:
+                        check_local_path_args(tool_args, _allowed_paths)
                         result = tool_obj._run(**tool_args)
 
                         if (
@@ -951,6 +969,8 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -1163,6 +1183,7 @@ def node_call_tools_structured(state: GraphState) -> GraphState:
                     break
 
                 try:
+                    check_local_path_args(tool_args, _allowed_paths)
                     result = tool_obj._run(**tool_args)
                     record_tool_success(
                         tool_name=tool_name,
@@ -1210,6 +1231,8 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     candidates = state.get("candidate_tools", [])
     if not candidates:
         return state
+    # Local files a tool may open this turn (Layer 3: never another user's stored file).
+    _allowed_paths = turn_local_paths(state.get("attachments"), state.get("workspace_documents"))
 
     # Validate that this node should be executing (mode enforcement)
     is_valid, validation_reason = validate_and_log_tool_calling_mode(
@@ -1322,6 +1345,7 @@ def node_call_tools_react(state: GraphState) -> GraphState:
                 tool_args, _ = coerce_tool_args(tool_obj, tool_args)
 
                 try:
+                    check_local_path_args(tool_args, _allowed_paths)
                     result = tool_obj._run(**tool_args)
                     record_tool_success(
                         tool_name=tool_name,
@@ -1358,6 +1382,15 @@ def node_call_tools_react(state: GraphState) -> GraphState:
     return state
 
 
+def _clear_memory_outputs(state: GraphState) -> None:
+    """Reset every memory-load output for a turn that skips retrieval, so the previous
+    turn's checkpointed analytics/digests aren't reported (or injected) again."""
+    state["loaded_memory"] = []
+    state["semantic_memory"] = []
+    state["digest_context"] = []
+    state["memory_analytics"] = {}
+
+
 def node_load_memory(state: GraphState) -> GraphState:
     config = load_core_config()
     profile_name = getattr(config.profile, "name", "default-profile")
@@ -1367,14 +1400,12 @@ def node_load_memory(state: GraphState) -> GraphState:
 
     if not getattr(features_config, "long_term_memory", False):
         logger.info("Long-term memory disabled via features flag", profile_name=profile_name)
-        state["loaded_memory"] = []
-        state["semantic_memory"] = []
+        _clear_memory_outputs(state)
         return state
 
     if not state.get("memory_enabled", True):
         logger.info("Memory disabled by per-session toggle", user_id=state.get("user_id"))
-        state["loaded_memory"] = []
-        state["semantic_memory"] = []
+        _clear_memory_outputs(state)
         return state
 
     # Get memory feature flags
@@ -1453,7 +1484,7 @@ def node_generate_response(state: GraphState) -> GraphState:
     model = get_model(config, lang, preferred_model=preferred_model)
     provider, model_name = resolve_initial_model_metadata(config, lang, preferred_model)
 
-    # Find the last user-role message so crew-appended assistant messages don't pollute user_msg.
+    # Find the last user-role message.
     user_msg = ""
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, dict) and msg.get("role") == "user":
@@ -1583,11 +1614,45 @@ def node_generate_response(state: GraphState) -> GraphState:
             low_priority=web_tools_used,
         )
 
-    # Add user-provided uploaded attachments as explicitly labeled reference context.
+    # User files (attachments + workspace documents) share one budget derived from the
+    # chat model's real context window; oversized files are excerpted format-aware and
+    # labelled EXCERPT. Their content travels once, in a human turn placed right before
+    # the user's question (see turn_context_blocks below) — the system prompt only gets
+    # a manifest naming each file and whether it is complete.
     attachments = state.get("attachments") or []
-    attachment_block, normalized_attachment_context = build_attachment_context_block(attachments)
+    workspace_documents = state.get("workspace_documents") or []
+    writeback_doc = (
+        state.get("workspace_writeback_document") if state.get("workspace_writeback_requested") else None
+    )
+    if writeback_doc:
+        # The writeback target is injected whole further down; don't also excerpt it here.
+        workspace_documents = [d for d in workspace_documents if d.get("id") != writeback_doc.get("id")]
+
+    used_tokens = estimate_content_tokens(system_prompt) + estimate_content_tokens(
+        str(writeback_doc.get("content_text") or "") if writeback_doc else ""
+    )
+    for _m in state.get("messages") or []:
+        if isinstance(_m.get("content"), str):
+            used_tokens += estimate_content_tokens(_m["content"])
+    for _result in (tool_results or {}).values():
+        used_tokens += estimate_content_tokens(str(_result))
+    files_budget = _context_document_budget(config, state, used_tokens)
+    attachment_need = sum(
+        context_item_need(str(a.get("extracted_text") or ""))
+        for a in attachments
+        if not str(a.get("mime_type", "")).startswith("image/") and str(a.get("extracted_text") or "").strip()
+    )
+    workspace_need = sum(context_item_need(str(d.get("content_text") or "")) for d in workspace_documents)
+    attachment_budget, workspace_budget = allocate_token_budgets(
+        [attachment_need, workspace_need], files_budget
+    )
+
+    turn_context_blocks: List[str] = []
+    attachment_block, normalized_attachment_context = build_attachment_context_block(
+        attachments, total_budget_tokens=attachment_budget
+    )
     if attachment_block:
-        system_prompt += f"\n\n{attachment_block}"
+        turn_context_blocks.append(attachment_block)
         state["attachment_context"] = normalized_attachment_context
         logger.info(
             "Attachment context injected into prompt",
@@ -1604,11 +1669,11 @@ def node_generate_response(state: GraphState) -> GraphState:
         profile_name = state.get("profile_name", "unknown")
         ATTACHMENTS_NONE_TOTAL.labels(profile_name=profile_name).inc()
 
-    # Add resolved workspace documents as explicitly labeled reference context.
-    workspace_documents = state.get("workspace_documents") or []
-    workspace_block, normalized_workspace_context = build_workspace_document_context_block(workspace_documents)
+    workspace_block, normalized_workspace_context = build_workspace_document_context_block(
+        workspace_documents, total_budget_tokens=workspace_budget
+    )
     if workspace_block:
-        system_prompt += f"\n\n{workspace_block}"
+        turn_context_blocks.append(workspace_block)
         state["workspace_document_context"] = normalized_workspace_context
         logger.info(
             "Workspace document context injected into prompt",
@@ -1616,6 +1681,22 @@ def node_generate_response(state: GraphState) -> GraphState:
         )
     else:
         state["workspace_document_context"] = []
+
+    system_prompt += build_context_manifest(
+        state.get("attachment_context") or [], state.get("workspace_document_context") or []
+    )
+    if turn_context_blocks:
+        logger.info(
+            "User file budget",
+            files_budget_tokens=files_budget,
+            attachment_budget_tokens=attachment_budget,
+            workspace_budget_tokens=workspace_budget,
+            excerpted=[
+                item.get("filename") or item.get("original_name")
+                for item in [*(state.get("attachment_context") or []), *(state.get("workspace_document_context") or [])]
+                if item.get("excerpt")
+            ],
+        )
 
     # Add tool results if available (semantic routing)
     if tool_results:
@@ -1676,22 +1757,6 @@ def node_generate_response(state: GraphState) -> GraphState:
             f"{sources_instruction}"
         )
 
-    # Add crew results as system-level context so the LLM synthesizes a fresh response
-    # (crew results must NOT appear as prior assistant turns — that causes the model to
-    # just add a short follow-up instead of producing a full answer).
-    _crew_result_prefixes = _CREW_RESULT_PREFIXES
-    crew_results = state.get("crew_results", {})
-    _crew_block = build_crew_findings_block(crew_results)
-    if _crew_block:
-        system_prompt += _crew_block
-        logger.info(
-            "Crew results injected into context",
-            crew_count=sum(
-                1 for c in crew_results.values()
-                if isinstance(c, dict) and c.get("success") and c.get("result")
-            ),
-        )
-
     workspace_docs_raw = state.get("workspace_documents") or []
     workspace_document_context = state.get("workspace_document_context") or []
     # Key off the document the adapter actually selected for writeback (exactly one
@@ -1744,67 +1809,34 @@ def node_generate_response(state: GraphState) -> GraphState:
     messages = [SystemMessage(content=system_prompt)]
 
     # Add full conversation history (all previous user and assistant messages).
-    # Skip crew-appended assistant messages — their content is already injected into
-    # the system prompt as FINDINGS context above.  Keeping them as AIMessage turns
-    # causes the model to treat the crew output as its own prior answer and only add
-    # a short follow-up instead of synthesising a full response.
+    latest_user_idx: Optional[int] = None
     for msg in all_msgs:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if msg.get("type") == "summary":
             continue  # already folded into the system prompt above
-        if role == "assistant" and any(content.startswith(p) for p in _crew_result_prefixes):
-            continue  # already in system prompt as FINDINGS context
         if role == "user":
+            latest_user_idx = len(messages)
             messages.append(HumanMessage(content=content))
         elif role == "assistant":
             messages.append(AIMessage(content=content))
 
-    # Some models underweight system-side attachment blocks and claim they cannot
-    # access attachments. Mirror attachment context as an explicit turn-scoped
-    # human context message to improve reliability.
-    attachment_context = state.get("attachment_context") or []
-    if attachment_context:
-        attachment_lines = [
-            "The following attachment content is available for this turn. Use it directly when answering.",
-        ]
-        for item in attachment_context:
-            name = item.get("original_name") or "attachment.txt"
-            text = item.get("text") or ""
-            if text:
-                attachment_lines.append(f"[Attachment: {name}]\n{text}")
-        if len(attachment_lines) > 1:
-            messages.append(HumanMessage(content="\n\n".join(attachment_lines)))
-
-    if workspace_document_context:
-        workspace_lines = [
-            "The following workspace documents are available for this turn. Use them directly when answering.",
-        ]
-        for item in workspace_document_context:
-            filename = item.get("filename") or "document.txt"
-            version = item.get("version")
-            text = item.get("text") or ""
-            if not text:
-                continue
-            label = f"[Workspace Document: {filename}"
-            if version is not None:
-                label += f" | v{version}"
-            label += "]"
-            workspace_lines.append(f"{label}\n{text}")
-        if len(workspace_lines) > 1:
-            messages.append(HumanMessage(content="\n\n".join(workspace_lines)))
-
-    # In writeback mode inject the FULL document content (bypasses the 600-token context truncation)
-    writeback_doc = state.get("workspace_writeback_document")
-    if writeback_doc and state.get("workspace_writeback_requested"):
+    # In writeback mode the target document goes in whole (it is excluded from the
+    # excerpted workspace context above, so it appears exactly once).
+    if writeback_doc:
         full_text = str(writeback_doc.get("content_text") or "").strip()
         fname = writeback_doc.get("filename") or "document"
         ver = writeback_doc.get("version")
         if full_text:
             ver_label = f" | v{ver}" if ver is not None else ""
-            messages.append(HumanMessage(
-                content=f"[Document to revise: {fname}{ver_label}]\n\n{full_text}"
-            ))
+            turn_context_blocks.append(f"[Document to revise: {fname}{ver_label}]\n\n{full_text}")
+
+    # The user's files go in as one human turn right before their question: some models
+    # underweight system-side document blocks, and a question that comes after the
+    # material it asks about is answered more reliably than one buried above it.
+    if turn_context_blocks:
+        insert_at = latest_user_idx if latest_user_idx is not None else len(messages)
+        messages.insert(insert_at, HumanMessage(content="\n\n".join(turn_context_blocks)))
 
     tool_results = state.get("tool_results", {})
 
@@ -1812,16 +1844,10 @@ def node_generate_response(state: GraphState) -> GraphState:
     # still uses the provider-reported total; these are cheap chars/4 estimates so the
     # user can see *where* their context is going (instructions+RAG+memory+tools vs.
     # prior turns vs. this message vs. attached files). Estimates only — never summed
-    # against the authoritative total.
+    # against the authoritative total. The files slot uses the content-aware estimate:
+    # chars/4 undercounts data files (JSON/CSV) by 2-3x.
     def _ctx_attachment_tokens() -> int:
-        total = 0
-        for item in attachment_context or []:
-            total += estimate_tokens(str(item.get("text") or ""))
-        for item in workspace_document_context or []:
-            total += estimate_tokens(str(item.get("text") or ""))
-        if writeback_doc and state.get("workspace_writeback_requested"):
-            total += estimate_tokens(str(writeback_doc.get("content_text") or ""))
-        return total
+        return sum(estimate_content_tokens(block) for block in turn_context_blocks)
 
     _history_tokens = 0
     for _m in all_msgs:
@@ -1897,8 +1923,11 @@ def node_generate_response(state: GraphState) -> GraphState:
             logger.error("LLM call failed", error=str(e), exc_info=True, provider=provider, model_name=model_name)
             response_text = f"LLM Error: {str(e)[:100]}"
 
-        # Remove leaked tool-call/control tokens from model output
+        # Sanitize model output. Inline reasoning (<think>…) is shown via the stream's
+        # thinking events; it must not enter the checkpointed history (re-sent to the model
+        # every turn) or feed memory extraction. Leaked tool-call/control tokens go too.
         if response_text:
+            response_text = strip_reasoning_blocks(response_text)
             original_text = response_text
             response_text = strip_control_tokens(response_text)
 
@@ -1911,36 +1940,38 @@ def node_generate_response(state: GraphState) -> GraphState:
                 else:
                     logger.info("Sanitized control tokens from LLM response")
 
-            # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
-            # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
-            response_text = retry_synthesis_if_empty(
-                response_text,
-                model=model,
-                lang=lang,
-                user_msg=user_msg,
-                knowledge_context=knowledge_context,
-                context_text=context_text,
-                tool_results=tool_results,
-                collected_sources=collected_sources,
-            )
-            response_text = retry_on_attachment_refusal(
-                response_text,
-                model=model,
-                state=state,
-                system_prompt=system_prompt,
-                all_msgs=all_msgs,
-            )
-            response_text = retry_on_web_extract_contradiction(
-                response_text,
-                model=model,
-                tool_results=tool_results,
-                user_msg=user_msg,
-            )
-            response_text = format_tool_based_fallback(
-                response_text,
-                tool_results=tool_results,
-                lang=lang,
-            )
+        # Post-generation guardrails: empty-response synthesis retry, attachment / web-extract
+        # contradiction retries, then a tool-based fallback so the user never gets a blank reply.
+        # Run unconditionally: a reply that was empty from the start, or only reasoning /
+        # control tokens, is exactly what the synthesis retry and fallback exist for.
+        response_text = retry_synthesis_if_empty(
+            response_text,
+            model=model,
+            lang=lang,
+            user_msg=user_msg,
+            knowledge_context=knowledge_context,
+            context_text=context_text,
+            tool_results=tool_results,
+            collected_sources=collected_sources,
+        )
+        response_text = retry_on_attachment_refusal(
+            response_text,
+            model=model,
+            state=state,
+            system_prompt=system_prompt,
+            payload=messages,
+        )
+        response_text = retry_on_web_extract_contradiction(
+            response_text,
+            model=model,
+            tool_results=tool_results,
+            user_msg=user_msg,
+        )
+        response_text = format_tool_based_fallback(
+            response_text,
+            tool_results=tool_results,
+            lang=lang,
+        )
 
         # Remove any URLs that were not present in tool results / RAG / the user message.
         if response_text:
@@ -2112,6 +2143,24 @@ def node_summarize(state: GraphState) -> GraphState:
         return state
 
 
+_NO_FACTS_SENTINEL = "no user facts"
+
+
+_NO_FACTS_EXCEPTION_WORDS = re.compile(r"\b(except|but|however|besides|other than|apart from|although)\b")
+
+
+def _is_no_facts_summary(text: Optional[str]) -> bool:
+    """Whether the summarize step answered with its 'No user facts' sentinel
+    (tolerating quotes, punctuation and a filler tail like "are present in this
+    conversation") — but not "No user facts except that they live in Berlin"."""
+    normalized = re.sub(r"[^a-z ]+", " ", (text or "").lower()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    if not normalized.startswith(_NO_FACTS_SENTINEL):
+        return False
+    tail = normalized[len(_NO_FACTS_SENTINEL):]
+    return len(tail) <= 60 and not _NO_FACTS_EXCEPTION_WORDS.search(tail)
+
+
 def node_update_memory(state: GraphState) -> GraphState:
     config = load_core_config()
     profile_name = getattr(config.profile, "name", "default-profile")
@@ -2159,6 +2208,11 @@ def node_update_memory(state: GraphState) -> GraphState:
                 _asst_fallback = _m.get("content", "")
                 break
         summary_text = f"Summary: {_current_user_msg} -> {_asst_fallback}"
+
+    if _is_no_facts_summary(summary_text):
+        # The extraction prompt's explicit "nothing to remember" answer — never a memory.
+        logger.info("Summary reported no user facts, skipping memory update", user_id=user_id)
+        return state
 
     logger.info("Summary text prepared", summary_length=len(summary_text), user_id=user_id)
 
@@ -2208,7 +2262,7 @@ def build_graph() -> StateGraph:
     Layer 2: Model-driven tool calling (native | structured | react per provider config)
     Layer 3: Output validation + retry (built into Layer 2 nodes)
 
-    Plus: crew routing, memory, RAG retrieval, response generation, summarization.
+    Plus: memory, RAG retrieval, response generation, summarization.
     """
     # Initialize performance infrastructure
     try:
@@ -2231,12 +2285,6 @@ def build_graph() -> StateGraph:
     graph.add_node("call_tools_structured", node_call_tools_structured)  # Layer 2 structured
     graph.add_node("call_tools_react", node_call_tools_react)  # Layer 2 react
     graph.add_node("after_tool_call", _after_tool_call)  # Convergence point
-    graph.add_node("research_crew", node_research_crew)
-    graph.add_node("analytics_crew", node_analytics_crew)
-    graph.add_node("code_generation_crew", node_code_generation_crew)
-    graph.add_node("planning_crew", node_planning_crew)
-    graph.add_node("crew_chain", node_crew_chain)
-    graph.add_node("crew_parallel", node_crew_parallel)
     graph.add_node("load_memory", node_load_memory)
     graph.add_node("load_procedural", node_load_procedural)
     graph.add_node("retrieve_knowledge", node_retrieve_knowledge)
@@ -2247,44 +2295,11 @@ def build_graph() -> StateGraph:
     # Add performance optimization nodes. Registered as native async coroutines so
     # langgraph awaits them on the event loop under ainvoke — no per-call worker thread
     # or nested asyncio.run (the old *_sync wrappers existed only to bridge sync invoke).
-    graph.add_node("memory_query_cache", memory_query_cache_node)
-    graph.add_node("memory_cache_store", memory_cache_store_node)
     graph.add_node("compress_conversation", conversation_compression_node)
     graph.add_node("cache_stats", cache_stats_node)
 
     # --- Execution flow ---
-    # Crew routing happens first — before tools load — so crew-destined queries skip
-    # the tool pipeline entirely and go directly to the crew node.
-    from universal_agentic_framework.orchestration.crew_nodes import (
-        route_to_research_crew,
-        route_to_analytics_crew,
-        route_to_code_generation_crew,
-        route_to_planning_crew,
-    )
-
-    def _route_start(state):
-        """Route at START: crew queries bypass tool execution."""
-        if route_to_research_crew(state):
-            return "research_crew"
-        elif route_to_analytics_crew(state):
-            return "analytics_crew"
-        elif route_to_code_generation_crew(state):
-            return "code_generation_crew"
-        elif route_to_planning_crew(state):
-            return "planning_crew"
-        return "load_tools"
-
-    graph.add_conditional_edges(
-        START,
-        _route_start,
-        {
-            "research_crew": "research_crew",
-            "analytics_crew": "analytics_crew",
-            "code_generation_crew": "code_generation_crew",
-            "planning_crew": "planning_crew",
-            "load_tools": "load_tools",
-        },
-    )
+    graph.add_edge(START, "load_tools")
     graph.add_edge("load_tools", "prefilter_tools")
 
     # Layer 2: Route to appropriate tool-calling strategy based on prefilter results
@@ -2335,25 +2350,15 @@ def build_graph() -> StateGraph:
     graph.add_edge("call_tools_structured", "after_tool_call")
     graph.add_edge("call_tools_react", "after_tool_call")
 
-    # after_tool_call always proceeds to memory. Crew queries are routed to their crew at
-    # START (bypassing tools entirely), so a query only reaches after_tool_call when no crew
-    # matched there; tool nodes don't change messages[-1], so re-running the crew routers here
-    # would always return "no crew" (W1.7: removed that dead conditional re-check).
-    graph.add_edge("after_tool_call", "memory_query_cache")
+    # after_tool_call always proceeds to memory.
+    # (The former memory_query_cache / memory_cache_store nodes were removed: a hit
+    # was always overwritten by load_memory, and honouring it would have served
+    # memories up to an hour stale and skipped cognitive access tracking.)
+    graph.add_edge("after_tool_call", "load_memory")
 
-    # All crews flow to memory cache for further processing
-    graph.add_edge("research_crew", "memory_query_cache")
-    graph.add_edge("analytics_crew", "memory_query_cache")
-    graph.add_edge("code_generation_crew", "memory_query_cache")
-    graph.add_edge("planning_crew", "memory_query_cache")
-    graph.add_edge("crew_chain", "memory_query_cache")
-    graph.add_edge("crew_parallel", "memory_query_cache")
-    
-    graph.add_edge("memory_query_cache", "load_memory")
     graph.add_edge("load_memory", "load_procedural")
     graph.add_edge("load_procedural", "retrieve_knowledge")
-    graph.add_edge("retrieve_knowledge", "memory_cache_store")
-    graph.add_edge("memory_cache_store", "respond")
+    graph.add_edge("retrieve_knowledge", "respond")
     graph.add_edge("respond", "compress_conversation")
     graph.add_edge("compress_conversation", "summarize")
     graph.add_edge("summarize", "update_memory")

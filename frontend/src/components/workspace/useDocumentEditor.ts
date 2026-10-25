@@ -146,7 +146,8 @@ export function useDocumentEditor({
    */
   const flushSave = useCallback(async (): Promise<boolean> => {
     if (!editorDocId) return true; // no editor open — nothing to flush
-    if (!editorContent.trim()) return true; // empty content — skip save so send isn't blocked
+    // Empty content is a real edit (the user cleared the document) and is saved like
+    // any other; skipping it left isDirty stuck true while the model read the old text.
     const contentAtSave = editorContent;
     setProcessingAction(editorDocId);
     try {

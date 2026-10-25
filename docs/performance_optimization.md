@@ -12,7 +12,7 @@ Performance work in Steuermann currently centers on:
 - Conversation compression and summarization to control token growth
 - Prometheus metrics and targeted regression tests
 
-This is an active tuning area. Exact gains depend on workload, prompt stability, model latency, and how aggressively profile overlays enable tools, crews, and retrieval.
+This is an active tuning area. Exact gains depend on workload, prompt stability, model latency, and how aggressively profile overlays enable tools and retrieval.
 
 ---
 
@@ -93,10 +93,8 @@ Changing several levers at once usually hides the real bottleneck.
 
 The following remain worth exploring, but should be treated as workload-specific tuning rather than defaults:
 
-- More aggressive cache warming
 - Profile-specific eviction strategy changes
 - Conversation compression threshold changes for long-running sessions
-- Crew-specific timeout and cache tuning
 - Wider Prometheus-based performance regression coverage
 
 ---

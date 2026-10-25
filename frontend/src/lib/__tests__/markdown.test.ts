@@ -57,6 +57,13 @@ describe("normalizeMath", () => {
 });
 
 describe("linkFootnotes", () => {
+  it("wraps URLs with spaces or parentheses so the link isn't cut short", () => {
+    const sources = [{ index: 1, url: "https://en.wikipedia.org/wiki/Foo_(bar) baz", title: "t" }];
+    expect(linkFootnotes("see [1]", sources as unknown as Parameters<typeof linkFootnotes>[1])).toBe(
+      "see [¹](<https://en.wikipedia.org/wiki/Foo_(bar) baz>)",
+    );
+  });
+
   const sources: Source[] = [
     { index: 1, label: "Example", type: "web", url: "https://example.com" },
     { index: 2, label: "KB Doc", type: "rag", url: null },

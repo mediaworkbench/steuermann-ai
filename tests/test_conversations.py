@@ -148,10 +148,13 @@ class FakeConversationStore:
         return msg
 
     def get_messages(
-        self, conversation_id: str, limit: int = 500, offset: int = 0
+        self, conversation_id: str, limit: int = 500, offset: int = 0, *, latest: bool = False
     ) -> List[Dict[str, Any]]:
         msgs = [m for m in self._messages if m["conversation_id"] == conversation_id]
         msgs.sort(key=lambda m: m["created_at"])
+        if latest:
+            end = len(msgs) - offset
+            return msgs[max(0, end - limit) : max(0, end)]
         return msgs[offset : offset + limit]
 
     def update_message_feedback(
@@ -951,3 +954,23 @@ class TestOwnershipIsolation:
             json={"feedback": "up"},
         )
         assert resp.status_code == 404
+
+
+def test_read_upload_capped_rejects_oversized_upload():
+    import asyncio
+    import io
+
+    from fastapi import HTTPException, UploadFile
+
+    from backend.uploads import read_upload_capped
+
+    ok = UploadFile(file=io.BytesIO(b"x" * 10), filename="a.txt")
+    assert asyncio.run(read_upload_capped(ok, 10)) == b"x" * 10
+
+    big = UploadFile(file=io.BytesIO(b"x" * (3 * 1024 * 1024)), filename="b.txt")
+    try:
+        asyncio.run(read_upload_capped(big, 1024 * 1024))
+    except HTTPException as exc:
+        assert exc.status_code == 413
+    else:  # pragma: no cover
+        raise AssertionError("expected 413")

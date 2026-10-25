@@ -42,6 +42,7 @@ import numpy as np
 from backend.circuit_breaker import CircuitBreakerOpenError
 from universal_agentic_framework.monitoring.logging import get_logger
 from universal_agentic_framework.orchestration.helpers.text_processing import extract_json_object
+from universal_agentic_framework.orchestration.respond.text_cleanup import strip_reasoning_blocks
 
 from ..task import HeartbeatTask, TickContext
 
@@ -77,9 +78,7 @@ def _strip_reasoning(text: str) -> str:
     content (and an unterminated/truncated one), so only the final answer remains.
     Mirrors the conversation-title sanitizer — reasoning models need a generous
     token budget AND defensive stripping or the answer is lost."""
-    cleaned = re.sub(r"(?is)<think>.*?</think>", "", text)
-    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
-    return cleaned.strip()
+    return strip_reasoning_blocks(text or "")
 
 
 # Conservative cues for a durable, belief-worthy preference. Matches the THIRD-person
@@ -105,6 +104,20 @@ def _is_durable_preference(text: str) -> bool:
     if len(t) < 8:
         return False
     return bool(_PREFERENCE_CUES.search(t))
+
+
+# Upper bound on LLM adjudications per preference candidate against beliefs anchored
+# earlier in the same run (keeps the worst case linear in the candidate cap).
+_MAX_IN_RUN_BELIEF_CHECKS = 5
+
+
+def _anchor_action(ep: "EpisodicMemory", confidence: float) -> "AnchorAction":
+    prior = (ep.raw.get("metadata") or {}).get("confidence") if isinstance(ep.raw, dict) else None
+    try:
+        prior_conf = float(prior) if prior is not None else None
+    except (TypeError, ValueError):
+        prior_conf = None
+    return AnchorAction(memory_id=ep.memory_id, confidence=confidence, prior_confidence=prior_conf)
 
 
 def _classify_tier(rule_key: str) -> Optional[int]:
@@ -207,6 +220,12 @@ class DreamSnapshot:
     procedural_observations: List[str] = field(default_factory=list)
     # Preference consolidation (Cycle E) inputs — salient preference episodics + nearest belief.
     preference_candidates: List[PreferenceCandidate] = field(default_factory=list)
+    # Cycles whose semantic-neighbour read failed (embedding/Qdrant outage): their
+    # empty candidate list means "unknown", not "nothing to do" → defer, don't complete.
+    read_failed: set[str] = field(default_factory=set)
+    # Per-cycle watermark (newest processed episodic created_at) when a batch cap cut
+    # the candidate list, so the next run resumes there instead of skipping the rest.
+    watermarks: Dict[str, datetime] = field(default_factory=dict)
 
 
 @dataclass
@@ -220,6 +239,7 @@ class AnchorAction:
     """Flip an episodic point into a bootstrapped semantic *belief* (Cycle E)."""
     memory_id: str
     confidence: float
+    prior_confidence: Optional[float] = None  # the episodic's confidence, restored on undo
 
 
 @dataclass
@@ -264,6 +284,11 @@ class DreamPlan:
     procedural: List[ProceduralCandidate] = field(default_factory=list)
     tier3_suggestions: List[Tier3Suggestion] = field(default_factory=list)
     completed_cycles: set[str] = field(default_factory=set)
+    watermarks: Dict[str, datetime] = field(default_factory=dict)
+    # Partial (provider broke mid-cycle) runs: the newest candidate actually processed.
+    # Recorded as a ``cycle_progress`` row so the retry resumes after it — without it the
+    # retry re-adjudicated already-applied candidates and lowered confidence twice.
+    progress: Dict[str, datetime] = field(default_factory=dict)
     deferred: List[str] = field(default_factory=list)
     tokens: int = 0
     status: str = "ok"  # "ok" | "partial"
@@ -359,6 +384,12 @@ class DreamingEngineTask(HeartbeatTask):
 
         # One user dreams at a time (privacy isolation) even across workers.
         async with self._semaphore:
+            # Re-check now that we hold the slot: a duplicate (task, user) item queued
+            # behind this user's previous run passed the check above before that run
+            # recorded its "ok" row — without this it would dream again immediately.
+            if self.cooldown_seconds > 0 and await self._within_cooldown(ctx):
+                await self._record(ctx, "skipped", 0, {"reason": "cooldown"})
+                return {"status": "skipped", "reason": "cooldown"}
             start = time.monotonic()
             try:
                 snapshot = await self._breaker_for(user_id).call(self.observe, ctx)
@@ -465,8 +496,12 @@ class DreamingEngineTask(HeartbeatTask):
         ):
             due.add("preference")
 
+        read_failed: set[str] = set()
+        watermarks: Dict[str, datetime] = {}
+
         drift_candidates: List[DriftCandidate] = []
         if "drift" in due:
+            drift_mark = await self._cycle_watermark(user_id, "drift", drift_last)
             # Preference episodics are owned by Cycle E (consolidation), which both
             # bootstraps their belief AND adjudicates contradictions — excluding them
             # here keeps the two cycles disjoint (no double confidence-lowering).
@@ -475,12 +510,23 @@ class DreamingEngineTask(HeartbeatTask):
             )
             recent = [
                 e for e in episodics
-                if e.created_at is not None and (drift_last is None or e.created_at > drift_last)
+                if e.created_at is not None and (drift_mark is None or e.created_at > drift_mark)
                 and not (pref_owned and _is_durable_preference(e.text))
             ]
-            recent = recent[: max(0, int(getattr(self._s, "max_drift_checks_per_user", 10)))]
+            recent.sort(key=lambda e: e.created_at)  # oldest first, so a cap resumes cleanly
+            cap = max(0, int(getattr(self._s, "max_drift_checks_per_user", 10)))
+            if len(recent) > cap:
+                recent = recent[:cap]
+                if recent:
+                    watermarks["drift"] = recent[-1].created_at
             for ep in recent:
-                hit = await asyncio.to_thread(self._reader.nearest_semantic, user_id, ep.text)
+                try:
+                    hit = await asyncio.to_thread(self._reader.nearest_semantic, user_id, ep.text)
+                except Exception as exc:  # noqa: BLE001 — unknown ≠ empty; defer the cycle
+                    logger.warning("dreaming_neighbour_read_failed", user_id=user_id, cycle="drift", error=str(exc))
+                    read_failed.add("drift")
+                    drift_candidates = []
+                    break
                 if not hit:
                     continue
                 drift_candidates.append(
@@ -500,16 +546,30 @@ class DreamingEngineTask(HeartbeatTask):
         # any). Retrieval only — the contradiction judgment happens in reason().
         preference_candidates: List[PreferenceCandidate] = []
         if "preference" in due:
+            preference_mark = await self._cycle_watermark(user_id, "preference", preference_last)
             recent_prefs = [
                 e for e in episodics
                 if e.created_at is not None
-                and (preference_last is None or e.created_at > preference_last)
+                and (preference_mark is None or e.created_at > preference_mark)
                 and _is_durable_preference(e.text)
             ]
             recent_prefs.sort(key=lambda e: e.created_at)  # oldest first: first belief wins
             cap = max(0, int(getattr(self._s, "max_preference_checks_per_user", 10)))
-            for ep in recent_prefs[:cap]:
-                hit = await asyncio.to_thread(self._reader.nearest_semantic, user_id, ep.text)
+            if len(recent_prefs) > cap:
+                recent_prefs = recent_prefs[:cap]
+                if recent_prefs:
+                    watermarks["preference"] = recent_prefs[-1].created_at
+            for ep in recent_prefs:
+                try:
+                    hit = await asyncio.to_thread(self._reader.nearest_semantic, user_id, ep.text)
+                except Exception as exc:  # noqa: BLE001 — without the neighbour every
+                    # preference would be bootstrapped as a NEW belief; defer instead.
+                    logger.warning(
+                        "dreaming_neighbour_read_failed", user_id=user_id, cycle="preference", error=str(exc)
+                    )
+                    read_failed.add("preference")
+                    preference_candidates = []
+                    break
                 nearest = (
                     SemanticMemory(
                         memory_id=str(hit.get("memory_id") or ""),
@@ -552,6 +612,8 @@ class DreamingEngineTask(HeartbeatTask):
             existing_sources=existing_sources,
             procedural_observations=procedural_observations,
             preference_candidates=preference_candidates,
+            read_failed=read_failed,
+            watermarks=watermarks,
         )
 
     # --- reason (all LLM, no writes) ----------------------------------------
@@ -575,16 +637,24 @@ class DreamingEngineTask(HeartbeatTask):
         )
         reachable = (await self._health_gate()) if needs_llm else True
 
+        plan.watermarks = dict(snapshot.watermarks)
+        for cycle in sorted(snapshot.read_failed & snapshot.due_cycles):
+            self._defer(plan, cycle, reason=f"{cycle}_read_failed")
+
         # Cycle B — Drift.
-        if "drift" in snapshot.due_cycles and snapshot.drift_candidates:
+        if "drift" in snapshot.read_failed:
+            pass  # deferred above — an empty list here means "couldn't read", not "none"
+        elif "drift" in snapshot.due_cycles and snapshot.drift_candidates:
             if not reachable:
                 self._defer(plan, "drift")
             else:
-                drift_actions, tokens, broke = await self._plan_drift(ctx, snapshot)
+                drift_actions, tokens, broke, last_done = await self._plan_drift(ctx, snapshot)
                 plan.drift = drift_actions
                 plan.tokens += tokens
                 if broke:
                     self._defer(plan, "drift", reason="drift_partial")
+                    if last_done is not None:
+                        plan.progress["drift"] = last_done
                 else:
                     plan.completed_cycles.add("drift")
         elif "drift" in snapshot.due_cycles:
@@ -622,11 +692,13 @@ class DreamingEngineTask(HeartbeatTask):
             plan.completed_cycles.add("procedural")  # due but no behaviour to analyse
 
         # Cycle E — Preference consolidation. Bootstraps beliefs + opens conflicts.
-        if "preference" in snapshot.due_cycles and snapshot.preference_candidates:
+        if "preference" in snapshot.read_failed:
+            pass  # deferred above
+        elif "preference" in snapshot.due_cycles and snapshot.preference_candidates:
             if not reachable:
                 self._defer(plan, "preference")
             else:
-                anchors, conflicts, tokens, broke = await self._plan_preference_consolidation(
+                anchors, conflicts, tokens, broke, last_done = await self._plan_preference_consolidation(
                     ctx, snapshot
                 )
                 plan.anchors = anchors
@@ -634,6 +706,8 @@ class DreamingEngineTask(HeartbeatTask):
                 plan.tokens += tokens
                 if broke:
                     self._defer(plan, "preference", reason="preference_partial")
+                    if last_done is not None:
+                        plan.progress["preference"] = last_done
                 else:
                     plan.completed_cycles.add("preference")
         elif "preference" in snapshot.due_cycles:
@@ -647,6 +721,21 @@ class DreamingEngineTask(HeartbeatTask):
             plan.forget = [f for f in plan.forget if f.memory_id not in spared_ids]
 
         return plan
+
+    async def _cycle_watermark(
+        self, user_id: str, cycle: str, last_run: Optional[datetime]
+    ) -> Optional[datetime]:
+        """Where candidate selection resumes: the watermark a capped run recorded on its
+        marker, else the marker time itself (a full run covered everything before it)."""
+        getter = getattr(self._audit, "last_cycle_watermark", None)
+        if getter is None:
+            return last_run
+        try:
+            mark = await asyncio.to_thread(getter, user_id=user_id, cycle=cycle)
+        except Exception as exc:  # noqa: BLE001 — fall back to the cadence timestamp
+            logger.warning("dreaming_watermark_read_failed", user_id=user_id, cycle=cycle, error=str(exc))
+            return last_run
+        return mark if mark is not None else last_run
 
     @staticmethod
     def _defer(plan: DreamPlan, cycle: str, *, reason: str = "provider_offline") -> None:
@@ -673,10 +762,11 @@ class DreamingEngineTask(HeartbeatTask):
 
     async def _plan_drift(
         self, ctx: TickContext, snapshot: DreamSnapshot
-    ) -> tuple[List[DriftAction], int, bool]:
+    ) -> tuple[List[DriftAction], int, bool, Optional[datetime]]:
         actions: List[DriftAction] = []
         tokens = 0
         broke = False
+        last_done: Optional[datetime] = None
         breaker = self._breaker_for(ctx.user_id)
         floor = float(self._s.drift_confidence_floor)
         decrement = float(self._s.drift_decrement)
@@ -691,6 +781,7 @@ class DreamingEngineTask(HeartbeatTask):
             except Exception:  # noqa: BLE001 — provider failure → defer the rest
                 broke = True
                 break
+            last_done = cand.episodic.created_at
             tokens += int((verdict or {}).get("tokens", 0) or 0)
             # Reject garbage: only act on an explicit True (None/ambiguous → no action).
             if not (verdict and verdict.get("contradicts") is True):
@@ -710,11 +801,11 @@ class DreamingEngineTask(HeartbeatTask):
                     episodic_text=cand.episodic.text,
                 )
             )
-        return actions, tokens, broke
+        return actions, tokens, broke, last_done
 
     async def _plan_preference_consolidation(
         self, ctx: TickContext, snapshot: DreamSnapshot
-    ) -> tuple[List[AnchorAction], List[DriftAction], int, bool]:
+    ) -> tuple[List[AnchorAction], List[DriftAction], int, bool, Optional[datetime]]:
         """Cycle E: bootstrap a semantic *belief* from the first statement on a topic;
         for each later preference, LLM-adjudicate against the nearest belief (persisted
         or just-anchored this run) and open a conflict on contradiction. No embedding
@@ -730,34 +821,45 @@ class DreamingEngineTask(HeartbeatTask):
         # Beliefs available to compare against this run: (text, memory_id, confidence).
         # Seeded lazily from each candidate's persisted nearest; grows with in-run anchors.
         in_run_beliefs: List[tuple[str, str, float]] = []
+        last_done: Optional[datetime] = None
 
         for cand in snapshot.preference_candidates:
             ep = cand.episodic
-            # Prefer a persisted belief; else fall back to the most recent in-run anchor.
+            # Prefer the persisted nearest belief. Without one, compare against every
+            # belief anchored earlier this run (newest first, bounded): the newest
+            # anchor alone is usually a different topic, so a contradiction of an
+            # older one ("vegetarian" … "likes jazz" … "eats steak") would be missed.
             if cand.nearest is not None and cand.nearest.memory_id:
-                belief = (cand.nearest.text, cand.nearest.memory_id, cand.nearest.confidence)
-            elif in_run_beliefs:
-                belief = in_run_beliefs[-1]
+                beliefs = [(cand.nearest.text, cand.nearest.memory_id, cand.nearest.confidence)]
             else:
-                belief = None
+                beliefs = list(reversed(in_run_beliefs))[:_MAX_IN_RUN_BELIEF_CHECKS]
 
-            if belief is None:
+            if not beliefs:
                 # First statement on this topic → bootstrap it as a belief.
-                anchors.append(AnchorAction(memory_id=ep.memory_id, confidence=start_conf))
+                anchors.append(_anchor_action(ep, start_conf))
                 in_run_beliefs.append((ep.text, ep.memory_id, start_conf))
+                last_done = ep.created_at
                 continue
 
-            try:
-                verdict = await breaker.call(self._adjudicator, belief[0], ep.text)
-            except CircuitBreakerOpenError:
-                broke = True
+            belief = None
+            for candidate_belief in beliefs:
+                try:
+                    verdict = await breaker.call(self._adjudicator, candidate_belief[0], ep.text)
+                except CircuitBreakerOpenError:
+                    broke = True
+                    break
+                except Exception:  # noqa: BLE001 — provider failure → defer the rest
+                    broke = True
+                    break
+                tokens += int((verdict or {}).get("tokens", 0) or 0)
+                if verdict and verdict.get("contradicts") is True:
+                    belief = candidate_belief
+                    break
+            if broke:
                 break
-            except Exception:  # noqa: BLE001 — provider failure → defer the rest
-                broke = True
-                break
-            tokens += int((verdict or {}).get("tokens", 0) or 0)
+            last_done = ep.created_at
 
-            if verdict and verdict.get("contradicts") is True:
+            if belief is not None:
                 prior = belief[2]
                 new_conf = max(0.0, prior - decrement)
                 conflicts.append(
@@ -774,10 +876,10 @@ class DreamingEngineTask(HeartbeatTask):
                 # Leave the contradicting statement episodic (do NOT anchor it).
             else:
                 # Distinct/compatible preference on a new topic → its own belief.
-                anchors.append(AnchorAction(memory_id=ep.memory_id, confidence=start_conf))
+                anchors.append(_anchor_action(ep, start_conf))
                 in_run_beliefs.append((ep.text, ep.memory_id, start_conf))
 
-        return anchors, conflicts, tokens, broke
+        return anchors, conflicts, tokens, broke, last_done
 
     async def _plan_promotions(
         self, ctx: TickContext, snapshot: DreamSnapshot
@@ -924,7 +1026,9 @@ class DreamingEngineTask(HeartbeatTask):
         # Cycle E — Preference anchoring. Flip the episodic to a semantic belief BEFORE
         # the drift loop, so any same-tick conflict referencing this belief's id is valid.
         for a in plan.anchors:
-            before = {"cognitive_tier": "episodic"}
+            before: Dict[str, Any] = {"cognitive_tier": "episodic"}
+            if a.prior_confidence is not None:
+                before["confidence"] = a.prior_confidence
             await asyncio.to_thread(
                 self._reader.promote_to_semantic, user_id, a.memory_id, a.confidence
             )
@@ -1040,7 +1144,23 @@ class DreamingEngineTask(HeartbeatTask):
 
         # Advance last_cycle_run ONLY for fully-completed cycles (a marker row).
         # A partial run skips its cycle here, so due-ness keeps it for next beat.
+        # A partial cycle doesn't advance its cadence (it stays due, so the next beat
+        # retries), but records how far it got so the retry skips what was applied.
+        for cycle, done_until in sorted(plan.progress.items()):
+            if cycle in plan.completed_cycles:
+                continue
+            await asyncio.to_thread(
+                self._audit.record,
+                user_id=user_id,
+                cycle=cycle,
+                action="cycle_progress",
+                target_kind="cycle",
+                target_id=cycle,
+                after_state={"watermark": done_until.isoformat()},
+            )
+
         for cycle in sorted(plan.completed_cycles):
+            mark = plan.watermarks.get(cycle)
             await asyncio.to_thread(
                 self._audit.record,
                 user_id=user_id,
@@ -1048,6 +1168,7 @@ class DreamingEngineTask(HeartbeatTask):
                 action="cycle_run",
                 target_kind="cycle",
                 target_id=cycle,
+                after_state={"watermark": mark.isoformat()} if mark else None,
             )
 
 
@@ -1064,7 +1185,9 @@ class Mem0DreamReader:
         return self._b.get_all_for_dreaming(user_id, limit=2000)
 
     def nearest_semantic(self, user_id: str, text: str) -> Optional[Dict[str, Any]]:
-        hits = self._b.find_nearest_semantic(user_id, text, top_k=1)
+        # raise_on_error: an outage must surface (the engine defers the cycle) rather
+        # than look like "no semantic neighbour" (which would bootstrap new beliefs).
+        hits = self._b.find_nearest_semantic(user_id, text, top_k=1, raise_on_error=True)
         return hits[0] if hits else None
 
     def delete_memory(self, user_id: str, memory_id: str) -> None:
@@ -1122,7 +1245,10 @@ def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Await
             )
             resp.raise_for_status()
             data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        # Strip <think> first: extract_json_object takes the FIRST object, and a
+        # reasoning model often echoes the prompt's {"contradicts": true} example
+        # while thinking — a false contradiction lowers confidence + opens a conflict.
+        content = _strip_reasoning(str(data["choices"][0]["message"]["content"] or ""))
         tokens = int((data.get("usage") or {}).get("total_tokens", 0) or 0)
         parsed = extract_json_object(content)
         contradicts: Optional[bool] = None
@@ -1212,7 +1338,7 @@ def build_auxiliary_procedural_proposer(
             )
             resp.raise_for_status()
             data = resp.json()
-        content = str(data["choices"][0]["message"]["content"] or "")
+        content = _strip_reasoning(str(data["choices"][0]["message"]["content"] or ""))
         tokens = int((data.get("usage") or {}).get("total_tokens", 0) or 0)
         parsed = extract_json_object(content) or {}
         rules = parsed.get("rules") if isinstance(parsed.get("rules"), list) else []

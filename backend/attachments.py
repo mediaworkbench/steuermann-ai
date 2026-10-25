@@ -157,7 +157,7 @@ class ChatAttachmentManager:
         path = Path(stored_path).resolve()
         root = self.ensure_root().resolve()
 
-        if not str(path).startswith(str(root)):
+        if not path.is_relative_to(root):
             raise AttachmentValidationError("Stored path escapes attachments root.")
 
         if path.exists():
@@ -211,14 +211,17 @@ class ChatWorkspaceManager:
         workspace_dir.mkdir(parents=True, exist_ok=True)
         return workspace_dir
 
-    def resolve_workspace_path(self, conversation_id: str, relative_path: str) -> Path:
-        if not relative_path or relative_path.strip() == "":
-            raise WorkspaceValidationError("relative_path is required")
-        workspace_dir = self.get_workspace_dir(conversation_id).resolve()
-        candidate = (workspace_dir / relative_path).resolve()
-        if not str(candidate).startswith(str(workspace_dir)):
-            raise WorkspaceValidationError("Workspace path escapes conversation workspace root.")
-        return candidate
+    def remove_conversation_dir(self, conversation_id: str) -> int:
+        """Delete a conversation's on-disk directory (its ``workspace/`` copies).
+        Returns bytes freed; a missing directory is a no-op."""
+        safe_conversation_id = self._validate_identifier(conversation_id, name="conversation_id")
+        root = self.config.root_dir.resolve()
+        conv_dir = (root / safe_conversation_id).resolve()
+        if conv_dir == root or not conv_dir.is_relative_to(root) or not conv_dir.exists():
+            return 0
+        freed = sum(f.stat().st_size for f in conv_dir.rglob("*") if f.is_file())
+        shutil.rmtree(conv_dir, ignore_errors=True)
+        return freed
 
     def materialize_attachment_copy(
         self,
@@ -281,7 +284,7 @@ class ChatWorkspaceManager:
             raise WorkspaceValidationError("conversation_id or root_path is required")
 
         root = self.ensure_root().resolve()
-        if not str(workspace_dir).startswith(str(root)):
+        if not workspace_dir.is_relative_to(root):
             raise WorkspaceValidationError("Workspace root escapes configured workspace base directory.")
 
         if not workspace_dir.exists():
@@ -373,30 +376,6 @@ class UserWorkspaceFileManager:
         safe_suffix = _SAFE_NAME_RE.sub("", suffix)
         return f"{stem}{safe_suffix}"
 
-    def resolve_user_file_path(self, user_id: str, relative_path: str) -> Path:
-        """Resolve a file path within user workspace with confinement check.
-        
-        Args:
-            user_id: User identifier
-            relative_path: Path relative to user workspace root
-        
-        Returns:
-            Resolved Path object
-        
-        Raises:
-            WorkspaceValidationError: If relative_path escapes workspace or is invalid
-        """
-        if not relative_path or relative_path.strip() == "":
-            raise WorkspaceValidationError("relative_path is required")
-        
-        workspace_root = self.get_user_workspace_root(user_id).resolve()
-        candidate = (workspace_root / relative_path).resolve()
-        
-        if not str(candidate).startswith(str(workspace_root)):
-            raise WorkspaceValidationError("File path escapes user workspace root.")
-        
-        return candidate
-
     def store_document_file(
         self,
         user_id: str,
@@ -473,7 +452,7 @@ class UserWorkspaceFileManager:
         file_path = Path(stored_path).resolve()
         
         # Verify path confinement
-        if not str(file_path).startswith(str(workspace_root)):
+        if not file_path.is_relative_to(workspace_root):
             raise WorkspaceValidationError("File path escapes user workspace root.")
         
         if not file_path.exists() or not file_path.is_file():
@@ -514,7 +493,7 @@ class UserWorkspaceFileManager:
         file_path = Path(stored_path).resolve()
         
         # Verify path confinement
-        if not str(file_path).startswith(str(workspace_root)):
+        if not file_path.is_relative_to(workspace_root):
             raise WorkspaceValidationError("File path escapes user workspace root.")
 
         # Recreate missing files in-place when DB metadata survived a container rebuild
@@ -561,43 +540,13 @@ class UserWorkspaceFileManager:
         file_path = Path(stored_path).resolve()
         
         # Verify path confinement
-        if not str(file_path).startswith(str(workspace_root)):
+        if not file_path.is_relative_to(workspace_root):
             raise WorkspaceValidationError("File path escapes user workspace root.")
         
         if file_path.exists():
             file_path.unlink()
             return True
         return False
-
-    def list_user_documents(self, user_id: str) -> list[dict[str, Any]]:
-        """List all files in user workspace.
-        
-        Args:
-            user_id: User identifier
-        
-        Returns:
-            List of document metadata dicts with:
-                - relative_path: Path relative to workspace root
-                - name: Filename only
-                - size_bytes: File size
-                - modified_at: ISO datetime of last modification
-        """
-        workspace_root = self.get_user_workspace_root(user_id)
-        files: list[dict[str, Any]] = []
-        
-        for path in sorted(workspace_root.rglob("*")):
-            if not path.is_file():
-                continue
-            
-            stat = path.stat()
-            files.append({
-                "relative_path": str(path.relative_to(workspace_root)),
-                "name": path.name,
-                "size_bytes": stat.st_size,
-                "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            })
-        
-        return files
 
     def _next_available_path(self, desired_path: Path) -> Path:
         """Find next available filename if desired path exists.

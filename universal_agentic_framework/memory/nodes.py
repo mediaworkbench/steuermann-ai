@@ -49,6 +49,7 @@ from . import MemoryBackend
 from .factory import build_memory_backend
 from universal_agentic_framework.config import load_core_config, load_features_config
 from universal_agentic_framework.monitoring import metrics
+from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
 
 logger = structlog.get_logger(__name__)
 
@@ -224,7 +225,7 @@ def load_memory_node(
 
     user_id = state.get("user_id")
     messages = state.get("messages", [])
-    query = messages[-1]["content"] if messages else None
+    query = latest_user_message(messages) or None
     session_id = state.get("session_id", user_id)  # Fallback to user_id for session tracking
     profile_name = state.get("profile_name", "default")
 
