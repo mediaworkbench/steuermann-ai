@@ -29,7 +29,7 @@ def _make_mock_mcp_context(call_tool_return):
 
     @asynccontextmanager
     async def _mock_http_client(url):
-        yield (AsyncMock(), AsyncMock(), AsyncMock())
+        yield (AsyncMock(), AsyncMock())
 
     return _mock_http_client, _mock_session_ctx, mock_session
 
@@ -40,7 +40,7 @@ def _make_call_tool_result(text: str, is_error: bool = False):
     content_block.text = text
     result = MagicMock()
     result.content = [content_block]
-    result.isError = is_error
+    result.is_error = is_error
     return result
 
 
@@ -77,7 +77,7 @@ class TestWebSearchMCPIntegration:
         assert "/mcp" in tool.server_url
 
     @patch("mcp.ClientSession")
-    @patch("mcp.client.streamable_http.streamablehttp_client")
+    @patch("mcp.client.streamable_http.streamable_http_client")
     def test_web_search_mcp_invocation(self, mock_http_client, mock_session_cls):
         """web_search_mcp should invoke MCP call_tool with correct arguments."""
         call_result = _make_call_tool_result(
@@ -101,7 +101,7 @@ class TestWebSearchMCPIntegration:
         assert call_args[1]["arguments"]["query"] == "test query"
 
     @patch("mcp.ClientSession")
-    @patch("mcp.client.streamable_http.streamablehttp_client")
+    @patch("mcp.client.streamable_http.streamable_http_client")
     def test_web_search_mcp_handles_error(self, mock_http_client, mock_session_cls):
         """web_search_mcp should handle MCP tool errors gracefully."""
         call_result = _make_call_tool_result("Rate limit exceeded", is_error=True)
@@ -120,7 +120,7 @@ class TestWebSearchMCPIntegration:
         assert "error" in result.lower()
 
     @patch("mcp.ClientSession")
-    @patch("mcp.client.streamable_http.streamablehttp_client")
+    @patch("mcp.client.streamable_http.streamable_http_client")
     def test_web_search_mcp_connection_failure(self, mock_http_client, mock_session_cls):
         """web_search_mcp should handle connection failures gracefully."""
         @asynccontextmanager

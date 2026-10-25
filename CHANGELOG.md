@@ -2,6 +2,7 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- chore: upgraded the MCP client (mcp 2); web search and page fetching keep working with existing MCP servers.
 - chore: upgraded the Redis client (redis-py 8) and the image library (Pillow 13).
 - security: upgraded the map library (MapLibre 6) and math rendering (KaTeX 0.19), clearing all known frontend dependency vulnerabilities.
 - fix: the dashed distance line on maps is drawn again — theme colors are now converted to a format the map library understands.

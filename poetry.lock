@@ -1400,18 +1400,6 @@ socks = ["socksio (==1.*)"]
 zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
-name = "httpx-sse"
-version = "0.4.3"
-description = "Consume Server-Sent Event (SSE) messages with HTTPX."
-optional = false
-python-versions = ">=3.9"
-groups = ["langgraph"]
-files = [
-    {file = "httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc"},
-    {file = "httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d"},
-]
-
-[[package]]
 name = "httpx2"
 version = "2.16.0"
 description = "The next generation HTTP client."
@@ -2498,38 +2486,53 @@ files = [
 
 [[package]]
 name = "mcp"
-version = "1.30.0"
+version = "2.3.0"
 description = "Model Context Protocol SDK"
 optional = false
 python-versions = ">=3.10"
 groups = ["langgraph"]
 files = [
-    {file = "mcp-1.30.0-py3-none-any.whl", hash = "sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0"},
-    {file = "mcp-1.30.0.tar.gz", hash = "sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4"},
+    {file = "mcp-2.3.0-py3-none-any.whl", hash = "sha256:dd0c44c089d16453e8ae31a3877a0054d7a2314caaa81f5e0541b9b1734b2377"},
+    {file = "mcp-2.3.0.tar.gz", hash = "sha256:8b147a50441cf059dc88c684e0aeed3687f0aa0f39c6cde7b90330effd2b34d8"},
 ]
 
 [package.dependencies]
-anyio = ">=4.5"
-httpx = ">=0.27.1,<1.0.0"
-httpx-sse = ">=0.4"
+anyio = {version = ">=4.9", markers = "python_version < \"3.14\""}
+httpx2 = ">=2.10.0"
 jsonschema = ">=4.20.0"
-pydantic = {version = ">=2.11.0,<3.0.0", markers = "python_version < \"3.14\""}
-pydantic-settings = ">=2.5.2"
+mcp-types = "2.3.0"
+opentelemetry-api = ">=1.28.0"
+pydantic = ">=2.12.0"
 pyjwt = {version = ">=2.10.1", extras = ["crypto"]}
 python-dotenv = {version = ">=1.0.0", optional = true, markers = "extra == \"cli\""}
 python-multipart = ">=0.0.9"
-pywin32 = {version = ">=310", markers = "sys_platform == \"win32\" and python_version < \"3.14\""}
-sse-starlette = ">=1.6.1"
+pywin32 = {version = ">=311", markers = "sys_platform == \"win32\""}
+sse-starlette = ">=3.0.0"
 starlette = {version = ">=0.27", markers = "python_version < \"3.14\""}
 typer = {version = ">=0.16.0", optional = true, markers = "extra == \"cli\""}
-typing-extensions = ">=4.9.0"
+typing-extensions = ">=4.13.0"
 typing-inspection = ">=0.4.1"
 uvicorn = {version = ">=0.31.1", markers = "sys_platform != \"emscripten\""}
 
 [package.extras]
 cli = ["python-dotenv (>=1.0.0)", "typer (>=0.16.0)"]
 rich = ["rich (>=13.9.4)"]
-ws = ["websockets (>=15.0.1)"]
+
+[[package]]
+name = "mcp-types"
+version = "2.3.0"
+description = "Model Context Protocol wire types"
+optional = false
+python-versions = ">=3.10"
+groups = ["langgraph"]
+files = [
+    {file = "mcp_types-2.3.0-py3-none-any.whl", hash = "sha256:968efdbdaedfab06adae40d378a34395f1090c5921d4be3c9cde283aaf76d91d"},
+    {file = "mcp_types-2.3.0.tar.gz", hash = "sha256:d1e46549edb35ee19a94940fcee6d1addd7e589ab7ea92dda83f5d84781fc362"},
+]
+
+[package.dependencies]
+pydantic = ">=2.12.0"
+typing-extensions = ">=4.13.0"
 
 [[package]]
 name = "mdurl"
@@ -4040,7 +4043,7 @@ files = [
     {file = "pywin32-312-cp39-cp39-win_amd64.whl", hash = "sha256:dc90147579a905b8635e1b0ec6514967dcb07e6e0d9c42f1477feef14cac23bb"},
     {file = "pywin32-312-cp39-cp39-win_arm64.whl", hash = "sha256:02ebca0f0242b75292e218065004310d6a477407c09fa449bfe4f6022bc0c0fc"},
 ]
-markers = {main = "platform_system == \"Windows\"", ingestion = "platform_system == \"Windows\"", langgraph = "sys_platform == \"win32\" or platform_system == \"Windows\""}
+markers = {main = "platform_system == \"Windows\"", ingestion = "platform_system == \"Windows\"", langgraph = "platform_system == \"Windows\" or sys_platform == \"win32\""}
 
 [[package]]
 name = "pyyaml"
@@ -6047,4 +6050,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "14a525cc80e2d5e0f8ec9622c3ed5f1bd7f09a270c187508352a712a92a7c6ee"
+content-hash = "9cb8a6dabc04d75aced8300265aef6a5c68beddca4ccb000a70fd4ef66908348"
