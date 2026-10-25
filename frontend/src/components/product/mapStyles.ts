@@ -37,16 +37,32 @@ const MAP_FALLBACK_VAR_KEYS = {
   accent: "--chart-violet",
 } as const;
 
+// MapLibre's style parser only understands hex / rgb() / hsl() / named colors, but the
+// theme tokens are authored in lab()/oklch(). Anything else is painted onto a 1×1 canvas
+// so the browser converts it to sRGB; a value the canvas rejects keeps the fallback.
+const MAPLIBRE_PARSEABLE_COLOR = /^(#|rgba?\(|hsla?\()/i;
+
+export function toMapLibreColor(value: string, fallback: string): string {
+  if (MAPLIBRE_PARSEABLE_COLOR.test(value)) return value;
+  if (typeof document === "undefined") return fallback;
+  const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  if (!ctx) return fallback;
+  ctx.fillStyle = fallback;
+  ctx.fillStyle = value;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgba(${r}, ${g}, ${b}, ${Number((a / 255).toFixed(3))})`;
+}
+
 function readCssColor(
   style: CSSStyleDeclaration,
   varName: string,
   fallbackVarName: string,
   fallback: string,
 ): string {
-  const value = style.getPropertyValue(varName).trim();
-  if (value) return value;
-  const fallbackValue = style.getPropertyValue(fallbackVarName).trim();
-  return fallbackValue || fallback;
+  const value =
+    style.getPropertyValue(varName).trim() || style.getPropertyValue(fallbackVarName).trim();
+  return value ? toMapLibreColor(value, fallback) : fallback;
 }
 
 export interface MapThemeColors {

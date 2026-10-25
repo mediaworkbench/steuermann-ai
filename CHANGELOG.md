@@ -2,6 +2,8 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- security: upgraded the map library (MapLibre 6) and math rendering (KaTeX 0.19), clearing all known frontend dependency vulnerabilities.
+- fix: the dashed distance line on maps is drawn again — theme colors are now converted to a format the map library understands.
 - chore: upgraded the infrastructure to PostgreSQL 18, Redis 8.10 and Qdrant 1.20, the services to Python 3.13 and Node 24 LTS, and FastAPI to 0.162 / uvicorn 0.54. Existing deployments need a one-time Postgres dump/restore (see the deployment guide).
 - chore: updated dependencies within their current major versions (LangGraph, LangChain, LiteLLM, Mem0, Pydantic, Next.js, React, Tailwind) and refreshed the Python, Node and Prometheus images.
 - fix: large attachments and workspace documents are no longer cut to their first ~2,400 characters — the budget now scales with the model's context window, and oversized files keep their beginning and end (so the newest entries of logs and exports stay visible), clearly marked as an excerpt.
