@@ -87,7 +87,7 @@ export function ProviderHealthProvider({ children }: { children: React.ReactNode
         if (token !== pollTokenRef.current) return;
         const next = await runCheck();
         if (token !== pollTokenRef.current) return;
-        schedule(next === "online" ? POLL_ONLINE_MS : POLL_OFFLINE_MS);
+        scheduleRef.current(next === "online" ? POLL_ONLINE_MS : POLL_OFFLINE_MS);
       }, delayMs);
     },
     [runCheck],

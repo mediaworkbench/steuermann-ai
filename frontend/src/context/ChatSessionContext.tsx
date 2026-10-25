@@ -6,6 +6,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
 } from "react";
 import { useConversationContext } from "@/components/LayoutShell";
@@ -139,16 +140,20 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
   // Live activeId, so the deferred queue auto-fire can bail if the user
   // switched conversations during the setTimeout(0) window.
   const activeIdRef = useRef<string | null>(activeId);
-  activeIdRef.current = activeId;
   // Latest active-conversation title, read inside the post-response poll (a
   // useCallback that must not depend on activeConversation). Lets the poll detect
   // a backend-regenerated title and reconcile the sidebar without a stale capture.
   const activeConvTitleRef = useRef<string | undefined>(activeConversation?.title);
-  activeConvTitleRef.current = activeConversation?.title;
   // Latest isStreaming, read inside the activeId-only load effect (which must
   // not take isStreaming as a dependency).
   const isStreamingRef = useRef(false);
-  isStreamingRef.current = isStreaming;
+  // Sync the latest-value refs after every commit (not during render). Layout
+  // effects run before any passive effect, so every reader sees fresh values.
+  useLayoutEffect(() => {
+    activeIdRef.current = activeId;
+    activeConvTitleRef.current = activeConversation?.title;
+    isStreamingRef.current = isStreaming;
+  });
   // Snapshot of the streaming conversation's optimistic messages, restored when
   // the user navigates back to it mid-stream (messages state is single-slot).
   const streamMsgsRef = useRef<Message[]>([]);
@@ -550,7 +555,9 @@ export function ChatSessionProvider({ children }: { children: React.ReactNode })
 
   // Keep the ref pointing at the latest sendMessage for the commit effect's
   // deferred queue auto-fire.
-  sendMessageRef.current = sendMessage;
+  useLayoutEffect(() => {
+    sendMessageRef.current = sendMessage;
+  });
 
   // Gate stream-derived values to the active conversation so a background stream
   // (running for a conversation the user navigated away from) can't bleed its

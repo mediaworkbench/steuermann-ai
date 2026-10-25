@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { uploadConversationAttachment } from "@/lib/api";
 import { useI18n } from "@/hooks/useI18n";
@@ -52,7 +52,9 @@ export function useDocumentEditor({
   const isDirty = editorDocId != null && editorContent !== savedContent;
   // Ref mirror so effects (writeback reload) can read dirtiness without re-subscribing.
   const isDirtyRef = useRef(isDirty);
-  isDirtyRef.current = isDirty;
+  useLayoutEffect(() => {
+    isDirtyRef.current = isDirty;
+  });
   // Forward ref to flushSave (assigned after it is defined) so `closeEditor` can
   // auto-flush without a circular useCallback dependency.
   const flushSaveRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -194,7 +196,9 @@ export function useDocumentEditor({
     }
   }, [editorDocId, editorContent, editorDocVersion, getDocumentName, onDocumentsRefresh, onAfterSave, openEditor, setProcessingAction, t]);
 
-  flushSaveRef.current = flushSave;
+  useLayoutEffect(() => {
+    flushSaveRef.current = flushSave;
+  });
 
   const saveEditor = useCallback(() => {
     void flushSave();

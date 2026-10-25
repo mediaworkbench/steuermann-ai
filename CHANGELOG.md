@@ -2,6 +2,7 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- chore: updated dependencies within their current major versions (LangGraph, LangChain, LiteLLM, Mem0, Pydantic, Next.js, React, Tailwind) and refreshed the Python, Node and Prometheus images.
 - fix: large attachments and workspace documents are no longer cut to their first ~2,400 characters — the budget now scales with the model's context window, and oversized files keep their beginning and end (so the newest entries of logs and exports stay visible), clearly marked as an excerpt.
 - fix: document size is now estimated per content type, so number-heavy JSON and CSV files no longer overflow the model's context; file content is also sent once instead of twice.
 - improvement: the spreadsheet tool now also computes over JSON data files (lists of records), so totals and counts work over the whole file even when only an excerpt fits the prompt.

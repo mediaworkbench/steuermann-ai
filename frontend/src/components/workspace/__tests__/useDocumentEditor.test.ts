@@ -8,7 +8,7 @@ jest.mock("sonner", () => ({ toast: { error: jest.fn(), success: jest.fn(), warn
 jest.mock("@/hooks/useI18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));
-const mockMimeTypeForFilename = jest.fn(() => "text/plain");
+const mockMimeTypeForFilename = jest.fn<string, [string]>(() => "text/plain");
 
 jest.mock("@/components/workspace/utils", () => ({
   workspaceAuthHeaders: (extra?: Record<string, string>) => ({ ...(extra ?? {}) }),
@@ -208,7 +208,7 @@ describe("useDocumentEditor", () => {
       });
 
       const capturedFormData: FormData[] = [];
-      const fetchMock = jest.fn().mockImplementation((url: string, opts: RequestInit) => {
+      const fetchMock = jest.fn().mockImplementation((_url: string, opts: RequestInit) => {
         if (opts.method === "PUT") {
           capturedFormData.push(opts.body as FormData);
           return Promise.resolve({
@@ -250,7 +250,7 @@ describe("useDocumentEditor", () => {
 
       // The next save attempt should send expected_version=2
       const capturedFormData: FormData[] = [];
-      global.fetch = jest.fn().mockImplementation((url: string, opts: RequestInit) => {
+      global.fetch = jest.fn().mockImplementation((_url: string, opts: RequestInit) => {
         if (opts.method === "PUT") capturedFormData.push(opts.body as FormData);
         return Promise.resolve({
           ok: true,
