@@ -2,6 +2,7 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- chore: upgraded the frontend's charts (Recharts 3), tables (TanStack Table 9), icons (Lucide 1) and accessibility test tooling; decorative icons are now hidden from screen readers.
 - security: the web search server (DuckDuckGo MCP 0.7) no longer fetches internal or private addresses, so a model-chosen URL can't reach the app's own services; search results keep full URLs.
 - chore: upgraded the MCP client (mcp 2); web search and page fetching keep working with existing MCP servers.
 - chore: upgraded the Redis client (redis-py 8) and the image library (Pillow 13).

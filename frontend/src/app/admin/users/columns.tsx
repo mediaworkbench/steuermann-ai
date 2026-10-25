@@ -1,6 +1,7 @@
 "use client"
 
 import type { ColumnDef } from "@tanstack/react-table"
+import type { DataTableFeatures } from "@/components/ui/data-table"
 import { KeyRound, Loader2, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -23,7 +24,7 @@ export function createColumns(
     onUpdate: (user: AdminUser, body: { role?: string; status?: string; reset_password?: boolean }, successMsg: string) => void
     onDelete: (user: AdminUser) => void
   }
-): ColumnDef<AdminUser>[] {
+): ColumnDef<DataTableFeatures, AdminUser>[] {
   const { selfId, roles, statuses, busyId, onUpdate, onDelete } = deps
 
   return [

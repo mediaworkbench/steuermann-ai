@@ -5,7 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { Check, Copy, FileText } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { SortableHeader } from "@/components/ui/data-table"
+import { SortableHeader, type DataTableFeatures } from "@/components/ui/data-table"
 import type { RagSearchHit } from "@/lib/api"
 
 function escapeRegExp(s: string): string {
@@ -92,7 +92,7 @@ function CopyCell({ text }: { text: string }) {
   )
 }
 
-export function createColumns(query: string): ColumnDef<RagSearchHit>[] {
+export function createColumns(query: string): ColumnDef<DataTableFeatures, RagSearchHit>[] {
   return [
     {
       id: "score",
@@ -102,7 +102,7 @@ export function createColumns(query: string): ColumnDef<RagSearchHit>[] {
           title="Score"
           canSort={column.getCanSort()}
           isSorted={column.getIsSorted()}
-          toggleSorting={column.toggleSorting}
+          toggleSorting={(desc) => column.toggleSorting(desc)}
         />
       ),
       cell: ({ row }) => {
@@ -127,7 +127,7 @@ export function createColumns(query: string): ColumnDef<RagSearchHit>[] {
           title="File"
           canSort={column.getCanSort()}
           isSorted={column.getIsSorted()}
-          toggleSorting={column.toggleSorting}
+          toggleSorting={(desc) => column.toggleSorting(desc)}
         />
       ),
       cell: ({ row }) => {
