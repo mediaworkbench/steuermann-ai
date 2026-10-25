@@ -2,6 +2,7 @@
 
 ## [0.5.0] — security fixes and bugs
 
+- chore: upgraded the Redis client (redis-py 8) and the image library (Pillow 13).
 - security: upgraded the map library (MapLibre 6) and math rendering (KaTeX 0.19), clearing all known frontend dependency vulnerabilities.
 - fix: the dashed distance line on maps is drawn again — theme colors are now converted to a format the map library understands.
 - chore: upgraded the infrastructure to PostgreSQL 18, Redis 8.10 and Qdrant 1.20, the services to Python 3.13 and Node 24 LTS, and FastAPI to 0.162 / uvicorn 0.54. Existing deployments need a one-time Postgres dump/restore (see the deployment guide).
