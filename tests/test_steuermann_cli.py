@@ -1076,19 +1076,19 @@ llm:
     chat:
       provider_id: lmstudio
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: openai/google/gemma-4-e4b
+      model: google/gemma-4-e4b
     vision:
       provider_id: lmstudio
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: openai/google/gemma-4-e4b
+      model: google/gemma-4-e4b
     auxiliary:
       provider_id: lmstudio
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: openai/google/gemma-4-e2b
+      model: google/gemma-4-e2b
     embedding:
       provider_id: lmstudio
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: openai/text-embedding-granite-embedding-278m-multilingual
+      model: text-embedding-granite-embedding-278m-multilingual
 memory:
   embeddings:
     dimension: 768
@@ -1369,7 +1369,7 @@ def test_write_profile_llm_config_openrouter_and_lmstudio(
             "chat": {**role, "model": chat_model},
             "vision": {**role, "model": chat_model},
             "auxiliary": {**role, "model": chat_model},
-            "embedding": {"endpoint": "http://emb", "model": "openai/my-embed", "dimension": 1024},
+            "embedding": {"endpoint": "http://emb", "model": "my-embed", "dimension": 1024},
         }
 
     written = setup_init.write_profile_llm_config(
@@ -1378,7 +1378,7 @@ def test_write_profile_llm_config_openrouter_and_lmstudio(
             "openrouter",
             "$LLM_PROVIDERS_OPENROUTER_API_BASE",
             "$LLM_PROVIDERS_OPENROUTER_API_KEY",
-            "openai/anthropic/claude-3.5-sonnet",
+            "anthropic/claude-3.5-sonnet",
         ),
     )
     assert written is not None
@@ -1387,10 +1387,10 @@ def test_write_profile_llm_config_openrouter_and_lmstudio(
     assert chat["provider_id"] == "openrouter"
     assert chat["api_base"] == "$LLM_PROVIDERS_OPENROUTER_API_BASE"
     assert chat["api_key"] == "$LLM_PROVIDERS_OPENROUTER_API_KEY"
-    assert chat["model"] == "openai/anthropic/claude-3.5-sonnet"
+    assert chat["model"] == "anthropic/claude-3.5-sonnet"
     assert data["memory"]["mem0"]["llm_provider"] == "openrouter"
     assert data["llm"]["roles"]["embedding"]["api_base"] == "$EMBEDDING_SERVER"
-    assert data["llm"]["roles"]["embedding"]["model"] == "openai/my-embed"
+    assert data["llm"]["roles"]["embedding"]["model"] == "my-embed"
     assert data["memory"]["embeddings"]["dimension"] == 1024
     assert not (profile_dir / "core.yaml.bak").exists()
 
@@ -1398,7 +1398,7 @@ def test_write_profile_llm_config_openrouter_and_lmstudio(
     setup_init.write_profile_llm_config(
         "local",
         _role_cfg(
-            "lmstudio", "$LLM_PROVIDERS_LMSTUDIO_API_BASE", "$OPENAI_API_KEY", "openai/google/gemma-4-e4b"
+            "lmstudio", "$LLM_PROVIDERS_LMSTUDIO_API_BASE", "$OPENAI_API_KEY", "google/gemma-4-e4b"
         ),
     )
     data2 = yaml.safe_load((profile_dir / "core.yaml").read_text(encoding="utf-8"))
@@ -1440,7 +1440,7 @@ def test_setup_init_scaffold_on_customize(
     # provider, endpoint, key, chat(change), vision, aux, emb endpoint, emb model, emb dim, scaffold id
     _queue_inputs(
         monkeypatch,
-        ["", "", "", "openai/acme/custom-chat", "", "", "", "", "", "local"],
+        ["", "", "", "acme/custom-chat", "", "", "", "", "", "local"],
     )
 
     code = steuermann.main(["setup", "init", "--force", "--format", "json"])
@@ -1452,7 +1452,7 @@ def test_setup_init_scaffold_on_customize(
     local_core = yaml.safe_load(
         (tmp_path / "config" / "profiles" / "local" / "core.yaml").read_text(encoding="utf-8")
     )
-    assert local_core["llm"]["roles"]["chat"]["model"] == "openai/acme/custom-chat"
+    assert local_core["llm"]["roles"]["chat"]["model"] == "acme/custom-chat"
     env = _parse_env((tmp_path / ".env").read_text(encoding="utf-8"))
     assert env["PROFILE_ID"] == "local"
     # starter stays byte-for-byte pristine
@@ -1503,17 +1503,6 @@ def test_read_env_file_values_inline_comments(tmp_path: Path) -> None:
     assert result["SINGLE_QUOTED"] == "$argon2id$v=19$abc"
     assert result["UNQUOTED"] == "lm-studio"
     assert result["HASH_IN_VALUE"] == "pass#word"
-
-
-# 17. ensure_openai_prefix adds the transport prefix only when absent, and never
-#     misreads a HuggingFace-style ``google/…`` model name as a provider prefix.
-def test_ensure_openai_prefix() -> None:
-    assert setup_init.ensure_openai_prefix("gemma4:e2b") == "openai/gemma4:e2b"
-    assert setup_init.ensure_openai_prefix("google/gemma-4-e2b") == "openai/google/gemma-4-e2b"
-    assert setup_init.ensure_openai_prefix("openai/gemma4:e2b") == "openai/gemma4:e2b"
-    assert setup_init.ensure_openai_prefix("ollama/x") == "ollama/x"
-    assert setup_init.ensure_openai_prefix("  gemma4:e2b  ") == "openai/gemma4:e2b"
-    assert setup_init.ensure_openai_prefix("") == ""
 
 
 # 18. fetch_provider_models parses OpenAI-style {"data":[{"id":...}]}, de-dupes +

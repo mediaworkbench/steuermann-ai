@@ -15,8 +15,8 @@ def mock_core_config_with_roles():
     # Setup providers
     lmstudio_provider = MagicMock()
     lmstudio_provider.models = SimpleNamespace(
-        en="openai/liquid/lfm2-24b-a2b",
-        de="openai/liquid/lfm2-24b-a2b"
+        en="liquid/lfm2-24b-a2b",
+        de="liquid/lfm2-24b-a2b"
     )
     lmstudio_provider.get_tool_calling_mode = MagicMock(return_value="structured")
     
@@ -30,14 +30,14 @@ def mock_core_config_with_roles():
     config.llm.get_role_provider_chain_with_models = MagicMock(
         side_effect=lambda role_name, _lang: {
             "chat": [
-                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+                ("lmstudio", lmstudio_provider, "liquid/lfm2-24b-a2b"),
                 ("ollama", ollama_provider, "ollama/llama-3.1-8b"),
             ],
             "vision": [
-                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+                ("lmstudio", lmstudio_provider, "liquid/lfm2-24b-a2b"),
             ],
             "auxiliary": [
-                ("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b"),
+                ("lmstudio", lmstudio_provider, "liquid/lfm2-24b-a2b"),
             ],
         }.get(role_name, [])
     )
@@ -64,7 +64,7 @@ def test_probe_runner_covers_all_roles_except_embedding(mock_core_config_with_ro
     assert len(targets) == 2
     
     provider_model_pairs = {(t.provider_id, t.model_name) for t in targets}
-    assert ("lmstudio", "openai/liquid/lfm2-24b-a2b") in provider_model_pairs
+    assert ("lmstudio", "liquid/lfm2-24b-a2b") in provider_model_pairs
     assert ("ollama", "ollama/llama-3.1-8b") in provider_model_pairs
 
 
@@ -84,7 +84,7 @@ def test_probe_runner_skips_embedding_role(mock_core_config_with_roles):
     assert len(targets) == 2
     
     provider_model_pairs = {(t.provider_id, t.model_name) for t in targets}
-    assert ("lmstudio", "openai/liquid/lfm2-24b-a2b") in provider_model_pairs
+    assert ("lmstudio", "liquid/lfm2-24b-a2b") in provider_model_pairs
     assert ("ollama", "ollama/llama-3.1-8b") in provider_model_pairs
 
 
@@ -114,16 +114,16 @@ def test_probe_runner_handles_multi_language_models():
     # Provider with different models per language
     lmstudio_provider = MagicMock()
     lmstudio_provider.models = SimpleNamespace(
-        en="openai/liquid/lfm2-24b-a2b",
-        de="openai/liquid/lfm2-40b-de",
-        fr="openai/liquid/lfm2-40b-de"  # Same as German
+        en="liquid/lfm2-24b-a2b",
+        de="liquid/lfm2-40b-de",
+        fr="liquid/lfm2-40b-de"  # Same as German
     )
     lmstudio_provider.get_tool_calling_mode = MagicMock(return_value="structured")
     
     config.llm.get_role_provider_chain_with_models = MagicMock(
         side_effect=lambda role_name, _lang: {
-            "chat": [("lmstudio", lmstudio_provider, "openai/liquid/lfm2-24b-a2b")],
-            "vision": [("lmstudio", lmstudio_provider, "openai/liquid/lfm2-40b-de")],
+            "chat": [("lmstudio", lmstudio_provider, "liquid/lfm2-24b-a2b")],
+            "vision": [("lmstudio", lmstudio_provider, "liquid/lfm2-40b-de")],
             "auxiliary": [],
         }.get(role_name, [])
     )
@@ -134,13 +134,13 @@ def test_probe_runner_handles_multi_language_models():
     targets = runner._collect_targets()
     
     # Should have 2 distinct models (duplicates deduplicated):
-    # - openai/liquid/lfm2-24b-a2b (from en)
-    # - openai/liquid/lfm2-40b-de (from de)
+    # - liquid/lfm2-24b-a2b (from en)
+    # - liquid/lfm2-40b-de (from de)
     assert len(targets) == 2
     
     models = {t.model_name for t in targets}
-    assert "openai/liquid/lfm2-24b-a2b" in models
-    assert "openai/liquid/lfm2-40b-de" in models
+    assert "liquid/lfm2-24b-a2b" in models
+    assert "liquid/lfm2-40b-de" in models
 
 
 def test_probe_runner_includes_role_level_model_override():
@@ -148,12 +148,12 @@ def test_probe_runner_includes_role_level_model_override():
     config = MagicMock()
 
     provider = MagicMock()
-    provider.models = SimpleNamespace(en="openai/provider-default")
+    provider.models = SimpleNamespace(en="provider-default")
     provider.get_tool_calling_mode = MagicMock(return_value="structured")
 
     config.llm.get_role_provider_chain_with_models = MagicMock(
         side_effect=lambda role_name, _lang: {
-            "chat": [("lmstudio", provider, "openai/role-specific")],
+            "chat": [("lmstudio", provider, "role-specific")],
             "vision": [],
             "auxiliary": [],
         }.get(role_name, [])
@@ -164,4 +164,4 @@ def test_probe_runner_includes_role_level_model_override():
     targets = runner._collect_targets()
 
     models = {t.model_name for t in targets}
-    assert "openai/role-specific" in models
+    assert "role-specific" in models

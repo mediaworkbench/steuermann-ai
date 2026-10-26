@@ -924,7 +924,7 @@ def test_drift_adjudicator_ignores_json_inside_reasoning_block(monkeypatch):
     monkeypatch.setattr(dreaming_mod.httpx, "AsyncClient", _Client)
     config = SimpleNamespace(llm=SimpleNamespace(
         get_role_provider=lambda role: SimpleNamespace(api_base="http://x/v1", api_key=None),
-        get_role_model_name=lambda role, lang: "openai/m",
+        get_role_model_name=lambda role, lang: "m",
     ))
     adjudicate = dreaming_mod.build_auxiliary_drift_adjudicator(config)
 

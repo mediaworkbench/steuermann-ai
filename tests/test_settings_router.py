@@ -17,8 +17,8 @@ class _FakeSettingsStore:
       "tool_toggles": {"web_search_mcp": True},
       "rag_config": {"collection": "framework", "top_k": 5},
       "analytics_preferences": {"usage": {"showRequests": True}},
-      "preferred_model": "openai/existing-model",
-      "preferred_models": {"chat": "openai/existing-model"},
+      "preferred_model": "existing-model",
+      "preferred_models": {"chat": "existing-model"},
       "theme": "auto",
       "language": "en",
       "updated_at": None,
@@ -77,19 +77,19 @@ llm:
     chat:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
     embedding:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-embedding
+      model: base-embedding
     vision:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
     auxiliary:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
 rag:
   collection_name: framework
   top_k: 5
@@ -183,21 +183,21 @@ llm:
     chat:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
       max_tokens: 4096
       context_window_tokens: 16384
     embedding:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-embedding
+      model: base-embedding
     vision:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
     auxiliary:
       provider_id: lmstudio
       api_base: http://localhost:1234/v1
-      model: openai/base-model
+      model: base-model
 rag:
   collection_name: framework
   top_k: 5
@@ -238,7 +238,7 @@ ingestion:
     assert roles["chat"]["max_tokens"] == 4096
     # The per-model map is present and carries the override for the default model so
     # the UI ring's denominator can track the selected model.
-    assert roles["chat"]["context_windows"].get("openai/base-model") == 16384
+    assert roles["chat"]["context_windows"].get("base-model") == 16384
     # Roles without the override and without a reachable provider resolve to null.
     assert roles["embedding"]["context_window_tokens"] is None
 
@@ -276,17 +276,17 @@ def test_system_config_supported_languages_fallback_order(monkeypatch, tmp_path)
     def _core_config(prompt_languages):
         provider = SimpleNamespace(models=SimpleNamespace(en="base-model", model_dump=lambda: {"en": "base-model"}))
         roles = SimpleNamespace(
-        chat=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
-        embedding=SimpleNamespace(provider_id="lmstudio", model="openai/base-embedding", api_base="http://localhost:1234/v1"),
-        vision=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
-        auxiliary=SimpleNamespace(provider_id="lmstudio", model="openai/base-model", api_base="http://localhost:1234/v1"),
+        chat=SimpleNamespace(provider_id="lmstudio", model="base-model", api_base="http://localhost:1234/v1"),
+        embedding=SimpleNamespace(provider_id="lmstudio", model="base-embedding", api_base="http://localhost:1234/v1"),
+        vision=SimpleNamespace(provider_id="lmstudio", model="base-model", api_base="http://localhost:1234/v1"),
+        auxiliary=SimpleNamespace(provider_id="lmstudio", model="base-model", api_base="http://localhost:1234/v1"),
         )
 
         llm = SimpleNamespace(
             roles=roles,
             get_role_provider=lambda _role: provider,
-        get_role_model_name=lambda _role, _lang: "openai/base-model" if _role != "embedding" else "openai/base-embedding",
-        get_role_provider_chain_with_models=lambda role_name, _lang: [("lmstudio", provider, "openai/base-model" if role_name != "embedding" else "openai/base-embedding")],
+        get_role_model_name=lambda _role, _lang: "base-model" if _role != "embedding" else "base-embedding",
+        get_role_provider_chain_with_models=lambda role_name, _lang: [("lmstudio", provider, "base-model" if role_name != "embedding" else "base-embedding")],
         )
 
         return SimpleNamespace(
@@ -405,7 +405,7 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     app.state.settings_store = _FakeSettingsStore()
     client = TestClient(app)
 
-    # Simulate that "openai/existing-model" is available at the LLM endpoint
+    # Simulate that "existing-model" is available at the LLM endpoint
     async def _valid_model(model_name):
         return model_name, None
 
@@ -423,8 +423,8 @@ def test_partial_settings_update_preserves_preferred_model(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["analytics_preferences"] == {"usage": {"showRequests": False}}
-    assert body["preferred_model"] == "openai/existing-model"
-    assert body["preferred_models"] == {"chat": "openai/existing-model"}
+    assert body["preferred_model"] == "existing-model"
+    assert body["preferred_models"] == {"chat": "existing-model"}
 
 
 def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
@@ -437,7 +437,7 @@ def test_invalid_preferred_model_is_dropped_on_settings_update(monkeypatch):
     client = TestClient(app)
 
     async def _invalid_model(_model_name):
-        return None, "Preferred model 'openai/user2-model' not found at configured LLM endpoint. Using default."
+        return None, "Preferred model 'user2-model' not found at configured LLM endpoint. Using default."
 
     monkeypatch.setattr("backend.routers.settings._validate_chat_preference", _invalid_model)
 
@@ -464,7 +464,7 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
 
     class _Provider:
         def __init__(self):
-            self.models = SimpleNamespace(model_dump=lambda: {"en": "openai/test-model"})
+            self.models = SimpleNamespace(model_dump=lambda: {"en": "test-model"})
 
         def get_tool_calling_mode(self, _model_name: str) -> str:
             return "native"
@@ -473,7 +473,7 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
         profile=SimpleNamespace(language="en"),
         llm=SimpleNamespace(
         get_role_provider_chain_with_models=lambda role_name, _lang: [
-          ("lmstudio", _Provider(), "openai/test-model")
+          ("lmstudio", _Provider(), "test-model")
         ] if role_name in {"chat", "vision", "auxiliary"} else [],
         )
     )
@@ -481,7 +481,7 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
     probe_rows = [
         {
         "provider_id": "lmstudio",
-            "model_name": "openai/test-model",
+            "model_name": "test-model",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": False,
             "supports_tool_schema": False,
@@ -513,9 +513,53 @@ def test_llm_capabilities_includes_probe_details(monkeypatch, tmp_path):
 
     item = next(i for i in payload["items"] if i["role"] == "chat")
     assert item["provider_id"] == "lmstudio"
-    assert item["model_name"] == "openai/test-model"
+    assert item["model_name"] == "test-model"
     assert item["configured_tool_calling_mode"] == "native"
     assert item["api_base"] == "http://host.docker.internal:1234/v1"
     assert item["error_message"] == "bind_tools_failed: test-error"
     assert item["metadata"]["probe_kind"] == "native_bind_tools"
     assert item["capabilities"]["supports_json_mode"] is False
+
+
+def test_fetch_provider_models_returns_endpoint_ids_verbatim(monkeypatch) -> None:
+    """IDs come back exactly as /models lists them; embedding models are filtered out."""
+    import asyncio
+
+    import backend.routers.settings as settings_module
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "google/gemma-4-e4b", "context_length": 16384},
+                    {"id": "openai/gpt-5", "max_context_length": 400000},
+                    {"id": "text-embedding-granite-embedding-278m-multilingual"},
+                ]
+            }
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def get(self, url: str):
+            assert url == "http://lmstudio.test/v1/models"
+            return _Resp()
+
+    monkeypatch.setattr(settings_module.httpx, "AsyncClient", _Client)
+
+    models, context_windows = asyncio.run(
+        settings_module._fetch_provider_models(SimpleNamespace(api_base="http://lmstudio.test/v1/"))
+    )
+
+    assert models == ["google/gemma-4-e4b", "openai/gpt-5"]
+    assert context_windows["google/gemma-4-e4b"] == 16384
+    assert context_windows["openai/gpt-5"] == 400000

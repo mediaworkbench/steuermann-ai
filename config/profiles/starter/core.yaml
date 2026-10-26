@@ -15,7 +15,7 @@ llm:
     chat:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/google/gemma-4-e4b"
+      model: "google/gemma-4-e4b"
       temperature: 0.3
       max_tokens: 16384            # output cap (NOT the context window)
       timeout: 600
@@ -24,33 +24,29 @@ llm:
       #                               # set this to pin it (e.g. model loaded with a smaller
       #                               # window than its max, or provider doesn't report it).
       # model_tool_calling:
-      #   openai/google/gemma-4-e4b: "native"  # enable when capability probe confirms support
+      #   google/gemma-4-e4b: "native"  # enable when capability probe confirms support
     embedding:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      model: "text-embedding-granite-embedding-278m-multilingual"
       temperature: 0.0
       timeout: 300
     vision:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/google/gemma-4-e4b"
+      model: "google/gemma-4-e4b"
       temperature: 0.2
       max_tokens: 2048
       timeout: 600
     auxiliary:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/google/gemma-4-e2b"
+      model: "google/gemma-4-e2b"
       temperature: 0.2
       max_tokens: 16384
       timeout: 600
-  router:
-    routing_strategy: "simple-shuffle"
-    num_retries: 3
-    retry_after: 1
-    enable_pre_call_checks: true
-    default_max_parallel_requests: 4
+  # Client-side retries per LLM request (connection errors, 408/409/429/5xx, with backoff).
+  max_retries: 3
 
 memory:
   embeddings:

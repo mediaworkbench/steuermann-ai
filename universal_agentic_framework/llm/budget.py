@@ -50,21 +50,6 @@ def estimate_content_tokens(text: str) -> int:
     return int(math.ceil(digits + punctuation * 0.9 + letters / 4.5 + newlines + space_runs * 0.2))
 
 
-def count_tokens_for_model(model_name: str, text: str) -> int:
-    """Model-aware token count using litellm.token_counter with char/4 fallback.
-
-    Uses tiktoken for OpenAI-format models (including LM Studio). Falls back
-    to estimate_tokens() for unknown models or when litellm is unavailable.
-    """
-    if not text:
-        return 0
-    try:
-        from litellm import token_counter
-        return token_counter(model=model_name, messages=[{"role": "user", "content": text}])
-    except Exception:
-        return estimate_tokens(text)
-
-
 def get_conversation_budget(tokens_config: Any) -> int:
     """Return the global conversation budget.
 

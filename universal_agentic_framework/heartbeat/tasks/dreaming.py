@@ -1227,13 +1227,12 @@ def build_auxiliary_drift_adjudicator(config: Any) -> Callable[[str, str], Await
         if not api_base:
             raise RuntimeError("auxiliary api_base not configured")
         model_name = config.llm.get_role_model_name("auxiliary", "en")
-        bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         prompt = _DRIFT_PROMPT.format(semantic=semantic_text[:1000], episodic=episodic_text[:1000])
         async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
-                    "model": bare,
+                    "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.0,
                     # Generous cap so a reasoning model finishes thinking and still
@@ -1272,14 +1271,13 @@ def build_auxiliary_epiphany_synthesizer(
         if not api_base:
             raise RuntimeError("auxiliary api_base not configured")
         model_name = config.llm.get_role_model_name("auxiliary", "en")
-        bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:300]}" for o in observations[:12])
         prompt = _EPIPHANY_PROMPT.format(observations=joined)
         async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
-                    "model": bare,
+                    "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.2,
                     # Generous cap: reasoning auxiliary models (e.g. gemma-4-e2b)
@@ -1321,14 +1319,13 @@ def build_auxiliary_procedural_proposer(
         if not api_base:
             raise RuntimeError("auxiliary api_base not configured")
         model_name = config.llm.get_role_model_name("auxiliary", "en")
-        bare = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         joined = "\n".join(f"- {o[:200]}" for o in observations[:40])
         prompt = _PROCEDURAL_PROMPT.format(observations=joined)
         async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
-                    "model": bare,
+                    "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
                     # Generous cap so a reasoning model reaches the JSON after thinking.

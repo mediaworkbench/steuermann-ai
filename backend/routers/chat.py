@@ -27,7 +27,7 @@ from backend.auth import ADMIN_ROLE, CurrentUser, resolve_current_user
 from backend.single_user import require_api_access
 from backend.workspace_file_ops import WorkspaceFileOps
 from universal_agentic_framework.config import load_core_config
-from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
+from universal_agentic_framework.llm.provider_registry import normalize_model_id
 from universal_agentic_framework.monitoring.metrics import (
     track_workspace_intent_denied,
     track_profile_id_mismatch,
@@ -146,31 +146,15 @@ _INTENT_CLASSIFICATION_PROMPT = (
 )
 
 
-def _resolve_provider_endpoint(provider_prefix: str) -> str:
-    """Resolve endpoint strictly from active provider config."""
+def _resolve_chat_endpoint() -> str:
+    """Return the chat role's api_base — the endpoint a preferred chat model must exist on."""
     try:
-        core = load_core_config()
-        provider_prefix = (provider_prefix or "").strip().lower()
-
-        for role_name in ("chat", "vision", "auxiliary", "embedding"):
-            try:
-                role_chain = core.llm.get_role_provider_chain_with_models(role_name, core.profile.language)
-            except Exception:
-                continue
-            for _provider_id, provider, model_name in role_chain:
-                try:
-                    model_provider_prefix = parse_model_id(str(model_name)).provider
-                except Exception:
-                    continue
-                if model_provider_prefix != provider_prefix:
-                    continue
-                if getattr(provider, "api_base", None):
-                    return str(provider.api_base).rstrip("/")
-
+        provider = load_core_config().llm.get_role_provider("chat")
     except Exception as exc:
-        raise ValueError(f"Failed to resolve provider endpoint from config: {exc}") from exc
-
-    raise ValueError(f"No api_base configured for provider prefix '{provider_prefix}'")
+        raise ValueError(f"Failed to resolve chat endpoint from config: {exc}") from exc
+    if not getattr(provider, "api_base", None):
+        raise ValueError("No api_base configured for the chat role")
+    return str(provider.api_base).rstrip("/")
 
 
 class ChatRequest(BaseModel):
@@ -561,10 +545,7 @@ def _writeback_ineligible_warning(eligible_count: int) -> Optional[str]:
 async def _classify_workspace_intent_llm(message: str, language: str = "en") -> Dict[str, bool]:
     """Classify workspace intent via a direct HTTP call to the auxiliary LLM provider.
 
-    Uses httpx directly (bypassing ChatLiteLLM) for simplicity and reliability.
-    langchain-litellm 0.6.6 _client_params now correctly includes api_base in
-    the async chain, so the original forwarding bug (langchain#14338) appears
-    resolved — but the direct httpx path is kept as it is more predictable for
+    Uses httpx directly rather than the LangChain chat model: more predictable for
     this single-shot classification and avoids the full LangChain stack overhead.
     Language-agnostic; falls back to regex patterns when the LLM call fails.
     """
@@ -575,14 +556,13 @@ async def _classify_workspace_intent_llm(message: str, language: str = "en") -> 
         model_name = config.llm.get_role_model_name("auxiliary", language)
         if not api_base:
             raise ValueError("Auxiliary LLM api_base not configured")
-        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         safe_message = message.replace('"', '\\"')
         prompt = _INTENT_CLASSIFICATION_PROMPT.format(message=safe_message)
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
-                    "model": bare_model,
+                    "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.0,
                     "max_tokens": 64,
@@ -700,7 +680,6 @@ async def maybe_generate_conversation_title(
         if not api_base:
             return
         model_name = config.llm.get_role_model_name("auxiliary", "en")
-        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
 
         if target_stage == 1:
             first_user = next((str(m.get("content", "")) for m in convo if m.get("role") == "user"), "")
@@ -728,7 +707,7 @@ async def maybe_generate_conversation_title(
             resp = await client.post(
                 f"{api_base}/chat/completions",
                 json={
-                    "model": bare_model,
+                    "model": model_name,
                     # Generous cap: a reasoning auxiliary model spends most of its
                     # budget "thinking" and only then emits the title in `content`
                     # — a tight cap leaves `content` empty. Non-reasoning models
@@ -1339,131 +1318,43 @@ def _get_latest_llm_capability_probes(request: Request) -> list[dict[str, Any]]:
 
 
 async def _validate_preferred_model(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """Validate preferred model and return canonical provider-prefixed id.
+    """Check a preferred chat model against the chat endpoint's ``/models`` list.
 
-    Supports OpenAI-compatible /models endpoints and Ollama /api/tags.
-    Returns (validated_model, warning).
+    IDs are compared verbatim — they are the endpoint's own IDs. Returns
+    (validated_model, warning); fails open when the endpoint can't be reached.
     """
-    if not model_name:
+    if not model_name or not str(model_name).strip():
         return None, None
+    requested = normalize_model_id(model_name)
 
-    known_prefixes = {
-        "openai",
-        "ollama",
-        "lm_studio",
-        "openrouter",
-        "anthropic",
-        "azure",
-        "bedrock",
-        "groq",
-        "mistral",
-        "vertex_ai",
-    }
-
-    def _default_provider_prefix() -> str:
-        # /models is OpenAI-compatible by default; do not couple this to profile defaults.
-        return "openai"
-
-    def _provider_prefix_for_request(request_model: str) -> str:
-        request_model = str(request_model).strip()
-        if "/" in request_model:
-            head = request_model.split("/", 1)[0].strip().lower()
-            if head in known_prefixes:
-                return head
-        return _default_provider_prefix()
-
-    provider_prefix = _provider_prefix_for_request(model_name)
-
-    def _canonical_from_endpoint_id(raw_name: str) -> str:
-        raw_name = str(raw_name).strip()
-        if not raw_name:
-            return raw_name
-        if "/" not in raw_name:
-            return f"{provider_prefix}/{raw_name}"
-        head = raw_name.split("/", 1)[0].strip().lower()
-        if head in known_prefixes:
-            return raw_name
-        return f"{provider_prefix}/{raw_name}"
-
-    try:
-        normalized_request = normalize_model_id(model_name)
-    except Exception:
-        normalized_request = f"{provider_prefix}/{str(model_name).strip()}"
-
-    def _canonical_model_aliases(available_models: list[str]) -> dict[str, str]:
-        """Build alias -> canonical model map.
-
-        Canonical form uses provider-prefixed names (for LiteLLM compatibility).
-        """
-        aliases: dict[str, str] = {}
-        for available in available_models:
-            if not available:
-                continue
-
-            canonical = _canonical_from_endpoint_id(available)
-
-            aliases[available] = canonical
-            if "/" in available:
-                rest = available.split("/", 1)[1]
-                aliases.setdefault(rest, canonical)
-                aliases.setdefault(f"{provider_prefix}/{rest}", f"{provider_prefix}/{rest}")
-            else:
-                aliases.setdefault(f"{provider_prefix}/{available}", canonical)
-
-        return aliases
-
-    def _request_aliases(name: str) -> list[str]:
-        candidates = [name]
-        if "/" in name:
-            rest = name.split("/", 1)[1]
-            candidates.append(rest)
-            candidates.append(f"{provider_prefix}/{rest}")
-        else:
-            candidates.append(f"{provider_prefix}/{name}")
-
-        # Preserve insertion order while removing duplicates.
-        return list(dict.fromkeys(candidates))
-
-    async def _fetch_models() -> list[str]:
+    async def _fetch_models(base: str) -> list[str]:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            base = _resolve_provider_endpoint(provider_prefix)
-            try:
-                resp = await client.get(f"{base}/models")
-                resp.raise_for_status()
-                data = resp.json()
-                return [m.get("id") for m in data.get("data", []) if m.get("id")]
-            except Exception:
-                # Ollama native API fallback.
-                if provider_prefix != "ollama":
-                    raise
-                resp = await client.get(f"{base}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                return [m.get("name") for m in data.get("models", []) if m.get("name")]
+            resp = await client.get(f"{base}/models")
+            resp.raise_for_status()
+            return [m.get("id") for m in resp.json().get("data", []) if m.get("id")]
 
     try:
-        cached = _MODEL_LIST_CACHE.get(provider_prefix)
+        base = _resolve_chat_endpoint()
+        cached = _MODEL_LIST_CACHE.get(base)
         if cached is not None and time.monotonic() - cached[0] < _MODEL_LIST_CACHE_TTL:
             available_models = cached[1]
         else:
-            available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models)
-            _MODEL_LIST_CACHE[provider_prefix] = (time.monotonic(), available_models)
-        alias_map = _canonical_model_aliases(available_models)
-        for candidate in _request_aliases(normalized_request):
-            if candidate in alias_map:
-                return alias_map[candidate], None
+            available_models = await MODEL_VALIDATION_CIRCUIT_BREAKER.call(_fetch_models, base)
+            _MODEL_LIST_CACHE[base] = (time.monotonic(), available_models)
+        if requested in available_models:
+            return requested, None
 
-        warning = f"Preferred model '{normalized_request}' not found at configured LLM endpoint. Using default."
+        warning = f"Preferred model '{requested}' not found at configured LLM endpoint. Using default."
         logger.warning(warning)
         return None, warning
     except CircuitBreakerOpenError as exc:
         logger.warning("Model validation circuit breaker open: %s", exc)
         # Fail open: do not block request flow when model endpoint is flaky.
-        return normalized_request, "Model validation temporarily bypassed due to circuit breaker."
+        return requested, "Model validation temporarily bypassed due to circuit breaker."
     except Exception as e:
         logger.error(f"Failed to validate model against OpenAI-compatible endpoint: {e}")
         # Fail open - assume model is valid if we can't reach endpoint
-        return normalized_request, None
+        return requested, None
 
 
 def _require_conversation_ownership(request: Request, conversation_id: Optional[str], user_id: str) -> None:

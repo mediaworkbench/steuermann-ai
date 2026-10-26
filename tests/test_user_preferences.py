@@ -335,7 +335,7 @@ class TestLLMCapabilityProbeStore:
         payload = {
             "profile_id": "test_profile",
             "provider_id": "lmstudio",
-            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "model_name": "liquid/lfm2-24b-a2b",
             "api_base": "http://host.docker.internal:1234/v1",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": True,
@@ -350,7 +350,7 @@ class TestLLMCapabilityProbeStore:
         loaded = probe_store.get_probe_result(
             profile_id="test_profile",
             provider_id="lmstudio",
-            model_name="openai/liquid/lfm2-24b-a2b",
+            model_name="liquid/lfm2-24b-a2b",
         )
 
         assert stored["profile_id"] == "test_profile"
@@ -363,7 +363,7 @@ class TestLLMCapabilityProbeStore:
         base_payload = {
             "profile_id": "test_profile",
             "provider_id": "lmstudio",
-            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "model_name": "liquid/lfm2-24b-a2b",
             "api_base": "http://host.docker.internal:1234/v1",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": True,

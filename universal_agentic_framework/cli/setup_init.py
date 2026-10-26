@@ -35,8 +35,8 @@ import yaml
 
 DEFAULT_PROFILE = "starter"
 DEFAULT_SCAFFOLD_TARGET = "local"
-DEFAULT_CHAT_MODEL = "openai/google/gemma-4-e4b"
-DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-granite-embedding-278m-multilingual"
+DEFAULT_CHAT_MODEL = "google/gemma-4-e4b"
+DEFAULT_EMBEDDING_MODEL = "text-embedding-granite-embedding-278m-multilingual"
 DEFAULT_EMBEDDING_ENDPOINT = "http://host.docker.internal:1234/v1"
 DEFAULT_EMBEDDING_DIMENSION = 768
 
@@ -70,10 +70,6 @@ PROVIDER_CHOICES = list(PROVIDER_ENV.keys())
 # its catalog is hundreds of entries — not useful as a scrolling terminal list.)
 LISTABLE_PROVIDERS = frozenset({"lmstudio", "ollama"})
 
-# LiteLLM transport prefixes we must not double-up. A model id lacking any of
-# these gets ``openai/`` prepended (see :func:`ensure_openai_prefix`).
-_KNOWN_MODEL_PREFIXES = ("openai/", "ollama/", "lm_studio/", "lmstudio/", "openrouter/")
-
 _INIT_EPILOG = """\
 Profile behavior (--profile):
   (omitted)             Start from the pristine 'starter' profile. If you change any
@@ -88,7 +84,7 @@ Heads-up: this wizard always regenerates AUTH_SESSION_SECRET and CHAT_ACCESS_TOK
 core.yaml with comments dropped. It preserves an existing POSTGRES_PASSWORD. To change
 just one config key without touching secrets, use 'steuermann config set' instead, e.g.:
   steuermann config set --profile local --key core.llm.roles.chat.model \\
-      --value openai/gemma4:e2b --apply --confirm APPLY
+      --value gemma4:e2b --apply --confirm APPLY
 
 Examples:
   steuermann setup init --provider ollama
@@ -461,22 +457,6 @@ def provider_env_overrides(provider: str, api_base: str, api_key: str) -> dict[s
     }
 
 
-def ensure_openai_prefix(model: str) -> str:
-    """Prepend the LiteLLM ``openai/`` transport prefix unless one is already present.
-
-    LM Studio and Ollama are both reached over their OpenAI-compatible ``/v1``
-    endpoint, so their native ids (``gemma4:e2b``, ``google/gemma-4-e2b``) must be
-    written to config as ``openai/<id>``. Without it LiteLLM would parse a bare
-    ``google/…`` as the *google* provider (Gemini) rather than the local server.
-    """
-    stripped = model.strip()
-    if not stripped:
-        return stripped
-    if any(stripped.startswith(prefix) for prefix in _KNOWN_MODEL_PREFIXES):
-        return stripped
-    return f"openai/{stripped}"
-
-
 def fetch_provider_models(endpoint: str, api_key: str, *, timeout: float = 4.0) -> list[str]:
     """Return de-duplicated, sorted model ids from ``GET {endpoint}/models``.
 
@@ -504,7 +484,7 @@ def fetch_provider_models(endpoint: str, api_key: str, *, timeout: float = 4.0) 
 def _prompt_model_from_list(label: str, models: list[str], default: str) -> str:
     """Prompt for a model id, offering ``models`` as a numbered pick-list.
 
-    ``default`` and the return value are BARE ids (no transport prefix). Accepts a
+    ``default`` and the return value are the endpoint's own model IDs. Accepts a
     list number, a typed id (custom), or Enter (keep ``default``). Falls back to a
     plain default prompt when non-interactive or the list is empty.
     """
@@ -540,7 +520,7 @@ def prompt_provider_config(
 
     For locally listable providers (LM Studio / Ollama) the chat/vision/auxiliary/
     embedding prompts offer a live pick-list fetched from ``{endpoint}/models``;
-    the selected bare id is stored with the ``openai/`` transport prefix. Returns
+    the selected id is stored exactly as the endpoint reports it. Returns
     ``{chat, vision, auxiliary}`` role configs (with ``$``-placeholder
     ``api_base``/``api_key`` references) plus an ``embedding`` block
     ``{endpoint, model, dimension}``.
@@ -565,17 +545,12 @@ def prompt_provider_config(
                 "from this host? You can still type a model id manually."
             )
 
-    chat_default = _bare_model((roles_cur.get("chat") or {}).get("model") or DEFAULT_CHAT_MODEL)
-    chat_bare = _prompt_model_from_list("Chat model", models, chat_default)
-    chat_model = ensure_openai_prefix(chat_bare)
-    vision_default = _bare_model((roles_cur.get("vision") or {}).get("model") or chat_bare)
-    vision_model = ensure_openai_prefix(
-        _prompt_model_from_list("Vision model (Enter = chat model)", models, vision_default)
-    )
-    aux_default = _bare_model((roles_cur.get("auxiliary") or {}).get("model") or chat_bare)
-    aux_model = ensure_openai_prefix(
-        _prompt_model_from_list("Auxiliary model (Enter = chat model)", models, aux_default)
-    )
+    chat_default = (roles_cur.get("chat") or {}).get("model") or DEFAULT_CHAT_MODEL
+    chat_model = _prompt_model_from_list("Chat model", models, chat_default).strip()
+    vision_default = (roles_cur.get("vision") or {}).get("model") or chat_model
+    vision_model = _prompt_model_from_list("Vision model (Enter = chat model)", models, vision_default).strip()
+    aux_default = (roles_cur.get("auxiliary") or {}).get("model") or chat_model
+    aux_model = _prompt_model_from_list("Auxiliary model (Enter = chat model)", models, aux_default).strip()
 
     emb_role_cur = roles_cur.get("embedding") or {}
     emb_endpoint_default = current_env.get("EMBEDDING_SERVER") or DEFAULT_EMBEDDING_ENDPOINT
@@ -588,10 +563,8 @@ def prompt_provider_config(
         emb_models = fetch_provider_models(emb_endpoint, api_key)
     else:
         emb_models = []
-    emb_model_default = _bare_model(emb_role_cur.get("model") or DEFAULT_EMBEDDING_MODEL)
-    emb_model = ensure_openai_prefix(
-        _prompt_model_from_list("Embedding model", emb_models, emb_model_default)
-    )
+    emb_model_default = emb_role_cur.get("model") or DEFAULT_EMBEDDING_MODEL
+    emb_model = _prompt_model_from_list("Embedding model", emb_models, emb_model_default).strip()
     dim_default = str(
         (current_core.get("memory") or {}).get("embeddings", {}).get("dimension")
         or DEFAULT_EMBEDDING_DIMENSION
@@ -660,10 +633,6 @@ def _config_differs_from_current(
     return False
 
 
-def _bare_model(model: str) -> str:
-    return model.removeprefix("openai/")
-
-
 def _apply_llm_config(current_core: dict[str, Any], role_cfg: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``current_core`` with the wizard's LLM config applied.
 
@@ -691,7 +660,7 @@ def _apply_llm_config(current_core: dict[str, Any], role_cfg: dict[str, Any]) ->
     steuermann._set_dot_path(data, "llm.roles.embedding.model", emb["model"])
     steuermann._set_dot_path(data, "memory.embeddings.dimension", int(emb["dimension"]))
     # Cosmetic-only mirrors (kept consistent; not consumed by Mem0):
-    steuermann._set_dot_path(data, "memory.embeddings.model", _bare_model(emb["model"]))
+    steuermann._set_dot_path(data, "memory.embeddings.model", emb["model"])
     steuermann._set_dot_path(data, "memory.embeddings.remote_endpoint", "$EMBEDDING_SERVER")
     # REQUIRED: only "lmstudio" takes the LM-Studio response-format branch.
     steuermann._set_dot_path(data, "memory.mem0.llm_provider", provider)

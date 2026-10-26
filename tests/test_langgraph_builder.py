@@ -22,15 +22,11 @@ def patch_factories(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDERS_OLLAMA_API_BASE", "http://localhost:11434/v1")
     monkeypatch.setenv("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/v1")
 
-    # Patch LLMFactory to return fake model (both get_model and get_router_model)
-    def _fake_get_model(self, language: str, prefer_local: bool = True):
-        return _FakeChatModel()
-
-    def _fake_get_router_model(self, language: str, preferred_model=None):
+    # Patch LLMFactory to return a fake model
+    def _fake_get_model(self, language: str, prefer_local: bool = True, preferred_model=None):
         return _FakeChatModel()
 
     monkeypatch.setattr(LLMFactory, "get_model", _fake_get_model)
-    monkeypatch.setattr(LLMFactory, "get_router_model", _fake_get_router_model)
     monkeypatch.setattr(LLMFactory, "create_auxiliary_llm", lambda self: _FakeChatModel())
 
     # node_summarize calls get_auxiliary_model() directly (not via LLMFactory)

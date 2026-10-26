@@ -32,6 +32,12 @@ class ProviderModelMap(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+# Wire API a role's endpoint speaks. Every supported provider and gateway (LM Studio,
+# Ollama, OpenRouter, LiteLLM Proxy, …) is OpenAI-compatible; a native API would add a
+# value here plus a builder in llm/factory.py.
+LLMApiType = Literal["openai_compatible"]
+
+
 class ProviderSettings(BaseModel):
     api_base: Optional[str] = None
     api_key: Optional[str] = None
@@ -40,13 +46,10 @@ class ProviderSettings(BaseModel):
     max_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
     model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
-    # LiteLLM router-friendly metadata.
-    order: Optional[conint(ge=1)] = None
-    weight: Optional[conint(ge=1)] = None
-    rpm: Optional[PositiveInt] = None
-    tpm: Optional[PositiveInt] = None
-    max_parallel_requests: Optional[PositiveInt] = None
-    region_name: Optional[str] = None
+    # Selects the chat-model builder (llm/factory.py DEFAULT_BUILDERS) and the client-side
+    # retry count; both are copied from the role and from llm.max_retries.
+    api_type: LLMApiType = "openai_compatible"
+    max_retries: conint(ge=0) = 3
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("api_key")
@@ -57,7 +60,7 @@ class ProviderSettings(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_models_are_litellm_strings(self) -> "ProviderSettings":
+    def _normalize_model_ids(self) -> "ProviderSettings":
         for language, model in self.models.model_dump().items():
             if not model:
                 continue
@@ -115,6 +118,7 @@ class LLMRoleSettings(BaseModel):
     context_window_tokens: Optional[PositiveInt] = None
     timeout: Optional[PositiveInt] = None
     model_tool_calling: Dict[str, Literal["native", "structured", "react"]] = Field(default_factory=dict)
+    api_type: LLMApiType = "openai_compatible"
 
     @model_validator(mode="after")
     def _normalize_models(self) -> "LLMRoleSettings":
@@ -133,35 +137,23 @@ class LLMRoles(BaseModel):
     auxiliary: Optional[LLMRoleSettings] = None
 
 
-class LLMRouterRoutingGroupSettings(BaseModel):
-    group_name: str = Field(..., min_length=1)
-    models: List[str] = Field(default_factory=list)
-    routing_strategy: Optional[str] = None
-    routing_strategy_args: Dict[str, Any] = Field(default_factory=dict)
-
-
-class LLMRouterSettings(BaseModel):
-    routing_strategy: str = "simple-shuffle"
-    num_retries: PositiveInt = 3
-    retry_after: PositiveInt = 1
-    allowed_fails: Optional[PositiveInt] = None
-    cooldown_time: Optional[PositiveInt] = None
-    disable_cooldowns: bool = False
-    enable_pre_call_checks: bool = False
-    default_max_parallel_requests: Optional[PositiveInt] = None
-    set_verbose: bool = False
-    debug_level: Optional[str] = None
-    fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
-    default_fallbacks: List[str] = Field(default_factory=list)
-    context_window_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
-    content_policy_fallbacks: List[Dict[str, List[str]]] = Field(default_factory=list)
-    routing_groups: List[LLMRouterRoutingGroupSettings] = Field(default_factory=list)
-
-
 class LLMSettings(BaseModel):
     providers: LLMProviders = Field(default_factory=LLMProviders)
     roles: LLMRoles
-    router: LLMRouterSettings = Field(default_factory=LLMRouterSettings)
+    # Client-side retries per LLM request (connection errors, 408/409/429/5xx, with backoff).
+    max_retries: conint(ge=0) = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_router_section(cls, data: Any) -> Any:
+        # The LiteLLM router (and its llm.router section) was removed; a leftover block
+        # would otherwise be ignored silently, hiding that its settings no longer apply.
+        if isinstance(data, dict) and "router" in data:
+            raise ValueError(
+                "llm.router is no longer supported (LiteLLM was removed). Delete the section; "
+                "retries are configured with llm.max_retries."
+            )
+        return data
 
     @model_validator(mode="after")
     def _validate_roles(self) -> "LLMSettings":
@@ -183,6 +175,8 @@ class LLMSettings(BaseModel):
                 "max_tokens": role_cfg.max_tokens,
                 "timeout": role_cfg.timeout,
                 "model_tool_calling": dict(role_cfg.model_tool_calling),
+                "api_type": role_cfg.api_type,
+                "max_retries": self.max_retries,
             }
 
         self.providers = LLMProviders.model_validate(provider_payload)
@@ -238,6 +232,8 @@ class LLMSettings(BaseModel):
                 "max_tokens": role.max_tokens,
                 "timeout": role.timeout,
                 "model_tool_calling": dict(role.model_tool_calling),
+                "api_type": role.api_type,
+                "max_retries": self.max_retries,
             }
         )
         return [(str(role.provider_id), provider, str(role.model))]

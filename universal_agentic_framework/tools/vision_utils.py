@@ -149,7 +149,7 @@ def _build_data_url(image_bytes: bytes, mime_type: str) -> str:
 
 
 def _load_vision_api_config() -> tuple[str, str, str, Optional[str]]:
-    """Return (api_base, bare_model, temperature, api_key) for the vision role."""
+    """Return (api_base, model, temperature, api_key) for the vision role."""
     from universal_agentic_framework.config import load_core_config
 
     config = load_core_config()
@@ -159,13 +159,12 @@ def _load_vision_api_config() -> tuple[str, str, str, Optional[str]]:
     provider = config.llm.get_role_provider("vision")
     api_base = str(provider.api_base or "").rstrip("/")
     model_name = config.llm.get_role_model_name("vision", "en")
-    bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
     temp = provider.temperature if provider.temperature is not None else 0.2
-    return api_base, bare_model, str(temp), provider.api_key
+    return api_base, model_name, str(temp), provider.api_key
 
 
 def _build_request_payload(
-    bare_model: str,
+    model: str,
     temperature: str,
     prompt: str,
     data_url: str,
@@ -190,7 +189,7 @@ def _build_request_payload(
         ],
     })
     return {
-        "model": bare_model,
+        "model": model,
         "messages": messages,
         "temperature": float(temperature),
         "max_tokens": max_tokens,

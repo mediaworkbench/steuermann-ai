@@ -114,19 +114,19 @@ llm:
     chat:
       provider_id: lmstudio
       api_base: http://localhost:11434/v1
-      model: openai/base-model
+      model: base-model
     embedding:
       provider_id: lmstudio
       api_base: http://localhost:11434/v1
-      model: openai/base-embedding
+      model: base-embedding
     vision:
       provider_id: lmstudio
       api_base: http://localhost:11434/v1
-      model: openai/base-model
+      model: base-model
     auxiliary:
       provider_id: lmstudio
       api_base: http://localhost:11434/v1
-      model: openai/base-model
+      model: base-model
 tokens:
   default_budget: 20000
 rag:
@@ -150,7 +150,7 @@ prompts:
     assert core.tokens.default_budget == 20000
     assert core.rag is not None
     assert core.rag.collection_name == "medical-rag"
-    assert core.llm.roles.embedding.model == "openai/base-embedding"
+    assert core.llm.roles.embedding.model == "base-embedding"
     assert core.database.url == "sqlite:///base.db"
 
 

@@ -213,7 +213,7 @@ def _make_backend_nohit_search(**overrides: Any) -> Mem0MemoryBackend:
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_mem0_embedder_model_is_normalized(monkeypatch):
+def test_mem0_embedder_model_is_passed_verbatim(monkeypatch):
     captured: Dict[str, Any] = {}
 
     class _CaptureMemory:
@@ -230,7 +230,7 @@ def test_mem0_embedder_model_is_normalized(monkeypatch):
     Mem0MemoryBackend(
         **{
             **_COMMON_KWARGS,
-            "embedding_model": "openai/text-embedding-granite-embedding-278m-multilingual",
+            "embedding_model": "text-embedding-granite-embedding-278m-multilingual",
             "embedding_remote_endpoint": "http://host.docker.internal:1234/v1",
             "client": None,
         }

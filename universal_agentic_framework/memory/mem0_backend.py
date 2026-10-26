@@ -128,13 +128,10 @@ class Mem0MemoryBackend(MemoryBackend):
 
         if llm_provider == "lmstudio":
             # LM Studio requires json_schema instead of json_object for response_format.
-            # Strip the "openai/" LiteLLM prefix that the main LLM stack uses — LM Studio
-            # expects the raw model name (e.g. "liquid/lfm2-24b-a2b").
-            lmstudio_model = llm_model.removeprefix("openai/")
             config["llm"] = {
                 "provider": "lmstudio",
                 "config": {
-                    "model": lmstudio_model,
+                    "model": llm_model,
                     "temperature": float(llm_temperature),
                     "lmstudio_base_url": llm_api_base or "http://localhost:1234/v1",
                     "lmstudio_response_format": {

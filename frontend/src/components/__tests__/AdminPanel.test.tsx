@@ -42,7 +42,7 @@ const BASE_SETTINGS = {
 
 const CAPABILITY_ITEM = {
   provider_id: "primary",
-  model_name: "openai/test-model",
+  model_name: "test-model",
   desired_mode: "native",
   configured_tool_calling_mode: "native",
   effective_mode: "structured",
@@ -93,29 +93,29 @@ describe("AdminPanel", () => {
     mockFetchSystemConfig.mockResolvedValue({
       available_tools: [{ id: "web_search_mcp", label: "Web Search", group: "text" }],
       rag_defaults: { collection_name: "framework", top_k: 5 },
-      default_model: "openai/test-model",
+      default_model: "test-model",
       framework_version: "0.3.0",
       supported_languages: ["en"],
       model_roles: [
         {
           role: "chat",
           provider_id: "lmstudio",
-          default_model: "openai/test-model",
-          available_models: ["openai/test-model"],
+          default_model: "test-model",
+          available_models: ["test-model"],
           model_load_error: null,
         },
         {
           role: "vision",
           provider_id: "lmstudio",
-          default_model: "openai/vision-model",
-          available_models: ["openai/vision-model"],
+          default_model: "vision-model",
+          available_models: ["vision-model"],
           model_load_error: null,
         },
         {
           role: "auxiliary",
           provider_id: "lmstudio",
-          default_model: "openai/aux-model",
-          available_models: ["openai/aux-model"],
+          default_model: "aux-model",
+          available_models: ["aux-model"],
           model_load_error: null,
         },
       ],
@@ -140,7 +140,7 @@ describe("AdminPanel", () => {
 
     const { container } = render(<AdminPanel settings={BASE_SETTINGS} loading={false} onSave={jest.fn()} />);
 
-    await screen.findAllByText("openai/test-model");
+    await screen.findAllByText("test-model");
     expect(await axe(container)).toHaveNoViolations();
     expect(screen.getByText("probe_stale_forced_structured")).toBeInTheDocument();
     // The TTL label is rendered with an interpolated value (key|seconds in the test t()).
@@ -165,7 +165,7 @@ describe("AdminPanel", () => {
       expect(writeTextMock).toHaveBeenCalledTimes(1);
     });
     expect(writeTextMock.mock.calls[0][0]).toContain("probe_ttl_seconds\t3600");
-    expect(writeTextMock.mock.calls[0][0]).toContain("openai/test-model");
+    expect(writeTextMock.mock.calls[0][0]).toContain("test-model");
     expect(writeTextMock.mock.calls[0][0]).toContain("probe_stale_forced_structured");
     expect(writeTextMock.mock.calls[0][0]).toContain("http://host.docker.internal:1234/v1");
   });

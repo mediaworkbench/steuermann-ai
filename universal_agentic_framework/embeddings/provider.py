@@ -21,12 +21,8 @@ class EmbeddingProviderUnavailableError(RuntimeError):
 
 
 def normalize_embedding_model_name(model_name: str) -> str:
-    """Normalize embedding model IDs for OpenAI-compatible /embeddings endpoints.
-
-    The chat stack may use LiteLLM-style IDs such as ``openai/<model>``.
-    Embedding endpoints (LM Studio/OpenAI-compatible) typically expect raw model IDs.
-    """
-    return (model_name or "").removeprefix("openai/").strip()
+    """Return the embedding model ID as the OpenAI-compatible /embeddings endpoint knows it."""
+    return (model_name or "").strip()
 
 
 class EmbeddingProvider(ABC):

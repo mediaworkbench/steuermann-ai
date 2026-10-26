@@ -53,7 +53,7 @@ class OcrTool(BaseTool):
     def _run(self, image_source: str, **kwargs) -> str:
         """Extract text from image synchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -68,7 +68,7 @@ class OcrTool(BaseTool):
 
             data_url = _build_data_url(image_bytes, mime_type)
             payload = _build_request_payload(
-                bare_model, temperature, "Extract all text from this image.", data_url,
+                model_id, temperature, "Extract all text from this image.", data_url,
                 max_tokens=4096, system_prompt=_SYSTEM_PROMPT,
             )
 
@@ -88,7 +88,7 @@ class OcrTool(BaseTool):
     async def _arun(self, image_source: str, **kwargs) -> str:
         """Extract text from image asynchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -103,7 +103,7 @@ class OcrTool(BaseTool):
 
             data_url = _build_data_url(image_bytes, mime_type)
             payload = _build_request_payload(
-                bare_model, temperature, "Extract all text from this image.", data_url,
+                model_id, temperature, "Extract all text from this image.", data_url,
                 max_tokens=4096, system_prompt=_SYSTEM_PROMPT,
             )
 

@@ -48,7 +48,6 @@ from langgraph.channels import UntrackedValue
 from langgraph.graph import START, StateGraph
 
 from universal_agentic_framework.llm.budget import (
-    count_tokens_for_model,
     estimate_content_tokens,
     estimate_tokens,
 )
@@ -91,19 +90,6 @@ from universal_agentic_framework.orchestration.respond.guardrails import (
     retry_on_web_extract_contradiction,
     format_tool_based_fallback,
 )
-
-try:
-    from litellm.exceptions import (
-        ContextWindowExceededError as _LiteLLMContextWindowExceededError,
-        RateLimitError as _LiteLLMRateLimitError,
-        AuthenticationError as _LiteLLMAuthenticationError,
-        ServiceUnavailableError as _LiteLLMServiceUnavailableError,
-    )
-except ImportError:
-    _LiteLLMContextWindowExceededError = None  # type: ignore[assignment,misc]
-    _LiteLLMRateLimitError = None  # type: ignore[assignment,misc]
-    _LiteLLMAuthenticationError = None  # type: ignore[assignment,misc]
-    _LiteLLMServiceUnavailableError = None  # type: ignore[assignment,misc]
 
 from universal_agentic_framework.orchestration.helpers.text_processing import latest_user_message
 
@@ -2099,7 +2085,7 @@ def node_summarize(state: GraphState) -> GraphState:
         f"{_exchange_text}"
     )
 
-    input_tokens = count_tokens_for_model(model_name, prompt)
+    input_tokens = estimate_content_tokens(prompt)
 
     with track_node_execution(profile_name, "summarize"):
         try:

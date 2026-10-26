@@ -92,7 +92,7 @@ This document defines the technical architecture for the Steuermann - a domain-a
 ### **2.2 Technology Stack Summary**
 
 - Orchestration: LangGraph (`>=1.1.0`) - Workflow engine (containerized)
-- LLM Integration: LangChain + langchain-litellm (`>=1.2.0 / 0.6.4`) - Unified LLM interface via LiteLLM router
+- LLM Integration: LangChain + langchain-openai (`BaseChatOpenAI`-based `OpenAICompatibleChat`) - one client for every OpenAI-compatible endpoint
 - Adapter: FastAPI (`>=0.135.0`) - Settings/auth/metrics API
 - Frontend: Next.js + React (`>=16.0 + React 19`) - Modern chat and settings UI
 - Vector Store: Qdrant (`>=1.7.0`) - RAG embeddings and Mem0 internal vector storage
@@ -436,7 +436,7 @@ The external LLM provider is treated as a *soft dependency* so the stack always 
 | `error` | `{"message": "..."}` | Error during generation |
 | `[DONE]` | _(final data line)_ | Stream complete |
 
-Reasoning tokens are intercepted in `server.py` before they reach the `token` event via two complementary paths: (1) a tag-parser state machine strips `<think>`, `<thinking>`, and `<reflection>` blocks from `chunk.content` and emits them as `thinking_*` events; (2) when `chunk.additional_kwargs["reasoning_content"]` is present (LM Studio / LiteLLM native reasoning field), tokens are emitted directly without tag parsing. Accumulated thinking text is included in the `metadata` event as `thinking_content` and persisted to the message's JSONB metadata column.
+Reasoning tokens are intercepted in `server.py` before they reach the `token` event via two complementary paths: (1) a tag-parser state machine strips `<think>`, `<thinking>`, and `<reflection>` blocks from `chunk.content` and emits them as `thinking_*` events; (2) when `chunk.additional_kwargs["reasoning_content"]` is present (the provider's native reasoning field, copied there by `OpenAICompatibleChat`), tokens are emitted directly without tag parsing. Accumulated thinking text is included in the `metadata` event as `thinking_content` and persisted to the message's JSONB metadata column.
 
 Workspace writeback requests (`save`/`rewrite` intent on open documents) **always use the streaming path** — they are no longer routed to the sync endpoint. Writeback runs inline in `_proxy_stream` after the model's `[DONE]` arrives: `_do_writeback()` saves the normalized document, then the `writeback` SSE is emitted before the proxy forwards `data: [DONE]`. The writeback passes the document's pre-stream `version` as `expected_version`; a 409 (concurrent edit) returns `{"status":"conflict"}` and emits a warning SSE instead of clobbering. Only text documents are eligible (`_writeback_eligible_documents` filters `image/*`). The `PUT /api/workspace/documents/{id}` endpoint also accepts an optional `expected_version` form field and returns 409 on mismatch (`WorkspaceVersionConflictError`). Version history rows carry a `source` field (`'user'` / `'assistant'` / `'restore'`). The Next.js proxy detects `text/event-stream` content-type and pipes the response body directly (no `arrayBuffer()` buffering). The frontend `useStreamingChat` hook reads `response.body` via `getReader()`, parses SSE blocks, and exposes `streamingContent`, `isStreaming`, `thinkingContent`, `isThinking`, `nodeStatus`, `nodeTrace`, `toolCallStatus`, `finalMetadata`, `wasCancelled`, `cancel()`. `nodeTrace` is the ordered list of `node_state` events accumulated for the current answer (drives the workspace Inspector tab; `streamOnActive`-gated like the other stream-derived values). The full trace is also included in the final `metadata` event and persisted into the assistant message's metadata (`_run_persistence` in `chat.py`), so the Inspector survives a full conversation reload (restored by `toUiMessage`).
 
@@ -632,118 +632,71 @@ Tiers map to storage as follows:
 
 ### **7.1 LLM Provider Abstraction**
 
-All LLM access goes through `LLMFactory` using `langchain-litellm`. A single `ChatLiteLLM` instance handles any provider (LM Studio, OpenAI-compatible) via LiteLLM's unified model string format (`openai/model`). Multi-model routing with automatic retries uses `ChatLiteLLMRouter` wrapping `litellm.Router`.
+All LLM access goes through `LLMFactory` (`universal_agentic_framework/llm/factory.py`). Every chat role (`chat`, `vision`, `auxiliary`) is served by `OpenAICompatibleChat` (`llm/chat_model.py`), a thin subclass of langchain-openai's `BaseChatOpenAI` that talks to any OpenAI-compatible endpoint: LM Studio, Ollama, OpenRouter, or a gateway such as the LiteLLM Proxy.
+
+Why a subclass instead of `ChatOpenAI`:
+
+- `ChatOpenAI` targets the official OpenAI API and drops non-standard fields, so a reasoning model's thinking text (`reasoning_content`, or `reasoning` on OpenRouter-style gateways) would never reach the stream. `OpenAICompatibleChat` copies it into `additional_kwargs["reasoning_content"]`, where `server.py` turns it into `thinking` SSE events (the same approach as `ChatDeepSeek`).
+- `ChatOpenAI` rewrites `max_tokens` to `max_completion_tokens`; `BaseChatOpenAI` sends `max_tokens`, the field these servers document, so output caps are honored.
+- `use_responses_api=False` is pinned, so a model name can never route a request to OpenAI's Responses API, which gateways may not implement.
 
 ```python
-from langchain_litellm import ChatLiteLLM, ChatLiteLLMRouter
-from litellm import Router
+# llm/factory.py
+def build_openai_compatible_chat(provider: ProviderSettings, model_name: str):
+    return OpenAICompatibleChat(
+        model=model_name,                           # the endpoint's own ID (see 7.2)
+        base_url=provider.api_base,
+        api_key=provider.api_key or "not-needed",   # the SDK requires one; local servers ignore it
+        temperature=provider.temperature,
+        max_tokens=provider.max_tokens,
+        timeout=provider.timeout,
+        max_retries=provider.max_retries,           # from llm.max_retries
+        streaming=True,
+        stream_usage=True,
+        use_responses_api=False,
+    )
 
-# Single model — used by get_model()
-# IMPORTANT: api_base and api_key must be top-level kwargs, NOT inside model_kwargs
-def build_litellm_chat(provider_config, model_name: str) -> ChatLiteLLM:
-    chat_kwargs = {
-        "model": model_name,          # e.g. "openai/liquid/lfm2-24b-a2b"
-        "temperature": provider_config.temperature,
-        "max_tokens": provider_config.max_tokens,
-    }
-    if provider_config.api_base:
-        chat_kwargs["api_base"] = str(provider_config.api_base)
-    if provider_config.api_key:
-        chat_kwargs["api_key"] = provider_config.api_key
-    return ChatLiteLLM(**chat_kwargs)
-
-# Router — used by get_router_model() in graph_builder.py
-def build_router(primary_model: str, fallback_model: str | None) -> ChatLiteLLMRouter:
-    model_list = [
-        {"model_name": "primary", "litellm_params": {"model": primary_model}},
-    ]
-    if fallback_model:
-        model_list.append(
-            {"model_name": "fallback", "litellm_params": {"model": fallback_model}}
-        )
-    router = Router(model_list=model_list, num_retries=3, retry_after=1)
-    return ChatLiteLLMRouter(router=router)
+DEFAULT_BUILDERS = {"openai_compatible": build_openai_compatible_chat}
 ```
 
-**Legacy providers removed**: `langchain-openai` and `langchain-ollama` are no longer dependencies. Runtime provider and model configuration is owned by the active profile overlay in `config/profiles/<profile_id>/core.yaml`.
+**Builder registry:** each role has an optional `api_type` (default `openai_compatible`) that selects the builder via `build_chat_model()`. A provider without an OpenAI-compatible API would add an `api_type` value plus a builder (for example one based on `langchain-anthropic`); nothing else changes.
 
-### **7.2 Language-Specific Model Selection**
+**Retries:** the OpenAI SDK retries connection errors, 408/409/429 and 5xx responses with exponential backoff, `llm.max_retries` times (default 3). Retries live in the client rather than in a wrapper such as `.with_retry()` so the model stays a `BaseChatModel` and native tool calling can call `bind_tools()` on it.
+
+**Errors:** `_classify_error` in `orchestration/helpers/model_resolution.py` maps OpenAI-SDK exceptions to the error types the respond node reports to users: `context_window_exceeded` (a 400 with the `context_length_exceeded` code, or a message about the context length/window, which is how local servers phrase it), `rate_limit`, `auth_error`, and `service_unavailable` (connection errors, timeouts, 5xx).
+
+### **7.2 Role Model Configuration**
+
+Each role targets exactly one endpoint; the configuration is flat per role:
 
 ```yaml
 # config/profiles/starter/core.yaml
 llm:
-  providers:
-    lmstudio:
-      api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      api_key: "lm-studio"
-      models:
-        de: "openai/liquid/lfm2-24b-a2b"
-        en: "openai/liquid/lfm2-24b-a2b"
-      temperature: 0.7
-      max_tokens: 4096
-
-    openrouter:
-      api_base: "${LLM_PROVIDERS_OPENROUTER_API_BASE}"
-      api_key: "${OPENROUTER_API_KEY}"
-      models:
-        de: "openrouter/openai/gpt-4o-mini"
-        en: "openrouter/openai/gpt-4o-mini"
-      temperature: 0.3
-
   roles:
     chat:
-      providers:
-        - provider_id: lmstudio
-        - provider_id: openrouter
-    embedding:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
-    vision:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
-    auxiliary:
-      providers:
-        - provider_id: lmstudio
-      config_only: true
-
-  router:
-    routing_strategy: simple-shuffle
-    num_retries: 3
-    retry_after: 1
+      provider_id: "lmstudio"
+      api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
+      model: "google/gemma-4-e4b"
+      temperature: 0.7
+      max_tokens: 16384
+      timeout: 600
+      # api_type: openai_compatible   # default
+    embedding: { ... }
+    vision: { ... }
+    auxiliary: { ... }
+  # Client-side retries per LLM request (connection errors, 408/409/429/5xx, with backoff).
+  max_retries: 3
 ```
 
-**LM Studio model ID convention:** LM Studio's `/v1/models` returns raw IDs like `liquid/lfm2-24b-a2b`. LiteLLM requires the `openai/` provider prefix. Always configure models as `openai/<lm-studio-raw-id>` (e.g. `openai/liquid/lfm2-24b-a2b`). Bare or wrongly-prefixed IDs will cause `BadRequestError: LLM Provider NOT provided`.
+**Model IDs** are the endpoint's own IDs, sent verbatim: `google/gemma-4-e4b` (LM Studio), `llama3.1:8b` (Ollama), `openai/gpt-5` (OpenRouter). `normalize_model_id` only trims whitespace — it never requires, strips or case-folds a prefix, because a leading segment like `openai/` can be part of the real ID. (LiteLLM's `openai/` transport prefix was dropped together with LiteLLM.)
 
-**Runtime Selection** — `LLMFactory.get_router_model(language)` builds a `ChatLiteLLMRouter` from the `chat` role provider chain and forwards retry/routing policy from `llm.router`:
-
-```python
-from langchain_litellm import ChatLiteLLMRouter
-from litellm import Router
-
-def get_router_model(self, language: str) -> ChatLiteLLMRouter:
-    model_list = []
-    for index, ref in enumerate(self.config.llm.roles.chat.providers):
-        provider = self.config.llm.get_provider(ref.provider_id)
-        model_name = provider.models.get(language) or provider.models.get("en")
-        label = "primary" if index == 0 else "fallback"
-        model_list.append({"model_name": label, "litellm_params": {"model": model_name}})
-
-    router = Router(
-        model_list=model_list,
-        routing_strategy=self.config.llm.router.routing_strategy,
-        num_retries=self.config.llm.router.num_retries,
-        retry_after=self.config.llm.router.retry_after,
-    )
-    return ChatLiteLLMRouter(router=router)
-```
+The former `llm.router` section (LiteLLM routing, fallbacks, cooldowns) is gone; a leftover `router:` block fails config validation. Since each role has a single endpoint, the router only ever contributed retries, which are now `llm.max_retries`.
 
 ### **7.3 Token Tracking**
 
 **Model-Aware Input Counting:**
 
-`count_tokens_for_model(model_name, text)` in `universal_agentic_framework/llm/budget.py` uses `litellm.token_counter()` with tiktoken for model-specific token counting. It is called in `node_summarize` for pre-call node_tokens estimation. Falls back to `estimate_tokens()` (character-based approximation) if tiktoken raises an exception for the given model ID.
+`node_summarize` estimates its input with `estimate_content_tokens(text)` from `universal_agentic_framework/llm/budget.py`, the same digit/punctuation-aware estimator used for the user-file budget (it errs on the high side for number-heavy text).
 
 **Real LLM Usage Capture:**
 
@@ -816,16 +769,14 @@ The framework uses a **three-tier tool selection architecture** that combines se
 - "Default" parser: All other models (including LFM2) — LM Studio injects a system prompt and parses generically
 - If a model's default parsing is unreliable, switch that model to `model_tool_calling: structured` in config
 
-### **8.4 LiteLLM Integration**
+### **8.4 OpenAI-Compatible Client**
 
-`LLMFactory` uses `langchain-litellm` as the sole provider abstraction. `langchain-openai` and `langchain-ollama` have been removed from the dependency tree.
+`LLMFactory` uses `OpenAICompatibleChat` (see 7.1) as the only chat-model client; `langchain-openai` is a dependency only for its `BaseChatOpenAI` base class, and only `llm/chat_model.py` may import it (guarded by `test_llm_client_imports_are_confined`). LiteLLM was removed.
 
-- `ChatLiteLLM` — single model calls; provider detected from model string prefix (`openai/`)
-- `ChatLiteLLMRouter` wrapping `litellm.Router` — primary→fallback routing with `num_retries=3`; `get_router_model()` in `graph_builder.py` uses this path
-- LiteLLM handles provider detection, streaming normalization, retries, and tool format translation
-- The framework retains all orchestration logic (graph, routing, memory, RAG)
-- **`api_base` / `api_key` construction rule**: must be passed as top-level `ChatLiteLLM` constructor kwargs. Placing them only in `model_kwargs` causes `AuthenticationError`.
-- **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` normalizes any input format (raw `liquid/lfm2-24b-a2b`, bare `lfm2-24b-a2b`, or prefixed `openai/liquid/lfm2-24b-a2b`) to the canonical `openai/<id>` form.
+- Every endpoint is reached over its OpenAI-compatible `/v1` API; there is no provider detection from the model string
+- Native tool calling uses `bind_tools()` on the model directly; structured and ReAct modes bind no tools (and send no `tool_choice`)
+- Retries come from the OpenAI SDK (`llm.max_retries`); the framework retains all orchestration logic (graph, routing, memory, RAG)
+- **Preferred-model validation**: `_validate_preferred_model` in `backend/routers/chat.py` checks the requested ID verbatim against the chat endpoint's `/models` list (cached 60 s per endpoint); an unknown ID falls back to the default model with a warning, and validation fails open when the endpoint is unreachable.
 - **Date anchoring**: `node_generate_response` appends a compact `[Today: YYYY-MM-DD...]` line to the system prompt.
 
 → **Implementation details:** [Tool Development Guide](tool_development_guide.md)

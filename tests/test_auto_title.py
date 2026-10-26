@@ -142,7 +142,7 @@ class _FakeLLM:
         return _FakeProvider()
 
     def get_role_model_name(self, role: str, language: str) -> str:
-        return "openai/test-model"
+        return "test-model"
 
 
 class _FakeConfig:

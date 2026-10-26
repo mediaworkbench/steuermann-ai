@@ -47,27 +47,13 @@ from universal_agentic_framework.config import (
     load_profile_ui_config,
     load_tools_config,
 )
-from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
+from universal_agentic_framework.llm.provider_registry import normalize_model_id
 from universal_agentic_framework.orchestration.procedural_node import invalidate_procedural_cache
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_api_access)])
-
-KNOWN_PROVIDER_PREFIXES = {
-    "openai",
-    "ollama",
-    "lm_studio",
-    "openrouter",
-    "anthropic",
-    "azure",
-    "bedrock",
-    "groq",
-    "mistral",
-    "vertex_ai",
-}
-
 
 def _resolve_primary_provider_endpoint() -> str:
     """Resolve primary chat provider endpoint strictly from active config."""
@@ -237,18 +223,9 @@ def _trigger_reprobe_on_model_change(request: Request, new_model: str) -> None:
 def _normalize_preferred_model_value(raw_model: Optional[str]) -> Optional[str]:
     if not raw_model:
         return None
+    # Model IDs are the endpoint's own (``google/gemma-4-e4b``, ``llama3.1:8b``).
     preferred_model = str(raw_model).strip()
-    if not preferred_model:
-        return None
-    if "/" in preferred_model:
-        try:
-            provider = parse_model_id(preferred_model).provider
-            if provider in KNOWN_PROVIDER_PREFIXES:
-                preferred_model = normalize_model_id(preferred_model)
-        except Exception:
-            # Unknown/non-provider slash patterns (e.g., org/model) are preserved.
-            pass
-    return preferred_model
+    return preferred_model or None
 
 
 async def _validate_chat_preference(model_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -263,58 +240,23 @@ async def _validate_chat_preference(model_name: Optional[str]) -> tuple[Optional
 async def _fetch_provider_models(
     provider: Any, preferred_language: str = "en"
 ) -> Tuple[List[str], Dict[str, int]]:
-    """Return (canonical_model_names, context_window_by_canonical_name).
+    """Return (model_ids, context_window_by_model_id) from the provider's /models endpoint.
 
-    context_window_by_canonical_name maps canonical model IDs to max_context_length
-    as reported by the provider's /models endpoint (e.g. LM Studio).
-    Providers that do not report this field (Ollama) return an empty dict.
+    Model IDs are returned exactly as the endpoint reports them. context_window_by_model_id
+    maps them to the context length the provider reports (e.g. LM Studio); providers
+    that do not report it return an empty dict.
     """
-    provider_models = [m for m in provider.models.model_dump().values() if m]
-    default_model = (
-        getattr(provider.models, preferred_language, None)
-        or getattr(provider.models, "en", None)
-        or (provider_models[0] if provider_models else None)
-    )
-    provider_prefix = "openai"
-    if default_model:
-        try:
-            provider_prefix = parse_model_id(str(default_model)).provider
-        except Exception:
-            pass
-
-    def _canonical_model_name(raw_name: str) -> str:
-        raw_name = str(raw_name).strip()
-        if not raw_name:
-            return raw_name
-        if "/" not in raw_name:
-            return f"{provider_prefix}/{raw_name}"
-        head = raw_name.split("/", 1)[0].strip().lower()
-        if head in KNOWN_PROVIDER_PREFIXES:
-            return raw_name
-        return f"{provider_prefix}/{raw_name}"
-
     async with httpx.AsyncClient(timeout=5.0) as client:
         base = str(getattr(provider, "api_base", "") or "").rstrip("/")
         if not base:
             return [], {}
-        try:
-            resp = await client.get(f"{base}/models")
-            resp.raise_for_status()
-            data = resp.json()
-            raw_models = [m for m in data.get("data", []) if m.get("id")]
-            model_names = [m.get("id") for m in raw_models]
-        except Exception:
-            if provider_prefix != "ollama":
-                raise
-            resp = await client.get(f"{base}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-            model_names = [m.get("name") for m in data.get("models", []) if m.get("name")]
-            raw_models = []
+        resp = await client.get(f"{base}/models")
+        resp.raise_for_status()
+        raw_models = [m for m in resp.json().get("data", []) if m.get("id")]
+        model_names = [str(m.get("id")).strip() for m in raw_models]
 
-    canonical_names = [_canonical_model_name(n) for n in model_names]
-    canonical_names = [
-        n for n in canonical_names
+    chat_model_names = [
+        n for n in model_names
         if not any(skip in n.lower() for skip in ("bge-", "nomic-embed", "embed"))
     ]
 
@@ -327,11 +269,11 @@ async def _fetch_provider_models(
         ctx = m.get("context_length") or m.get("max_context_length")
         if raw_id and ctx:
             try:
-                context_windows[_canonical_model_name(raw_id)] = int(ctx)
+                context_windows[str(raw_id).strip()] = int(ctx)
             except (TypeError, ValueError):
                 pass
 
-    return sorted(set(canonical_names)), context_windows
+    return sorted(set(chat_model_names)), context_windows
 
 
 def _compute_effective_mode(desired_mode: str, probe_row: Optional[Dict[str, Any]]) -> tuple[str, str]:
@@ -813,7 +755,7 @@ def list_heartbeat_runs(
 
 @router.get("/models")
 async def list_available_models() -> Dict[str, Any]:
-    """Fetch available LLM models and return canonical provider-prefixed IDs."""
+    """Fetch the chat endpoint's available models (IDs exactly as the endpoint reports them)."""
     try:
         core = load_core_config()
         models, _ = await _fetch_provider_models(core.llm.get_role_provider("chat"), preferred_language=core.profile.language)
