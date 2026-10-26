@@ -1,19 +1,28 @@
 """Model resolution and fallback logic helpers."""
 
+import re
 from typing import Any, Optional, Tuple
 
-from universal_agentic_framework.llm.factory import LLMFactory
+import openai
+from langchain_core.exceptions import (
+    ContextOverflowError,
+    ModelAPIError,
+    ModelAuthenticationError,
+    ModelConnectionError,
+    ModelPermissionDeniedError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
+
+from universal_agentic_framework.llm.factory import LLMFactory, build_chat_model
 from universal_agentic_framework.llm.provider_registry import normalize_model_id
 
-try:
-    from litellm.exceptions import (
-        ContextWindowExceededError as _CWE,
-        RateLimitError as _RLE,
-        AuthenticationError as _AE,
-        ServiceUnavailableError as _SUE,
-    )
-except ImportError:
-    _CWE = _RLE = _AE = _SUE = None  # type: ignore[assignment,misc]
+# Local servers report an overflowing prompt as a plain 400 text, not with OpenAI's
+# ``context_length_exceeded`` code — match the usual phrasings as well.
+_CONTEXT_OVERFLOW_RE = re.compile(
+    r"context[ _](length|window)|maximum context|context_length_exceeded|n_ctx",
+    re.IGNORECASE,
+)
 
 
 def _normalize_response_text(raw: Any) -> str:
@@ -50,58 +59,75 @@ def _normalize_response_text(raw: Any) -> str:
 
 
 def _classify_error(exc: Exception) -> str:
-    if _CWE and isinstance(exc, _CWE):
+    """Map a model error onto the error types the respond node reports to users.
+
+    LangChain's provider-agnostic error classes come first: langchain-openai raises them
+    (e.g. a context overflow reported as a non-400 ``APIError``) and any other chat-model
+    builder would too. The raw OpenAI-SDK classes cover errors raised outside a chat model.
+    """
+    if isinstance(exc, ContextOverflowError):
         return "context_window_exceeded"
-    if _RLE and isinstance(exc, _RLE):
+    if isinstance(exc, openai.BadRequestError):
+        # Local servers (LM Studio, llama.cpp) report an overflow as plain 400 text that
+        # langchain-openai does not recognise.
+        code = str(getattr(exc, "code", "") or "")
+        if code == "context_length_exceeded" or _CONTEXT_OVERFLOW_RE.search(str(exc)):
+            return "context_window_exceeded"
+        return "error"
+    if isinstance(exc, (ModelRateLimitError, openai.RateLimitError)):
         return "rate_limit"
-    if _AE and isinstance(exc, _AE):
+    if isinstance(
+        exc,
+        (ModelAuthenticationError, ModelPermissionDeniedError, openai.AuthenticationError, openai.PermissionDeniedError),
+    ):
         return "auth_error"
-    if _SUE and isinstance(exc, _SUE):
+    # APITimeoutError subclasses APIConnectionError; InternalServerError covers 5xx.
+    if isinstance(
+        exc,
+        (ModelConnectionError, ModelTimeoutError, ModelAPIError, openai.APIConnectionError, openai.InternalServerError),
+    ):
         return "service_unavailable"
     return "error"
 
 
 def get_auxiliary_model(config, language: str = "en"):
-    """Return (ChatLiteLLM, provider_id, model_name) for the auxiliary role.
+    """Return (chat model, provider_id, model_name) for the auxiliary role.
 
     Falls back to the chat role if auxiliary is not configured.
     Language accepted for API consistency; ignored by the flat per-role schema.
     """
-    from universal_agentic_framework.llm.factory import build_litellm_chat
     role_name = "auxiliary" if getattr(getattr(config.llm, "roles", None), "auxiliary", None) is not None else "chat"
     provider = config.llm.get_role_provider(role_name)
     model_name = config.llm.get_role_model_name(role_name, language)
-    llm = build_litellm_chat(provider, model_name)
+    llm = build_chat_model(provider, model_name)
     provider_id = getattr(provider, "provider_id", role_name)
     return llm, provider_id, model_name
 
 
 def get_vision_model(config, language: str = "en"):
-    """Return (ChatLiteLLM, provider_id, model_name) for the vision role.
+    """Return (chat model, provider_id, model_name) for the vision role.
 
     Raises ValueError if llm.roles.vision is not configured — callers should
     check for vision role availability before calling this.
     """
-    from universal_agentic_framework.llm.factory import build_litellm_chat
     provider = config.llm.get_role_provider("vision")
     model_name = config.llm.get_role_model_name("vision", language)
-    llm = build_litellm_chat(provider, model_name)
+    llm = build_chat_model(provider, model_name)
     provider_id = getattr(provider, "provider_id", "vision")
     return llm, provider_id, model_name
 
 
 def get_model(config, language: str, preferred_model: Optional[str] = None):
-    """Return a ChatLiteLLMRouter for the given language/model preference.
+    """Return the chat model for the given language/model preference.
 
-    Always uses the Router so that LiteLLM's native retry and fallback semantics
-    apply regardless of whether a preferred_model override is in effect.
+    Retries happen in the client (``llm.max_retries``).
 
     Raises:
         Exception: Propagates any error from LLMFactory (provider misconfiguration,
             unreachable service, etc.) — callers must not silently swallow this.
     """
     factory = LLMFactory(config)
-    return factory.get_router_model(language=language, preferred_model=preferred_model)
+    return factory.get_model(language=language, preferred_model=preferred_model)
 
 
 def resolve_initial_model_metadata(config: Any, language: str, preferred_model: Optional[str]) -> Tuple[str, str]:
@@ -138,12 +164,12 @@ def invoke_with_model_fallback(
     logger: Optional[Any] = None,
     error_cls: Optional[type] = None,
 ) -> Tuple[str, str, str, object, Optional[dict]]:
-    """Invoke a model (expected to be ChatLiteLLMRouter) and normalize the response.
+    """Invoke a chat model and normalize the response.
 
     Returns (text, provider, model_name, model, usage_metadata).
 
-    The Router handles retries and provider fallbacks internally. This function's
-    responsibility is response normalization and error classification/wrapping.
+    The model's client retries transient failures itself (``llm.max_retries``). This
+    function's responsibility is response normalization and error classification/wrapping.
     """
     try:
         invoke_fn = getattr(initial_model, "invoke", None)

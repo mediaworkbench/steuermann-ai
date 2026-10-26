@@ -349,7 +349,7 @@ See [docs/cli.md](docs/cli.md) for the full command reference.
 | Layer | Technology | Purpose |
 | --- | --- | --- |
 | Orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) ≥1.1 | Workflow engine, state management, checkpointing |
-| LLM Integration | LangChain ≥1.2 + LiteLLM router | Unified LLM interface via LiteLLM router |
+| LLM Integration | LangChain ≥1.2 + langchain-openai | One client for every OpenAI-compatible endpoint (LM Studio, Ollama, OpenRouter, gateways) |
 | Backend | [FastAPI](https://fastapi.tiangolo.com/) ≥0.135 | REST API, auth, metrics proxy |
 | Frontend | [Next.js](https://nextjs.org/) ≥16 + React 19 | Production UI with App Router |
 | Vector Store | [Qdrant](https://qdrant.tech/) ≥1.7 | RAG embeddings and Mem0 internal vector store |

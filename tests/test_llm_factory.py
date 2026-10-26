@@ -16,7 +16,7 @@ from universal_agentic_framework.config.schemas import (
     MemorySettings,
 )
 from universal_agentic_framework.llm.factory import LLMFactory
-from universal_agentic_framework.llm.provider_registry import normalize_model_id, parse_model_id
+from universal_agentic_framework.llm.provider_registry import normalize_model_id
 
 
 class DummyModel:
@@ -44,7 +44,7 @@ def _core_config(primary_model: str = "local-model") -> CoreConfig:
                 embedding=LLMRoleSettings(
                     provider_id="lmstudio",
                     api_base="http://localhost:1234/v1",
-                    model="openai/text-embedding-granite-embedding-278m-multilingual",
+                    model="text-embedding-granite-embedding-278m-multilingual",
                 ),
                 vision=LLMRoleSettings(
                     provider_id="lmstudio",
@@ -71,45 +71,45 @@ def _core_config(primary_model: str = "local-model") -> CoreConfig:
 
 def test_llm_factory_primary_selection():
     factory = LLMFactory(
-        config=_core_config(primary_model="openai/local-model"),
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        config=_core_config(primary_model="local-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
     model = factory.get_model(language="en")
     assert isinstance(model, DummyModel)
-    assert model.label == "mock:openai/local-model"
+    assert model.label == "mock:local-model"
 
 
 def test_llm_factory_uses_primary_for_any_language():
     factory = LLMFactory(
-        config=_core_config(primary_model="openai/remote-model"),
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        config=_core_config(primary_model="remote-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
     model = factory.get_model(language="de")
-    assert model.label == "mock:openai/remote-model"
+    assert model.label == "mock:remote-model"
 
 
 def test_llm_factory_model_selection_metadata():
     factory = LLMFactory(
-        config=_core_config(primary_model="openai/local-model"),
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        config=_core_config(primary_model="local-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
 
     selection = factory.get_model_selection(language="en")
     assert isinstance(selection.model, DummyModel)
-    assert selection.provider_type == "openai"
-    assert selection.model_name == "openai/local-model"
+    assert selection.provider_type == "lmstudio"  # the role's provider_id
+    assert selection.model_name == "local-model"
     assert selection.source == "primary_default"
 
 
 def test_llm_factory_candidate_order_with_preferred_model():
     factory = LLMFactory(
-        config=_core_config(primary_model="openai/local-model"),
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        config=_core_config(primary_model="local-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
 
     candidates = factory.get_model_candidates(
         language="en",
-        preferred_model="openai/preferred-model",
+        preferred_model="preferred-model",
     )
 
     assert [candidate.source for candidate in candidates] == [
@@ -117,20 +117,20 @@ def test_llm_factory_candidate_order_with_preferred_model():
         "primary_default",
     ]
     assert [candidate.model_name for candidate in candidates] == [
-        "openai/preferred-model",
-        "openai/local-model",
+        "preferred-model",
+        "local-model",
     ]
 
 
 def test_llm_factory_candidate_order_with_preferred_model_strict():
     factory = LLMFactory(
-        config=_core_config(primary_model="openai/local-model"),
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        config=_core_config(primary_model="local-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
 
     candidates = factory.get_model_candidates(
         language="en",
-        preferred_model="openai/preferred-model",
+        preferred_model="preferred-model",
         include_default_when_preferred=False,
     )
 
@@ -138,126 +138,150 @@ def test_llm_factory_candidate_order_with_preferred_model_strict():
         "primary_preferred",
     ]
     assert [candidate.model_name for candidate in candidates] == [
-        "openai/preferred-model",
+        "preferred-model",
     ]
 
 
 def test_llm_factory_prefers_role_level_model_override():
-    config = _core_config(primary_model="openai/provider-default")
-    config.llm.roles.chat.model = "openai/chat-role-override"
+    config = _core_config(primary_model="provider-default")
+    config.llm.roles.chat.model = "chat-role-override"
 
     factory = LLMFactory(
         config=config,
-        builders={"mock": lambda _provider, model: DummyModel(f"mock:{model}")},
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
 
     model = factory.get_model(language="en")
     assert isinstance(model, DummyModel)
-    assert model.label == "mock:openai/chat-role-override"
+    assert model.label == "mock:chat-role-override"
 
 
-def test_provider_settings_normalizes_known_provider_aliases():
-    settings = ProviderSettings(
-        api_base=None,
-        api_key=None,
-        models=ProviderModelMap(en="lmstudio/liquid/lfm2-24b-a2b"),
-    )
-
-    assert settings.models.en == "lm_studio/liquid/lfm2-24b-a2b"
-    parsed = parse_model_id(settings.models.en)
-    assert parsed.provider == "lm_studio"
-    assert parsed.model == "liquid/lfm2-24b-a2b"
+def test_normalize_model_id_keeps_ids_verbatim():
+    """Model IDs are the endpoint's own: no prefix is required, stripped or case-folded."""
+    assert normalize_model_id("openai/gpt-5") == "openai/gpt-5"  # OpenRouter ID
+    assert normalize_model_id("  Qwen/Qwen3-8B ") == "Qwen/Qwen3-8B"
+    assert normalize_model_id("llama3.1:8b") == "llama3.1:8b"
 
 
-def test_normalize_model_id_accepts_openai_prefixed_model():
-    assert normalize_model_id("openai/liquid/lfm2-24b-a2b") == "openai/liquid/lfm2-24b-a2b"
+def test_normalize_model_id_rejects_empty():
+    import pytest
 
-
-def test_parse_model_id_accepts_openai_prefixed_model():
-    parsed = parse_model_id("openai/liquid/lfm2-24b-a2b")
-    assert parsed.provider == "openai"
-    assert parsed.model == "liquid/lfm2-24b-a2b"
+    with pytest.raises(ValueError):
+        normalize_model_id("   ")
 
 
 # ---------------------------------------------------------------------------
-# Phase J — LiteLLM router contract tests
+# OpenAI-compatible chat model contract
 # ---------------------------------------------------------------------------
 
-def test_get_router_model_returns_chat_litellm_router():
-    """get_router_model() must return a ChatLiteLLMRouter wrapping a litellm.Router."""
-    from langchain_litellm import ChatLiteLLMRouter
-    from litellm import Router
+def test_get_model_builds_openai_compatible_chat():
+    """The default builder returns OpenAICompatibleChat configured from the chat role."""
+    from universal_agentic_framework.llm.chat_model import OpenAICompatibleChat
 
-    factory = LLMFactory(config=_core_config(
-        primary_model="openai/primary-model",
-    ))
-    router_model = factory.get_router_model(language="en")
+    model = LLMFactory(config=_core_config(primary_model="primary-model")).get_model(language="en")
 
-    assert isinstance(router_model, ChatLiteLLMRouter), (
-        f"Expected ChatLiteLLMRouter, got {type(router_model)}"
+    assert isinstance(model, OpenAICompatibleChat)
+    assert model.model_name == "primary-model"
+    assert model.openai_api_base == "http://localhost:1234/v1"
+    assert model.max_retries == 3
+    assert model.streaming is True
+    assert model.stream_usage is True
+    assert model.use_responses_api is False
+
+
+def test_get_model_sends_max_tokens_not_max_completion_tokens():
+    """OpenAI-compatible servers document ``max_tokens``; ChatOpenAI would rename it."""
+    from langchain_core.messages import HumanMessage
+
+    model = LLMFactory(config=_core_config(primary_model="primary-model")).get_model(language="en")
+    payload = model._get_request_payload([HumanMessage(content="hi")])
+
+    assert payload["max_tokens"] == 256
+    assert "max_completion_tokens" not in payload
+    assert "tool_choice" not in payload
+
+
+def test_get_model_uses_llm_max_retries():
+    config = _core_config(primary_model="primary-model")
+    config.llm.max_retries = 7
+
+    assert LLMFactory(config=config).get_model(language="en").max_retries == 7
+
+
+def test_model_id_is_sent_verbatim():
+    """A gateway ID that starts with ``openai/`` (OpenRouter) reaches the endpoint unchanged."""
+    model = LLMFactory(config=_core_config(primary_model="openai/gpt-5")).get_model(language="en")
+
+    assert model.model_name == "openai/gpt-5"
+
+
+def test_get_model_with_preferred_model_builds_that_model():
+    factory = LLMFactory(
+        config=_core_config(primary_model="local-model"),
+        builders={"openai_compatible": lambda _provider, model: DummyModel(f"mock:{model}")},
     )
-    assert isinstance(router_model.router, Router), (
-        f"Expected litellm.Router inside ChatLiteLLMRouter, got {type(router_model.router)}"
+
+    assert factory.get_model(language="en", preferred_model="preferred-model").label == (
+        "mock:preferred-model"
     )
 
 
-def test_get_router_model_primary_only():
-    """get_router_model() must work with single role provider."""
-    from langchain_litellm import ChatLiteLLMRouter
+def test_missing_builder_for_api_type_fails():
+    import pytest
 
-    config = _core_config(primary_model="openai/primary-model")
-
-    factory = LLMFactory(config=config)
-    router_model = factory.get_router_model(language="en")
-
-    assert isinstance(router_model, ChatLiteLLMRouter)
-    # Only one model in the Router's model_list
-    assert len(router_model.router.model_list) == 1
-    assert router_model.router.model_list[0]["model_name"] == "primary"
+    factory = LLMFactory(
+        config=_core_config(primary_model="local-model"),
+        builders={"other": lambda _provider, model: DummyModel(model)},
+    )
+    with pytest.raises(RuntimeError, match="No LLM builder registered for api_type 'openai_compatible'"):
+        factory.get_model(language="en")
 
 
-def test_get_router_model_uses_profile_router_settings():
-    factory = LLMFactory(config=_core_config(
-        primary_model="openai/primary-model",
-    ))
-    factory.config.llm.router.num_retries = 7
-    factory.config.llm.router.retry_after = 4
-    factory.config.llm.router.routing_strategy = "latency-based-routing"
-    factory.config.llm.router.default_max_parallel_requests = 9
+def test_llm_router_section_is_rejected():
+    import pytest
+    from pydantic import ValidationError
 
-    router_model = factory.get_router_model(language="en")
-
-    assert router_model.router.num_retries == 7
-    assert router_model.router.retry_after == 4
-    assert router_model.router.routing_strategy == "latency-based-routing"
-    assert router_model.router.model_list[0]["litellm_params"]["max_parallel_requests"] == 9
+    roles = _core_config(primary_model="local-model").llm.roles.model_dump()
+    with pytest.raises(ValidationError, match="llm.router is no longer supported"):
+        LLMSettings.model_validate({"roles": roles, "router": {"num_retries": 3}})
 
 
-def test_no_legacy_llm_provider_imports():
-    """Codebase must not import langchain_openai or langchain_ollama directly."""
+def test_llm_max_retries_defaults_to_three():
+    assert _core_config(primary_model="local-model").llm.max_retries == 3
+
+
+def test_llm_client_imports_are_confined():
+    """No litellm anywhere; langchain_openai (internal hooks) only in llm/chat_model.py."""
     import ast
     import os
 
-    forbidden = {"langchain_openai", "langchain_ollama"}
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    always_forbidden = {"litellm", "langchain_litellm", "langchain_ollama"}
+    allowed_openai_module = os.path.join(repo_root, "universal_agentic_framework", "llm", "chat_model.py")
     violations = []
+    scanned = 0
 
-    for root, _dirs, files in os.walk("universal_agentic_framework"):
-        for fname in files:
-            if not fname.endswith(".py"):
-                continue
-            path = os.path.join(root, fname)
-            try:
-                tree = ast.parse(open(path).read(), filename=path)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    module = (
-                        node.module if isinstance(node, ast.ImportFrom) else None
-                    )
-                    for alias in getattr(node, "names", []):
+    for top_dir in ("universal_agentic_framework", "backend"):
+        for root, _dirs, files in os.walk(os.path.join(repo_root, top_dir)):
+            for fname in files:
+                if not fname.endswith(".py"):
+                    continue
+                path = os.path.join(root, fname)
+                scanned += 1
+                try:
+                    tree = ast.parse(open(path).read(), filename=path)
+                except SyntaxError:
+                    continue
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                        continue
+                    module = node.module if isinstance(node, ast.ImportFrom) else None
+                    for alias in node.names:
                         top = (module or alias.name).split(".")[0]
-                        if top in forbidden:
+                        if top in always_forbidden:
                             violations.append(f"{path}: imports {top}")
+                        elif top == "langchain_openai" and path != allowed_openai_module:
+                            violations.append(f"{path}: imports langchain_openai outside llm/chat_model.py")
 
-    assert not violations, "Legacy provider imports found:\n" + "\n".join(violations)
+    assert scanned > 50, f"import guard scanned only {scanned} files — wrong root?"
+    assert not violations, "Disallowed LLM client imports found:\n" + "\n".join(violations)

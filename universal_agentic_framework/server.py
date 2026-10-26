@@ -735,7 +735,7 @@ async def stream_graph(request: Dict[str, Any]) -> StreamingResponse:
                                     _captured_input_tokens = _in
                                 if _out > 0:
                                     _captured_output_tokens = _out
-                            # Native reasoning_content field (LM Studio / LiteLLM / Ollama)
+                            # Native reasoning_content field (copied from the provider by OpenAICompatibleChat)
                             # takes priority: emit directly without going through the tag parser.
                             _ak = getattr(chunk, "additional_kwargs", {}) or {}
                             _reasoning_delta = _ak.get("reasoning_content") or ""

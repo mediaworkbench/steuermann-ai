@@ -33,7 +33,7 @@ def _make_core_config(provider):
         llm=SimpleNamespace(
             roles=SimpleNamespace(chat=object(), vision=object(), auxiliary=object()),
             get_role_provider_chain_with_models=lambda role_name, _lang: [
-                ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")
+                ("lmstudio", provider, "liquid/lfm2-24b-a2b")
             ] if role_name in {"chat", "vision", "auxiliary"} else [],
         ),
         profile=SimpleNamespace(language="en"),
@@ -102,7 +102,7 @@ class TestFetchModelMetadata:
             "data": [{"id": "google/gemma-4-e4b", "type": "vlm", "loaded_context_length": 16384}]
         })
         with patch("backend.llm_capability_probe.httpx.Client", return_value=client):
-            result = _fetch_model_metadata("http://localhost:1234/v1", "openai/google/gemma-4-e4b")
+            result = _fetch_model_metadata("http://localhost:1234/v1", "google/gemma-4-e4b")
 
         assert result["supports_vision"] is True
         assert result["context_window_tokens"] == 16384
@@ -113,7 +113,7 @@ class TestFetchModelMetadata:
             compat_response={"data": [{"id": "google/gemma-4-e4b", "context_length": 8192, "type": "vlm"}]},
         )
         with patch("backend.llm_capability_probe.httpx.Client", return_value=client):
-            result = _fetch_model_metadata("http://localhost:1234/v1", "openai/google/gemma-4-e4b")
+            result = _fetch_model_metadata("http://localhost:1234/v1", "google/gemma-4-e4b")
 
         assert result["supports_vision"] is True
         assert result["context_window_tokens"] == 8192
@@ -123,7 +123,7 @@ class TestFetchModelMetadata:
             "data": [{"id": "google/gemma-4-e4b", "max_context_length": 4096}]
         })
         with patch("backend.llm_capability_probe.httpx.Client", return_value=client):
-            result = _fetch_model_metadata("http://localhost:1234/v1", "openai/google/gemma-4-e4b")
+            result = _fetch_model_metadata("http://localhost:1234/v1", "google/gemma-4-e4b")
 
         assert result["context_window_tokens"] == 4096
         assert "supports_vision" not in result
@@ -131,7 +131,7 @@ class TestFetchModelMetadata:
     def test_returns_empty_dict_on_network_error(self):
         with patch("backend.llm_capability_probe.httpx.Client") as mock_cls:
             mock_cls.return_value.__enter__ = MagicMock(side_effect=Exception("connection refused"))
-            result = _fetch_model_metadata("http://localhost:1234/v1", "openai/some/model")
+            result = _fetch_model_metadata("http://localhost:1234/v1", "some/model")
 
         assert result == {}
 
@@ -144,7 +144,7 @@ def test_probe_runner_native_success():
     provider = SimpleNamespace(
         tool_calling="native",
         api_base="http://host.docker.internal:1234/v1",
-        models=SimpleNamespace(en="openai/liquid/lfm2-24b-a2b"),
+        models=SimpleNamespace(en="liquid/lfm2-24b-a2b"),
     )
     runner = LLMCapabilityProbeRunner(core_config=_make_core_config(provider), profile_id="starter")
     runner._factory = _FakeFactory(_Model())
@@ -166,7 +166,7 @@ def test_probe_runner_native_bind_failure_marks_mismatch():
     provider = SimpleNamespace(
         tool_calling="native",
         api_base="http://host.docker.internal:1234/v1",
-        models=SimpleNamespace(en="openai/liquid/lfm2-24b-a2b"),
+        models=SimpleNamespace(en="liquid/lfm2-24b-a2b"),
     )
     runner = LLMCapabilityProbeRunner(core_config=_make_core_config(provider), profile_id="starter")
     runner._factory = _FakeFactory(_Model())
@@ -185,7 +185,7 @@ def test_probe_runner_non_native_mode_is_config_only_ok():
     provider = SimpleNamespace(
         tool_calling="structured",
         api_base="http://host.docker.internal:1234/v1",
-        models=SimpleNamespace(en="openai/liquid/lfm2-24b-a2b"),
+        models=SimpleNamespace(en="liquid/lfm2-24b-a2b"),
     )
     runner = LLMCapabilityProbeRunner(core_config=_make_core_config(provider), profile_id="starter")
 
@@ -215,7 +215,7 @@ def test_startup_probe_persists_results(monkeypatch):
                 LLMCapabilityProbeResult(
                     profile_id=self._profile_id,
                     provider_id="lmstudio",
-                    model_name="openai/liquid/lfm2-24b-a2b",
+                    model_name="liquid/lfm2-24b-a2b",
                     configured_tool_calling_mode="native",
                     supports_bind_tools=True,
                     supports_tool_schema=True,

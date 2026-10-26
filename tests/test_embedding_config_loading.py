@@ -28,7 +28,7 @@ class TestEmbeddingConfigLoading:
     def test_default_embedding_model_is_granite(self):
         """Test that default embedding model is the Granite model."""
         config = self._load()
-        assert config.llm.roles.embedding.model == "openai/text-embedding-granite-embedding-278m-multilingual"
+        assert config.llm.roles.embedding.model == "text-embedding-granite-embedding-278m-multilingual"
     
     def test_default_embedding_dimension_is_768(self):
         """Test that default embedding dimension matches Granite (768)."""
@@ -62,7 +62,7 @@ class TestEmbeddingConfigLoading:
                 config.tool_routing.embedding_model 
                 or config.llm.roles.embedding.model
             )
-            assert embedding_model == "openai/text-embedding-granite-embedding-278m-multilingual"
+            assert embedding_model == "text-embedding-granite-embedding-278m-multilingual"
     
     def test_embedding_provider_factory_accepts_config(self):
         """Test that build_embedding_provider works with config settings.
@@ -154,19 +154,18 @@ class TestEmbeddingConfigOverrides:
             # This is OK - we're just testing the configuration loads
             assert "Failed" in str(e) or "Connection" in str(e)
 
-    def test_embedding_model_name_normalization_strips_openai_prefix(self):
-        """Embedding model IDs should be normalized for /embeddings endpoints."""
-        assert normalize_embedding_model_name(
-            "openai/text-embedding-granite-embedding-278m-multilingual"
-        ) == "text-embedding-granite-embedding-278m-multilingual"
+    def test_embedding_model_name_is_kept_verbatim(self):
+        """Embedding model IDs are the endpoint's own; only whitespace is trimmed."""
+        assert normalize_embedding_model_name("  text-embedding-granite-embedding-278m-multilingual ") == "text-embedding-granite-embedding-278m-multilingual"
+        assert normalize_embedding_model_name("openai/text-embedding-3-small") == "openai/text-embedding-3-small"
 
     def test_remote_provider_stores_normalized_model_name(self):
-        """Remote provider should strip LiteLLM-style prefixes for embedding calls.
+        """Remote provider stores the embedding model ID as the endpoint knows it.
 
         Uses a non-placeholder URL — provider init stores config only, no network call.
         """
         provider = build_embedding_provider(
-            model_name="openai/text-embedding-granite-embedding-278m-multilingual",
+            model_name=" text-embedding-granite-embedding-278m-multilingual ",
             dimension=768,
             provider_type="remote",
             remote_endpoint="http://localhost:1234/v1",

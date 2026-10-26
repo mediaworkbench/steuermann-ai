@@ -88,7 +88,7 @@ llm:
     chat:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/google/gemma-4-e4b"
+      model: "google/gemma-4-e4b"
       temperature: 0.3          # 0.0-2.0; higher = more creative
       max_tokens: 16384         # output cap (NOT the context window)
       timeout: 600
@@ -100,14 +100,14 @@ llm:
     embedding:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      model: "text-embedding-granite-embedding-278m-multilingual"
       temperature: 0.0
       timeout: 300
 
     vision:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/google/gemma-4-e4b"
+      model: "google/gemma-4-e4b"
       temperature: 0.2
       max_tokens: 2048
       timeout: 600
@@ -115,17 +115,13 @@ llm:
     auxiliary:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/google/gemma-4-e2b"
+      model: "google/gemma-4-e2b"
       temperature: 0.2
       max_tokens: 16384
       timeout: 600
 
-  router:
-    routing_strategy: simple-shuffle
-    num_retries: 3
-    retry_after: 1
-    enable_pre_call_checks: true
-    default_max_parallel_requests: 4
+  # Client-side retries per LLM request (connection errors, 408/409/429/5xx, with backoff).
+  max_retries: 3
 ```
 
 **Required roles:** `chat` and `embedding` must be present in every profile overlay. `vision` and `auxiliary` are optional — omitting them is valid.
@@ -141,25 +137,15 @@ llm:
 
 **`max_tokens` vs `context_window_tokens`:** `max_tokens` is the per-response **output** cap. `context_window_tokens` is the optional **prompt budget** that drives the chat composer's context-window indicator. When omitted, the window is auto-detected at runtime (capability probe / provider `/models`); set `context_window_tokens` to override auto-detection — useful when the model is loaded with a smaller window than its maximum, or the provider does not report a context length. Resolution order: explicit config → probe metadata → `/models` map → unknown (indicator shows a raw token count instead of a percentage).
 
-**Model strings use LiteLLM's `provider/model-name` format:**
+**Endpoints and model strings:** every role talks to an OpenAI-compatible `/v1` API — LM Studio, Ollama, OpenRouter, or a gateway (e.g. the LiteLLM Proxy) in front of other providers. Model strings are the endpoint's own model IDs, sent verbatim (as listed by its `/models` endpoint):
 
-- `ollama/llama-3.1-8b` — Local Ollama (default docker-compose endpoint: `http://host.docker.internal:11434`)
-- `openai/gpt-4o` — OpenAI API (set `api_key` or `OPENAI_API_KEY` env var)
-- `anthropic/claude-3-5-sonnet-20241022` — Anthropic API (set `api_key` or `ANTHROPIC_API_KEY`)
-- `openai/google/gemma-4-e4b` — LM Studio OpenAI-compatible server (set `api_base` to `http://host.docker.internal:1234/v1`)
-- Any [LiteLLM-supported provider](https://docs.litellm.ai/docs/providers) works with the same pattern
+- `google/gemma-4-e4b` — LM Studio (`api_base: http://host.docker.internal:1234/v1`)
+- `llama3.1:8b` — Ollama's OpenAI-compatible API (`api_base: http://host.docker.internal:11434/v1`)
+- `anthropic/claude-sonnet-4` or `openai/gpt-5` — OpenRouter (`api_base: https://openrouter.ai/api/v1`, `api_key` required)
 
-**LM Studio vs Ollama:** Configure the active provider's endpoint via the corresponding env var in `.env`. For LM Studio (port `1234`) set `LLM_PROVIDERS_LMSTUDIO_API_BASE=http://host.docker.internal:1234/v1`; for Ollama (port `11434`) set `LLM_PROVIDERS_OLLAMA_API_BASE=http://host.docker.internal:11434/v1`. LM Studio requires the `openai/` prefix for all model IDs — bare IDs and the `lm_studio/` prefix are not recognised by the langchain-litellm adapter.
+Configure the active provider's endpoint via the corresponding env var in `.env` (`LLM_PROVIDERS_LMSTUDIO_API_BASE`, `LLM_PROVIDERS_OLLAMA_API_BASE`, `LLM_PROVIDERS_OPENROUTER_API_BASE`).
 
-**Multi-provider fallbacks:** Each role targets a single provider. Cross-provider failover is configured at the router level via `llm.router.fallbacks`:
-
-```yaml
-llm:
-  router:
-    fallbacks:
-      - {"openai/google/gemma-4-e4b": ["openrouter/openai/gpt-4o-mini"]}
-    default_fallbacks: ["openrouter/openai/gpt-4o-mini"]
-```
+**One endpoint per role, retries in the client:** there is no router and no cross-provider failover; `llm.max_retries` (default 3) sets how often the client retries connection errors, timeouts, 429 and 5xx responses. For failover across providers, put a gateway such as the LiteLLM Proxy or OpenRouter in front and point the role's `api_base` at it. The former `llm.router` section is rejected at config load.
 
 **Tool calling modes:**
 
@@ -178,22 +164,22 @@ llm:
     chat:
       provider_id: "lmstudio"
       api_base: $LLM_PROVIDERS_LMSTUDIO_API_BASE
-      model: "openai/google/gemma-4-e4b"
+      model: "google/gemma-4-e4b"
       temperature: 0.3
       max_tokens: 16384
       timeout: 600
       # Declare native mode when the model supports it.
       # Leave commented out to use the default (structured).
       # model_tool_calling:
-      #   openai/google/gemma-4-e4b: "native"
+      #   google/gemma-4-e4b: "native"
 ```
 
 Multiple models can be mapped independently within a single role:
 
 ```yaml
 model_tool_calling:
-  openai/openai/gpt-4o: "native"
-  openai/google/gemma-4-e4b: "structured"
+  openai/gpt-4o: "native"            # OpenRouter ID
+  google/gemma-4-e4b: "structured"
 ```
 
 **Native reliability note:**
@@ -869,7 +855,7 @@ profile:
 llm:
   roles:
     chat:
-      model: "gpt2" # ❌ Model string missing provider/ prefix (e.g. "openai/gpt-4o")
+      model: "" # ❌ Model ID must not be empty
 ```
 
 **Embedding dimension mismatch:**
@@ -937,14 +923,11 @@ llm:
     auxiliary:
       provider_id: "ollama"
       api_base: "${LLM_PROVIDERS_OLLAMA_API_BASE}"
-      model: "ollama/llama-3.1-8b"
+      model: "llama3.1:8b"
       temperature: 0.2
       max_tokens: 16384
       timeout: 300
-  router:
-    routing_strategy: simple-shuffle
-    num_retries: 3
-    retry_after: 1
+  max_retries: 3
 
 tokens:
   default_budget: 5000
@@ -972,36 +955,31 @@ llm:
     chat:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/mistral/mistral-7b-instruct"
+      model: "mistral/mistral-7b-instruct"
       temperature: 0.2          # Lower for medical accuracy
       max_tokens: 32768
       timeout: 600
     embedding:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/text-embedding-granite-embedding-278m-multilingual"
+      model: "text-embedding-granite-embedding-278m-multilingual"
       temperature: 0.0
       timeout: 300
     vision:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/mistral/mistral-7b-instruct"
+      model: "mistral/mistral-7b-instruct"
       temperature: 0.2
       max_tokens: 2048
       timeout: 600
     auxiliary:
       provider_id: "lmstudio"
       api_base: "${LLM_PROVIDERS_LMSTUDIO_API_BASE}"
-      model: "openai/mistral/mistral-7b-instruct"
+      model: "mistral/mistral-7b-instruct"
       temperature: 0.2
       max_tokens: 32768
       timeout: 600
-  router:
-    routing_strategy: simple-shuffle
-    num_retries: 3
-    retry_after: 1
-    fallbacks:
-      - {"openai/mistral/mistral-7b-instruct": ["openai/gpt-4o-mini"]}
+  max_retries: 3
 
 memory:
   embeddings:

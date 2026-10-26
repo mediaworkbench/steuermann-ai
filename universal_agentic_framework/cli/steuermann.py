@@ -1482,7 +1482,7 @@ Common workflows:
   steuermann setup init --profile local    Reconfigure an EXISTING profile in place (no new scaffold)
   steuermann setup check                   Pre-flight validation (doctor + config validate + contract-check)
   steuermann config show --profile local   Show the effective config for a profile
-  steuermann config set --profile local --key core.llm.roles.chat.model --value openai/gemma4:e2b
+  steuermann config set --profile local --key core.llm.roles.chat.model --value gemma4:e2b
                                            Change ONE config key without touching secrets
                                            (dry-run; add --apply --confirm APPLY to persist)
 

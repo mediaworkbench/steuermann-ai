@@ -184,7 +184,7 @@ class MCPServerTool(BaseTool):
 
         try:
             from mcp import ClientSession
-            from mcp.client.streamable_http import streamablehttp_client
+            from mcp.client.streamable_http import streamable_http_client
 
             tool_name = kwargs.pop("tool", self.default_tool)
             save_to_rag_flag = kwargs.pop("save_to_rag", False)
@@ -202,19 +202,21 @@ class MCPServerTool(BaseTool):
             else:
                 arguments = {"query": query, **kwargs}
 
-            # Per-call session via streamable-http transport
-            async with streamablehttp_client(self.server_url) as (
+            # Per-call session via streamable-http transport. The default client keeps
+            # the v1 timeouts (30s connect/request, 300s SSE read).
+            async with streamable_http_client(self.server_url) as (
                 read_stream,
                 write_stream,
-                _,
             ):
                 async with ClientSession(read_stream, write_stream) as session:
+                    # initialize() is the classic handshake, so pre-2026 servers work too.
                     await session.initialize()
                     result = await session.call_tool(tool_name, arguments=arguments)
 
-            # Parse CallToolResult content into a string
+            # Parse CallToolResult content into a string. call_tool is typed to also
+            # return InputRequiredResult/Result, which carry no content/is_error.
             text_parts = []
-            for content_block in result.content:
+            for content_block in getattr(result, "content", None) or []:
                 if hasattr(content_block, "text"):
                     text_parts.append(content_block.text)
                 else:
@@ -222,7 +224,7 @@ class MCPServerTool(BaseTool):
 
             result_text = "\n".join(text_parts)
 
-            if result.isError:
+            if getattr(result, "is_error", False):
                 logger.warning("MCP tool returned error", extra={
                     "server": self.name, "tool": tool_name,
                 })

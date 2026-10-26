@@ -63,7 +63,7 @@ class AnalyzeChartTool(BaseTool):
     def _run(self, image_source: str, **kwargs) -> str:
         """Extract chart data synchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -78,7 +78,7 @@ class AnalyzeChartTool(BaseTool):
 
             data_url = _build_data_url(image_bytes, mime_type)
             payload = _build_request_payload(
-                bare_model, temperature, _USER_PROMPT, data_url,
+                model_id, temperature, _USER_PROMPT, data_url,
                 max_tokens=2048, system_prompt=_SYSTEM_PROMPT,
             )
 
@@ -99,7 +99,7 @@ class AnalyzeChartTool(BaseTool):
     async def _arun(self, image_source: str, **kwargs) -> str:
         """Extract chart data asynchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -114,7 +114,7 @@ class AnalyzeChartTool(BaseTool):
 
             data_url = _build_data_url(image_bytes, mime_type)
             payload = _build_request_payload(
-                bare_model, temperature, _USER_PROMPT, data_url,
+                model_id, temperature, _USER_PROMPT, data_url,
                 max_tokens=2048, system_prompt=_SYSTEM_PROMPT,
             )
 

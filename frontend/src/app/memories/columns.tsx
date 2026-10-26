@@ -5,7 +5,7 @@ import { Trash2 } from "lucide-react"
 
 import { MemoryRating } from "@/components/MemoryRating"
 import { Button } from "@/components/ui/button"
-import { SortableHeader } from "@/components/ui/data-table"
+import { SortableHeader, type DataTableFeatures } from "@/components/ui/data-table"
 import type { MemoryItem } from "@/lib/types"
 
 function ImportanceBar({ score }: { score: number | null }) {
@@ -101,7 +101,7 @@ export function createColumns(
     t: (key: string, vars?: Record<string, string | number>) => string
     formatDate: (date: string) => string
   }
-): ColumnDef<MemoryItem>[] {
+): ColumnDef<DataTableFeatures, MemoryItem>[] {
   const { deletingId, confirmDelete, onDelete, onCancel, onStartDelete, onRateChange, t, formatDate } = deps
 
   return [
@@ -112,7 +112,7 @@ export function createColumns(
           title={t("memories.memory")}
           canSort={column.getCanSort()}
           isSorted={column.getIsSorted()}
-          toggleSorting={column.toggleSorting}
+          toggleSorting={(desc) => column.toggleSorting(desc)}
         />
       ),
       cell: ({ row }) => (
@@ -133,7 +133,7 @@ export function createColumns(
           title={t("memories.importance")}
           canSort={column.getCanSort()}
           isSorted={column.getIsSorted()}
-          toggleSorting={column.toggleSorting}
+          toggleSorting={(desc) => column.toggleSorting(desc)}
         />
       ),
       cell: ({ row }) => <ImportanceBar score={row.original.importance_score} />,
@@ -146,7 +146,7 @@ export function createColumns(
             title={t("memories.rating")}
             canSort={column.getCanSort()}
             isSorted={column.getIsSorted()}
-            toggleSorting={column.toggleSorting}
+            toggleSorting={(desc) => column.toggleSorting(desc)}
           />
           <RatingHelpPopover label={t("memories.ratingHelp")} />
         </div>
@@ -175,7 +175,7 @@ export function createColumns(
           title={t("memories.saved")}
           canSort={column.getCanSort()}
           isSorted={column.getIsSorted()}
-          toggleSorting={column.toggleSorting}
+          toggleSorting={(desc) => column.toggleSorting(desc)}
         />
       ),
       cell: ({ row }) => {

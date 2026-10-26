@@ -32,7 +32,7 @@ def mock_llm_factory():
     """Mock LLMFactory for testing."""
     with patch("universal_agentic_framework.orchestration.graph_builder.LLMFactory") as mock:
         factory = MagicMock()
-        factory.get_router_model.return_value = MagicMock(
+        factory.get_model.return_value = MagicMock(
             invoke=lambda x: MagicMock(content="Test response"),
             bind_tools=lambda x: MagicMock(
                 invoke=lambda y: MagicMock(content="Test response", tool_calls=[])
@@ -49,7 +49,7 @@ def sample_probe_results() -> List[Dict[str, Any]]:
         {
             "profile_id": "test",
             "provider_id": "lmstudio",
-            "model_name": "openai/llama-3.1-8b",
+            "model_name": "llama-3.1-8b",
             "api_base": "http://localhost:1234",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": False,
@@ -305,7 +305,7 @@ class TestModeReasonTracking:
             profile=SimpleNamespace(language="en"),
             llm=SimpleNamespace(
                 get_role_provider_chain_with_models=lambda role_name, _lang: [
-                    ("lmstudio", provider, "openai/liquid/lfm2-24b-a2b")
+                    ("lmstudio", provider, "liquid/lfm2-24b-a2b")
                 ] if role_name == "chat" else [],
             )
         )
@@ -317,7 +317,7 @@ class TestModeReasonTracking:
                 {
                     "profile_id": "starter",
                     "provider_id": "lmstudio",
-                    "model_name": "openai/liquid/lfm2-24b-a2b",
+                    "model_name": "liquid/lfm2-24b-a2b",
                     "configured_tool_calling_mode": "native",
                     "supports_bind_tools": True,
                     "supports_tool_schema": True,
@@ -331,7 +331,7 @@ class TestModeReasonTracking:
         persisted = {
             "profile_id": "starter",
             "provider_id": "lmstudio",
-            "model_name": "openai/liquid/lfm2-24b-a2b",
+            "model_name": "liquid/lfm2-24b-a2b",
             "api_base": "http://localhost:1234/v1",
             "configured_tool_calling_mode": "native",
             "supports_bind_tools": False,
@@ -355,7 +355,7 @@ class TestModeReasonTracking:
             changed = _record_runtime_native_tool_leak(
                 config,
                 state,
-                "openai/liquid/lfm2-24b-a2b",
+                "liquid/lfm2-24b-a2b",
             )
 
         assert changed is True

@@ -6,7 +6,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from universal_agentic_framework.config import CoreConfig
 from universal_agentic_framework.config.schemas import ProviderSettings
-from universal_agentic_framework.llm.provider_registry import parse_model_id
 
 BuilderFn = Callable[[ProviderSettings, str], object]
 
@@ -16,59 +15,54 @@ class ModelSelection:
     """Resolved runtime model selection metadata."""
 
     model: object
-    provider_type: str
+    provider_type: str  # the role's provider_id, e.g. "lmstudio"
     model_name: str
     api_base: Optional[str]
     source: str
 
 
-def build_litellm_chat(provider: ProviderSettings, model_name: str):
-    try:
-        from langchain_litellm import ChatLiteLLM
-    except Exception as exc:  # pragma: no cover - import errors surfaced in tests
-        raise RuntimeError("ChatLiteLLM not available") from exc
+def build_openai_compatible_chat(provider: ProviderSettings, model_name: str):
+    """Chat model for an OpenAI-compatible endpoint (LM Studio, Ollama, OpenRouter, gateways)."""
+    from universal_agentic_framework.llm.chat_model import OpenAICompatibleChat
 
-    model_kwargs = {}
-    getter = getattr(provider, "get_tool_calling_mode", None)
-    tool_mode = getter(model_name) if callable(getter) else getattr(provider, "tool_calling", "structured")
-    if tool_mode != "native":
-        model_kwargs["tool_choice"] = "none"
-
-    chat_kwargs = {
-        "model": model_name,
-        "temperature": provider.temperature,
-        "max_tokens": provider.max_tokens,
-        "timeout": provider.timeout,
-        "streaming": True,
-        "model_kwargs": model_kwargs,
-    }
-    if provider.api_base:
-        chat_kwargs["api_base"] = str(provider.api_base)
-    if provider.api_key:
-        chat_kwargs["api_key"] = provider.api_key
-
-    return ChatLiteLLM(
-        **chat_kwargs,
+    return OpenAICompatibleChat(
+        model=model_name,
+        base_url=str(provider.api_base) if provider.api_base else None,
+        # The OpenAI SDK insists on a key; local servers ignore it.
+        api_key=provider.api_key or "not-needed",
+        temperature=provider.temperature,
+        max_tokens=provider.max_tokens,
+        timeout=provider.timeout,
+        max_retries=provider.max_retries,
+        streaming=True,
+        stream_usage=True,
+        # Gateways may not implement the Responses API; never route there by model name.
+        use_responses_api=False,
     )
 
 
 DEFAULT_BUILDERS: Dict[str, BuilderFn] = {
-    "litellm": build_litellm_chat,
+    "openai_compatible": build_openai_compatible_chat,
 }
+
+
+def build_chat_model(
+    provider: ProviderSettings,
+    model_name: str,
+    builders: Optional[Dict[str, BuilderFn]] = None,
+):
+    """Build the chat model for ``provider`` with the builder registered for its api_type."""
+    registry = builders or DEFAULT_BUILDERS
+    builder = registry.get(provider.api_type)
+    if builder is None:
+        raise ValueError(f"No LLM builder registered for api_type '{provider.api_type}'")
+    return builder(provider, model_name)
 
 
 class LLMFactory:
     def __init__(self, config: CoreConfig, builders: Optional[Dict[str, BuilderFn]] = None):
         self.config = config
         self.builders = builders or DEFAULT_BUILDERS
-        self.default_builder_name = next(iter(self.builders.keys()))
-
-    @staticmethod
-    def _provider_from_model(model_name: str) -> str:
-        try:
-            return parse_model_id(model_name).provider
-        except Exception:
-            return "unknown"
 
     def _select_model(self, provider: ProviderSettings, language: str) -> str:
         # exact language
@@ -82,13 +76,11 @@ class LLMFactory:
         raise ValueError(f"No model configured for language '{language}' and no fallback available")
 
     def _build(self, provider: ProviderSettings, model_name: str):
-        builder = self.builders.get(self.default_builder_name)
-        if not builder:
-            raise ValueError("No LLM builder configured")
-        return builder(provider, model_name)
+        return build_chat_model(provider, model_name, self.builders)
 
     def _build_selection(
         self,
+        provider_id: str,
         provider: ProviderSettings,
         model_name: str,
         source: str,
@@ -97,7 +89,7 @@ class LLMFactory:
         api_base = str(provider.api_base) if provider.api_base else None
         return ModelSelection(
             model=model,
-            provider_type=self._provider_from_model(model_name),
+            provider_type=provider_id,
             model_name=model_name,
             api_base=api_base,
             source=source,
@@ -145,15 +137,15 @@ class LLMFactory:
         errors = []
         seen: set[tuple[str, str, str]] = set()
 
-        def try_add(provider: Optional[ProviderSettings], default_model: Optional[str], source: str, model_override: Optional[str] = None):
+        def try_add(provider_id: str, provider: Optional[ProviderSettings], default_model: Optional[str], source: str, model_override: Optional[str] = None):
             if not provider:
                 return
             try:
                 model_name = model_override or default_model or self._select_model(provider, language)
-                key = (self._provider_from_model(model_name), model_name, source)
+                key = (provider_id, model_name, source)
                 if key in seen:
                     return
-                selection = self._build_selection(provider, model_name, source)
+                selection = self._build_selection(provider_id, provider, model_name, source)
                 candidates.append(selection)
                 seen.add(key)
             except Exception as exc:  # pragma: no cover - fallback path
@@ -162,9 +154,9 @@ class LLMFactory:
         for index, (_provider_id, provider, default_model_name) in enumerate(provider_chain):
             label = self._source_label_for(_provider_id, index)
             if preferred_model:
-                try_add(provider, default_model_name, f"{label}_preferred", preferred_model)
+                try_add(_provider_id, provider, default_model_name, f"{label}_preferred", preferred_model)
             if (not preferred_model) or include_default_when_preferred:
-                try_add(provider, default_model_name, f"{label}_default")
+                try_add(_provider_id, provider, default_model_name, f"{label}_default")
 
         if not candidates and errors:
             raise RuntimeError(f"All providers failed: {errors}")
@@ -184,118 +176,34 @@ class LLMFactory:
             prefer_local=prefer_local,
         )[0]
 
-    def get_model(self, language: str, prefer_local: bool = True):
-        return self.get_model_selection(language=language, prefer_local=prefer_local).model
-
-    def get_router_model(
+    def get_model(
         self,
         language: str,
+        prefer_local: bool = True,
         preferred_model: Optional[str] = None,
     ):
-        """Return a ChatLiteLLMRouter model with primary->fallback routing."""
-        try:
-            from litellm import Router
-            from langchain_litellm import ChatLiteLLMRouter
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError("LiteLLM router dependencies not available") from exc
+        """Return the chat model for ``language``, using ``preferred_model`` when given.
 
-        provider_chain = self._chat_provider_chain(language)
-        primary_provider_id, primary, primary_default_model = provider_chain[0]
-        primary_label = self._source_label_for(primary_provider_id, 0)
-        primary_model = preferred_model or primary_default_model
-        model_list = [
-            {
-                "model_name": primary_label,
-                "litellm_params": self._to_router_params(primary, primary_model),
-            }
-        ]
-
-        for index, (provider_id, provider, default_model_name) in enumerate(provider_chain[1:], start=1):
-            fallback_label = self._source_label_for(provider_id, index)
-            fallback_model = preferred_model or default_model_name
-            model_list.append(
-                {
-                    "model_name": fallback_label,
-                    "litellm_params": self._to_router_params(provider, fallback_model),
-                }
-            )
-
-        router_config = self.config.llm.router
-        router_kwargs = {
-            "model_list": model_list,
-            "routing_strategy": router_config.routing_strategy,
-            "num_retries": router_config.num_retries,
-            "retry_after": router_config.retry_after,
-            "disable_cooldowns": router_config.disable_cooldowns,
-            "enable_pre_call_checks": router_config.enable_pre_call_checks,
-            "set_verbose": router_config.set_verbose,
-        }
-        if router_config.allowed_fails is not None:
-            router_kwargs["allowed_fails"] = router_config.allowed_fails
-        if router_config.cooldown_time is not None:
-            router_kwargs["cooldown_time"] = router_config.cooldown_time
-        if router_config.debug_level is not None:
-            router_kwargs["debug_level"] = router_config.debug_level
-        if router_config.fallbacks:
-            router_kwargs["fallbacks"] = router_config.fallbacks
-        if router_config.default_fallbacks:
-            router_kwargs["default_fallbacks"] = router_config.default_fallbacks
-        if router_config.context_window_fallbacks:
-            router_kwargs["context_window_fallbacks"] = router_config.context_window_fallbacks
-        if router_config.content_policy_fallbacks:
-            router_kwargs["content_policy_fallbacks"] = router_config.content_policy_fallbacks
-        router = Router(**router_kwargs)
-
-        model_kwargs = {}
-        getter = getattr(primary, "get_tool_calling_mode", None)
-        tool_mode = getter(primary_model) if callable(getter) else getattr(primary, "tool_calling", "structured")
-        if tool_mode != "native":
-            model_kwargs["tool_choice"] = "none"
-        return ChatLiteLLMRouter(
-            router=router,
-            model_name=primary_label,
-            temperature=primary.temperature,
-            max_tokens=primary.max_tokens,
-            streaming=True,
-            model_kwargs=model_kwargs,
-        )
+        Retries are handled by the client (``llm.max_retries``); there is no router.
+        """
+        if preferred_model:
+            return self.get_model_candidates(
+                language=language,
+                preferred_model=preferred_model,
+                prefer_local=prefer_local,
+                include_default_when_preferred=False,
+            )[0].model
+        return self.get_model_selection(language=language, prefer_local=prefer_local).model
 
     def create_auxiliary_llm(self):
-        """Return a ChatLiteLLM for the auxiliary role (no Router, no fallback chain).
+        """Return the chat model for the auxiliary role.
 
         Falls back to the chat role if auxiliary is not configured.
         """
         role_name = "auxiliary" if getattr(getattr(self.config.llm, "roles", None), "auxiliary", None) is not None else "chat"
         provider = self.config.llm.get_role_provider(role_name)
         model_name = self.config.llm.get_role_model_name(role_name, "en")
-        return build_litellm_chat(provider, model_name)
-
-    def _to_router_params(self, provider: ProviderSettings, model_name: str) -> dict:
-        params: dict = {"model": model_name}
-        router_defaults = self.config.llm.router
-        if provider.api_base:
-            params["api_base"] = str(provider.api_base)
-        if provider.api_key:
-            params["api_key"] = provider.api_key
-        if provider.timeout is not None:
-            params["timeout"] = provider.timeout
-        if provider.max_tokens is not None:
-            params["max_tokens"] = provider.max_tokens
-        if provider.order is not None:
-            params["order"] = provider.order
-        if provider.weight is not None:
-            params["weight"] = provider.weight
-        if provider.rpm is not None:
-            params["rpm"] = provider.rpm
-        if provider.tpm is not None:
-            params["tpm"] = provider.tpm
-        if provider.max_parallel_requests is not None:
-            params["max_parallel_requests"] = provider.max_parallel_requests
-        elif router_defaults.default_max_parallel_requests is not None:
-            params["max_parallel_requests"] = router_defaults.default_max_parallel_requests
-        if provider.region_name:
-            params["region_name"] = provider.region_name
-        return params
+        return self._build(provider, model_name)
 
     def get_model_with_config(
         self, language: str, prefer_local: bool = True

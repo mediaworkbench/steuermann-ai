@@ -58,11 +58,18 @@ def test_reset_all_databases_blocks_researcher(monkeypatch):
     assert resp.status_code == 403
 
 
-def test_reset_all_databases_admin_passes_gate(monkeypatch):
+def test_reset_all_databases_admin_passes_gate(monkeypatch, tmp_path):
+    # The endpoint body really runs here, and it wipes every Qdrant collection and both file
+    # roots. Point all of them somewhere harmless: on a dev machine QDRANT_HOST=localhost
+    # (conftest) reaches the live Qdrant through the published port and deleted it.
+    monkeypatch.setenv("QDRANT_HOST", "127.0.0.1")
+    monkeypatch.setenv("QDRANT_PORT", "1")  # closed port: connection refused immediately
+    monkeypatch.setenv("CHAT_ATTACHMENTS_ROOT", str(tmp_path / "att"))
+    monkeypatch.setenv("CHAT_WORKSPACE_ROOT", str(tmp_path / "ws"))
     client = _client(monkeypatch, role="administrator")
     resp = client.post("/api/admin/reset-all-databases", headers=_headers("administrator"))
-    # Admin clears the require_admin gate (it would 401/403 otherwise). The body may error
-    # because no DB/Qdrant is wired in this unit app — we only assert authorization passed.
+    # Admin clears the require_admin gate (it would 401/403 otherwise). The body reports
+    # errors because no DB/Qdrant is reachable — we only assert authorization passed.
     assert resp.status_code not in (401, 403)
 
 
@@ -135,6 +142,19 @@ def test_reset_my_data_purges_dreaming_state_and_checkpoints(monkeypatch, tmp_pa
     monkeypatch.setenv("AUTH_USERNAME", "u-1")
     monkeypatch.setenv("CHAT_ATTACHMENTS_ROOT", str(tmp_path / "att"))
     monkeypatch.setenv("CHAT_WORKSPACE_ROOT", str(tmp_path / "ws"))
+    monkeypatch.setenv("QDRANT_HOST", "127.0.0.1")  # never the live Qdrant (see above)
+    monkeypatch.setenv("QDRANT_PORT", "1")
+    purged_memories = []
+
+    class _FakeMemoryBackend:
+        def _delete_all_memories(self, *, user_id):
+            purged_memories.append(user_id)
+
+    # The memory backend's Qdrant host comes from the profile config, not QDRANT_HOST.
+    monkeypatch.setattr(
+        "universal_agentic_framework.memory.factory.build_memory_backend",
+        lambda cfg: _FakeMemoryBackend(),
+    )
     invalidated = []
     monkeypatch.setattr(
         "backend.routers.settings.invalidate_procedural_cache", lambda uid: invalidated.append(uid)
@@ -157,3 +177,4 @@ def test_reset_my_data_purges_dreaming_state_and_checkpoints(monkeypatch, tmp_pa
     checkpoint_params = [p for sql, p in statements if "FROM checkpoints " in sql]
     assert checkpoint_params == [(["conv-1", "conv-2"],)]
     assert invalidated == ["u-1"]
+    assert purged_memories == ["u-1"]

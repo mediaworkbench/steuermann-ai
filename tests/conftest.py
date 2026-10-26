@@ -48,6 +48,9 @@ os.environ.setdefault("LLM_PROVIDERS_LMSTUDIO_API_BASE", "http://localhost:1234/
 os.environ.setdefault("LLM_PROVIDERS_OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("QDRANT_HOST", "localhost")
+# Set explicitly: it used to arrive from the developer's .env only because importing
+# litellm ran load_dotenv() as a side effect.
+os.environ.setdefault("PROFILE_ID", "starter")
 
 # Normalize embedding endpoint: EMBEDDING_SERVER in .env already includes /v1,
 # but test code previously appended /v1 again.  Canonicalize here so test files

@@ -55,7 +55,7 @@ function MemoryTrendsChart({ data, loading = false }: MemoryTrendsChartProps) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <ComposedChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+        <CartesianGrid yAxisId="left" strokeDasharray="3 3" stroke="var(--chart-grid)" />
         <XAxis dataKey="date" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
         <YAxis yAxisId="left" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
         <YAxis yAxisId="right" orientation="right" tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />

@@ -52,10 +52,10 @@ def test_resolve_context_window_falls_back_to_probe(monkeypatch):
     )
     monkeypatch.setattr(cfg_mod, "load_core_config", lambda: fake_cfg)
     state = {
-        "model_used": "openai/foo",
+        "model_used": "foo",
         "llm_capability_probes": [
-            {"model_name": "openai/bar", "metadata": {"context_window_tokens": 4096}},
-            {"model_name": "openai/foo", "metadata": {"context_window_tokens": 65536}},
+            {"model_name": "bar", "metadata": {"context_window_tokens": 4096}},
+            {"model_name": "foo", "metadata": {"context_window_tokens": 65536}},
         ],
     }
     assert pn._resolve_context_window(state) == 65536
@@ -70,9 +70,9 @@ def test_resolve_context_window_probe_top_level_key(monkeypatch):
     )
     monkeypatch.setattr(cfg_mod, "load_core_config", lambda: fake_cfg)
     state = {
-        "model_used": "openai/foo",
+        "model_used": "foo",
         "llm_capability_probes": [
-            {"model_name": "openai/foo", "context_window_tokens": 8192},
+            {"model_name": "foo", "context_window_tokens": 8192},
         ],
     }
     assert pn._resolve_context_window(state) == 8192

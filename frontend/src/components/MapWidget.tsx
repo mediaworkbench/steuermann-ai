@@ -54,6 +54,14 @@ export function MapWidget({ data }: Props) {
     (async () => {
       try {
         const maplibregl = await import("maplibre-gl");
+        // MapLibre v6 can't locate its worker inside a bundle (`import.meta.url` is not
+        // the worker's URL), so point it at the asset the bundler emits for this literal
+        // `new URL(..., import.meta.url)` pattern. One-time, per the v6 Next.js guide.
+        if (!maplibregl.getWorkerUrl()) {
+          maplibregl.setWorkerUrl(
+            new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString()
+          );
+        }
 
         if (cancelled || !containerRef.current) return;
 
@@ -126,9 +134,11 @@ export function MapWidget({ data }: Props) {
         // Provide a transparent 1×1 placeholder for any missing sprite image so
         // the tile pipeline never stalls. Triggered e.g. by "road_" when a road
         // feature has null ref_length (["concat","road_",["get","ref_length"]]).
-        mapInstance.on("styleimagemissing", (e: { id: string }) => {
-          if (!mapInstance?.hasImage(e.id)) {
-            mapInstance?.addImage(e.id, {
+        // MapLibre v6: `styleimagemissing` is notify-only; images are supplied
+        // through the resolver, which runs before an image is treated as missing.
+        mapInstance.setMissingStyleImageResolver((id) => {
+          if (!mapInstance?.hasImage(id)) {
+            mapInstance?.addImage(id, {
               width: 1,
               height: 1,
               data: new Uint8Array(4),

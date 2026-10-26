@@ -62,7 +62,7 @@ def _patch(monkeypatch, model, features) -> None:
     monkeypatch.setattr(graph_builder, "track_node_execution", lambda *a, **k: nullcontext())
     monkeypatch.setattr(graph_builder, "track_tokens", lambda *a, **k: None)
     monkeypatch.setattr(graph_builder, "track_llm_call", lambda *a, **k: None)
-    monkeypatch.setattr(graph_builder, "count_tokens_for_model", lambda *a, **k: 3)
+    monkeypatch.setattr(graph_builder, "estimate_content_tokens", lambda *a, **k: 3)
 
 
 def test_summarize_skips_llm_for_trivial_exchange(monkeypatch) -> None:

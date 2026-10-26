@@ -55,7 +55,7 @@ class AnalyzeImageTool(BaseTool):
     ) -> str:
         """Analyze an image synchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -69,7 +69,7 @@ class AnalyzeImageTool(BaseTool):
                 return f"Error: Image is too large ({len(image_bytes):,} bytes; limit is {self.max_image_bytes:,} bytes)."
 
             data_url = _build_data_url(image_bytes, mime_type)
-            payload = _build_request_payload(bare_model, temperature, prompt, data_url, max_tokens=2048)
+            payload = _build_request_payload(model_id, temperature, prompt, data_url, max_tokens=2048)
 
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(
@@ -92,7 +92,7 @@ class AnalyzeImageTool(BaseTool):
     ) -> str:
         """Analyze an image asynchronously."""
         try:
-            api_base, bare_model, temperature, api_key = _load_vision_api_config()
+            api_base, model_id, temperature, api_key = _load_vision_api_config()
             if not api_base:
                 return "Error: Vision model api_base is not configured."
 
@@ -106,7 +106,7 @@ class AnalyzeImageTool(BaseTool):
                 return f"Error: Image is too large ({len(image_bytes):,} bytes; limit is {self.max_image_bytes:,} bytes)."
 
             data_url = _build_data_url(image_bytes, mime_type)
-            payload = _build_request_payload(bare_model, temperature, prompt, data_url, max_tokens=2048)
+            payload = _build_request_payload(model_id, temperature, prompt, data_url, max_tokens=2048)
 
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(

@@ -390,7 +390,7 @@ Configuration uses hierarchical loading: **Base → Profile Overlay → Environm
 **Key files:**
 
 - `config/core.yaml` — deployment-global defaults (database, memory, checkpointing)
-- `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, router policy, RAG, token budgets, ingestion
+- `config/profiles/<profile_id>/core.yaml` — runtime LLM providers, roles, retries, RAG, token budgets, ingestion
 - `config/profiles/<id>/tools.yaml` — Tool enable/disable and overrides
 - `config/features.yaml` — Feature flags with dependency validation
 
@@ -414,11 +414,11 @@ The stack runs 9 services on the `steuermann-network` Docker network:
 | `fastapi` | `docker/Dockerfile.fastapi` | `8001:8001` (host) | FastAPI adapter — auth, metrics proxy, chat proxy |
 | `nextjs` | `docker/Dockerfile.nextjs` | `3000:3000` (host) | Next.js frontend (chat, settings, metrics) |
 | `ingestion` | `docker/Dockerfile.ingestion` | — | Qdrant document ingestion watcher |
-| `postgres` | `postgres:15.5-alpine` | `5432:5432` | Conversation storage + LangGraph checkpoints |
-| `redis` | `redis:7.2-alpine` | `6379:6379` | LLM response cache, memory cache, summary cache |
-| `qdrant` | `qdrant/qdrant:latest` | `6333` (internal) | Vector store for RAG and Mem0 memory |
-| `prometheus` | `prom/prometheus:v2.48.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
-| `duckduckgo-mcp` | `mcp/duckduckgo` | `8000` (internal) | DuckDuckGo web-search MCP server |
+| `postgres` | `postgres:18-alpine` | `5432` (internal) | Conversation storage + LangGraph checkpoints |
+| `redis` | `redis:8.10-alpine` | `6379` (internal) | LLM response cache, memory cache, summary cache |
+| `qdrant` | `qdrant/qdrant:v1.20.0` | `6333` (internal) | Vector store for RAG and Mem0 memory |
+| `prometheus` | `prom/prometheus:v3.15.1` | `9090` (internal) | Metrics scraping (LangGraph `/metrics` every 15 s) |
+| `duckduckgo-mcp` | `ghcr.io/nickclyde/duckduckgo-mcp-server:0.7.0` | `8000` (internal) | DuckDuckGo web search + page fetch MCP server (blocks private/internal URLs) |
 
 **Key wiring details:**
 
@@ -495,7 +495,7 @@ services:
 - Version history: every `PUT` update auto-snapshots the current content to `workspace_document_versions` before overwriting; previous versions are listable and restorable via the API.
 - Chat requests support both `attachment_ids` and `document_ids`; resolved workspace document content is injected into LangGraph state as `workspace_documents`.
 - LangGraph injects attachment and workspace document content as one human turn right before the user's question, within a budget derived from the chat model's context window (`tokens.context_documents_ratio`); oversized files are excerpted head + tail (CSV by rows, JSON by array items) and labelled `EXCERPT`. In writeback mode the full document content (never excerpted) is injected via the `workspace_writeback_document` state field.
-- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. The classifier uses a direct `httpx` POST to the auxiliary provider (not `ChatLiteLLM.ainvoke()` which drops `api_base` in async context). When intent is confirmed and exactly one document is in context, the model produces a structured `SUMMARY:` / `DOCUMENT:` two-section response — the document content is stored as the new version and the summary is shown in the chat confirmation message (`workspace_document_writeback` in response metadata).
+- Save-back intent is detected via a hybrid LLM classifier (`_classify_workspace_intent_llm`) — language-agnostic, fires only when relevant documents/attachments are in context, falls back to EN+DE regex. The classifier uses a direct `httpx` POST to the auxiliary provider (simpler than the LangChain chat model for this single-shot call). When intent is confirmed and exactly one document is in context, the model produces a structured `SUMMARY:` / `DOCUMENT:` two-section response — the document content is stored as the new version and the summary is shown in the chat confirmation message (`workspace_document_writeback` in response metadata).
 
 **Legacy workspace editing path (still present, opt-in):**
 
@@ -614,6 +614,12 @@ Focus on these surfaces after an upgrade:
 - Profile metadata surfaced through the FastAPI and chat metadata contracts
 - Monitoring dashboards and metrics label expectations
 - Ingestion and retrieval alignment for `rag.collection_name`, embeddings, and chunking settings
+
+**Infrastructure image upgrades** (existing volumes):
+
+- **PostgreSQL major version** (e.g. 17 → 18): the data directory is not compatible across majors. Dump first (`docker compose exec -T postgres pg_dumpall -U framework > dump.sql`), stop and remove the `postgres` container and the `postgres-data` volume, start the new image, then restore (`docker compose exec -T postgres psql -U framework -d postgres < dump.sql`; "role/database already exists" errors are expected). Since 18 the official image mounts the volume at `/var/lib/postgresql` (not `/var/lib/postgresql/data`).
+- **Qdrant**: upgrade one minor version at a time on existing storage (e.g. 1.18 → 1.19 → 1.20), and keep `qdrant-client` within one minor version of the server — the client warns about incompatibility beyond that.
+- **Redis**: a cache only; newer majors load the existing AOF. Flushing it is always safe.
 
 ### **10.3 Breaking-Change Discipline**
 

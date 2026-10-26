@@ -296,8 +296,8 @@ steuermann setup init [--profile <id>] [--provider {lmstudio,ollama,openrouter}]
 - **Provider = made active.** The chosen provider's endpoint + key are written to `.env`, and the
   target profile's `core.yaml` `llm.roles.*` (`provider_id`, `api_base`, `api_key`, `model`) plus
   `memory.mem0.llm_provider` are set so the provider is used consistently (including Mem0's
-  extraction LLM). Model ids are written verbatim — use LiteLLM's `openai/<id>` form (e.g.
-  OpenRouter → `openai/anthropic/claude-3.5-sonnet`).
+  extraction LLM). Model ids are written verbatim, exactly as the endpoint lists them (e.g.
+  LM Studio → `google/gemma-4-e4b`, OpenRouter → `anthropic/claude-3.5-sonnet`).
 - **Embedding configured explicitly.** Always prompts for the embedding endpoint, model, and
   dimension (defaults pre-filled). Writes `.env` `EMBEDDING_SERVER` plus the profile's
   `llm.roles.embedding` and `memory.embeddings`.

@@ -33,7 +33,6 @@ def _rewrite_query_for_rag(user_message: str, config, lang: str, num_variants: i
         provider = config.llm.get_role_provider("auxiliary")
         api_base = str(provider.api_base or "").rstrip("/")
         model_name = config.llm.get_role_model_name("auxiliary", lang)
-        bare_model = model_name.split("/", 1)[1] if model_name.startswith("openai/") else model_name
         if num_variants <= 1:
             prompt = (
                 "Rewrite this query to improve semantic document retrieval. "
@@ -54,7 +53,7 @@ def _rewrite_query_for_rag(user_message: str, config, lang: str, num_variants: i
             resp = client.post(
                 f"{api_base}/chat/completions",
                 headers={"Authorization": f"Bearer {provider.api_key or 'no-key'}"},
-                json={"model": bare_model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
+                json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"].strip()

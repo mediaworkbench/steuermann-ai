@@ -12,7 +12,7 @@ const systemConfig = {
     { id: "datetime_tool", label: "Datetime", group: "auxiliary" },
   ],
   rag_defaults: { collection_name: "framework", top_k: 5 },
-  default_model: "openai/test-model",
+  default_model: "test-model",
   framework_version: "0.0.0",
   supported_languages: ["en"],
   model_roles: [],

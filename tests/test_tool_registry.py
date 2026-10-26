@@ -232,14 +232,14 @@ async def test_mcp_async_invocation_supports_save_to_rag(mock_async_client) -> N
 
 @pytest.mark.asyncio
 @patch("mcp.ClientSession")
-@patch("mcp.client.streamable_http.streamablehttp_client")
+@patch("mcp.client.streamable_http.streamable_http_client")
 async def test_mcp_streamable_fetch_content_accepts_request_url(mock_http_client, mock_session_cls) -> None:
     """Streamable MCP wrapper should accept request_url kwargs from native tool-calling."""
     content_block = Mock()
     content_block.text = "ok"
     call_result = Mock()
     call_result.content = [content_block]
-    call_result.isError = False
+    call_result.is_error = False
 
     mock_session = AsyncMock()
     mock_session.initialize = AsyncMock()
@@ -251,7 +251,7 @@ async def test_mcp_streamable_fetch_content_accepts_request_url(mock_http_client
 
     @asynccontextmanager
     async def _mock_http_ctx(url):
-        yield (AsyncMock(), AsyncMock(), AsyncMock())
+        yield (AsyncMock(), AsyncMock())
 
     mock_session_cls.side_effect = _mock_session_ctx
     mock_http_client.side_effect = _mock_http_ctx
@@ -268,14 +268,14 @@ async def test_mcp_streamable_fetch_content_accepts_request_url(mock_http_client
 
 @pytest.mark.asyncio
 @patch("mcp.ClientSession")
-@patch("mcp.client.streamable_http.streamablehttp_client")
+@patch("mcp.client.streamable_http.streamable_http_client")
 async def test_mcp_streamable_fetch_content_accepts_nested_args_url(mock_http_client, mock_session_cls) -> None:
     """Streamable MCP wrapper should extract URL from nested args payloads."""
     content_block = Mock()
     content_block.text = "ok"
     call_result = Mock()
     call_result.content = [content_block]
-    call_result.isError = False
+    call_result.is_error = False
 
     mock_session = AsyncMock()
     mock_session.initialize = AsyncMock()
@@ -287,7 +287,7 @@ async def test_mcp_streamable_fetch_content_accepts_nested_args_url(mock_http_cl
 
     @asynccontextmanager
     async def _mock_http_ctx(url):
-        yield (AsyncMock(), AsyncMock(), AsyncMock())
+        yield (AsyncMock(), AsyncMock())
 
     mock_session_cls.side_effect = _mock_session_ctx
     mock_http_client.side_effect = _mock_http_ctx
